@@ -1,0 +1,99 @@
+{
+    "language": "en",
+    "system_prompt_path": "data/prompts/sys-prompt.txt",
+    "llm_provider": "groq",
+    "gemini_model": "gemini-3-flash-preview",
+    "glm_model": "glm-4.7",
+    "openai_model": "gpt-5",
+    "groq_model": "openai/gpt-oss-20b",
+    "obs_text_source": "AIText",
+    "obs_avatar_source": "BeaPNG",
+    "obs_source_type": "image",
+    "obs_host": "localhost",
+    "obs_port": 4455,
+    "obs_password": "",
+    "audio_device_id": 0,
+    "tts_provider": "edge",
+    "tts_voice": "it-IT-IsabellaNeural",
+    "tts_pitch": "+13Hz",
+    "tts_rate": "+12%",
+    "tts_volume": "+33%",
+    "orpheus_endpoint": "",
+    "orpheus_voice": "zoe",
+    "kokoro_model": "kokoro-v0_19.onnx",
+    "kokoro_voices_file": "voices.bin",
+    "kokoro_voice": "af_bella",
+    "kokoro_speed": 1,
+    "kokoro_lang": "en-us",
+    "avatar_map": {
+        "normal": {
+            "idle": "",
+            "talking": ""
+        },
+        "angry": {
+            "idle": "",
+            "talking": ""
+        },
+        "bored": {
+            "idle": "",
+            "talking": ""
+        },
+        "cry": {
+            "idle": "",
+            "talking": ""
+        },
+        "ew": {
+            "idle": "",
+            "talking": ""
+        },
+        "love": {
+            "idle": "",
+            "talking": ""
+        },
+        "shock": {
+            "idle": "",
+            "talking": ""
+        }
+    },
+    "png_dir": "data/pngs",
+    "text_line_width": 40,
+    "text_lines": 4,
+    "text_font_size": 75,
+    "text_min_font_size": 55,
+    "text_font_step": 2,
+    "typing_delay": 0.03,
+    "text_min_duration": 2,
+    "skills": {
+        "monologue": {
+            "enabled": false,
+            "interval_seconds": 30,
+            "chunk_pause_seconds": 4.0,
+            "prompt_path": "data/prompts/monologue.txt"
+        },
+        "memory": {
+            "enabled": true,
+            "chroma_path": "data/memory_db",
+            "openai_model": "gpt-4o-mini",
+            "embedding_model": "text-embedding-3-small"
+        },
+        "minecraft": {
+            "enabled": false,
+            "server_url": "ws://localhost:8080",
+            "max_history_events": 20,
+            "debug_mode": false,
+            "auto_chat_thoughts": false,
+            "auto_speak_thoughts": false,
+            "mc_openai_model": "gpt-4o-mini",
+            "system_prompt_path": "data/prompts/minecraft.txt"
+        },
+        "discord": {
+            "enabled": false,
+            "token": "",
+            "target_channel": "",
+            "api_port": 3030,
+            "interrupt_threshold_ms": 3000
+        }
+    },
+    "stt_provider": "groq",
+    "stt_model": "whisper-large-v3-turbo"
+}

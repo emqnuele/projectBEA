@@ -1,0 +1,7 @@
+openai
+websocket-client
+flask
+python-dotenv
+pydantic
+colorama
+tenacity
