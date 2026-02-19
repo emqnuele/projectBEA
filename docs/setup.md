@@ -178,6 +178,21 @@ Then in `config.json` set `tts_provider` to `orpheus` and `orpheus_voice` to one
 
 ---
 
+## 8. Build the Frontend (required for Web Dashboard)
+
+Before using `--web`, you must install the Node.js dependencies and build the frontend once. The Python server serves the compiled output from `src/web/frontend/dist/` — if that folder doesn't exist, the dashboard will not load.
+
+```bash
+cd src/web/frontend
+npm install
+npm run build
+cd ../../..   # back to project root
+```
+
+You only need to repeat this step when the frontend source code changes.
+
+---
+
 ## Running the Engine
 
 ### CLI mode (interactive terminal)
@@ -194,7 +209,7 @@ Type messages at the `You >` prompt. Type `exit` to quit.
 python main.py --web
 ```
 
-Opens the FastAPI server at `http://localhost:8000`. The React frontend is served from the same port at `/`.
+Opens the FastAPI server at `http://localhost:8000`. The React frontend (built in step 8) is served from the same port at `/`.
 
 ### CLI argument overrides
 
@@ -215,6 +230,16 @@ python main.py \
 
 ## Running the Frontend in Development Mode
 
+This is only needed when **actively developing the frontend**. Instead of using the built `dist/`, Vite serves the source files with hot-reload at a separate port.
+
+1. Start the backend first (in one terminal):
+
+```bash
+python main.py --web
+```
+
+2. Then start the Vite dev server (in a second terminal):
+
 ```bash
 cd src/web/frontend
 npm install
@@ -222,6 +247,8 @@ npm run dev
 ```
 
 The Vite dev server starts at `http://localhost:5173`. The frontend makes **direct** API calls to `http://localhost:8000` — **no proxy is configured** in `vite.config.js`. If you change the backend port, update the API base URL in the frontend source accordingly.
+
+> **Note:** For normal use you do **not** need the dev server — just build once with `npm run build` (step 8) and use `python main.py --web`.
 
 ---
 
