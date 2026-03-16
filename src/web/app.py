@@ -1,13 +1,16 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Any, Optional
 import shutil
 import os
 from pathlib import Path
 from src.core.config import BrainConfig
 from src.core.brain import AIVtuberBrain
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.web")
 
 app = FastAPI(title="AI Vtuber Brain API")
 
@@ -24,7 +27,15 @@ app.add_middleware(
 brain_instance: Optional[AIVtuberBrain] = None
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=4000)
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("message cannot be empty or whitespace-only")
+        return stripped
 
 class ConfigUpdateRequest(BaseModel):
     config: Dict[str, Any]
@@ -180,15 +191,23 @@ async def upload_audio(background_tasks: BackgroundTasks, file: UploadFile = Fil
     }
 
 class DiscordChatRequest(BaseModel):
-    username: str
-    message: str
+    username: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1, max_length=4000)
     channelId: str = "unknown"
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("message cannot be empty or whitespace-only")
+        return stripped
 
 @app.post("/discord/chat")
 async def discord_chat(request: DiscordChatRequest, background_tasks: BackgroundTasks):
     brain = get_brain()
     
-    print(f"Discord Chat from {request.username}: {request.message}")
+    logger.info(f"Discord Chat from {request.username}: {request.message}")
     
     # format message
     formatted_message = f"[{request.username}] {request.message}"
@@ -236,7 +255,7 @@ async def discord_audio_interaction(
             "audio_base64": audio_b64
         }
     except Exception as e:
-        print(f"Discord Audio Error: {e}")
+        logger.error(f"Discord Audio Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         # cleanup
@@ -269,17 +288,17 @@ async def buffer_voice_transcript(
         # transcribe
         if brain.stt:
             transcript = brain.stt.transcribe(str(temp_file))
-            print(f"Voice Buffer: [{username}] '{transcript}'")
+            logger.info(f"Voice Buffer: [{username}] '{transcript}'")
         
         # buffer it
         if transcript and transcript.strip() and transcript != "[Unintelligible]":
             async with brain.transcript_buffer_lock:
                 brain.pending_transcripts.append(f"[{username}]: {transcript}")
-                print(f"Voice Buffer: {len(brain.pending_transcripts)} transcript(s) queued")
+                logger.info(f"Voice Buffer: {len(brain.pending_transcripts)} transcript(s) queued")
         
         return {"status": "buffered", "transcript": transcript}
     except Exception as e:
-        print(f"Voice Buffer Error: {e}")
+        logger.error(f"Voice Buffer Error: {e}")
         return {"status": "error", "transcript": "", "error": str(e)}
     finally:
         if temp_file.exists():
@@ -330,7 +349,7 @@ frontend_path = Path(__file__).parent / "frontend" / "dist"
 if frontend_path.exists():
     app.mount("/assets", StaticFiles(directory=str(frontend_path / "assets")), name="assets")
 else:
-    print(f"WARNING: Frontend build not found at {frontend_path}. Run 'npm run build' in src/web/frontend.")
+    logger.warning(f"Frontend build not found at {frontend_path}. Run 'npm run build' in src/web/frontend.")
 
 # --- SPA CATCH-ALL ROUTE ---
 from fastapi.responses import FileResponse

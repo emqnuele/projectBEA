@@ -2,6 +2,9 @@ from typing import Optional, Tuple, Union, Dict
 from groq import Groq
 from src.interfaces.base_interfaces import LLMInterface, STTInterface
 from src.utils.llm_utils import parse_llm_json
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.llm.groq")
 
 class GroqLLM(LLMInterface):
     def __init__(self, api_key: str, model_name: str = "llama3-70b-8192", stt_interface: Optional[STTInterface] = None):
@@ -41,7 +44,7 @@ class GroqLLM(LLMInterface):
             reply_content = response.choices[0].message.content
             return parse_llm_json(reply_content)
         except Exception as e:
-            print(f"Groq API Error: {e}")
+            logger.error(f"API Error: {e}")
             return "sad", f"Groq Error: {str(e)[:50]}...", {}
 
     def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: list = None) -> Tuple[str, str, dict]:
@@ -51,10 +54,10 @@ class GroqLLM(LLMInterface):
         # 1. transcribe
         transcription = self.stt.transcribe(audio_path)
         if not transcription:
-            print("[GroqLLM] Transcription empty.")
+            logger.info("Transcription empty.")
             return "neutral", "I heard nothing.", {}
             
-        print(f"[GroqLLM] Delegating transcription to chat: {transcription}")
+        logger.info(f"Delegating transcription to chat: {transcription}")
         
         return self.chat(transcription, system_prompt, history)
 
@@ -77,5 +80,5 @@ class GroqLLM(LLMInterface):
             _, _, data = parse_llm_json(reply_content)
             return data
         except Exception as e:
-            print(f"Groq JSON Error: {e}")
+            logger.error(f"JSON generation error: {e}")
             return {}

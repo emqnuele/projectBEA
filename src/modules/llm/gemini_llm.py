@@ -5,6 +5,9 @@ from typing import Optional, Tuple, Union, Dict
 import google.genai as genai
 from src.interfaces.base_interfaces import LLMInterface
 from src.utils.llm_utils import parse_llm_json
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.llm.gemini")
 
 class GeminiLLM(LLMInterface):
     def __init__(self, api_key: str, model_name: str = "gemini-3-flash-preview"):
@@ -14,12 +17,12 @@ class GeminiLLM(LLMInterface):
 
     def reload_config(self, config) -> None:
         if config.gemini_key != self.api_key:
-            print("Gemini: API Key updated. Re-initializing client...")
+            logger.info("API Key updated. Re-initializing client...")
             self.api_key = config.gemini_key
             self.client = genai.Client(api_key=self.api_key)
         
         if config.gemini_model != self.model_name:
-             print(f"Gemini: Model updated to {config.gemini_model}")
+             logger.info(f"Model updated to {config.gemini_model}")
              self.model_name = config.gemini_model
 
     def _send_request(self, contents: list, system_prompt: Optional[str] = None, history: list = None) -> Tuple[str, str, dict]:
@@ -58,8 +61,7 @@ class GeminiLLM(LLMInterface):
             text = response.text or ""
             return parse_llm_json(text)
         except Exception as e:
-            print(f"Gemini API Error: {e}")
-            print(f"Gemini API Error: {e}")
+            logger.error(f"API Error: {e}")
             return "sad", "There's some problem with my AI", {}
 
     def chat(self, user_input: str, system_prompt: Optional[str] = None, history: list = None) -> Tuple[str, str, dict]:
@@ -106,5 +108,5 @@ class GeminiLLM(LLMInterface):
             _, _, data = parse_llm_json(text)
             return data
         except Exception as e:
-            print(f"Gemini JSON Error: {e}")
+            logger.error(f"JSON generation error: {e}")
             return {}

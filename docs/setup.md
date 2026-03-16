@@ -38,6 +38,14 @@ Install Python dependencies:
 pip install -r requirements.txt
 ```
 
+> **Linux note:** Some packages (`numpy`, `tokenizers`) may need to compile from source if a pre-built wheel is unavailable for your Python version. Install a C/C++ compiler first if you hit build errors:
+> ```bash
+> sudo dnf install gcc gcc-c++   # Fedora/RHEL
+> sudo apt install build-essential  # Debian/Ubuntu
+> ```
+
+> **uv users:** `uv pip install -r requirements.txt` also works and is faster. The `tokenizers>=0.20.0` pin in `requirements.txt` avoids a known broken build in the 0.19.x series.
+
 ---
 
 ## 2. Environment Variables
@@ -57,6 +65,9 @@ ORPHEUS_ENDPOINT=https://model-xxxxxxxx.api.baseten.co/environments/production/p
 
 # Discord — only if using the Discord skill
 DISCORD_TOKEN=...
+
+# Logging — optional, defaults to INFO
+LOG_LEVEL=DEBUG   # set to DEBUG to see verbose output (OBS, TTS, audio playback details)
 ```
 
 > **Security note:** Environment variables **always take priority** over `config.json` for secret fields (`*_key`, `orpheus_endpoint`). If an env var is set and non-empty, the `config.json` value is silently skipped — even if it is also non-empty. A non-empty `config.json` value is only used as a fallback when the env var is not set.

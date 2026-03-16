@@ -3,6 +3,9 @@ from pathlib import Path
 from openai import OpenAI
 from src.interfaces.base_interfaces import LLMInterface, STTInterface
 from src.utils.llm_utils import parse_llm_json
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.llm.glm")
 
 class GLM47LLM(LLMInterface):
     def __init__(self, api_key: str, model_name: str = "glm-4.7", stt_interface: Optional[STTInterface] = None):
@@ -72,5 +75,5 @@ class GLM47LLM(LLMInterface):
             _, _, data = parse_llm_json(content)
             return data
         except Exception as e:
-            print(f"GLM JSON Error: {e}")
+            logger.error(f"JSON generation error: {e}")
             return {}

@@ -72,6 +72,8 @@ Sends a text message to the brain and gets a response. Output (TTS + OBS) is tri
 { "message": "Hello Bea!" }
 ```
 
+> **Validation:** `message` must be between 1 and 4000 characters and must not be empty or whitespace-only. Leading/trailing whitespace is stripped automatically. A malformed request returns `422 Unprocessable Entity` with field-level error details.
+
 **Response:**
 ```json
 {
@@ -131,6 +133,8 @@ Receives a text message from the Discord bot and generates a text response (no T
   "channelId": "123456789"
 }
 ```
+
+> **Validation:** `username` must be at least 1 character. `message` must be between 1 and 4000 characters and not empty/whitespace-only (stripped automatically). Returns `422` on failure.
 
 **Response:**
 ```json

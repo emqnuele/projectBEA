@@ -3,6 +3,9 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 import time
 import uuid
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.events")
 
 class EventCategory(str, Enum):
     SYSTEM = "system"
@@ -44,8 +47,7 @@ class EventManager:
         if len(self.events) > self.max_history:
             self.events.pop(0)
             
-        # debug print
-        print(f"[{category.upper()}] [{source}] {message}")
+        logger.debug(f"[{category.upper()}] [{source}] {message}")
 
     def get_events(self, limit: int = 50) -> List[Dict]:
         """Returns recent events."""

@@ -1,5 +1,8 @@
 from pathlib import Path
 from typing import Dict, Tuple, List, Any
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.resources")
 
 ALIASES = {"thankingA1": "thanking—"}
 
@@ -15,7 +18,7 @@ def load_avatar_resources(avatar_map: Dict[str, Dict[str, str]]) -> Dict[str, Tu
         talking_str = paths.get("talking")
         
         if not idle_str or not talking_str:
-            print(f"WARNING: Mood '{mood}' incomplete. Missing 'idle' or 'talking' path.")
+            logger.warning(f"Mood '{mood}' incomplete. Missing 'idle' or 'talking' path.")
             continue
             
         idle_path = Path(idle_str).resolve()
@@ -23,9 +26,9 @@ def load_avatar_resources(avatar_map: Dict[str, Dict[str, str]]) -> Dict[str, Tu
         
         # warning if not found
         if not idle_path.exists():
-            print(f"WARNING: Idle image for mood '{mood}' not found at: {idle_path}")
+            logger.warning(f"Idle image for mood '{mood}' not found at: {idle_path}")
         if not talking_path.exists():
-             print(f"WARNING: Talking image for mood '{mood}' not found at: {talking_path}")
+             logger.warning(f"Talking image for mood '{mood}' not found at: {talking_path}")
 
         processed_map[mood] = (idle_path, talking_path)
         

@@ -2,10 +2,10 @@ import datetime
 import json
 from pathlib import Path
 from typing import List, Dict, Optional
-from rich.console import Console
 from src.interfaces.base_interfaces import LLMInterface
+from src.utils.logger import get_logger
 
-console = Console()
+logger = get_logger("bea.skills.memory.generator")
 
 class DiaryGenerator:
     def __init__(self, llm: LLMInterface):
@@ -20,11 +20,11 @@ class DiaryGenerator:
             else:
                 self.prompt_template = "You are a diary writer. Summarize the following conversation in JSON."
         except Exception as e:
-            console.print(f"[red]DiaryGenerator: Error loading prompt: {e}[/red]")
+            logger.error(f"DiaryGenerator: Error loading prompt: {e}")
             self.prompt_template = ""
 
     async def generate_diary(self, history: List[Dict]) -> Optional[Dict]:
-        console.print(f"[cyan]DiaryGenerator: Generating diary with active LLM...[/cyan]")
+        logger.info(f"DiaryGenerator: Generating diary with active LLM...")
         
         # 1. format history
         conversation_text = ""
@@ -42,5 +42,5 @@ class DiaryGenerator:
         try:
             return self.llm.generate_json(user_prompt, system_prompt)
         except Exception as e:
-            console.print(f"[red]DiaryGenerator: Generation failed: {e}[/red]")
+            logger.error(f"DiaryGenerator: Generation failed: {e}")
             return None

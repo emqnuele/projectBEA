@@ -3,6 +3,9 @@ import time
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.utils.history")
 
 class HistoryManager:
     def __init__(self, storage_dir: str = "data/conversations"):
@@ -49,7 +52,7 @@ class HistoryManager:
                     "message_count": len(data.get("messages", []))
                 })
             except Exception as e:
-                print(f"Error reading session file {file_path}: {e}")
+                logger.error(f"Error reading session file {file_path}: {e}")
                 
         # sort by timestamp descending
         sessions.sort(key=lambda x: x["timestamp"], reverse=True)
@@ -72,7 +75,7 @@ class HistoryManager:
             self.current_session_file = file_path
             return True
         except Exception as e:
-            print(f"Error loading session {session_id}: {e}")
+            logger.error(f"Error loading session {session_id}: {e}")
             return False
 
     def add_message(self, role: str, content: str, mood: Optional[str] = None, **kwargs):
@@ -120,4 +123,4 @@ class HistoryManager:
             with open(self.current_session_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"Error saving conversation history: {e}")
+            logger.error(f"Error saving conversation history: {e}")

@@ -2,6 +2,9 @@ import json
 import os
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, Any
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.config")
 
 CONFIG_FILE = "config.json"
 
@@ -169,7 +172,7 @@ class BrainConfig:
                         skill_val["enabled"] = False
                         
             except Exception as e:
-                print(f"Error loading config.json: {e}")
+                logger.error(f"Error loading config.json: {e}")
 
     def save_to_file(self):
         """Saves current configuration to config.json, EXCLUDING secrets."""
@@ -188,6 +191,6 @@ class BrainConfig:
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
-            print(f"Configuration saved to {CONFIG_FILE} (secrets excluded)")
+            logger.info(f"Configuration saved to {CONFIG_FILE} (secrets excluded)")
         except Exception as e:
-            print(f"Error saving config.json: {e}")
+            logger.error(f"Error saving config.json: {e}")

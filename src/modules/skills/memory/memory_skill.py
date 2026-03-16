@@ -3,14 +3,14 @@ import time
 import datetime
 from typing import List, Dict, Optional
 from pathlib import Path
-from rich.console import Console
 
 from src.core.config import BrainConfig
 from src.modules.skills.base_skill import BaseSkill
 from src.modules.skills.memory.storage import MemoryStorage
 from src.modules.skills.memory.generator import DiaryGenerator
+from src.utils.logger import get_logger
 
-console = Console()
+logger = get_logger("bea.skills.memory")
 
 class MemorySkill(BaseSkill):
     def __init__(self, name: str, config: BrainConfig, brain):
@@ -40,26 +40,26 @@ class MemorySkill(BaseSkill):
         if hasattr(self.context, 'llm'):
             self.generator = DiaryGenerator(self.context.llm)
         else:
-            console.print("[red]MemorySkill: Brain LLM not available for generator![/red]")
+            logger.error("MemorySkill: Brain LLM not available for generator!")
 
     def process_previous_session(self, session_id: str, history: List[Dict]):
         if not self.enabled or not self.storage.collection:
             return
 
         if len(history) < 2:
-            console.print(f"[yellow]MemorySkill: Session {session_id} too short. Skipping.[/yellow]")
+            logger.warning(f"MemorySkill: Session {session_id} too short. Skipping.")
             return
 
         # check if already processed
         if self.storage.entry_exists(f"diary_{session_id}"):
-            console.print(f"[cyan]MemorySkill: Diary for {session_id} already exists. Skipping.[/cyan]")
+            logger.info(f"MemorySkill: Diary for {session_id} already exists. Skipping.")
             return
 
         asyncio.create_task(self._process_session_async(session_id, history))
 
     async def _process_session_async(self, session_id: str, history: List[Dict]):
         if not self.generator:
-            console.print("[red]MemorySkill: Generator not initialized.[/red]")
+            logger.error("MemorySkill: Generator not initialized.")
             return
         
         # double check inside async
@@ -77,7 +77,7 @@ class MemorySkill(BaseSkill):
             self._save_diary(session_id, diary_json)
 
         except Exception as e:
-            console.print(f"[red]MemorySkill: Error processing session: {e}[/red]")
+            logger.error(f"MemorySkill: Error processing session: {e}")
 
     def _save_diary(self, session_id: str, diary_json: Dict):
         diary_content = diary_json.get("diary_content", "")
@@ -99,7 +99,7 @@ class MemorySkill(BaseSkill):
         }
         
         self.storage.add_entry(diary_content, metadata, f"diary_{session_id}")
-        console.print(f"[green]MemorySkill: Saved Diary for {session_id}. Tags: {tags}[/green]")
+        logger.info(f"MemorySkill: Saved Diary for {session_id}. Tags: {tags}")
 
     def retrieve_context(self, query: str, limit: int = 3) -> str:
         if not self.enabled:
@@ -160,7 +160,7 @@ class MemorySkill(BaseSkill):
             return context_str if found else ""
             
         except Exception as e:
-            console.print(f"[red]MemorySkill: Error retrieving context: {e}[/red]")
+            logger.error(f"MemorySkill: Error retrieving context: {e}")
             return ""
 
     def save_current_session(self):
@@ -176,10 +176,10 @@ class MemorySkill(BaseSkill):
         history = hm.history
         
         if not session_id or not history:
-             console.print("[yellow]MemorySkill: No active session to save.[/yellow]")
+             logger.warning("MemorySkill: No active session to save.")
              return False
              
-        console.print(f"[cyan]MemorySkill: Manual save triggered for {session_id}[/cyan]")
+        logger.info(f"MemorySkill: Manual save triggered for {session_id}")
         self.process_previous_session(session_id, history)
         return True
 
@@ -191,7 +191,7 @@ class MemorySkill(BaseSkill):
         if not self.enabled:
             return
 
-        console.print("[magenta]MemorySkill: Checking for pending sessions to save...[/magenta]")
+        logger.info("MemorySkill: Checking for pending sessions to save...")
         
         if hasattr(self.context, 'history_manager'):
             hm = self.context.history_manager
@@ -200,8 +200,8 @@ class MemorySkill(BaseSkill):
             
             if session_id and history and len(history) >= 2:
                 if not self.storage.entry_exists(f"diary_{session_id}"):
-                    console.print(f"[magenta]MemorySkill: Saving final session {session_id}...[/magenta]")
+                    logger.info(f"MemorySkill: Saving final session {session_id}...")
                     # we await directly here to ensure it finishes before shutdown
                     await self._process_session_async(session_id, history)
                 else:
-                    console.print(f"[cyan]MemorySkill: Session {session_id} already saved.[/cyan]")
+                    logger.info(f"MemorySkill: Session {session_id} already saved.")

@@ -6,6 +6,9 @@ from src.modules.skills.implementations.monologue import MonologueSkill
 from src.modules.skills.implementations.minecraft_skill import MinecraftSkill
 from src.modules.skills.memory.memory_skill import MemorySkill
 from src.modules.skills.discord.discord_skill import DiscordSkill
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.skills.manager")
 
 class SkillManager:
     def __init__(self, config: BrainConfig, brain_context):
@@ -26,11 +29,11 @@ class SkillManager:
             
             self.context.event_manager.publish(category, f"skill:{skill_name}", message)
         else:
-            print(f"[Skill:{skill_name}] {message}")
+            logger.info(f"[{skill_name}] {message}")
 
     def initialize(self):
         """Registers and initializes available skills."""
-        print("Initializing Skill Manager...")
+        logger.info("Initializing Skill Manager...")
         
         # register skills
         self._register_skill("monologue", MonologueSkill)
@@ -42,7 +45,7 @@ class SkillManager:
         for name, skill in self.skills.items():
             skill.initialize()
             if skill.enabled:
-                print(f"Skill '{name}' is enabled in config.")
+                logger.info(f"Skill '{name}' is enabled in config.")
 
     def _register_skill(self, name: str, skill_cls: Type[BaseSkill]):
         self.skills[name] = skill_cls(name, self.config, self.context)
@@ -57,7 +60,7 @@ class SkillManager:
                 await skill.start()
 
         self._loop_task = asyncio.create_task(self._main_loop())
-        print("Skill Manager Started.")
+        logger.info("Skill Manager started.")
 
     async def stop(self):
         self.running = False
@@ -71,10 +74,10 @@ class SkillManager:
         for skill in self.skills.values():
             if skill.is_active:
                 await skill.stop()
-        print("Skill Manager Stopped.")
+        logger.info("Skill Manager stopped.")
 
     async def _main_loop(self):
-        print("Skill Manager Loop Active.")
+        logger.info("Skill Manager loop active.")
         while self.running:
             for skill in self.skills.values():
                 if skill.enabled and not skill.is_active:
@@ -86,7 +89,7 @@ class SkillManager:
                     try:
                         await skill.update()
                     except Exception as e:
-                        print(f"Error in skill '{skill.name}': {e}")
+                        logger.error(f"Error in skill '{skill.name}': {e}")
             
             await asyncio.sleep(1)
 
@@ -105,4 +108,4 @@ class SkillManager:
                 if hasattr(skill, 'on_config_reload'):
                     skill.on_config_reload()
             except Exception as e:
-                print(f"Error checking reload for skill '{name}': {e}")
+                logger.error(f"Error checking reload for skill '{name}': {e}")
