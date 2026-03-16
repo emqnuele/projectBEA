@@ -234,6 +234,34 @@ class OBSInterface(ABC):
 
 ---
 
+## Logging
+
+**File:** `src/utils/logger.py`
+
+All modules use a shared structured logger built on Python's `logging` module with [`rich`](https://github.com/Textualize/rich) for colored console output.
+
+```python
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.mymodule")
+logger.info("started")
+logger.warning("something off")
+logger.error(f"failed: {e}")
+logger.debug("verbose detail")
+```
+
+`get_logger(name)` returns a cached `logging.Logger` instance. Each name maps to one logger — calling `get_logger("bea.brain")` twice returns the same object.
+
+**Log level** defaults to `INFO`. To see `DEBUG` output (e.g. OBS pagination, TTS playback details) set the env var before launch:
+
+```bash
+LOG_LEVEL=DEBUG python main.py --web
+```
+
+The logger sets `propagate = False` on every instance to prevent duplicate output from uvicorn's root logger.
+
+---
+
 ## Session & History
 
 **File:** `src/utils/history_manager.py`
