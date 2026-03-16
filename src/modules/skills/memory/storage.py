@@ -1,10 +1,10 @@
 import chromadb
 from chromadb.utils import embedding_functions
-from rich.console import Console
 import time
 from typing import Optional, List, Dict
+from src.utils.logger import get_logger
 
-console = Console()
+logger = get_logger("bea.skills.memory.storage")
 
 class MemoryStorage:
     def __init__(self, db_path: str, openai_key: Optional[str], embedding_model: str):
@@ -16,7 +16,7 @@ class MemoryStorage:
 
     def initialize(self):
         try:
-            console.print(f"[magenta]MemoryStorage: Initializing ChromaDB at {self.db_path}...[/magenta]")
+            logger.info(f"MemoryStorage: Initializing ChromaDB at {self.db_path}...")
             self.chroma_client = chromadb.PersistentClient(path=self.db_path)
             
             if self.openai_key:
@@ -25,7 +25,7 @@ class MemoryStorage:
                     model_name=self.embedding_model
                 )
             else:
-                console.print("[red]MemoryStorage: No OpenAI Key found! Falling back to default embedding.[/red]")
+                logger.error("MemoryStorage: No OpenAI Key found! Falling back to default embedding.")
                 emb_fn = None
 
             self.collection = self.chroma_client.get_or_create_collection(
@@ -33,11 +33,11 @@ class MemoryStorage:
                 embedding_function=emb_fn,
                 metadata={"hnsw:space": "cosine"}
             )
-            console.print(f"[green]MemoryStorage: ChromaDB initialized. Count: {self.collection.count()}[/green]")
+            logger.info(f"MemoryStorage: ChromaDB initialized. Count: {self.collection.count()}")
             return True
             
         except Exception as e:
-            console.print(f"[red]MemoryStorage: Error initializing: {e}[/red]")
+            logger.error(f"MemoryStorage: Error initializing: {e}")
             return False
 
     def add_entry(self, content: str, metadata: Dict, entry_id: str):
