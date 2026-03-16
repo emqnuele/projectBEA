@@ -2,12 +2,15 @@ from src.modules.skills.base_skill import BaseSkill
 from src.modules.skills.minecraft.mc_agent.core.agent import Agent
 from src.modules.skills.minecraft.mc_agent.core.config import Config as MCConfig
 from src.core.events import EventCategory
+from src.utils.logger import get_logger
 import logging
 import asyncio
 
+logger = get_logger("bea.skills.minecraft")
+
 class MinecraftSkill(BaseSkill):
     def initialize(self):
-        print(f"Initializing {self.name} skill...")
+        logger.info(f"Initializing {self.name} skill...")
         
         # capture the main loop for thread-safe callbacks
         try:
