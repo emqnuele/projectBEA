@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Any, Optional
 import shutil
 import os
@@ -27,7 +27,15 @@ app.add_middleware(
 brain_instance: Optional[AIVtuberBrain] = None
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=4000)
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("message cannot be empty or whitespace-only")
+        return stripped
 
 class ConfigUpdateRequest(BaseModel):
     config: Dict[str, Any]
@@ -183,9 +191,17 @@ async def upload_audio(background_tasks: BackgroundTasks, file: UploadFile = Fil
     }
 
 class DiscordChatRequest(BaseModel):
-    username: str
-    message: str
+    username: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1, max_length=4000)
     channelId: str = "unknown"
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("message cannot be empty or whitespace-only")
+        return stripped
 
 @app.post("/discord/chat")
 async def discord_chat(request: DiscordChatRequest, background_tasks: BackgroundTasks):
