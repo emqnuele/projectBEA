@@ -4,10 +4,13 @@ import collections
 from datetime import datetime
 from typing import Deque, Optional
 from src.modules.skills.base_skill import BaseSkill
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.skills.monologue")
 
 class MonologueSkill(BaseSkill):
     def initialize(self):
-        print(f"Initializing {self.name} skill...")
+        logger.info(f"Initializing {self.name} skill...")
         
         # config
         self.interval_seconds = self.skill_config.get("interval_seconds", 30)
@@ -19,9 +22,9 @@ class MonologueSkill(BaseSkill):
         try:
             with open(self.prompt_path, "r", encoding="utf-8") as f:
                 self.monologue_rules = f.read()
-            print(f"Loaded Monologue prompt from {self.prompt_path}")
+            logger.info(f"Loaded Monologue prompt from {self.prompt_path}")
         except Exception as e:
-            print(f"Error loading Monologue prompt: {e}")
+            logger.error(f"Error loading Monologue prompt: {e}")
             self.monologue_rules = "Error loading prompt."
 
         # state management
@@ -132,7 +135,7 @@ class MonologueSkill(BaseSkill):
             return topic_text.strip()
             
         except Exception as e:
-            print(f"Topic Gen Error: {e}")
+            logger.error(f"Topic Gen Error: {e}")
             return "Random random thoughts"
 
     async def _continue_story(self):
@@ -151,7 +154,7 @@ class MonologueSkill(BaseSkill):
             base_prompt = self.context.system_prompt
             combined_prompt = f"{base_prompt}\n\n{self.monologue_rules}"
 
-            print(f"Generating chunk for topic: {self.current_topic}")
+            logger.info(f"Generating chunk for topic: {self.current_topic}")
             mood, message = await self.context.generate_response(user_trigger, system_prompt=combined_prompt)
             
             # check for end token
