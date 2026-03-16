@@ -63,7 +63,7 @@ class OrpheusTTSWrapper(TTSInterface):
             
         except Exception as e:
             logger.error(f"API error: {e}")
-            raise e
+            raise
 
     def _play_audio_sync(self, device_id: int, filename: str):
         """plays the downloaded audio file assuming Raw PCM 24kHz."""
