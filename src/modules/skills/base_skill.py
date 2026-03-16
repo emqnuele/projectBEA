@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from src.core.config import BrainConfig
+from src.utils.logger import get_logger
 import asyncio
+
+logger = get_logger("bea.skills.base")
 
 class BaseSkill(ABC):
     def __init__(self, name: str, config: BrainConfig, context: Any = None):
@@ -21,7 +24,7 @@ class BaseSkill(ABC):
         if self.context and hasattr(self.context, 'skill_manager'):
             self.context.skill_manager.log(self.name, message)
         else:
-            print(f"[{self.name}] {message}")
+            logger.info(f"[{self.name}] {message}")
 
     @property
     def skill_config(self) -> Dict[str, Any]:
@@ -40,12 +43,12 @@ class BaseSkill(ABC):
     async def start(self):
         """Called when the skill is manually started or enabled."""
         self.is_active = True
-        print(f"Skill '{self.name}' started.")
+        logger.info(f"Skill '{self.name}' started.")
 
     async def stop(self):
         """Called when the skill is stopped or disabled."""
         self.is_active = False
-        print(f"Skill '{self.name}' stopped.")
+        logger.info(f"Skill '{self.name}' stopped.")
 
     async def update(self):
         """
