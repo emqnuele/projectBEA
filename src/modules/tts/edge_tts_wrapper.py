@@ -5,6 +5,9 @@ import sounddevice as sd
 import soundfile as sf
 import numpy as np
 from src.interfaces.base_interfaces import TTSInterface
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.tts.edge")
 
 class EdgeTTSWrapper(TTSInterface):
     def __init__(self, voice: str = "en-US-JennyNeural", pitch: str = "+0Hz", rate: str = "+0%", volume: str = "+0%", output_file: str = "temp_tts.mp3"):
@@ -16,7 +19,7 @@ class EdgeTTSWrapper(TTSInterface):
 
     def reload_config(self, config) -> None:
         if config.tts_voice != self.voice:
-            print(f"EdgeTTS: Voice updated to {config.tts_voice}")
+            logger.info(f"voice updated to {config.tts_voice}")
             self.voice = config.tts_voice
         if config.tts_pitch != self.pitch:
              self.pitch = config.tts_pitch
@@ -33,7 +36,7 @@ class EdgeTTSWrapper(TTSInterface):
     def _play_audio_sync(self, device_id: int, filename: str):
         """Synchronous audio playback using OutputStream for better thread safety."""
         if not os.path.exists(filename):
-            print(f"Debug: TTS file not found: {filename}")
+            logger.error(f"TTS file not found: {filename}")
             return
 
         try:         
@@ -53,7 +56,7 @@ class EdgeTTSWrapper(TTSInterface):
             
             final_audio = np.concatenate((silence, data))
             
-            print(f"[DEBUG] Starting Playback Stream. Channels: {channels}, SampleRate: {fs}")
+            logger.debug(f"starting playback stream. channels: {channels}, samplerate: {fs}")
             
             # use non-blocking play and manual sleep to avoid c-level wait crashes
             sd.play(final_audio, samplerate=fs, device=device_id, blocking=False)
@@ -63,10 +66,10 @@ class EdgeTTSWrapper(TTSInterface):
             import time
             time.sleep(duration)
                 
-            print("[DEBUG] Playback Stream Finished.")
+            logger.debug("playback stream finished.")
                 
         except Exception as e:
-            print(f"Error playing audio: {e}")
+            logger.error(f"error playing audio: {e}")
 
     async def generate_audio(self, text: str) -> tuple[np.ndarray, int]:
         """Generates audio and returns numpy array + sample rate."""
@@ -86,7 +89,7 @@ class EdgeTTSWrapper(TTSInterface):
             return data, fs
             
         except Exception as e:
-            print(f"EdgeTTS: Generation error: {e}")
+            logger.error(f"generation error: {e}")
             return np.zeros(0, dtype=np.float32), 24000
         finally:
              if os.path.exists(unique_filename):
@@ -108,4 +111,4 @@ class EdgeTTSWrapper(TTSInterface):
              duration = len(data) / fs
              await asyncio.sleep(duration)
         except Exception as e:
-            print(f"EdgeTTS: Playback error: {e}")
+            logger.error(f"playback error: {e}")
