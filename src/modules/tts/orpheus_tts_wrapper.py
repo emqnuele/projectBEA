@@ -5,6 +5,9 @@ import sounddevice as sd
 import soundfile as sf
 import numpy as np
 from src.interfaces.base_interfaces import TTSInterface
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.tts.orpheus")
 
 class OrpheusTTSWrapper(TTSInterface):
     def __init__(self, 
@@ -23,17 +26,17 @@ class OrpheusTTSWrapper(TTSInterface):
             self.api_key = config.orpheus_key
 
         if config.orpheus_endpoint and config.orpheus_endpoint != self.endpoint_url:
-            print(f"OrpheusTTS: Endpoint updated.")
+            logger.info(f"endpoint updated.")
             self.endpoint_url = config.orpheus_endpoint
 
         if config.orpheus_voice != self.voice:
-            print(f"OrpheusTTS: Voice updated to {config.orpheus_voice}")
+            logger.info(f"voice updated to {config.orpheus_voice}")
             self.voice = config.orpheus_voice
 
     def _download_audio_sync(self, text: str, filename: str):
         """downloads audio from baseten to a file."""
         if not self.api_key:
-            print("OrpheusTTS Error: API Key is missing.")
+            logger.error("API key is missing.")
             return
 
         headers = {"Authorization": f"Api-Key {self.api_key}"}
@@ -59,13 +62,13 @@ class OrpheusTTSWrapper(TTSInterface):
                             f.write(chunk)
             
         except Exception as e:
-            print(f"OrpheusTTS API Error: {e}")
+            logger.error(f"API error: {e}")
             raise e
 
     def _play_audio_sync(self, device_id: int, filename: str):
         """plays the downloaded audio file assuming Raw PCM 24kHz."""
         if not os.path.exists(filename):
-            print("Audio file not found.")
+            logger.error("audio file not found.")
             return
 
         try:
@@ -104,7 +107,7 @@ class OrpheusTTSWrapper(TTSInterface):
             time.sleep(duration) 
             
         except Exception as e:
-            print(f"Error playing audio: {e}")
+            logger.error(f"error playing audio: {e}")
 
     async def generate_audio(self, text: str) -> tuple[np.ndarray, int]:
         if not text:
@@ -114,7 +117,7 @@ class OrpheusTTSWrapper(TTSInterface):
         unique_filename = f"temp_orpheus_tts_{uuid.uuid4().hex}.wav"
 
         try:
-            print(f"OrpheusTTS: Downloading audio for: {text[:30]}...")
+            logger.info(f"downloading audio for: {text[:30]}...")
             # 1. download
             await asyncio.to_thread(self._download_audio_sync, text, unique_filename)
             
@@ -138,7 +141,7 @@ class OrpheusTTSWrapper(TTSInterface):
             return data, fs
 
         except Exception as e:
-            print(f"OrpheusTTS Pipeline failed: {e}")
+            logger.error(f"pipeline failed: {e}")
             return np.zeros(0, dtype=np.float32), 24000
             
         finally:
@@ -172,4 +175,4 @@ class OrpheusTTSWrapper(TTSInterface):
             await asyncio.sleep(duration)
             
         except Exception as e:
-            print(f"OrpheusTTS: Playback error: {e}")
+            logger.error(f"playback error: {e}")
