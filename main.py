@@ -21,6 +21,7 @@ load_dotenv()
 # add src to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from src.utils.logger import get_logger
 from src.core.config import BrainConfig
 from src.core.brain import AIVtuberBrain
 from src.modules.llm.gemini_llm import GeminiLLM
@@ -28,6 +29,8 @@ from src.modules.llm.glm_llm import GLM47LLM
 from src.modules.llm.openai_llm import OpenAILLM
 from src.modules.llm.groq_llm import GroqLLM
 from src.modules.obs.obs_websocket import OBSController
+
+logger = get_logger("bea")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="ProjectBEA - AI Vtuber Engine")
@@ -134,7 +137,7 @@ async def main():
     for field_name, value in cli_overrides.items():
         if value is not None:
             setattr(config, field_name, value)
-            print(f"[CLI] Override: {field_name} = {value}")
+            logger.info(f"CLI override: {field_name} = {value}")
 
     # 2. modules
     # init modules
@@ -150,26 +153,26 @@ async def main():
     # llm
     if config.llm_provider == "gemini":
         if not config.gemini_key:
-             print("ERROR: GEMINI_API_KEY is missing via env, config, or CLI.")
+             logger.error("GEMINI_API_KEY is missing via env, config, or CLI.")
              return
         llm = GeminiLLM(api_key=config.gemini_key, model_name=config.gemini_model)
     elif config.llm_provider == "glm":
         if not config.glm_key:
-             print("ERROR: GLM_API_KEY is missing via env, config, or CLI.")
+             logger.error("GLM_API_KEY is missing via env, config, or CLI.")
              return
         llm = GLM47LLM(api_key=config.glm_key, model_name=config.glm_model, stt_interface=stt)
     elif config.llm_provider == "openai":
         if not config.openai_key:
-             print("ERROR: OPENAI_API_KEY is missing via env, config, or CLI.")
+             logger.error("OPENAI_API_KEY is missing via env, config, or CLI.")
              return
         llm = OpenAILLM(api_key=config.openai_key, model_name=config.openai_model, stt_interface=stt)
     elif config.llm_provider == "groq":
         if not config.groq_key:
-             print("ERROR: GROQ_API_KEY is missing via env, config, or CLI.")
+             logger.error("GROQ_API_KEY is missing via env, config, or CLI.")
              return
         llm = GroqLLM(api_key=config.groq_key, model_name=config.groq_model, stt_interface=stt)
     else:
-        print(f"Unknown LLM provider: {config.llm_provider}")
+        logger.error(f"Unknown LLM provider: {config.llm_provider}")
         return
 
     # tts
@@ -219,16 +222,16 @@ async def main():
         
         if args.web:
             from src.web.server import run_server
-            print("Starting Web Interface at http://localhost:8000")
+            logger.info("Starting Web Interface at http://localhost:8000")
             await run_server(brain, port=8000)
         else:
             await brain.run_loop()
             
     except KeyboardInterrupt:
-        print("\nStopping...")
+        logger.info("Stopping...")
         # Save pending memories
         if brain.memory_skill and brain.memory_skill.enabled:
-             print("Saving pending memories...")
+             logger.info("Saving pending memories...")
              await brain.memory_skill.save_all_pending()
     finally:
         await brain.skill_manager.stop()
