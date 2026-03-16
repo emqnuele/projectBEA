@@ -6,6 +6,9 @@ import numpy as np
 import asyncio
 from kokoro_onnx import Kokoro
 from src.interfaces.base_interfaces import TTSInterface
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.tts.kokoro")
 
 class KokoroTTSWrapper(TTSInterface):
     URL_MODEL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx"
@@ -29,38 +32,38 @@ class KokoroTTSWrapper(TTSInterface):
 
     def _download_file(self, url, filename):
         if not os.path.exists(filename):
-            print(f"KokoroTTS: Downloading {filename}...")
+            logger.info(f"downloading {filename}...")
             try:
                 with requests.get(url, stream=True) as r:
                     r.raise_for_status()
                     with open(filename, 'wb') as f:
                         for chunk in r.iter_content(chunk_size=8192):
                             f.write(chunk)
-                print(f"KokoroTTS: {filename} downloaded!")
+                logger.info(f"{filename} downloaded!")
             except Exception as e:
-                print(f"KokoroTTS: Error downloading {filename}: {e}")
+                logger.error(f"error downloading {filename}: {e}")
                 raise
 
     def _initialize_model(self):
         try:
-            print(f"KokoroTTS: Initializing with model={self.model_path}, voices={self.voices_path}")
+            logger.info(f"initializing with model={self.model_path}, voices={self.voices_path}")
             self.kokoro = Kokoro(self.model_path, self.voices_path)
-            print("KokoroTTS: Initialized successfully.")
+            logger.info("initialized successfully.")
         except Exception as e:
-            print(f"KokoroTTS: Initialization failed: {e}")
+            logger.error(f"initialization failed: {e}")
             self.kokoro = None
 
     def reload_config(self, config) -> None:
         if config.kokoro_voice != self.voice:
-            print(f"KokoroTTS: Voice updated to {config.kokoro_voice}")
+            logger.info(f"voice updated to {config.kokoro_voice}")
             self.voice = config.kokoro_voice
         
         if config.kokoro_speed != self.speed:
-            print(f"KokoroTTS: Speed updated to {config.kokoro_speed}")
+            logger.info(f"speed updated to {config.kokoro_speed}")
             self.speed = config.kokoro_speed
         
         if config.kokoro_lang != self.lang:
-             print(f"KokoroTTS: Language updated to {config.kokoro_lang}")
+             logger.info(f"language updated to {config.kokoro_lang}")
              self.lang = config.kokoro_lang
 
     async def generate_audio(self, text: str) -> tuple[np.ndarray, int]:
@@ -106,4 +109,4 @@ class KokoroTTSWrapper(TTSInterface):
             duration = len(samples) / sample_rate
             await asyncio.sleep(duration)
         except Exception as e:
-            print(f"KokoroTTS: Error during playback: {e}")
+            logger.error(f"error during playback: {e}")
