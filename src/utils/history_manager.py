@@ -111,7 +111,8 @@ class HistoryManager:
         """Saves current history to JSON file."""
         if not self.current_session_file:
             self.create_session()
-            
+        
+        assert self.current_session_file is not None
         data = {
             "session_id": self.session_id,
             "start_time": self.history[0]["timestamp"] if self.history else datetime.now().isoformat(),
