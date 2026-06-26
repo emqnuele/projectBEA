@@ -63,3 +63,11 @@ class BaseSkill(ABC):
         Override this to handle dynamic updates (e.g. reconnection).
         """
         pass
+
+    def get_tools(self) -> list:
+        """Tools this skill contributes to the conversational agent.
+
+        Override to expose capabilities (e.g. memory search, in-game actions)
+        that Bea can call while chatting. Returns a list of `Tool`.
+        """
+        return []

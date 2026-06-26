@@ -7,7 +7,9 @@ from src.core.resources import load_avatar_resources, resolve_mood_paths
 from src.utils.history_manager import HistoryManager
 from src.modules.skills.skill_manager import SkillManager
 from src.core.events import EventManager, EventCategory
+from src.core.agent import AgentRunner, AgentHooks, ToolRegistry
 from src.modules.skills.memory.memory_skill import MemorySkill
+from src.utils.llm_utils import parse_llm_json
 from src.utils.logger import get_logger
 import datetime
 
@@ -57,6 +59,37 @@ class AIVtuberBrain:
     @property
     def memory_skill(self) -> MemorySkill:
         return self.skill_manager.skills.get("memory")
+
+    def _build_tool_registry(self) -> ToolRegistry:
+        """Aggregates tools contributed by enabled skills for a chat turn."""
+        registry = ToolRegistry()
+        for skill in self.skill_manager.skills.values():
+            if not skill.enabled:
+                continue
+            for tool in skill.get_tools():
+                registry.register(tool)
+        return registry
+
+    async def _run_agent_turn(self, user_text: str, system_prompt: str, history: list) -> Tuple[str, str, Dict]:
+        """Runs one conversational turn through the agent harness.
+
+        Tools (if any enabled skills expose them) let Bea act mid-turn; the
+        final spoken answer is JSON {mood, message}, parsed leniently.
+        """
+        messages = [{"role": "system", "content": system_prompt}]
+        if history:
+            for msg in history:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": user_text})
+
+        hooks = AgentHooks(
+            on_tool_call=lambda name, args: self.event_manager.publish(
+                EventCategory.SKILL, f"tool:{name}", str(args)
+            ),
+        )
+        runner = AgentRunner(self.llm, self._build_tool_registry(), max_steps=6, hooks=hooks)
+        final = await runner.run(messages)
+        return parse_llm_json(final.content or "")
 
     def initialize(self):
         """Loads resources and connects to services."""
@@ -380,8 +413,8 @@ class AIVtuberBrain:
              final_prompt += memory_section
 
         
-        mood, message, metadata = self.llm.chat(user_text, system_prompt=final_prompt, history=history)
-        
+        mood, message, metadata = await self._run_agent_turn(user_text, final_prompt, history)
+
         # save with metadata
         if "mood" in metadata:
             del metadata["mood"]
@@ -425,7 +458,7 @@ class AIVtuberBrain:
         # call LLM
         
         if transcript:
-             mood, message, metadata = self.llm.chat(transcript, system_prompt=final_prompt, history=history)
+             mood, message, metadata = await self._run_agent_turn(transcript, final_prompt, history)
         else:
              mood, message, metadata = self.llm.chat_audio(audio_path, system_prompt=final_prompt, history=history)
              transcript = "[Audio Message]"
