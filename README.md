@@ -62,7 +62,8 @@
 ProjectBEA/
 ├── main.py                    # Entry point (CLI args + engine bootstrap)
 ├── config.json                # Persistent runtime configuration
-├── requirements.txt
+├── pyproject.toml             # Python project dependencies
+├── uv.lock                    # Dependency lockfile
 ├── data/
 │   ├── conversations/         # Saved session JSON files
 │   ├── memory_db/             # ChromaDB persistent storage
