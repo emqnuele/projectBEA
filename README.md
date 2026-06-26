@@ -105,15 +105,15 @@ ProjectBEA/
 
 ### 1. Prerequisites
 
-- Python 3.10+
-- Node.js 18+ (for the Discord bot)
+- [uv](https://docs.astral.sh/uv/) — manages Python and dependencies (installs Python for you)
+- Node.js 18+ (for the web dashboard and the Discord bot)
 - OBS Studio with WebSocket plugin enabled *(Tools → WebSocket Server Settings)*
 - A virtual audio cable such as [VB-Audio Cable](https://vb-audio.com/Cable/) *(optional but recommended)*
 
-### 2. Install Python dependencies
+### 2. Install dependencies
 
 ```bash
-pip install -r requirements.txt
+uv sync          # or: make install
 ```
 
 ### 3. Configure
@@ -135,17 +135,17 @@ Review `config.json` to set your OBS source names, audio device ID, TTS voice, a
 
 **CLI mode** (terminal interactive):
 ```bash
-python main.py
+uv run bea       # or: make run
 ```
 
 **Web Dashboard mode** (FastAPI + React UI):
 ```bash
-python main.py --web
+uv run bea --web # or: make web  (builds the frontend too)
 ```
 
 **Override provider at launch:**
 ```bash
-python main.py --llm-provider gemini --tts-provider kokoro --web
+uv run bea --llm-provider gemini --tts-provider kokoro --web
 ```
 
 **[Setup & Deployment Guide →](docs/setup.md)**

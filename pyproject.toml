@@ -1,0 +1,50 @@
+[project]
+name = "projectbea"
+version = "0.1.0"
+description = "ProjectBEA - AI Vtuber Engine"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "google-genai",
+    "edge-tts",
+    "sounddevice",
+    "soundfile",
+    "numpy<2.0.0",
+    "obsws-python",
+    "openai",
+    "rich",
+    "transformers<4.42",
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "requests",
+    "python-dotenv",
+    "websocket-client",
+    "colorama",
+    "tenacity",
+    "kokoro-onnx",
+    "groq",
+    "chromadb>=0.4.0",
+    "pydantic-settings",
+]
+
+[project.scripts]
+bea = "main:run"
+
+[project.optional-dependencies]
+# extra deps for the standalone minecraft agent skill
+minecraft = ["flask"]
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+# main.py lives at the repo root, ship it as a top-level module
+include = ["main.py"]
+force-include = { "main.py" = "main.py" }

@@ -8,10 +8,15 @@
 
 | Requirement | Version | Notes |
 |---|---|---|
-| Python | 3.10+ | Tested on 3.11 |
-| Node.js | 18+ | Required only for the Discord bot |
+| [uv](https://docs.astral.sh/uv/) | latest | Python toolchain & dependency manager — installs Python for you |
+| Node.js | 18+ | Required only for the web dashboard and the Discord bot |
 | OBS Studio | 28+ | obs-websocket 5.x built-in |
 | Virtual Audio Cable | any | e.g. [VB-Audio CABLE](https://vb-audio.com/Cable/) — optional but recommended |
+
+> You do **not** need to install Python yourself. `uv` reads `requires-python` from
+> `pyproject.toml` and downloads a matching interpreter automatically.
+> Install `uv` with: `curl -LsSf https://astral.sh/uv/install.sh | sh` (macOS/Linux)
+> or `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"` (Windows).
 
 ---
 
@@ -19,23 +24,26 @@
 
 ```bash
 git clone https://github.com/emqnuele/projectBEA.git
-cd projectbea
+cd projectBEA
 ```
 
-Create a virtual environment (recommended):
+Install all Python dependencies into a managed virtual environment (`.venv`):
 
 ```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS/Linux
-source .venv/bin/activate
+uv sync                  # core dependencies
+uv sync --extra minecraft  # also install the optional minecraft-agent deps
 ```
 
-Install Python dependencies:
+That's it — `uv` creates `.venv`, pins every dependency from `uv.lock`, and is fully
+reproducible. There is no need to activate the venv manually; prefix commands with
+`uv run` (e.g. `uv run bea`).
+
+If you have `make` available, the same is wrapped in convenient targets:
 
 ```bash
-pip install -r requirements.txt
+make install        # uv sync
+make install-all    # uv sync --extra minecraft
+make help           # list every target
 ```
 
 > **Linux note:** Some packages (`numpy`, `tokenizers`) may need to compile from source if a pre-built wheel is unavailable for your Python version. Install a C/C++ compiler first if you hit build errors:
@@ -43,8 +51,6 @@ pip install -r requirements.txt
 > sudo dnf install gcc gcc-c++   # Fedora/RHEL
 > sudo apt install build-essential  # Debian/Ubuntu
 > ```
-
-> **uv users:** `uv pip install -r requirements.txt` also works and is faster. The `tokenizers>=0.20.0` pin in `requirements.txt` avoids a known broken build in the 0.19.x series.
 
 ---
 
@@ -125,7 +131,7 @@ Then map the files in `config.json` under the `avatar_map` key:
 ProjectBEA outputs audio to a specific device ID. To list available devices:
 
 ```bash
-python -c "import sounddevice; print(sounddevice.query_devices())"
+uv run python -c "import sounddevice; print(sounddevice.query_devices())"
 ```
 
 Find the ID of your virtual cable (e.g. *CABLE Input* on Windows) and set `audio_device_id` in `config.json`.
@@ -209,7 +215,7 @@ You only need to repeat this step when the frontend source code changes.
 ### CLI mode (interactive terminal)
 
 ```bash
-python main.py
+uv run bea          # or: make run
 ```
 
 Type messages at the `You >` prompt. Type `exit` to quit.
@@ -217,7 +223,7 @@ Type messages at the `You >` prompt. Type `exit` to quit.
 ### Web Dashboard mode
 
 ```bash
-python main.py --web
+uv run bea --web    # or: make web  (also builds the frontend)
 ```
 
 Opens the FastAPI server at `http://localhost:8000`. The React frontend (built in step 8) is served from the same port at `/`.
@@ -227,7 +233,7 @@ Opens the FastAPI server at `http://localhost:8000`. The React frontend (built i
 Any config value can be overridden at launch without editing `config.json`:
 
 ```bash
-python main.py \
+uv run bea \
   --llm-provider gemini \
   --gemini-model gemini-2.0-flash \
   --tts-provider kokoro \
@@ -246,7 +252,7 @@ This is only needed when **actively developing the frontend**. Instead of using 
 1. Start the backend first (in one terminal):
 
 ```bash
-python main.py --web
+uv run bea --web
 ```
 
 2. Then start the Vite dev server (in a second terminal):
@@ -259,7 +265,7 @@ npm run dev
 
 The Vite dev server starts at `http://localhost:5173`. The frontend makes **direct** API calls to `http://localhost:8000` — **no proxy is configured** in `vite.config.js`. If you change the backend port, update the API base URL in the frontend source accordingly.
 
-> **Note:** For normal use you do **not** need the dev server — just build once with `npm run build` (step 8) and use `python main.py --web`.
+> **Note:** For normal use you do **not** need the dev server — just build once with `npm run build` (step 8) and use `uv run bea --web`.
 
 ---
 
