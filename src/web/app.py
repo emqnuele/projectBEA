@@ -165,7 +165,8 @@ async def upload_audio(background_tasks: BackgroundTasks, file: UploadFile = Fil
     # save temp file
     temp_dir = Path("temp")
     temp_dir.mkdir(exist_ok=True)
-    temp_file = temp_dir / file.filename
+    filename = file.filename or "audio_upload.wav"
+    temp_file = temp_dir / filename
     
     with open(temp_file, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)

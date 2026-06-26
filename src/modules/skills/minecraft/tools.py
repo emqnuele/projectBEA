@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 from src.core.agent.tools import ToolRegistry
 from src.modules.skills.minecraft.mc_client import MinecraftClient
@@ -8,7 +8,7 @@ from src.modules.skills.minecraft.mc_client import MinecraftClient
 _INSTANT = {"request_screenshot", "check_death_log", "stop_moving", "chat"}
 
 # name -> (description, json-schema parameters)
-_TOOLS: Dict[str, Dict[str, Any]] = {
+_TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     "mine_block": ("Navigate to and mine a specific block.", {
         "type": "object",
         "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},

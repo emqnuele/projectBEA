@@ -38,9 +38,9 @@ class DiaryGenerator:
         system_prompt = self.prompt_template.replace("{date}", today_str)
         user_prompt = f"CONVERSATION HISTORY:\n{conversation_text}\n\nExisting Tags: []"
 
-        # 3. call llm        
         try:
-            return self.llm.generate_json(user_prompt, system_prompt)
+            res = self.llm.generate_json(user_prompt, system_prompt)
+            return res if isinstance(res, dict) else None
         except Exception as e:
             logger.error(f"DiaryGenerator: Generation failed: {e}")
             return None

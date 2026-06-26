@@ -4,6 +4,7 @@ import requests
 import sounddevice as sd
 import soundfile as sf
 import numpy as np
+from typing import Optional
 from src.interfaces.base_interfaces import TTSInterface
 from src.utils.logger import get_logger
 
@@ -11,8 +12,8 @@ logger = get_logger("bea.tts.orpheus")
 
 class OrpheusTTSWrapper(TTSInterface):
     def __init__(self, 
-                 api_key: str, 
-                 endpoint_url: str, 
+                 api_key: Optional[str], 
+                 endpoint_url: Optional[str], 
                  voice: str = "tara", 
                  output_file: str = "temp_orpheus_tts.wav"):
         self.api_key = api_key
@@ -37,6 +38,10 @@ class OrpheusTTSWrapper(TTSInterface):
         """downloads audio from baseten to a file."""
         if not self.api_key:
             logger.error("API key is missing.")
+            return
+
+        if not self.endpoint_url:
+            logger.error("Endpoint URL is missing.")
             return
 
         headers = {"Authorization": f"Api-Key {self.api_key}"}

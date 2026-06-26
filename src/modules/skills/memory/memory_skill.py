@@ -112,23 +112,34 @@ class MemorySkill(BaseSkill):
             if not results:
                 return ""
             
-            # format: 'documents', 'metadatas', 'distances'
-            docs = results['documents'][0]
-            metas = results['metadatas'][0]
-            dists = results['distances'][0]
-            
+            docs = results.get('documents')
+            metas = results.get('metadatas')
+            dists = results.get('distances')
+
+            if not docs or not metas or not dists:
+                return ""
+
+            docs_list = docs[0]
+            metas_list = metas[0]
+            dists_list = dists[0]
+
+            if not docs_list or not metas_list or not dists_list:
+                return ""
+
             scored_entries = []
             now = time.time()
-            
-            for i, doc in enumerate(docs):
+
+            for i, doc in enumerate(docs_list):
                 if not doc: continue
-                
-                # 1. similarity score (1 - distance)
-                similarity = 1 - dists[i]
-                
-                # 2. recency score
-                timestamp = metas[i].get("timestamp", 0)
-                age_seconds = now - timestamp
+
+                dist_val = dists_list[i]
+                similarity = 1.0 - (float(dist_val) if dist_val is not None else 0.0)
+
+                meta_item = metas_list[i]
+                timestamp_val = meta_item.get("timestamp", 0) if meta_item else 0
+                if not isinstance(timestamp_val, (int, float)):
+                    timestamp_val = 0
+                age_seconds = now - float(timestamp_val)
                 age_days = age_seconds / 86400
                 
                 # decay
@@ -141,7 +152,7 @@ class MemorySkill(BaseSkill):
                 
                 scored_entries.append({
                     "doc": doc,
-                    "date": metas[i].get("date", "Unknown"),
+                    "date": meta_item.get("date", "Unknown") if meta_item else "Unknown",
                     "score": final_score
                 })
             

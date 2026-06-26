@@ -1,13 +1,13 @@
 import asyncio
 from pathlib import Path
 from typing import Dict, Tuple, Optional
-from src.interfaces.base_interfaces import LLMInterface, TTSInterface, OBSInterface, STTInterface
+from src.interfaces.base_interfaces import TTSInterface, OBSInterface, STTInterface
 from src.core.config import BrainConfig
 from src.core.resources import load_avatar_resources, resolve_mood_paths
 from src.utils.history_manager import HistoryManager
 from src.modules.skills.skill_manager import SkillManager
 from src.core.events import EventManager, EventCategory
-from src.core.agent import AgentRunner, AgentHooks, ToolRegistry
+from src.core.agent import AgentRunner, AgentHooks, ToolRegistry, LLMClient
 from src.modules.skills.memory.memory_skill import MemorySkill
 from src.utils.llm_utils import parse_llm_json
 from src.utils.logger import get_logger
@@ -18,10 +18,10 @@ logger = get_logger("bea.brain")
 class AIVtuberBrain:
     def __init__(
         self, 
-        config: BrainConfig, 
-        llm: LLMInterface, 
+        config: BrainConfig,
+        llm: LLMClient,
         tts: TTSInterface,
-        stt: STTInterface,
+        stt: Optional[STTInterface],
         obs: OBSInterface
     ):
         self.config = config
@@ -57,8 +57,9 @@ class AIVtuberBrain:
 
 
     @property
-    def memory_skill(self) -> MemorySkill:
-        return self.skill_manager.skills.get("memory")
+    def memory_skill(self) -> Optional[MemorySkill]:
+        skill = self.skill_manager.skills.get("memory")
+        return skill if isinstance(skill, MemorySkill) else None
 
     def _build_tool_registry(self) -> ToolRegistry:
         """Aggregates tools contributed by enabled skills for a chat turn."""
@@ -146,7 +147,7 @@ class AIVtuberBrain:
 
     def _obs_connect(self):
         if hasattr(self.obs, 'source_name'):
-             self.obs.source_name = self.config.obs_avatar_source
+             setattr(self.obs, 'source_name', self.config.obs_avatar_source)
         self.obs.connect()
 
     def list_sessions(self):
@@ -165,7 +166,7 @@ class AIVtuberBrain:
         self.history_manager.create_session()
         logger.info(f"Created new session: {self.history_manager.session_id}")
         
-        if prev_session_id and prev_history:
+        if prev_session_id and prev_history and self.memory_skill:
              self.memory_skill.process_previous_session(prev_session_id, prev_history)
              
         return self.history_manager.session_id
@@ -203,6 +204,7 @@ class AIVtuberBrain:
         """Background task to handle audio/visual output."""
         import sounddevice as sd
         self.is_speaking = True
+        font_used = self.config.text_font_size
         try:
             logger.info(f"Mood: {mood}")
             logger.info(f"Message: {message}")
@@ -384,7 +386,7 @@ class AIVtuberBrain:
             
         return False
 
-    async def generate_response(self, user_text: str, system_prompt: str = None) -> Tuple[str, str]:
+    async def generate_response(self, user_text: str, system_prompt: Optional[str] = None) -> Tuple[str, str]:
         """Generates the response but does NOT play it."""
         
         if self.resume_buffer is not None and self._is_backchannel(user_text):
@@ -460,7 +462,8 @@ class AIVtuberBrain:
         if transcript:
              mood, message, metadata = await self._run_agent_turn(transcript, final_prompt, history)
         else:
-             mood, message, metadata = self.llm.chat_audio(audio_path, system_prompt=final_prompt, history=history)
+             # no STT transcript available; current providers have no multimodal audio path
+             mood, message, metadata = "neutral", "Sorry, I couldn't make out any audio.", {}
              transcript = "[Audio Message]"
         
         if "mood" in metadata:

@@ -21,6 +21,7 @@ def fit_text_for_box(
 
     # se max_lines è none o <= 0, lo trattiamo come infinito
     allow_infinite = max_lines is None or max_lines <= 0
+    limit_lines = 0 if max_lines is None else max_lines
 
     for size in range(safe_base, safe_min - 1, -safe_step):
         width = max(1, int(round(line_width * safe_base / size)))
@@ -28,7 +29,7 @@ def fit_text_for_box(
         if not wrapped:
             wrapped = [""]
         
-        if allow_infinite or len(wrapped) <= max_lines:
+        if allow_infinite or len(wrapped) <= limit_lines:
             chosen_lines = wrapped
             chosen_size = size
             chosen_width = width
@@ -39,8 +40,8 @@ def fit_text_for_box(
         chosen_width = max(1, int(round(line_width * safe_base / chosen_size)))
         chosen_lines = textwrap.wrap(message, width=chosen_width) or [""]
 
-    if not allow_infinite and len(chosen_lines) > max_lines:
-        chosen_lines = chosen_lines[:max_lines]
+    if not allow_infinite and len(chosen_lines) > limit_lines:
+        chosen_lines = chosen_lines[:limit_lines]
         last = chosen_lines[-1]
         ellipsis = "..."
         if len(last) + len(ellipsis) > chosen_width:

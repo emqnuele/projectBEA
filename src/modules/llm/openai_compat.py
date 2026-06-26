@@ -67,7 +67,7 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
             kwargs["response_format"] = {"type": "json_object"}
         return self.client.chat.completions.create(**kwargs)
 
-    def chat(self, user_input: str, system_prompt: Optional[str] = None, history: list = None) -> Tuple[str, str, dict]:
+    def chat(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, dict]:
         messages = self._build_messages(user_input, system_prompt, history)
         try:
             response = self._create(messages, json_mode=True)
@@ -76,7 +76,7 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
             logger.error(f"API Error: {e}")
             return "sad", "There's some problem with my AI", {}
 
-    def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: list = None) -> Tuple[str, str, dict]:
+    def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, dict]:
         if not self.stt:
             return "neutral", "I cannot hear you (STT module not configured).", {}
         transcription = self.stt.transcribe(audio_path)
@@ -84,7 +84,7 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
             return "neutral", "I heard nothing.", {}
         return self.chat(transcription, system_prompt, history)
 
-    def generate_json(self, user_input: str, system_prompt: Optional[str] = None, history: list = None) -> Union[Dict, list]:
+    def generate_json(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Union[Dict, list]:
         messages = self._build_messages(user_input, system_prompt, history)
         try:
             response = self._create(messages, json_mode=True)

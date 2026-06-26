@@ -28,7 +28,7 @@ class EdgeTTSWrapper(TTSInterface):
         if config.tts_volume != self.volume:
              self.volume = config.tts_volume
 
-    async def generate_audio(self, text: str, filename: str) -> None:
+    async def _generate_audio_file(self, text: str, filename: str) -> None:
         """Generates the audio file."""
         communicate = edge_tts.Communicate(text, self.voice, pitch=self.pitch, rate=self.rate, volume=self.volume)
         await communicate.save(filename)

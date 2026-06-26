@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Union, Dict
+from typing import Optional, Tuple, Union, Dict, Any
 from pathlib import Path
 import asyncio
 
 class LLMInterface(ABC):
     
     @abstractmethod
-    def chat(self, user_input: str, system_prompt: Optional[str] = None, history: list = None) -> Tuple[str, str, Dict]:
+    def chat(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
         """
         Sends user input to the LLM and returns (mood, message, metadata).
         history: List of dictionaries [{"role": "user"|"assistant", "content": "..."}]
@@ -14,7 +14,7 @@ class LLMInterface(ABC):
         pass
     
     @abstractmethod
-    def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: list = None) -> Tuple[str, str, Dict]:
+    def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
         """
         Sends audio input to the LLM and returns (mood, message, metadata).
         """
@@ -26,7 +26,7 @@ class LLMInterface(ABC):
         pass
 
     @abstractmethod
-    def generate_json(self, user_input: str, system_prompt: Optional[str] = None, history: list = None) -> Dict:
+    def generate_json(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Union[Dict, list]:
         """
         Generates a JSON response from the LLM.
         Returns a dictionary parsed from the JSON output.
@@ -42,7 +42,7 @@ class TTSInterface(ABC):
         pass
 
     @abstractmethod
-    async def generate_audio(self, text: str) -> Tuple[object, int]:
+    async def generate_audio(self, text: str) -> Tuple[Any, int]:
         """
         Generates audio from text.
         Returns (audio_data, sample_rate).

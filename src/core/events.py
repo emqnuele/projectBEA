@@ -30,7 +30,7 @@ class EventManager:
         self.events: List[BrainEvent] = []
         self.max_history = max_history
 
-    def publish(self, category: EventCategory, source: str, message: str, metadata: Dict[str, Any] = None):
+    def publish(self, category: EventCategory, source: str, message: str, metadata: Optional[Dict[str, Any]] = None):
         if metadata is None:
             metadata = {}
             

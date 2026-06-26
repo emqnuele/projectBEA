@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Any
 from pathlib import Path
 from obsws_python import ReqClient
 from src.interfaces.base_interfaces import OBSInterface
@@ -15,7 +15,7 @@ class OBSController(OBSInterface):
         self.password = password
         self.source_name = source_name
         self.client: Optional[ReqClient] = None
-        self._font_cache: Dict[str, Dict[str, object]] = {}
+        self._font_cache: Dict[str, Dict[str, Any]] = {}
     
     def reload_config(self, config) -> None:
         """Reconnects if critical connection details changed."""
@@ -79,7 +79,7 @@ class OBSController(OBSInterface):
             overlay=True,
         )
 
-    def _get_text_font(self, text_source: str) -> Dict[str, object]:
+    def _get_text_font(self, text_source: str) -> Dict[str, Any]:
         if not self.client:
             return {}
         if text_source not in self._font_cache:

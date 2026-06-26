@@ -1,7 +1,7 @@
 import chromadb
 from chromadb.utils import embedding_functions
 import time
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, cast, Any
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.memory.storage")
@@ -30,7 +30,7 @@ class MemoryStorage:
 
             self.collection = self.chroma_client.get_or_create_collection(
                 name="bea_diary",
-                embedding_function=emb_fn,
+                embedding_function=cast(Any, emb_fn),
                 metadata={"hnsw:space": "cosine"}
             )
             logger.info(f"MemoryStorage: ChromaDB initialized. Count: {self.collection.count()}")
