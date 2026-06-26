@@ -95,12 +95,8 @@ class BrainConfig:
         "minecraft": {
             "enabled": True,
             "server_url": "ws://localhost:8080",
-            "max_history_events": 20,
-            "debug_mode": True,
             "auto_chat_thoughts": False,
             "auto_speak_thoughts": False,
-            "mc_openai_model": "gpt-4o-mini",
-            "mc_openai_key": "",
             "system_prompt_path": "data/prompts/minecraft.txt"
         },
         "discord": {
@@ -120,7 +116,7 @@ class BrainConfig:
         self.load_from_file()
 
     # secret keys
-    SECRET_KEYS = ["openrouter_key", "openai_key", "groq_key", "orpheus_key", "orpheus_endpoint", "mc_openai_key"]
+    SECRET_KEYS = ["openrouter_key", "openai_key", "groq_key", "orpheus_key", "orpheus_endpoint"]
 
     def load_from_file(self):
         """Loads configuration from config.json if it exists."""
@@ -151,11 +147,6 @@ class BrainConfig:
                             current_skills = self.skills
                             for skill_name, skill_val in value.items():
                                 if skill_name in current_skills:
-                                    if skill_name == "minecraft" and "mc_openai_key" in skill_val:
-                                        mc_key = skill_val["mc_openai_key"]
-                                        if mc_key is None or mc_key == "":
-                                            del skill_val["mc_openai_key"]
-                                    
                                     current_skills[skill_name].update(skill_val)
                                 else:
                                     current_skills[skill_name] = skill_val
@@ -179,11 +170,6 @@ class BrainConfig:
             if secret in data:
                 del data[secret]
         
-        # strip nested secrets
-        if "skills" in data and "minecraft" in data["skills"]:
-            if "mc_openai_key" in data["skills"]["minecraft"]:
-                 del data["skills"]["minecraft"]["mc_openai_key"]
-
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)

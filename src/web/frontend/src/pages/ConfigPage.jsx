@@ -508,27 +508,6 @@ export default function ConfigPage({ activeCategory }) {
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="space-y-1.5">
-                                            <label className="text-xs font-medium text-zinc-500">Max History Events</label>
-                                            <input
-                                                type="number"
-                                                value={config.skills?.minecraft?.max_history_events ?? 20}
-                                                onChange={(e) => {
-                                                    setConfig(prev => ({
-                                                        ...prev,
-                                                        skills: {
-                                                            ...prev.skills,
-                                                            minecraft: {
-                                                                ...prev.skills.minecraft,
-                                                                max_history_events: parseInt(e.target.value)
-                                                            }
-                                                        }
-                                                    }))
-                                                }}
-                                                className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 outline-none"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-1.5">
                                             <label className="text-xs font-medium text-zinc-500">Auto Chat Thoughts</label>
                                             <div className="flex items-center h-[38px] px-3 border border-zinc-200 rounded-md">
                                                 <input
@@ -575,73 +554,10 @@ export default function ConfigPage({ activeCategory }) {
                                                 <span className="ml-2 text-xs">Pipe directly to TTS/OBS</span>
                                             </div>
                                         </div>
-
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs font-medium text-zinc-500">Debug Mode</label>
-                                            <div className="flex items-center h-[38px] px-3 border border-zinc-200 rounded-md">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={config.skills?.minecraft?.debug_mode || false}
-                                                    onChange={(e) => {
-                                                        setConfig(prev => ({
-                                                            ...prev,
-                                                            skills: {
-                                                                ...prev.skills,
-                                                                minecraft: {
-                                                                    ...prev.skills.minecraft,
-                                                                    debug_mode: e.target.checked
-                                                                }
-                                                            }
-                                                        }))
-                                                    }}
-                                                    className="w-4 h-4 text-zinc-900 rounded focus:ring-zinc-900"
-                                                />
-                                                <span className="ml-2 text-xs">Enable Verbose Logging</span>
-                                            </div>
-                                        </div>
                                     </div>
 
                                     <div className="pt-4 border-t border-zinc-100 space-y-4">
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs font-medium text-zinc-500">Dedicated OpenAI Model</label>
-                                            <input
-                                                value={config.skills?.minecraft?.mc_openai_model || 'gpt-4o-mini'}
-                                                onChange={(e) => {
-                                                    setConfig(prev => ({
-                                                        ...prev,
-                                                        skills: {
-                                                            ...prev.skills,
-                                                            minecraft: {
-                                                                ...prev.skills.minecraft,
-                                                                mc_openai_model: e.target.value
-                                                            }
-                                                        }
-                                                    }))
-                                                }}
-                                                className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 outline-none"
-                                            />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs font-medium text-zinc-500">Dedicated OpenAI Key (Optional)</label>
-                                            <input
-                                                type="password"
-                                                value={config.skills?.minecraft?.mc_openai_key || ''}
-                                                onChange={(e) => {
-                                                    setConfig(prev => ({
-                                                        ...prev,
-                                                        skills: {
-                                                            ...prev.skills,
-                                                            minecraft: {
-                                                                ...prev.skills.minecraft,
-                                                                mc_openai_key: e.target.value
-                                                            }
-                                                        }
-                                                    }))
-                                                }}
-                                                className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 outline-none"
-                                                placeholder="sk-..."
-                                            />
-                                        </div>
+                                        <p className="text-[11px] text-zinc-400">The Minecraft agent uses the engine's main LLM provider (configured under LLM).</p>
                                         <div className="space-y-1.5">
                                             <label className="text-xs font-medium text-zinc-500">System Prompt Overrides</label>
                                             <div className="flex items-center justify-between p-3 border border-zinc-200 rounded-lg bg-zinc-50/50">

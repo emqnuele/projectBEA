@@ -1,0 +1,133 @@
+from typing import Any, Dict
+
+from src.core.agent.tools import ToolRegistry
+from src.modules.skills.minecraft.mc_client import MinecraftClient
+
+# actions the mod executes and reports back as completed (the agent awaits them)
+# vs instant actions that return immediately with no completion event.
+_INSTANT = {"request_screenshot", "check_death_log", "stop_moving", "chat"}
+
+# name -> (description, json-schema parameters)
+_TOOLS: Dict[str, Dict[str, Any]] = {
+    "mine_block": ("Navigate to and mine a specific block.", {
+        "type": "object",
+        "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
+        "required": ["x", "y", "z"],
+    }),
+    "attack_entity": ("Attack a specific entity.", {
+        "type": "object",
+        "properties": {"target": {"type": "integer", "description": "Entity ID of the target."}},
+        "required": ["target"],
+    }),
+    "move_to": ("Move to specific coordinates.", {
+        "type": "object",
+        "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
+        "required": ["x", "y", "z"],
+    }),
+    "stop_moving": ("Stop all movement immediately.", {"type": "object", "properties": {}}),
+    "request_screenshot": ("Request a visual screenshot of the current view.", {"type": "object", "properties": {}}),
+    "look_at": ("Look at specific coordinates.", {
+        "type": "object",
+        "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+        "required": ["x", "y", "z"],
+    }),
+    "place_block": ("Place a block at specific coordinates. Can specify block type.", {
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"},
+            "block": {"type": "string", "description": "Optional block name to place"},
+        },
+        "required": ["x", "y", "z"],
+    }),
+    "select_slot": ("Select a hotbar slot (0-8).", {
+        "type": "object",
+        "properties": {"slot": {"type": "integer", "minimum": 0, "maximum": 8}},
+        "required": ["slot"],
+    }),
+    "find_block": ("Find the nearest block of a given type.", {
+        "type": "object",
+        "properties": {
+            "block": {"type": "string"},
+            "max_distance": {"type": "integer", "default": 100, "description": "Maximum search radius."},
+        },
+        "required": ["block"],
+    }),
+    "pillar_up": ("Pillar up a certain height.", {
+        "type": "object",
+        "properties": {"height": {"type": "integer"}, "block": {"type": "string"}},
+        "required": ["height"],
+    }),
+    "mine_down": ("Mine downwards a certain depth.", {
+        "type": "object",
+        "properties": {"depth": {"type": "integer"}},
+        "required": ["depth"],
+    }),
+    "bridge": ("Build a bridge in a direction.", {
+        "type": "object",
+        "properties": {
+            "direction": {"type": "string", "enum": ["NORTH", "SOUTH", "EAST", "WEST"]},
+            "count": {"type": "integer"},
+        },
+        "required": ["direction", "count"],
+    }),
+    "craft_item": ("Craft an item using a nearby crafting table or inventory.", {
+        "type": "object",
+        "properties": {"item": {"type": "string"}},
+        "required": ["item"],
+    }),
+    "use_block": ("Interact (right click) with a block at coordinates.", {
+        "type": "object",
+        "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
+        "required": ["x", "y", "z"],
+    }),
+    "smelt_item": ("Smelt an item in a furnace.", {
+        "type": "object",
+        "properties": {"input_item": {"type": "string"}, "fuel_item": {"type": "string"}},
+        "required": ["input_item", "fuel_item"],
+    }),
+    "store_item": ("Store items in a container.", {
+        "type": "object",
+        "properties": {"item": {"type": "string"}},
+        "required": ["item"],
+    }),
+    "retrieve_item": ("Retrieve items from a container.", {
+        "type": "object",
+        "properties": {"item": {"type": "string"}},
+        "required": ["item"],
+    }),
+    "equip_item": ("Equip an item from inventory to main hand.", {
+        "type": "object",
+        "properties": {"item": {"type": "string"}},
+        "required": ["item"],
+    }),
+    "discard_item": ("Discard (throw away) items.", {
+        "type": "object",
+        "properties": {
+            "item": {"type": "string"},
+            "all": {"type": "boolean", "description": "Discard all stacks of this item?"},
+        },
+        "required": ["item"],
+    }),
+    "eat_food": ("Eat the best available food.", {"type": "object", "properties": {}}),
+    "check_death_log": ("Check the last death details.", {"type": "object", "properties": {}}),
+    "chat": ("Send a chat message in-game.", {
+        "type": "object",
+        "properties": {"message": {"type": "string"}},
+        "required": ["message"],
+    }),
+}
+
+
+def build_minecraft_tools(client: MinecraftClient) -> ToolRegistry:
+    """Builds a registry whose handlers drive the mod and return observations."""
+    registry = ToolRegistry()
+
+    def make_handler(action: str, instant: bool):
+        async def handler(**kwargs):
+            return await client.execute(action, kwargs, instant=instant)
+        return handler
+
+    for name, (description, parameters) in _TOOLS.items():
+        registry.add(name, description, parameters, make_handler(name, name in _INSTANT))
+
+    return registry
