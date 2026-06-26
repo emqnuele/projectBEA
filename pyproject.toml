@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [project.scripts]
-bea = "main:run"
+bea = "src.cli:run"
 
 [project.optional-dependencies]
 # extra deps for the standalone minecraft agent skill
@@ -45,6 +45,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
-# main.py lives at the repo root, ship it as a top-level module
-include = ["main.py"]
-force-include = { "main.py" = "main.py" }

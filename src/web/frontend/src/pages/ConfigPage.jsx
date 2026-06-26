@@ -113,7 +113,7 @@ export default function ConfigPage({ activeCategory }) {
                             <section>
                                 <label className="text-sm font-medium text-zinc-900 block mb-4">Provider Selection</label>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {['gemini', 'glm', 'openai', 'groq'].map(p => (
+                                    {['openrouter', 'openai', 'groq'].map(p => (
                                         <label key={p} className={`cursor-pointer border rounded-xl p-4 transition-all relative
                                             ${config.llm_provider === p
                                                 ? 'border-zinc-900 bg-zinc-50 shadow-sm ring-1 ring-zinc-900'
@@ -126,60 +126,35 @@ export default function ConfigPage({ activeCategory }) {
                                             />
                                             <div className="font-semibold capitalize text-sm">{p}</div>
                                             <p className="text-xs text-zinc-500 mt-1">
-                                                {p === 'gemini' ? 'Google DeepMind multimodal model.' : p === 'glm' ? 'Zhipu AI advanced language model.' : p === 'openai' ? 'OpenAI GPT-4o advanced model.' : 'Groq Fast Inference.'}
+                                                {p === 'openrouter' ? 'One endpoint, any model (GPT, Claude, Gemini, ...).' : p === 'openai' ? 'OpenAI GPT models, called directly.' : 'Groq fast inference.'}
                                             </p>
                                         </label>
                                     ))}
                                 </div>
                             </section>
 
-                            {config.llm_provider === 'gemini' && (
+                            {config.llm_provider === 'openrouter' && (
                                 <section className="space-y-4">
-                                    <label className="text-sm font-medium text-zinc-900 block border-b border-zinc-100 pb-2">Gemini Configuration</label>
+                                    <label className="text-sm font-medium text-zinc-900 block border-b border-zinc-100 pb-2">OpenRouter Configuration</label>
                                     <div className="grid gap-4">
                                         <div className="space-y-1.5">
                                             <label className="text-xs font-medium text-zinc-500">API Key</label>
                                             <input
                                                 type="password"
-                                                value={config.gemini_key || ''}
-                                                onChange={(e) => updateField('gemini_key', e.target.value)}
+                                                value={config.openrouter_key || ''}
+                                                onChange={(e) => updateField('openrouter_key', e.target.value)}
                                                 className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 outline-none transition-all"
-                                                placeholder="AIza..."
+                                                placeholder="sk-or-..."
                                             />
                                         </div>
                                         <div className="space-y-1.5">
                                             <label className="text-xs font-medium text-zinc-500">Model Name</label>
                                             <input
                                                 type="text"
-                                                value={config.gemini_model || ''}
-                                                onChange={(e) => updateField('gemini_model', e.target.value)}
+                                                value={config.openrouter_model || ''}
+                                                onChange={(e) => updateField('openrouter_model', e.target.value)}
                                                 className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 outline-none transition-all"
-                                            />
-                                        </div>
-                                    </div>
-                                </section>
-                            )}
-
-                            {config.llm_provider === 'glm' && (
-                                <section className="space-y-4">
-                                    <label className="text-sm font-medium text-zinc-900 block border-b border-zinc-100 pb-2">GLM Configuration</label>
-                                    <div className="grid gap-4">
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs font-medium text-zinc-500">API Key</label>
-                                            <input
-                                                type="password"
-                                                value={config.glm_key || ''}
-                                                onChange={(e) => updateField('glm_key', e.target.value)}
-                                                className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 outline-none transition-all"
-                                            />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs font-medium text-zinc-500">Model Name</label>
-                                            <input
-                                                type="text"
-                                                value={config.glm_model || ''}
-                                                onChange={(e) => updateField('glm_model', e.target.value)}
-                                                className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 outline-none transition-all"
+                                                placeholder="openai/gpt-4o-mini"
                                             />
                                         </div>
                                     </div>

@@ -12,15 +12,11 @@ CONFIG_FILE = "config.json"
 class BrainConfig:
     language: str = "en" # default language
     system_prompt_path: str = "data/prompts/sys-prompt.txt"
-    llm_provider: str = "openai" # gemini, openai, groq, glm
-    
-    # gemini
-    gemini_key: Optional[str] = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
-    gemini_model: str = "gemini-3-flash-preview"
+    llm_provider: str = "openrouter" # openrouter, openai, groq
 
-    # glm
-    glm_key: Optional[str] = field(default_factory=lambda: os.getenv("GLM_API_KEY"))
-    glm_model: str = "glm-4.7"
+    # openrouter (routes to virtually any model via one openai-compatible endpoint)
+    openrouter_key: Optional[str] = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
+    openrouter_model: str = "openai/gpt-4o-mini"
 
     # openai
     openai_key: Optional[str] = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
@@ -124,7 +120,7 @@ class BrainConfig:
         self.load_from_file()
 
     # secret keys
-    SECRET_KEYS = ["gemini_key", "glm_key", "openai_key", "groq_key", "orpheus_key", "orpheus_endpoint", "mc_openai_key"]
+    SECRET_KEYS = ["openrouter_key", "openai_key", "groq_key", "orpheus_key", "orpheus_endpoint", "mc_openai_key"]
 
     def load_from_file(self):
         """Loads configuration from config.json if it exists."""

@@ -1,9 +1,8 @@
 {
     "language": "en",
     "system_prompt_path": "data/prompts/sys-prompt.txt",
-    "llm_provider": "groq",
-    "gemini_model": "gemini-3-flash-preview",
-    "glm_model": "glm-4.7",
+    "llm_provider": "openrouter",
+    "openrouter_model": "openai/gpt-4o-mini",
     "openai_model": "gpt-5",
     "groq_model": "openai/gpt-oss-20b",
     "obs_text_source": "AIText",
