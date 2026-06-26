@@ -30,9 +30,8 @@ Configuration is managed via two sources that are merged at startup:
   "language": "en",
   "system_prompt_path": "data/prompts/sys-prompt.txt",
 
-  "llm_provider": "openai",
-  "gemini_model": "gemini-3-flash-preview",
-  "glm_model": "glm-4.7",
+  "llm_provider": "openrouter",
+  "openrouter_model": "openai/gpt-4o-mini",
   "openai_model": "gpt-5",
   "groq_model": "openai/gpt-oss-20b",
 
@@ -97,12 +96,8 @@ Configuration is managed via two sources that are merged at startup:
     "minecraft": {
       "enabled": false,
       "server_url": "ws://localhost:8080",
-      "max_history_events": 20,
-      "debug_mode": true,
       "auto_chat_thoughts": false,
       "auto_speak_thoughts": false,
-      "mc_openai_model": "gpt-4o-mini",
-      "mc_openai_key": "",
       "system_prompt_path": "data/prompts/minecraft.txt"
     },
     "discord": {
@@ -126,14 +121,13 @@ Configuration is managed via two sources that are merged at startup:
 |---|---|---|
 | `language` | `"en"` | Language code passed to the STT transcriber |
 | `system_prompt_path` | `"data/prompts/sys-prompt.txt"` | Path to the AI persona system prompt file |
-| `llm_provider` | `"openai"` | Active LLM: `gemini`, `openai`, `groq`, `glm` |
+| `llm_provider` | `"openrouter"` | Active LLM: `openrouter`, `openai`, `groq` |
 
 ### LLM Models
 
 | Field | Default |
 |---|---|
-| `gemini_model` | `"gemini-3-flash-preview"` |
-| `glm_model` | `"glm-4.7"` |
+| `openrouter_model` | `"openai/gpt-4o-mini"` (any model id, e.g. `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash`) |
 | `openai_model` | `"gpt-5"` |
 | `groq_model` | `"openai/gpt-oss-20b"` |
 
@@ -203,13 +197,11 @@ Maps mood names to file paths. Each mood key (`normal`, `angry`, `bored`, `cry`,
 | Key | Default | Description |
 |---|---|---|
 | `server_url` | `"ws://localhost:8080"` | WebSocket URL of the Minecraft mod |
-| `max_history_events` | `20` | How many past game events the agent keeps in context |
-| `debug_mode` | `true` | Enables verbose agent logging |
 | `auto_speak_thoughts` | `false` | TTS-speak agent thoughts as Bea's commentary |
 | `auto_chat_thoughts` | `false` | Also send thoughts as in-game chat messages |
-| `mc_openai_model` | `"gpt-4o-mini"` | Model used by the Minecraft agent |
-| `mc_openai_key` | *(env: `OPENAI_API_KEY`)* | Optional separate OpenAI key for the MC agent. Falls back to the main `OPENAI_API_KEY` if empty. |
 | `system_prompt_path` | `"data/prompts/minecraft.txt"` | Custom system prompt for the Minecraft context |
+
+> The Minecraft agent uses the engine's main `llm_provider` (no dedicated key/model). It drives the mod through native tool calls.
 
 ---
 
@@ -217,10 +209,9 @@ Maps mood names to file paths. Each mood key (`normal`, `angry`, `bored`, `cry`,
 
 | Variable | Used by |
 |---|---|
+| `OPENROUTER_API_KEY` | OpenRouter LLM (default provider) |
 | `OPENAI_API_KEY` | OpenAI LLM, Memory skill embedding |
-| `GEMINI_API_KEY` | Gemini LLM |
 | `GROQ_API_KEY` | Groq LLM, Groq STT |
-| `GLM_API_KEY` | GLM LLM |
 | `ORPHEUS_API_KEY` | Orpheus TTS — API key |
 | `ORPHEUS_ENDPOINT` | Orpheus TTS — Baseten endpoint URL (treated as secret: never saved to `config.json`) |
 | `DISCORD_TOKEN` | Discord skill bot |
@@ -232,19 +223,17 @@ Maps mood names to file paths. Each mood key (`normal`, `angry`, `bored`, `cry`,
 All arguments mirror `config.json` fields. Most are optional (fall back to config/defaults).
 
 ```
-python main.py [OPTIONS]
+uv run bea [OPTIONS]
 
   --web                    Start the web dashboard (FastAPI + React)
   --system-file PATH       Path to the persona system prompt
-  --llm-provider CHOICE    gemini | openai | groq | glm
-  --gemini-key KEY
-  --gemini-model MODEL
+  --llm-provider CHOICE    openrouter | openai | groq
+  --openrouter-key KEY
+  --openrouter-model MODEL
   --openai-key KEY
   --openai-model MODEL
   --groq-key KEY
   --groq-model MODEL
-  --glm-key KEY
-  --glm-model MODEL
   --tts-provider CHOICE    edge | kokoro | orpheus | coqui
                            (Note: `coqui` is accepted by the parser but has no
                            active implementation — it silently falls back to EdgeTTS)
@@ -273,7 +262,7 @@ python main.py [OPTIONS]
 
 After saving new settings via `POST /config` (web API), the brain calls `reload_configuration()` which propagates changes to all modules and skills without restarting.
 
-> **Security note (`GET /config`):** The `GET /config` endpoint returns the full in-memory `BrainConfig`, including all secret API key fields (`gemini_key`, `openai_key`, `groq_key`, `orpheus_endpoint`, etc.), with **no redaction**. This is asymmetric with `save_to_file()`, which strips secrets before writing to disk. Do not expose the web API over a public network without authentication. See [Web API → `GET /config`](web/api.md) for details.
+> **Security note (`GET /config`):** The `GET /config` endpoint returns the full in-memory `BrainConfig`, including all secret API key fields (`openrouter_key`, `openai_key`, `groq_key`, `orpheus_endpoint`, etc.), with **no redaction**. This is asymmetric with `save_to_file()`, which strips secrets before writing to disk. Do not expose the web API over a public network without authentication. See [Web API → `GET /config`](web/api.md) for details.
 
 ---
 
@@ -285,7 +274,7 @@ During `load_from_file()`, if `config.json` contains the old field name `obs_ima
 
 ### `save_to_file()` — nested secret stripping
 
-`save_to_file()` removes all top-level secret keys (`*_key` fields) from the saved JSON. In addition, it separately strips `skills.minecraft.mc_openai_key` from the nested skills block. Although `mc_openai_key` is listed in `SECRET_KEYS`, the top-level scan operates on the flattened `BrainConfig` fields — it won't find a key that is nested inside `skills.minecraft`. The explicit extra strip covers that gap. The combined effect is that neither top-level nor nested secret keys are ever persisted to `config.json`.
+`save_to_file()` removes all top-level secret keys listed in `SECRET_KEYS` (`openrouter_key`, `openai_key`, `groq_key`, `orpheus_key`, `orpheus_endpoint`) from the saved JSON, so secrets are never persisted to `config.json`.
 
 > **Exception:** Changing `tts_provider` requires a restart because the TTS object is instantiated at boot.
 

@@ -11,7 +11,7 @@
 
 | Feature | Description |
 |---|---|
-| **Swappable LLMs** | Gemini, OpenAI-compatible (GPT-4o, Groq, GLM-4.7) — switch at runtime |
+| **Swappable LLMs** | OpenRouter (any model), OpenAI, Groq — tool-use ready, switch at runtime |
 | **Multiple TTS engines** | EdgeTTS (free), Kokoro (local ONNX), Orpheus (API) |
 | **OBS Integration** | Avatar PNG/video swap, animated text bubble via WebSocket |
 | **RAG Memory** | ChromaDB-powered diary system — Bea remembers past sessions |
@@ -78,7 +78,7 @@ ProjectBEA/
     ├── interfaces/
     │   └── base_interfaces.py # Abstract contracts: LLM, TTS, STT, OBS
     ├── modules/
-    │   ├── llm/               # LLM providers (Gemini, OpenAI, Groq, GLM)
+    │   ├── llm/               # LLM providers (OpenRouter, OpenAI, Groq)
     │   ├── tts/               # TTS engines (EdgeTTS, Kokoro, Orpheus)
     │   ├── STT/               # STT (Groq/Whisper)
     │   ├── obs/               # OBS WebSocket controller
@@ -121,8 +121,8 @@ uv sync          # or: make install
 Copy `.env.example` to `.env` (or set environment variables directly):
 
 ```env
+OPENROUTER_API_KEY=sk-or-...
 OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=AIzaSy...
 GROQ_API_KEY=gsk_...
 DISCORD_TOKEN=...
 ```
@@ -145,7 +145,7 @@ uv run bea --web # or: make web  (builds the frontend too)
 
 **Override provider at launch:**
 ```bash
-uv run bea --llm-provider gemini --tts-provider kokoro --web
+uv run bea --llm-provider openrouter --tts-provider kokoro --web
 ```
 
 **[Setup & Deployment Guide →](docs/setup.md)**
@@ -158,7 +158,7 @@ The engine is built around three types of components, each defined by an abstrac
 
 | Component | Interface | Implementations |
 |---|---|---|
-| **LLM** | `LLMInterface` | Gemini, OpenAI, Groq, GLM-4.7 |
+| **LLM** | `LLMClient` (tool-aware) | OpenRouter, OpenAI, Groq |
 | **TTS** | `TTSInterface` | EdgeTTS, Kokoro (local), Orpheus |
 | **STT** | `STTInterface` | Groq (Whisper large-v3-turbo) |
 | **OBS** | `OBSInterface` | OBS WebSocket (obs-websocket-py) |

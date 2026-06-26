@@ -470,7 +470,7 @@ export default function ConfigPage({ activeCategory }) {
                                             value={config.system_prompt_path || ''}
                                             onChange={(e) => updateField('system_prompt_path', e.target.value)}
                                             className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 outline-none"
-                                            placeholder="gemini-1-eng.txt"
+                                            placeholder="data/prompts/sys-prompt.txt"
                                         />
                                         <p className="text-[10px] text-zinc-400">The file loaded from the root directory as Bea's identity.</p>
                                     </div>

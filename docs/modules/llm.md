@@ -6,122 +6,101 @@
 
 ## Overview
 
-The LLM layer is entirely defined by `LLMInterface` (`src/interfaces/base_interfaces.py`). The brain calls `llm.chat()` and never knows which concrete provider is behind it. Providers are instantiated in `main.py` based on the `--llm-provider` flag or `config.json`.
+The LLM layer is provider-agnostic and **tool-aware**. The core primitive is
+`LLMClient.complete()` (`src/core/agent/llm_client.py`), which every agent in
+the app (the conversational brain, the Minecraft agent) drives through the
+shared harness in `src/core/agent/`.
+
+Providers are built by a single factory (`src/modules/llm/factory.py`) based on
+the `--llm-provider` flag or `config.json`.
 
 ```
+src/core/agent/
+├── llm_client.py     LLMClient: async complete(messages, tools) -> AssistantMessage
+├── tools.py          Tool, ToolRegistry
+├── runner.py         AgentRunner: the think -> act -> observe loop
+└── types.py          AssistantMessage, ToolCall
+
 src/modules/llm/
-├── gemini_llm.py      Google Gemini (google-genai SDK)
-├── openai_llm.py      OpenAI / any OpenAI-compatible API
-├── groq_llm.py        Groq (OpenAI-compatible, fast inference)
-└── glm_llm.py         GLM-4.7 by Z.AI (OpenAI-compatible)
+├── openai_compat.py  OpenAICompatibleClient — shared base (complete + legacy helpers)
+├── openai_llm.py     OpenAI
+├── groq_llm.py       Groq (fast inference)
+├── openrouter_llm.py OpenRouter (one endpoint, any model)
+└── factory.py        build_llm(config, stt) -> LLMClient
 ```
+
+All three providers speak the OpenAI Chat API, so they share
+`OpenAICompatibleClient`; each subclass only sets a base URL / API key and
+implements `reload_config`.
 
 ---
 
 ## Interface Contract
 
 ```python
-class LLMInterface(ABC):
-    def chat(user_input: str, system_prompt: Optional[str] = None, history: list = None) -> (mood, message, metadata)
-    def chat_audio(audio_path: str, system_prompt: Optional[str] = None, history: list = None) -> (mood, message, metadata)
-    def generate_json(user_input: str, system_prompt: Optional[str] = None, history: list = None) -> dict
-    def reload_config(config: BrainConfig) -> None
+class LLMClient(ABC):
+    async def complete(messages, tools=None, response_format=None) -> AssistantMessage
+    def reload_config(config) -> None
 ```
 
-Every LLM must return a **structured tuple**:
-- `mood` (`str`) — one of the defined mood IDs (`normal`, `angry`, `bored`, `cry`, `ew`, `love`, `shock`)
-- `message` (`str`) — the spoken text response
-- `metadata` (`dict`) — any extra fields from the JSON response
+`AssistantMessage` has `.content` (text) and `.tool_calls` (list of `ToolCall`).
+When the model wants to act it returns tool calls; when it answers it returns
+content with no tool calls.
+
+For backward compatibility, `OpenAICompatibleClient` also exposes the legacy
+helpers `chat()`, `chat_audio()`, and `generate_json()` (used by the memory and
+monologue skills), implemented on top of the same client.
 
 ---
 
-## Expected LLM Response Format
+## Response Format (conversational turns)
 
-The system prompt instructs the AI to always reply in JSON:
+Bea's spoken replies stay in the existing JSON shape:
 
 ```json
-{
-  "mood": "normal",
-  "message": "The spoken response text."
-}
+{ "mood": "normal", "message": "The spoken response text." }
 ```
 
-All providers use `src/utils/llm_utils.parse_llm_json()` to robustly extract this JSON from the raw response, handling:
-- Fenced code blocks (` ```json ... ``` `)
-- Raw JSON strings
-- Nested braces (finds first balanced `{ }` block)
-
-If parsing fails, mood defaults to `"normal"` and the raw string is used as the message.
+`src/utils/llm_utils.parse_llm_json()` extracts it robustly (fenced blocks, raw
+JSON, first balanced `{ }`); on failure mood defaults to `normal` and the raw
+text becomes the message. Tools are used for **actions**, not for the final
+spoken answer, so a plain chat turn costs no extra tool-schema tokens.
 
 ---
 
 ## Providers
 
-### Gemini (`gemini_llm.py`)
+| Provider | Class | Config model key | Env var | Notes |
+|---|---|---|---|---|
+| OpenRouter | `OpenRouterLLM` | `openrouter_model` | `OPENROUTER_API_KEY` | Default. Routes to any model (`openai/...`, `anthropic/...`, `google/...`). |
+| OpenAI | `OpenAILLM` | `openai_model` | `OPENAI_API_KEY` | Also used by the Memory skill embedding/diary. |
+| Groq | `GroqLLM` | `groq_model` | `GROQ_API_KEY` | Fast inference; same key powers Groq STT. |
 
-**SDK:** `google-genai`  
-**Config key:** `gemini_model` (default: `gemini-3-flash-preview`)  
-**Env var:** `GEMINI_API_KEY`
-
-Supports **multimodal input** — can accept both text and audio inline (base64 bytes). This is the only provider that natively supports `chat_audio()` without requiring a separate STT step.
-
-```python
-llm = GeminiLLM(api_key="...", model_name="gemini-3-flash-preview")
-mood, message, meta = llm.chat("Hello!", system_prompt="...", history=[...])
-```
-
----
-
-### OpenAI (`openai_llm.py`)
-
-**SDK:** `openai`  
-**Config key:** `openai_model` (default: `gpt-5`)  
-**Env var:** `OPENAI_API_KEY`
-
-Standard OpenAI chat completions. `chat_audio()` is handled by first transcribing via the injected STT interface, then calling `chat()`. Also used by the Memory skill's `DiaryGenerator`.
-
----
-
-### Groq (`groq_llm.py`)
-
-**SDK:** `groq` (OpenAI-compatible)  
-**Config key:** `groq_model` (default: `openai/gpt-oss-20b`)  
-**Env var:** `GROQ_API_KEY`
-
-High-speed inference. The Groq provider is also used by the STT module (Whisper), so a single key can power both speech recognition and language generation.
-
----
-
-### GLM-4.7 (`glm_llm.py`)
-
-**SDK:** OpenAI-compatible client pointed at Z.AI  
-**Config key:** `glm_model` (default: `glm-4.7`)  
-**Env var:** `GLM_API_KEY`
-
-Connects to the Z.AI (Zhipu AI) API using the same interface as OpenAI. Useful as a cost-effective alternative.
+`chat_audio()` transcribes via the injected STT interface, then calls the text
+path.
 
 ---
 
 ## Hot Reload
 
-Every provider implements `reload_config(config)`. When called:
-- If the API key changed, the client is re-initialized.
-- If the model name changed, it is updated in place.
-
-No restart needed after a config update.
+Every provider implements `reload_config(config)`: re-initializes the client if
+the key changed, updates the model name in place. No restart needed.
 
 ---
 
-## Adding a New LLM Provider
+## Adding a New Provider
 
-1. Create `src/modules/llm/my_llm.py` and extend `LLMInterface`.
-2. Implement `chat()`, `chat_audio()`, `generate_json()`, `reload_config()`.
-3. In `main.py`, add a branch to the provider selection block:
+If it speaks the OpenAI Chat API, it's ~15 lines:
 
 ```python
-elif config.llm_provider == "my_provider":
-    from src.modules.llm.my_llm import MyLLM
-    llm = MyLLM(api_key=config.my_key, model_name=config.my_model)
+class MyLLM(OpenAICompatibleClient):
+    def __init__(self, api_key, model_name, stt_interface=None):
+        self.api_key = api_key
+        super().__init__(OpenAI(api_key=api_key, base_url="..."), model_name, stt_interface)
+
+    def reload_config(self, config):
+        ...
 ```
 
-4. Add `"my_provider"` to the `--llm-provider` choices in `parse_args()`.
+Then register it in `_PROVIDERS` / the builder in `factory.py` and add it to the
+`--llm-provider` choices in `src/cli.py`.

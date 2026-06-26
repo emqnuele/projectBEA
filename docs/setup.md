@@ -60,10 +60,9 @@ Create a `.env` file in the project root:
 
 ```env
 # LLM providers — add the ones you plan to use
+OPENROUTER_API_KEY=sk-or-...   # recommended: routes to any model
 OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=AIzaSy...
 GROQ_API_KEY=gsk_...
-GLM_API_KEY=...
 
 # TTS — only if using Orpheus
 ORPHEUS_API_KEY=...
@@ -234,8 +233,8 @@ Any config value can be overridden at launch without editing `config.json`:
 
 ```bash
 uv run bea \
-  --llm-provider gemini \
-  --gemini-model gemini-2.0-flash \
+  --llm-provider openrouter \
+  --openrouter-model openai/gpt-4o-mini \
   --tts-provider kokoro \
   --device-id 22 \
   --web
@@ -277,6 +276,6 @@ The Vite dev server starts at `http://localhost:5173`. The frontend makes **dire
 | `No audio device` error | Run the sounddevice query above and update `audio_device_id` |
 | Discord bot fails with `node_modules not found` | Run `npm install` in `src/modules/skills/discord/bot/` |
 | Memory skill disabled on start | `OPENAI_API_KEY` not set — ChromaDB embedding requires it |
-| `GEMINI_API_KEY is missing` | Set the key in `.env` or pass `--gemini-key` at launch |
+| `openrouter_key is missing` | Set `OPENROUTER_API_KEY` in `.env` or pass `--openrouter-key` at launch |
 | Skills silently start disabled despite `"enabled": true` in `config.json` | Expected — all non-memory skills are force-disabled at every cold start. Enable them at runtime via the web dashboard or `POST /skills/{name}/toggle`. |
 | OBS avatar source not updating after config migration | If your `config.json` still contains the old key `obs_image_source`, it is silently renamed to `obs_avatar_source` by `load_from_file()`. Delete the old key from your `config.json` and re-save to avoid ambiguity. |

@@ -32,7 +32,7 @@ Returns the current brain state.
 #### `GET /config`
 Returns the full current config as a JSON object (all `BrainConfig` fields).
 
-> **Security note:** The response includes **all** `BrainConfig` fields, including secret API key fields (`gemini_key`, `openai_key`, `groq_key`, `orpheus_key`, `orpheus_endpoint`, etc.). No secret-stripping is applied to this endpoint (unlike `save_to_file()`). Do not expose this endpoint over a public network without authentication.
+> **Security note:** The response includes **all** `BrainConfig` fields, including secret API key fields (`openrouter_key`, `openai_key`, `groq_key`, `orpheus_key`, `orpheus_endpoint`, etc.). No secret-stripping is applied to this endpoint (unlike `save_to_file()`). Do not expose this endpoint over a public network without authentication.
 
 ---
 
