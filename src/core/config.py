@@ -18,7 +18,7 @@ class BrainConfig:
 
     # openrouter (routes to virtually any model via one openai-compatible endpoint)
     openrouter_key: Optional[str] = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
-    openrouter_model: str = "openai/gpt-4o-mini"
+    openrouter_model: str = "deepseek/deepseek-v4-flash"
 
     # openai
     openai_key: Optional[str] = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
@@ -92,10 +92,21 @@ class BrainConfig:
             "enabled": True,
             "chroma_path": "data/memory_db",
             "openai_model": "gpt-4o-mini",
-            "embedding_model": "openai/text-embedding-3-small"
+            "embedding_model": "local"
+        },
+        "social_memory": {
+            "enabled": True,
+            "roster_path": "data/memory/roster.json",
+            "people_path": "data/memory/people.json"
+        },
+        "dream": {
+            "enabled": True,
+            "self_path": "data/memory/self.md",
+            "profile_path": "data/memory/self_profile.json",
+            "recent_path": "data/memory/recent.json"
         },
         "minecraft": {
-            "enabled": True,
+            "enabled": False,
             "server_url": "ws://localhost:8080",
             "auto_chat_thoughts": False,
             "auto_speak_thoughts": False,
@@ -106,22 +117,24 @@ class BrainConfig:
             "token": "",
             "target_channel": "",
             "api_port": 3030,
+            "brain_api_url": "http://127.0.0.1:8000",
+            "admin_id": "",
             "interrupt_threshold_ms": 3000
         }
     })
 
-    # unified consciousness loop (single always-on brain). off by default until rolled out.
+    # unified consciousness loop (single always-on brain)
     consciousness: Dict[str, Any] = field(default_factory=lambda: {
-        "enabled": False,
+        "enabled": True,
         "idle_after": 240.0,       # seconds of silence before an IDLE perception (monologue = last resort)
         "window": 0.3,             # perception aggregation window
         "burst_steps": 6,          # max reasoning steps per perception batch
         "history_limit": 30,       # rolling context size
-        "correlation_timeout": 30.0,  # how long an HTTP caller waits for Bea to respond
+        "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
     })
 
     # STT
-    stt_provider: str = "groq"
+    stt_provider: str = "openrouter"
     stt_model: str = "whisper-large-v3-turbo"
 
     def __post_init__(self):

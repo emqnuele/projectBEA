@@ -2,8 +2,9 @@
     "language": "en",
     "soul_path": "data/prompts/soul.md",
     "system_prompt_path": "data/prompts/chat.md",
+    "operating_prompt_path": "data/prompts/operating.md",
     "llm_provider": "openrouter",
-    "openrouter_model": "openai/gpt-4o-mini",
+    "openrouter_model": "deepseek/deepseek-v4-flash",
     "openai_model": "gpt-5",
     "groq_model": "openai/gpt-oss-20b",
     "obs_text_source": "AIText",
@@ -74,7 +75,7 @@
             "enabled": true,
             "chroma_path": "data/memory_db",
             "openai_model": "gpt-4o-mini",
-            "embedding_model": "openai/text-embedding-3-small"
+            "embedding_model": "local"
         },
         "social_memory": {
             "enabled": true,
@@ -110,11 +111,11 @@
     "stt_provider": "groq",
     "stt_model": "whisper-large-v3-turbo",
     "consciousness": {
-        "enabled": false,
-        "idle_after": 30.0,
+        "enabled": true,
+        "idle_after": 240.0,
         "window": 0.3,
         "burst_steps": 6,
         "history_limit": 30,
-        "correlation_timeout": 30.0
+        "correlation_timeout": 90.0
     }
 }
