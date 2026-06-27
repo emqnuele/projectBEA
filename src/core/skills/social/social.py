@@ -5,10 +5,15 @@ from src.core.agent.tools import Tool
 from src.core.perception.types import Perception, PerceptionKind
 from src.core.skills.base import Skill
 from src.core.skills.social.roster import RosterStore, RosterEntry
-from src.core.skills.social.people import PeopleStore, PersonCard, should_promote, promotion_reason
+from src.core.skills.social.people import (
+    PeopleStore, PersonCard, should_promote, promotion_reason, resolve_or_create_card,
+)
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.social")
+
+# never describe more than a handful of people at once
+MAX_CARDS_INJECTED = 5
 
 
 class SocialMemory(Skill):
@@ -62,7 +67,9 @@ class SocialMemory(Skill):
         if not present_cards:
             return None
 
-        lines = "\n".join(c.render() for c in present_cards.values())
+        # cap how many people we describe at once so the prompt stays lean
+        cards = list(present_cards.values())[:MAX_CARDS_INJECTED]
+        lines = "\n".join(c.render() for c in cards)
         return f"[WHO YOU'RE TALKING TO]\n{lines}"
 
     def _maybe_promote(self, entry: RosterEntry) -> Optional[PersonCard]:
@@ -105,16 +112,9 @@ class SocialMemory(Skill):
         ]
 
     def _tool_remember_person(self, name: str, note: str, attitude: str = "") -> str:
-        card = self.people.find_by_name(name)
-        if not card:
-            entry = self.roster.find_by_name(name)
-            if not entry:
-                return f"You don't have anyone called '{name}' on your radar yet."
-            self.roster.mark(entry.identity)
-            entry = self.roster.get(entry.identity)
-            card = self._maybe_promote(entry)
-            if not card:
-                card = self.people.get_by_identity(entry.identity)
+        # Bea decided to remember them, so this always persists (creates the card
+        # by name if the platform never gave us a stable identity)
+        card = resolve_or_create_card(self.roster, self.people, name)
         if not card:
             return f"Couldn't pin down '{name}'."
         self.people.add_fact(card.person_id, note)

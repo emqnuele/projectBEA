@@ -71,8 +71,8 @@ class RecentStore:
         self.prune()
         return list(self._facts)
 
-    def render(self) -> str:
-        facts = self.active()
+    def render(self, max_items: int = 6) -> str:
+        facts = self.active()[:max_items]
         if not facts:
             return ""
         lines = "\n".join(f"- {f.text}" for f in facts)

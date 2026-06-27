@@ -13,6 +13,10 @@ logger = get_logger("bea.skills.social.people")
 # how many distinct sessions before a regular earns a card
 REGULAR_SESSION_THRESHOLD = 3
 
+# keep cards lean so they never bloat the prompt
+MAX_FACTS_STORED = 12
+MAX_FACTS_SHOWN = 6
+
 
 def should_promote(entry: RosterEntry) -> bool:
     """A tally earns a rich PersonCard when the person made themselves matter:
@@ -39,6 +43,37 @@ def promotion_reason(entry: RosterEntry) -> str:
     return "memorable"
 
 
+def resolve_or_create_card(roster, people, name: str):
+    """Get the card for `name`, creating it if Bea decided this person matters.
+
+    Bea knows who she's talking to even if the platform never gave us a stable id
+    (e.g. someone she names in the UI or in a transcript). We synthesize a
+    `named:<name>` identity so remembering always persists instead of silently
+    failing. Returns a PersonCard or None.
+    """
+    name = name.strip()
+    if not name:
+        return None
+
+    card = people.find_by_name(name)
+    if card:
+        return card
+
+    entry = roster.find_by_name(name)
+    if entry is None:
+        entry = roster.record(
+            identity=f"named:{name.lower()}", display_name=name, platform="named",
+        )
+    roster.mark(entry.identity)
+    entry = roster.get(entry.identity)
+
+    if should_promote(entry):
+        card = people.create_from_entry(entry, reason=promotion_reason(entry))
+        roster.set_promoted(entry.identity, card.person_id)
+        return card
+    return people.get_by_identity(entry.identity)
+
+
 @dataclass
 class PersonCard:
     """Rich, deduplicated memory of a regular/memorable person."""
@@ -61,7 +96,7 @@ class PersonCard:
         if self.bea_attitude:
             line += f" (you: {self.bea_attitude})"
         if self.facts:
-            line += ": " + "; ".join(self.facts)
+            line += ": " + "; ".join(self.facts[-MAX_FACTS_SHOWN:])
         return line
 
 
@@ -132,6 +167,8 @@ class PeopleStore:
             return
         if fact not in card.facts:
             card.facts.append(fact)
+            # keep only the most recent facts so a card never grows unbounded
+            card.facts = card.facts[-MAX_FACTS_STORED:]
             card.last_updated = time.time()
             self._save()
 

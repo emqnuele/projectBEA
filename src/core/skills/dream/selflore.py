@@ -38,6 +38,15 @@ class SelfLore:
             logger.error(f"SelfLore: failed to read: {e}")
             return ""
 
+    def render_for_prompt(self, max_facts: int = 15) -> str:
+        """Capped view for the system prompt: header + the most recent facts only,
+        so a growing self-lore never bloats the context."""
+        facts = self.facts()
+        if not facts:
+            return ""
+        shown = facts[-max_facts:]
+        return "\n".join(f"- {f}" for f in shown)
+
     def facts(self) -> List[str]:
         out = []
         for line in self.render().splitlines():

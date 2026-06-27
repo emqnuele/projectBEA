@@ -3,12 +3,15 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.core.skills.social.people import should_promote, promotion_reason
+from src.core.skills.social.people import resolve_or_create_card
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.dream.dreamer")
 
 DAY_SECONDS = 86400
+
+# names the LLM tends to invent when nobody real is in the chat
+_GENERIC_NAMES = {"user", "chat", "chatter", "someone", "audience", "viewer", "fan", "anon"}
 
 
 class Dreamer:
@@ -118,25 +121,13 @@ class Dreamer:
 
     def _apply_person(self, person: Dict) -> bool:
         name = str(person.get("name", "")).strip()
-        if not name:
+        if not name or name.lower() in _GENERIC_NAMES:
             return False
         facts = [str(f) for f in (person.get("facts") or [])]
         attitude = str(person.get("attitude", "")).strip()
 
-        card = self.people.find_by_name(name)
-        if not card:
-            # only people already on the radar get a card; resolve via roster
-            entry = self.roster.find_by_name(name)
-            if not entry:
-                return False
-            # a person the dreamer found worth describing is worth remembering
-            self.roster.mark(entry.identity)
-            entry = self.roster.get(entry.identity)
-            if should_promote(entry):
-                card = self.people.create_from_entry(entry, reason=promotion_reason(entry))
-                self.roster.set_promoted(entry.identity, card.person_id)
-            else:
-                card = self.people.get_by_identity(entry.identity)
+        # the dreamer named them from the conversation, so remember them by name
+        card = resolve_or_create_card(self.roster, self.people, name)
         if not card:
             return False
 

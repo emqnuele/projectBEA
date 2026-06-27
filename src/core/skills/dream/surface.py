@@ -72,7 +72,7 @@ class DreamSkill(Skill):
     def context_section(self) -> Optional[str]:
         if not self.active:
             return None
-        lore = self.selflore.render()
+        lore = self.selflore.render_for_prompt(max_facts=15)
         return f"## ABOUT YOU (your own evolving memory)\n{lore}" if lore else None
 
     def live_state(self) -> Optional[str]:
