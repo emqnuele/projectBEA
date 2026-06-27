@@ -152,7 +152,7 @@ class Consciousness:
                     continue
 
                 is_idle = bool(batch) and all(p.kind == PerceptionKind.IDLE for p in batch)
-                self.context[0] = self._system_message(batch, is_idle=is_idle)
+                self.context[0] = await self._build_system_message(batch, is_idle=is_idle)
                 self.context.append(self._frame(batch))
 
                 for _ in range(self.burst_steps):
@@ -186,7 +186,14 @@ class Consciousness:
 
     # --- context building ---------------------------------------------------
 
-    def _system_message(self, batch: List[Perception], is_idle: bool = False) -> Dict[str, Any]:
+    async def _build_system_message(self, batch: List[Perception], is_idle: bool = False) -> Dict[str, Any]:
+        """Async wrapper: dynamic context (RAG embeddings, network IO) is computed
+        off the event loop so a slow retrieval never stalls speech/steering/body."""
+        dynamic = await asyncio.to_thread(self.surfaces.dynamic_context, batch) if batch else []
+        return self._system_message(batch, is_idle=is_idle, dynamic=dynamic)
+
+    def _system_message(self, batch: List[Perception], is_idle: bool = False,
+                        dynamic: Optional[List[str]] = None) -> Dict[str, Any]:
         soul = self._get_soul()
         operating = self._get_operating()
 
@@ -200,7 +207,8 @@ class Consciousness:
         live = [x for x in live if x]
 
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        dynamic = self.surfaces.dynamic_context(batch) if batch else []
+        if dynamic is None:
+            dynamic = self.surfaces.dynamic_context(batch) if batch else []
         parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live, *dynamic]
 
         return {"role": "system", "content": compose(*parts)}

@@ -16,6 +16,9 @@ HARD RULES:
 - people: only REAL people actually named in the conversation. Skip generic terms
   like "user", "chat", "someone". Use the exact display name shown.
 - hot_facts: only time-sensitive things worth remembering for a few days.
+- profile: ONLY include a key if Bea herself stated it as a hard fact in this
+  conversation. birthday MUST be "MM-DD". Omit the whole object if nothing applies.
+  Never guess a birthday.
 
 OUTPUT VALID JSON ONLY, exactly this shape:
 {
@@ -26,5 +29,6 @@ OUTPUT VALID JSON ONLY, exactly this shape:
   ],
   "hot_facts": [
     {"text": "short note", "ttl_days": 3}
-  ]
+  ],
+  "profile": {}
 }

@@ -43,13 +43,17 @@ def promotion_reason(entry: RosterEntry) -> str:
     return "memorable"
 
 
-def resolve_or_create_card(roster, people, name: str):
-    """Get the card for `name`, creating it if Bea decided this person matters.
+def record_person(roster, people, name: str, session_id: Optional[str] = None,
+                  *, force: bool = False):
+    """Record a sighting of a named person; return their card ONLY if they earn one.
 
     Bea knows who she's talking to even if the platform never gave us a stable id
-    (e.g. someone she names in the UI or in a transcript). We synthesize a
-    `named:<name>` identity so remembering always persists instead of silently
-    failing. Returns a PersonCard or None.
+    (e.g. someone she names in the UI or a transcript). We synthesize a
+    `named:<name>` identity so the tally always persists. `force=True` is Bea's
+    explicit in-character decision (the `remember_person` tool, trigger #4) and
+    promotes immediately. Without it the normal thresholds apply — so the dreamer
+    builds a tally for everyone it names but only mints a card for real regulars
+    (3+ sessions), donors, 1:1s, or people Bea marked. Returns a PersonCard or None.
     """
     name = name.strip()
     if not name:
@@ -63,15 +67,29 @@ def resolve_or_create_card(roster, people, name: str):
     if entry is None:
         entry = roster.record(
             identity=f"named:{name.lower()}", display_name=name, platform="named",
+            session_id=session_id,
         )
-    roster.mark(entry.identity)
+    elif session_id:
+        # another sighting in a distinct session grows the "regular" signal
+        entry = roster.record(
+            identity=entry.identity, display_name=name, platform=entry.platform,
+            session_id=session_id,
+        )
+
+    if force:
+        roster.mark(entry.identity)
     entry = roster.get(entry.identity)
 
     if should_promote(entry):
         card = people.create_from_entry(entry, reason=promotion_reason(entry))
         roster.set_promoted(entry.identity, card.person_id)
         return card
-    return people.get_by_identity(entry.identity)
+    return None
+
+
+def resolve_or_create_card(roster, people, name: str):
+    """Bea explicitly decided this person matters: always persist (force-promote)."""
+    return record_person(roster, people, name, force=True)
 
 
 @dataclass

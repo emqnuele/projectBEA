@@ -74,3 +74,24 @@ class SelfLore:
             return json.loads(self.profile_path.read_text(encoding="utf-8"))
         except Exception:
             return {}
+
+    def update_profile(self, updates: Dict[str, Any]) -> bool:
+        """Merge structured bits (e.g. birthday) the morning pass reads without
+        parsing prose. Only the dreamer writes here, and only concrete values."""
+        if not updates or not isinstance(updates, dict):
+            return False
+        prof = self.profile()
+        changed = False
+        for k, v in updates.items():
+            if v and prof.get(k) != v:
+                prof[k] = v
+                changed = True
+        if not changed:
+            return False
+        try:
+            self.profile_path.write_text(
+                json.dumps(prof, ensure_ascii=False, indent=2), encoding="utf-8")
+            return True
+        except Exception as e:
+            logger.error(f"SelfLore: failed to write profile: {e}")
+            return False

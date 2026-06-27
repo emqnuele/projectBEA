@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.core.skills.social.people import resolve_or_create_card
+from src.core.skills.social.people import record_person
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.dream.dreamer")
@@ -104,12 +104,15 @@ class Dreamer:
         if title:
             self.history.set_session_title(sid, title)
 
+        # structured profile bits (e.g. birthday) the morning pass needs
+        self.selflore.update_profile(result.get("profile") or {})
+
         for fact in result.get("self_facts", []) or []:
             if self.selflore.append_fact(str(fact)):
                 summary["self_facts"] += 1
 
         for person in result.get("people", []) or []:
-            if self._apply_person(person):
+            if self._apply_person(person, sid):
                 summary["people"] += 1
 
         for hot in result.get("hot_facts", []) or []:
@@ -119,15 +122,16 @@ class Dreamer:
                 self.recent.add(text, ttl_days * DAY_SECONDS, source="dreamer")
                 summary["hot_facts"] += 1
 
-    def _apply_person(self, person: Dict) -> bool:
+    def _apply_person(self, person: Dict, session_id: str) -> bool:
         name = str(person.get("name", "")).strip()
         if not name or name.lower() in _GENERIC_NAMES:
             return False
         facts = [str(f) for f in (person.get("facts") or [])]
         attitude = str(person.get("attitude", "")).strip()
 
-        # the dreamer named them from the conversation, so remember them by name
-        card = resolve_or_create_card(self.roster, self.people, name)
+        # build the tally; only earns a card at the real thresholds (no force).
+        # first-timers stay as a cheap tally — facts are kept only for regulars.
+        card = record_person(self.roster, self.people, name, session_id=session_id)
         if not card:
             return False
 

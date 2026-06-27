@@ -13,6 +13,16 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.memory")
 
+import re
+
+# strips the rendered routing prefix ("[marco] (discord text, channel_id=123): hi")
+# so the retrieval query is the actual words, not noisy ids
+_PREFIX_RE = re.compile(r"^\s*\[[^\]]*\]\s*(\([^)]*\))?\s*:?\s*")
+
+
+def _clean_for_query(rendered: str) -> str:
+    return _PREFIX_RE.sub("", rendered).strip() or rendered
+
 
 class MemorySkill(Skill):
     """Long-term memory as a capability: when on, Bea recalls past sessions
@@ -85,7 +95,7 @@ class MemorySkill(Skill):
     def context_for(self, batch) -> Optional[str]:
         if not self.active:
             return None
-        query = " ".join(p.render() for p in batch)
+        query = " ".join(_clean_for_query(p.render()) for p in batch)
         if not query.strip():
             return None
         ctx = self.retrieve_context(query)
