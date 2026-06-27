@@ -187,10 +187,15 @@ async def main():
 
     except KeyboardInterrupt:
         logger.info("Stopping...")
+    finally:
+        # save on ANY exit (clean stop, crash, ctrl+c): save_all_pending is
+        # idempotent (guards on entry_exists), so a double call is harmless
         if brain.memory_skill and brain.memory_skill.enabled:
             logger.info("Saving pending memories...")
-            await brain.memory_skill.save_all_pending()
-    finally:
+            try:
+                await brain.memory_skill.save_all_pending()
+            except Exception as e:
+                logger.error(f"Failed to save pending memories on shutdown: {e}")
         await brain.stop_skills()
         brain.shutdown()
 
