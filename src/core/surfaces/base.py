@@ -17,6 +17,8 @@ class Surface(ABC):
     """
 
     name: str = "surface"
+    # which skill toggle (config.skills[...]) gates this surface; None = always on (core)
+    skill_name: Optional[str] = None
 
     def __init__(self, config, bus, expression, context=None):
         self.config = config
@@ -25,11 +27,21 @@ class Surface(ABC):
         self.context = context
         self.active = False
 
+    @property
+    def enabled(self) -> bool:
+        """A surface is a capability gate: on only when its skill is toggled on."""
+        if self.skill_name is None:
+            return True
+        return bool(self.config.skills.get(self.skill_name, {}).get("enabled", False))
+
     def initialize(self) -> None:
         """One-time setup (no connections yet)."""
 
     async def start(self) -> None:
         """Open connections and begin pushing perceptions onto the bus."""
+        if not self.enabled:
+            logger.info(f"Surface '{self.name}' stays inactive (skill '{self.skill_name}' disabled).")
+            return
         self.active = True
 
     async def stop(self) -> None:

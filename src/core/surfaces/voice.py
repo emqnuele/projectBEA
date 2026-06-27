@@ -12,6 +12,7 @@ class VoiceSurface(Surface):
     """
 
     name = "voice:discord"
+    skill_name = "discord"
 
     def perceive(self, transcript: str, user: str, meta: Optional[Dict[str, Any]] = None) -> Perception:
         p = Perception(

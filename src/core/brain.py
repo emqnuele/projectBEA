@@ -230,6 +230,26 @@ class AIVtuberBrain:
     def consciousness_active(self) -> bool:
         return bool(self.consciousness and self.consciousness.alive)
 
+    # maps a UI skill toggle to the surface that gates the matching capability
+    _SKILL_SURFACE = {"monologue": "idle", "minecraft": "game:mc", "discord": "voice:discord"}
+
+    async def set_skill_enabled(self, name: str, state: bool) -> bool:
+        """Single source of truth: the UI toggles a skill, and the matching
+        consciousness surface is armed/disarmed live. Bea can only ever use what
+        is toggled on here — she never enables anything herself."""
+        if name not in self.skill_manager.skills:
+            return False
+        self.config.skills.setdefault(name, {})["enabled"] = state
+        self.config.save_to_file()
+
+        # transport-owning skills (discord bot process) are handled by the skill loop;
+        # here we reflect the capability gate into the live consciousness.
+        if self.consciousness_active:
+            surface_name = self._SKILL_SURFACE.get(name)
+            if surface_name:
+                await self.consciousness.set_surface_active(surface_name, state)
+        return True
+
     def reload_configuration(self):
         """
         Hot-reloads configuration for all components.

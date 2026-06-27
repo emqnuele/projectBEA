@@ -65,6 +65,17 @@ class Consciousness:
         self._loop_task = asyncio.create_task(self.run())
         logger.info("Consciousness started.")
 
+    async def set_surface_active(self, name: str, state: bool) -> None:
+        """Live capability toggle from the UI: arm/disarm a surface at runtime."""
+        s = self.surfaces.get(name)
+        if not s:
+            return
+        if state and not s.active:
+            await s.start()
+        elif not state and s.active:
+            await s.stop()
+        logger.info(f"Surface '{name}' -> {'active' if s.active else 'inactive'}.")
+
     async def stop(self):
         self.alive = False
         if self._loop_task:
@@ -94,12 +105,23 @@ class Consciousness:
     async def run(self):
         while self.alive:
             try:
-                batch = await self.bus.wait_or_idle(self.idle_after)
+                idle = self.surfaces.get("idle")
+                if idle and idle.active:
+                    batch = await self.bus.wait_or_idle(self.idle_after)
+                else:
+                    # monologue is off: block until something real happens, never self-trigger
+                    batch = await self.bus.drain()
+
+                # a real input barges in on an ongoing monologue
+                if self.expression.is_speaking and any(p.kind != PerceptionKind.IDLE for p in batch):
+                    await self.expression.interrupt()
+
                 self._batch_correlations = [
                     p.meta["correlation_id"] for p in batch
                     if p.meta.get("correlation_id") in self._correlations
                 ]
-                self.context[0] = self._system_message(batch)
+                is_idle = bool(batch) and all(p.kind == PerceptionKind.IDLE for p in batch)
+                self.context[0] = self._system_message(batch, is_idle=is_idle)
                 self.context.append(self._frame(batch))
 
                 for _ in range(self.burst_steps):
@@ -133,10 +155,15 @@ class Consciousness:
 
     # --- context building ---------------------------------------------------
 
-    def _system_message(self, batch: List[Perception]) -> Dict[str, Any]:
+    def _system_message(self, batch: List[Perception], is_idle: bool = False) -> Dict[str, Any]:
         soul = self._get_soul()
         operating = self._get_operating()
-        sections = self.surfaces.context_sections()
+
+        # idle/monologue rules are a last resort: mount them only on a pure-idle frame
+        sections = [
+            s.context_section for s in self.surfaces.active()
+            if s.context_section and (s.name != "idle" or is_idle)
+        ]
 
         live = [s.live_state() for s in self.surfaces.active()]
         live = [x for x in live if x]
@@ -241,10 +268,17 @@ class Consciousness:
 
         if "discord" not in routes or "local" in routes:
             # local stream/OBS: fire-and-forget so reasoning keeps going
-            asyncio.create_task(self.expression.speak(mood, message, route="local"))
+            asyncio.create_task(self._speak_local_safe(mood, message))
             self._resolve(lambda r: r != "discord", {"mood": mood, "message": message})
 
         return "Spoken."
+
+    async def _speak_local_safe(self, mood: str, message: str) -> None:
+        """Renders local speech without letting playback errors become unretrieved."""
+        try:
+            await self.expression.speak(mood, message, route="local")
+        except Exception as e:
+            logger.error(f"Local speech failed: {e}")
 
     async def _stay_silent(self, reason: str = "") -> str:
         self._resolve(lambda r: True, {"mood": "normal", "message": ""})

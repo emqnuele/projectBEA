@@ -71,7 +71,7 @@ class Expression:
         self.playback_sample_rate = sample_rate
         self.playback_start_time = time.time()
 
-        sd.play(audio_data, samplerate=sample_rate, device=device_id, blocking=False)
+        self._safe_play(sd, audio_data, sample_rate, device_id)
 
         duration = len(audio_data) / sample_rate
         try:
@@ -79,6 +79,46 @@ class Expression:
         except asyncio.CancelledError:
             sd.stop()
             raise
+
+    def _safe_play(self, sd, audio_data, sample_rate, device_id):
+        """Plays on the configured device, falling back to the default on failure.
+
+        Device 0 (or a misconfigured id) may not support the channel count of the
+        rendered audio, raising PaErrorCode -9998. Downmix to what the device can
+        take, and if it still fails drop to the system default device.
+        """
+        try:
+            channels = self._device_channels(sd, device_id)
+            data = self._fit_channels(audio_data, channels)
+            sd.play(data, samplerate=sample_rate, device=device_id, blocking=False)
+        except Exception as e:
+            logger.warning(f"Audio device {device_id} failed ({e}); using default device.")
+            try:
+                sd.play(audio_data, samplerate=sample_rate, blocking=False)
+            except Exception as e2:
+                logger.error(f"Default audio device also failed: {e2}")
+
+    @staticmethod
+    def _device_channels(sd, device_id) -> int:
+        try:
+            info = sd.query_devices(device_id, "output")
+            return max(1, int(info.get("max_output_channels", 1)))
+        except Exception:
+            return 1
+
+    @staticmethod
+    def _fit_channels(audio_data, channels: int):
+        """Reshapes mono/stereo audio to at most `channels` columns."""
+        import numpy as np
+
+        if getattr(audio_data, "ndim", 1) == 1:
+            return audio_data
+        cols = audio_data.shape[1]
+        if cols <= channels:
+            return audio_data
+        if channels == 1:
+            return audio_data.mean(axis=1)
+        return audio_data[:, :channels]
 
     async def _speak_local(self, mood: str, message: str):
         """Audio + visual output on the local device (stream/OBS)."""

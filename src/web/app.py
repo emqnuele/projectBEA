@@ -310,20 +310,27 @@ def list_skills():
     brain = get_brain()
     skills_data = {}
     for name, skill in brain.skill_manager.skills.items():
+        active = skill.is_active
+        # under the single brain, the surface is the real capability state
+        if brain.consciousness_active:
+            surface_name = brain._SKILL_SURFACE.get(name)
+            if surface_name:
+                surface = brain.surface_registry.get(surface_name)
+                active = bool(surface and surface.active)
         skills_data[name] = {
             "enabled": skill.enabled,
             "config": skill.skill_config,
-            "active": skill.is_active
+            "active": active,
         }
     return skills_data
 
 @app.post("/skills/{name}/toggle")
-def toggle_skill(name: str, enable: bool):
+async def toggle_skill(name: str, enable: bool):
     brain = get_brain()
     if name not in brain.skill_manager.skills:
          raise HTTPException(status_code=404, detail="Skill not found")
-    
-    brain.skill_manager.toggle_skill(name, enable)
+
+    await brain.set_skill_enabled(name, enable)
     return {"status": "success", "enabled": enable}
 
 @app.get("/skills/logs")

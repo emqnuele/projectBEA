@@ -13,13 +13,11 @@ class IdleSurface(Surface):
     """
 
     name = "idle"
+    skill_name = "monologue"
 
     def initialize(self) -> None:
         path = self.config.skills.get("monologue", {}).get("prompt_path", "data/prompts/monologue.md")
         self._rules = load_text(path)
-
-    async def start(self) -> None:
-        self.active = True
 
     @property
     def context_section(self) -> Optional[str]:

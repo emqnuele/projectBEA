@@ -24,6 +24,7 @@ class MinecraftSurface(Surface):
     """
 
     name = "game:mc"
+    skill_name = "minecraft"
 
     def initialize(self) -> None:
         self._rules = load_text(self.skill_config.get("system_prompt_path", "data/prompts/minecraft.md"))
