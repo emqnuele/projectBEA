@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Settings, ChevronDown, ChevronRight, Server, Mic, Video, Type, User, Plus, BrainCircuit, Activity, Box } from 'lucide-react';
+import { MessageSquare, Settings, ChevronDown, ChevronRight, Server, Mic, Volume2, Video, Type, User, Plus, BrainCircuit, Activity, Box } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useDialog } from '../context/DialogContext';
 
@@ -9,7 +9,8 @@ export default function Sidebar({ view, setView, configCategory, setConfigCatego
 
     const configItems = [
         { id: 'LLM', label: 'Model', icon: Server },
-        { id: 'TTS', label: 'Voice', icon: Mic },
+        { id: 'STT', label: 'Speech to Text', icon: Mic },
+        { id: 'TTS', label: 'Voice', icon: Volume2 },
         { id: 'OBS', label: 'Stream', icon: Video },
         { id: 'Typing', label: 'Typing', icon: Type },
         { id: 'Avatar', label: 'Avatar', icon: User },

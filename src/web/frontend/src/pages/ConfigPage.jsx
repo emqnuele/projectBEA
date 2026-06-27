@@ -215,6 +215,52 @@ export default function ConfigPage({ activeCategory }) {
                         </div>
                     )}
 
+                    {activeCategory === 'STT' && (
+                        <div className="space-y-8">
+                            <section>
+                                <label className="text-sm font-medium text-zinc-900 block mb-4">STT Provider</label>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {['groq', 'openrouter'].map(p => (
+                                        <label key={p} className={`cursor-pointer border rounded-xl p-4 transition-all relative
+                                            ${config.stt_provider === p
+                                                ? 'border-zinc-900 bg-zinc-50 shadow-sm ring-1 ring-zinc-900'
+                                                : 'border-zinc-200 hover:border-zinc-300'
+                                            }`}>
+                                            <input type="radio"
+                                                className="hidden"
+                                                checked={config.stt_provider === p}
+                                                onChange={() => updateField('stt_provider', p)}
+                                            />
+                                            <div className="font-semibold capitalize text-sm">{p} STT</div>
+                                            <p className="text-xs text-zinc-500 mt-1">
+                                                {p === 'groq' ? 'Groq Fast Whisper (whisper-large-v3-turbo).' : 'OpenRouter Unified Whisper (openai/whisper-large-v3-turbo).'}
+                                            </p>
+                                        </label>
+                                    ))}
+                                </div>
+                            </section>
+
+                            <section className="space-y-4">
+                                <label className="text-sm font-medium text-zinc-900 block border-b border-zinc-100 pb-2">STT Settings</label>
+                                <div className="grid gap-4">
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-medium text-zinc-500">STT Model Name</label>
+                                        <input
+                                            type="text"
+                                            value={config.stt_model || ''}
+                                            onChange={(e) => updateField('stt_model', e.target.value)}
+                                            className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 outline-none transition-all"
+                                            placeholder={config.stt_provider === 'openrouter' ? 'openai/whisper-large-v3-turbo' : 'whisper-large-v3-turbo'}
+                                        />
+                                        <p className="text-[10px] text-zinc-400">
+                                            The model name for transcriptions. Defaults to 'whisper-large-v3-turbo' for Groq or 'openai/whisper-large-v3-turbo' for OpenRouter.
+                                        </p>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    )}
+
                     {activeCategory === 'TTS' && (
                         <div className="space-y-8">
                             <section>

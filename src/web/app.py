@@ -40,7 +40,7 @@ class ChatRequest(BaseModel):
 class ConfigUpdateRequest(BaseModel):
     config: Dict[str, Any]
 
-def get_brain():
+def get_brain() -> AIVtuberBrain:
     if not brain_instance:
         raise HTTPException(status_code=503, detail="Brain not initialized")
     return brain_instance
@@ -57,6 +57,7 @@ def update_config(request: ConfigUpdateRequest):
     brain = get_brain()
     try:
         current_tts = brain.config.tts_provider
+        current_stt = brain.config.stt_provider
         restart_required = False
 
         # uppdate config object
@@ -67,6 +68,8 @@ def update_config(request: ConfigUpdateRequest):
                 # check for critical changes
                 if key == "tts_provider" and value != current_tts:
                     restart_required = True
+                if key == "stt_provider" and value != current_stt:
+                    restart_required = True
         
         # save to file
         brain.config.save_to_file()
@@ -76,7 +79,7 @@ def update_config(request: ConfigUpdateRequest):
         
         msg = "Configuration updated."
         if restart_required:
-            msg += " RESTART REQUIRED to apply new TTS provider."
+            msg += " RESTART REQUIRED to apply new provider settings."
             
         return {
             "status": "success", 
@@ -123,10 +126,12 @@ async def save_memory():
 @app.get("/status")
 def get_status():
     brain = get_brain()
-    active_skills = [
-        skill.skill_name for skill in brain.skill_registry.toggleable()
-        if skill.active
-    ]
+    active_skills = []
+    if brain.skill_registry is not None:
+        active_skills = [
+            skill.skill_name for skill in brain.skill_registry.toggleable()
+            if skill.active and skill.skill_name is not None
+        ]
     return {
         "is_speaking": brain.is_speaking,
         "is_sleeping": brain.is_sleeping,
@@ -305,9 +310,10 @@ async def buffer_voice_transcript(
             logger.info(f"Overheard: [{username}] '{transcript}'")
 
         if transcript and transcript.strip() and transcript != "[Unintelligible]":
-            voice = brain.surface_registry.get("voice:discord")
-            if voice:
-                voice.perceive(transcript, username, user_id=user_id)
+            if brain.surface_registry is not None:
+                voice = brain.surface_registry.get("voice:discord")
+                if voice is not None and hasattr(voice, "perceive"):
+                    getattr(voice, "perceive")(transcript, username, user_id=user_id)
 
         return {"status": "perceived", "transcript": transcript}
     except Exception as e:
@@ -321,19 +327,21 @@ async def buffer_voice_transcript(
 def list_skills():
     brain = get_brain()
     skills_data = {}
-    for skill in brain.skill_registry.toggleable():
-        key = skill.skill_name
-        skills_data[key] = {
-            "enabled": skill.enabled,
-            "config": brain.config.skills.get(key, {}),
-            "active": skill.active,
-        }
+    if brain.skill_registry is not None:
+        for skill in brain.skill_registry.toggleable():
+            key = skill.skill_name
+            if key is not None:
+                skills_data[key] = {
+                    "enabled": skill.enabled,
+                    "config": brain.config.skills.get(key, {}),
+                    "active": skill.active,
+                }
     return skills_data
 
 @app.post("/skills/{name}/toggle")
 async def toggle_skill(name: str, enable: bool):
     brain = get_brain()
-    if not brain.skill_registry.get_by_key(name):
+    if brain.skill_registry is None or not brain.skill_registry.get_by_key(name):
         raise HTTPException(status_code=404, detail="Skill not found")
 
     await brain.set_skill_enabled(name, enable)
