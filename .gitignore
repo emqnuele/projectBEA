@@ -43,6 +43,7 @@ tts_debug_output.txt
 *.log
 data/conversations/
 data/memory_db/
+data/memory/
 
 
 # Frontend
