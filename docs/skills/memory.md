@@ -94,7 +94,7 @@ Metadata stored alongside each entry:
 
 **Collection name:** `bea_diary`
 
-**Embedding function:** OpenAI `text-embedding-3-small` (requires `OPENAI_API_KEY`).  
+**Embedding function:** OpenRouter or OpenAI `openai/text-embedding-3-small` (requires `OPENROUTER_API_KEY` or `OPENAI_API_KEY`).  
 If no key is available, ChromaDB falls back to its built-in default embedder — functionality is preserved but retrieval quality degrades.
 
 The database is persistent — it survives restarts and accumulates over time.
@@ -108,7 +108,7 @@ The database is persistent — it survives restarts and accumulates over time.
   "enabled": true,
   "chroma_path": "data/memory_db",
   "openai_model": "gpt-4o-mini",
-  "embedding_model": "text-embedding-3-small"
+  "embedding_model": "openai/text-embedding-3-small"
 }
 ```
 

@@ -56,3 +56,4 @@ Thumbs.db
 # Large Models
 *.onnx
 *.bin
+PLAN.md

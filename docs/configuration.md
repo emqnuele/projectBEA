@@ -91,7 +91,7 @@ Configuration is managed via two sources that are merged at startup:
       "enabled": true,
       "chroma_path": "data/memory_db",
       "openai_model": "gpt-4o-mini",
-      "embedding_model": "text-embedding-3-small"
+      "embedding_model": "openai/text-embedding-3-small"
     },
     "minecraft": {
       "enabled": false,

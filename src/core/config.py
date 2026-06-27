@@ -92,7 +92,7 @@ class BrainConfig:
             "enabled": True,
             "chroma_path": "data/memory_db",
             "openai_model": "gpt-4o-mini",
-            "embedding_model": "text-embedding-3-small"
+            "embedding_model": "openai/text-embedding-3-small"
         },
         "minecraft": {
             "enabled": True,

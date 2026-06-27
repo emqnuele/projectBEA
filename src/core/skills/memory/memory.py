@@ -27,11 +27,27 @@ class MemorySkill(Skill):
 
         cfg = config.skills.get("memory", {})
         self.memory_db_path = cfg.get("chroma_path", "data/memory_db")
-        self.embedding_model = cfg.get("embedding_model", "text-embedding-3-small")
-        self.openai_key = config.openai_key
+        self.embedding_model = cfg.get("embedding_model", "openai/text-embedding-3-small")
+
+        is_openrouter = (
+            "/" in self.embedding_model or
+            config.llm_provider == "openrouter"
+        )
+
+        if is_openrouter:
+            self.api_key = config.openrouter_key
+            self.api_base = "https://openrouter.ai/api/v1"
+        else:
+            self.api_key = config.openai_key
+            self.api_base = None
 
         Path(self.memory_db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.storage = MemoryStorage(self.memory_db_path, self.openai_key, self.embedding_model)
+        self.storage = MemoryStorage(
+            db_path=self.memory_db_path,
+            api_key=self.api_key,
+            embedding_model=self.embedding_model,
+            api_base=self.api_base
+        )
         self.generator = None
 
     def initialize(self):
@@ -69,9 +85,7 @@ class MemorySkill(Skill):
     def context_for(self, batch) -> Optional[str]:
         if not self.active:
             return None
-        query = " ".join(
-            p.render() for p in batch if p.kind in (PerceptionKind.CHAT, PerceptionKind.VOICE)
-        )
+        query = " ".join(p.render() for p in batch)
         if not query.strip():
             return None
         ctx = self.retrieve_context(query)

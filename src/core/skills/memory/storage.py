@@ -7,10 +7,11 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.skills.memory.storage")
 
 class MemoryStorage:
-    def __init__(self, db_path: str, openai_key: Optional[str], embedding_model: str):
+    def __init__(self, db_path: str, api_key: Optional[str], embedding_model: str, api_base: Optional[str] = None):
         self.db_path = db_path
-        self.openai_key = openai_key
+        self.api_key = api_key
         self.embedding_model = embedding_model
+        self.api_base = api_base
         self.chroma_client = None
         self.collection = None
 
@@ -19,10 +20,11 @@ class MemoryStorage:
             logger.info(f"MemoryStorage: Initializing ChromaDB at {self.db_path}...")
             self.chroma_client = chromadb.PersistentClient(path=self.db_path)
             
-            if self.openai_key:
+            if self.api_key:
                 emb_fn = embedding_functions.OpenAIEmbeddingFunction(
-                    api_key=self.openai_key,
-                    model_name=self.embedding_model
+                    api_key=self.api_key,
+                    model_name=self.embedding_model,
+                    api_base=self.api_base
                 )
             else:
                 logger.error("MemoryStorage: No OpenAI Key found! Falling back to default embedding.")
