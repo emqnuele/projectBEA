@@ -5,6 +5,7 @@ from typing import Optional
 from src.core.agent.llm_client import LLMClient
 from src.core.agent.runner import AgentHooks, AgentRunner
 from src.modules.skills.minecraft.mc_client import MinecraftClient
+from src.modules.skills.minecraft.notebook import Notebook
 from src.modules.skills.minecraft.tools import build_minecraft_tools
 from src.utils.logger import get_logger
 
@@ -33,7 +34,8 @@ class MinecraftAgent:
         self.client = client
         self.idle_interval = idle_interval
         self.history_limit = history_limit
-        self.runner = AgentRunner(llm, build_minecraft_tools(client), max_steps=burst_steps, hooks=hooks)
+        self.notebook = Notebook()
+        self.runner = AgentRunner(llm, build_minecraft_tools(client, self.notebook), max_steps=burst_steps, hooks=hooks)
         self.messages = [{"role": "system", "content": system_prompt}]
         self.running = False
 
@@ -62,6 +64,10 @@ class MinecraftAgent:
         if events:
             parts.append("EVENTS:\n" + "\n".join(events))
         parts.append("GAME STATE:\n" + json.dumps(self.client.latest_state))
+        parts.append(
+            "YOUR NOTEBOOK (private working memory — never spoken; update it with update_notebook):\n"
+            + self.notebook.render()
+        )
         return "\n\n".join(parts)
 
     def _trim(self) -> None:

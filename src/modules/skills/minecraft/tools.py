@@ -2,6 +2,17 @@ from typing import Any, Dict, Tuple
 
 from src.core.agent.tools import ToolRegistry
 from src.modules.skills.minecraft.mc_client import MinecraftClient
+from src.modules.skills.minecraft.notebook import Notebook
+
+_NOTEBOOK_DESC = (
+    "Rewrite your private notebook — your working memory and plan. It is NOT spoken; "
+    "it persists across turns so you don't forget what you're doing. ALWAYS pass the FULL "
+    "updated notebook (it overwrites the old one). Use it to: state your current goal; list "
+    "the items/blocks you need; and crucially work out the CRAFTING DEPENDENCY CHAIN from what "
+    "you have right now (e.g. wooden_pickaxe needs 3 planks + 2 sticks; sticks need 2 planks; "
+    "planks need 1 log -> so check your inventory and figure out how many logs to gather). "
+    "Keep a checklist with [ ] / [x] and update it as you progress, fail, or find new resources."
+)
 
 # actions the mod executes and reports back as completed (the agent awaits them)
 # vs instant actions that return immediately with no completion event.
@@ -118,8 +129,12 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
 }
 
 
-def build_minecraft_tools(client: MinecraftClient) -> ToolRegistry:
-    """Builds a registry whose handlers drive the mod and return observations."""
+def build_minecraft_tools(client: MinecraftClient, notebook: Notebook) -> ToolRegistry:
+    """Builds a registry whose handlers drive the mod and return observations.
+
+    Also registers the local `update_notebook` tool, which mutates the agent's
+    private working memory instead of talking to the mod.
+    """
     registry = ToolRegistry()
 
     def make_handler(action: str, instant: bool):
@@ -129,5 +144,16 @@ def build_minecraft_tools(client: MinecraftClient) -> ToolRegistry:
 
     for name, (description, parameters) in _TOOLS.items():
         registry.add(name, description, parameters, make_handler(name, name in _INSTANT))
+
+    registry.add(
+        "update_notebook",
+        _NOTEBOOK_DESC,
+        {
+            "type": "object",
+            "properties": {"notes": {"type": "string", "description": "The full new notebook content."}},
+            "required": ["notes"],
+        },
+        lambda notes="": notebook.update(notes),
+    )
 
     return registry
