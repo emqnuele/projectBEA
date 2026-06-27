@@ -1,10 +1,10 @@
 from typing import Optional
 
-from src.core.surfaces.base import Surface
+from src.core.skills.base import Skill
 from src.utils.prompts import load_text
 
 
-class IdleSurface(Surface):
+class IdleSurface(Skill):
     """The passage of time. Contributes the idle/monologue behaviour rules.
 
     It pushes no input itself — the bus synthesises IDLE perceptions via

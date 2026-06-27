@@ -1,46 +1,81 @@
 import asyncio
 import time
 import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pathlib import Path
 
-from src.core.config import BrainConfig
-from src.modules.skills.base_skill import BaseSkill
-from src.modules.skills.memory.storage import MemoryStorage
-from src.modules.skills.memory.generator import DiaryGenerator
+from src.core.agent.tools import Tool
+from src.core.perception.types import PerceptionKind
+from src.core.skills.base import Skill
+from src.core.skills.memory.storage import MemoryStorage
+from src.core.skills.memory.generator import DiaryGenerator
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.memory")
 
-class MemorySkill(BaseSkill):
-    def __init__(self, name: str, config: BrainConfig, brain):
-        super().__init__(name, config, brain)
-        
-        # migrated settings
-        self.memory_db_path = self.skill_config.get("chroma_path", "data/memory_db")
-        self.embedding_model = self.skill_config.get("embedding_model", "text-embedding-3-small")
+
+class MemorySkill(Skill):
+    """Long-term memory as a capability: when on, Bea recalls past sessions
+    (RAG injected per batch) and can search them via the `recall_memory` tool.
+    When off, she has no memory at all."""
+
+    name = "memory"
+    skill_name = "memory"
+
+    def __init__(self, config, bus, expression, context=None):
+        super().__init__(config, bus, expression, context)
+
+        cfg = config.skills.get("memory", {})
+        self.memory_db_path = cfg.get("chroma_path", "data/memory_db")
+        self.embedding_model = cfg.get("embedding_model", "text-embedding-3-small")
         self.openai_key = config.openai_key
-        
-        # ensure db directory exists
+
         Path(self.memory_db_path).parent.mkdir(parents=True, exist_ok=True)
-        
         self.storage = MemoryStorage(self.memory_db_path, self.openai_key, self.embedding_model)
         self.generator = None
 
     def initialize(self):
-        if not self.enabled:
-            return
+        if self.enabled:
+            self._ensure_ready()
 
-        # initialize storage
+    def _ensure_ready(self) -> bool:
+        if self.storage.collection:
+            return True
         if not self.storage.initialize():
-            self.skill_config["enabled"] = False
-            return
-
-        # initialize generator
-        if hasattr(self.context, 'llm'):
+            logger.error("MemorySkill: storage failed to initialize.")
+            return False
+        if self.context and hasattr(self.context, "llm"):
             self.generator = DiaryGenerator(self.context.llm)
         else:
             logger.error("MemorySkill: Brain LLM not available for generator!")
+        return True
+
+    async def start(self):
+        if not self.enabled:
+            return
+        if self._ensure_ready():
+            self.active = True
+
+    def tools(self) -> List[Tool]:
+        if not self.active:
+            return []
+        return [Tool(
+            "recall_memory",
+            "Search your long-term memory (past sessions) for relevant context.",
+            {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+            self.retrieve_context,
+        )]
+
+    def context_for(self, batch) -> Optional[str]:
+        if not self.active:
+            return None
+        query = " ".join(
+            p.render() for p in batch if p.kind in (PerceptionKind.CHAT, PerceptionKind.VOICE)
+        )
+        if not query.strip():
+            return None
+        ctx = self.retrieve_context(query)
+        return f"[LONG TERM MEMORY]\n{ctx}" if ctx else None
 
     def process_previous_session(self, session_id: str, history: List[Dict]):
         if not self.enabled or not self.storage.collection:

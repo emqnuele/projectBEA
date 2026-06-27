@@ -191,7 +191,7 @@ async def main():
             logger.info("Saving pending memories...")
             await brain.memory_skill.save_all_pending()
     finally:
-        await brain.skill_manager.stop()
+        await brain.stop_skills()
         brain.shutdown()
 
 

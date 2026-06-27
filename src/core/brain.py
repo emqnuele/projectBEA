@@ -4,18 +4,17 @@ from src.interfaces.base_interfaces import TTSInterface, OBSInterface, STTInterf
 from src.core.config import BrainConfig
 from src.core.resources import load_avatar_resources
 from src.utils.history_manager import HistoryManager
-from src.modules.skills.skill_manager import SkillManager
 from src.core.events import EventManager
 from src.core.expression import Expression
 from src.core.perception.bus import PerceptionBus
-from src.core.surfaces.base import SurfaceRegistry
-from src.core.surfaces.chat import ChatSurface
-from src.core.surfaces.voice import VoiceSurface
-from src.core.surfaces.idle import IdleSurface
-from src.core.surfaces.minecraft import MinecraftSurface
+from src.core.skills.base import SkillRegistry
+from src.core.skills.chat import ChatSurface
+from src.core.skills.voice.surface import VoiceSurface
+from src.core.skills.idle import IdleSurface
+from src.core.skills.minecraft.surface import MinecraftSurface
+from src.core.skills.memory.memory import MemorySkill
 from src.core.consciousness import Consciousness
 from src.core.agent import LLMClient
-from src.modules.skills.memory.memory_skill import MemorySkill
 from src.utils.prompts import load_text, compose
 from src.utils.logger import get_logger
 
@@ -56,19 +55,21 @@ class AIVtuberBrain:
 
         # unified consciousness (built in initialize, started only if enabled)
         self.perception_bus: Optional[PerceptionBus] = None
-        self.surface_registry: Optional[SurfaceRegistry] = None
+        self.skill_registry: Optional[SkillRegistry] = None
         self.consciousness: Optional[Consciousness] = None
-
-        # background services (memory RAG, discord transport)
-        self.skill_manager = SkillManager(config, self)
 
     @property
     def is_speaking(self) -> bool:
         return self.expression.is_speaking
 
     @property
+    def surface_registry(self) -> Optional[SkillRegistry]:
+        # legacy alias kept for the input entrypoints
+        return self.skill_registry
+
+    @property
     def memory_skill(self) -> Optional[MemorySkill]:
-        skill = self.skill_manager.skills.get("memory")
+        skill = self.skill_registry.get("memory") if self.skill_registry else None
         return skill if isinstance(skill, MemorySkill) else None
 
     def _load_operating_rules(self) -> str:
@@ -96,29 +97,26 @@ class AIVtuberBrain:
         self.history_manager.create_session()
         logger.info(f"Brain Initialized. Session ID: {self.history_manager.session_id}")
 
-        self.skill_manager.initialize()
-
         self._build_consciousness()
 
     def _build_consciousness(self):
         """Wires the single-brain stack. Started later only if enabled in config."""
         self.perception_bus = PerceptionBus(window=self.config.consciousness.get("window", 0.3))
-        self.surface_registry = SurfaceRegistry()
+        self.skill_registry = SkillRegistry()
 
-        for surface_cls in (ChatSurface, VoiceSurface, IdleSurface, MinecraftSurface):
-            surface = surface_cls(self.config, self.perception_bus, self.expression, self)
-            surface.initialize()
-            self.surface_registry.register(surface)
+        for skill_cls in (ChatSurface, VoiceSurface, IdleSurface, MinecraftSurface, MemorySkill):
+            skill = skill_cls(self.config, self.perception_bus, self.expression, self)
+            skill.initialize()
+            self.skill_registry.register(skill)
 
         self.consciousness = Consciousness(
             config=self.config,
             llm=self.llm,
             bus=self.perception_bus,
             expression=self.expression,
-            surfaces=self.surface_registry,
+            surfaces=self.skill_registry,
             history_manager=self.history_manager,
             event_manager=self.event_manager,
-            memory_skill_getter=lambda: self.memory_skill,
             soul_getter=lambda: self.soul,
             operating_getter=self._load_operating_rules,
         )
@@ -127,24 +125,18 @@ class AIVtuberBrain:
     def consciousness_active(self) -> bool:
         return bool(self.consciousness and self.consciousness.alive)
 
-    # maps a UI skill toggle to the surface that gates the matching capability
-    _SKILL_SURFACE = {"monologue": "idle", "minecraft": "game:mc", "discord": "voice:discord"}
-
     async def set_skill_enabled(self, name: str, state: bool) -> bool:
-        """Single source of truth: the UI toggles a skill, and the matching
-        consciousness surface is armed/disarmed live. Bea can only ever use what
-        is toggled on here — she never enables anything herself."""
-        if name not in self.skill_manager.skills:
+        """Single source of truth: the UI toggles a skill (by its config key) and
+        the matching capability is armed/disarmed live in the consciousness. Bea
+        can only ever use what is toggled on here — she never enables anything."""
+        skill = self.skill_registry.get_by_key(name) if self.skill_registry else None
+        if not skill:
             return False
         self.config.skills.setdefault(name, {})["enabled"] = state
         self.config.save_to_file()
 
-        # transport-owning skills (discord bot process) are handled by the skill loop;
-        # here we reflect the capability gate into the live consciousness.
         if self.consciousness_active:
-            surface_name = self._SKILL_SURFACE.get(name)
-            if surface_name:
-                await self.consciousness.set_surface_active(surface_name, state)
+            await self.consciousness.set_surface_active(skill.name, state)
         return True
 
     def reload_configuration(self):
@@ -163,8 +155,6 @@ class AIVtuberBrain:
         self.expression.reload_config(self.config)
         if self.stt:
             self.stt.reload_config(self.config)
-
-        self.skill_manager.reload_config()
 
         logger.info("Hot Reload Complete")
 
@@ -291,12 +281,14 @@ class AIVtuberBrain:
                 await self.process_text_input(user_text)
 
     async def start_skills(self):
-        """Starts background services and the consciousness loop (if enabled)."""
-        await self.skill_manager.start()
-
+        """Starts the consciousness loop (which starts every enabled skill)."""
         if self.consciousness and self.config.consciousness.get("enabled", False):
             await self.consciousness.start()
             logger.info("Single-brain consciousness is active.")
+
+    async def stop_skills(self):
+        if self.consciousness:
+            await self.consciousness.stop()
 
     def shutdown(self):
         self.obs.disconnect()

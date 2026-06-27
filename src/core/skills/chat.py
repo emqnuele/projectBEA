@@ -1,10 +1,10 @@
 from typing import Any, Dict, Optional
 
 from src.core.perception.types import Perception, PerceptionKind
-from src.core.surfaces.base import Surface
+from src.core.skills.base import Skill
 
 
-class ChatSurface(Surface):
+class ChatSurface(Skill):
     """Text chat from the web UI (and a template for twitch/telegram later).
 
     Input only: pushes CHAT perceptions. Output is rendered locally by Expression

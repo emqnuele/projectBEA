@@ -1,8 +1,8 @@
 from typing import Any, Dict, Tuple
 
 from src.core.agent.tools import ToolRegistry
-from src.modules.skills.minecraft.mc_client import MinecraftClient
-from src.modules.skills.minecraft.notebook import Notebook
+from src.core.skills.minecraft.client import MinecraftClient
+from src.core.skills.minecraft.notebook import Notebook
 
 _NOTEBOOK_DESC = (
     "Rewrite your private notebook — your working memory and plan. It is NOT spoken; "

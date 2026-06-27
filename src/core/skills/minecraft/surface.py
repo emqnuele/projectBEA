@@ -4,17 +4,17 @@ from typing import List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.perception.types import Perception, PerceptionKind
-from src.core.surfaces.base import Surface
-from src.modules.skills.minecraft.mc_client import MinecraftClient
-from src.modules.skills.minecraft.notebook import Notebook
-from src.modules.skills.minecraft.tools import build_minecraft_tools
+from src.core.skills.base import Skill
+from src.core.skills.minecraft.client import MinecraftClient
+from src.core.skills.minecraft.notebook import Notebook
+from src.core.skills.minecraft.tools import build_minecraft_tools
 from src.utils.prompts import load_text
 from src.utils.logger import get_logger
 
-logger = get_logger("bea.surfaces.minecraft")
+logger = get_logger("bea.skills.minecraft")
 
 
-class MinecraftSurface(Surface):
+class MinecraftSurface(Skill):
     """The game body. Perceives game events/state; exposes in-game actions.
 
     While active it injects the survival rules (context_section) and arms the

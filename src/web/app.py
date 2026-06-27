@@ -124,8 +124,8 @@ async def save_memory():
 def get_status():
     brain = get_brain()
     active_skills = [
-        name for name, skill in brain.skill_manager.skills.items() 
-        if skill.is_active
+        skill.skill_name for skill in brain.skill_registry.toggleable()
+        if skill.active
     ]
     return {
         "is_speaking": brain.is_speaking,
@@ -306,26 +306,20 @@ async def buffer_voice_transcript(
 def list_skills():
     brain = get_brain()
     skills_data = {}
-    for name, skill in brain.skill_manager.skills.items():
-        active = skill.is_active
-        # under the single brain, the surface is the real capability state
-        if brain.consciousness_active:
-            surface_name = brain._SKILL_SURFACE.get(name)
-            if surface_name:
-                surface = brain.surface_registry.get(surface_name)
-                active = bool(surface and surface.active)
-        skills_data[name] = {
+    for skill in brain.skill_registry.toggleable():
+        key = skill.skill_name
+        skills_data[key] = {
             "enabled": skill.enabled,
-            "config": skill.skill_config,
-            "active": active,
+            "config": brain.config.skills.get(key, {}),
+            "active": skill.active,
         }
     return skills_data
 
 @app.post("/skills/{name}/toggle")
 async def toggle_skill(name: str, enable: bool):
     brain = get_brain()
-    if name not in brain.skill_manager.skills:
-         raise HTTPException(status_code=404, detail="Skill not found")
+    if not brain.skill_registry.get_by_key(name):
+        raise HTTPException(status_code=404, detail="Skill not found")
 
     await brain.set_skill_enabled(name, enable)
     return {"status": "success", "enabled": enable}

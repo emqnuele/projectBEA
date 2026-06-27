@@ -24,7 +24,7 @@ class Consciousness:
     """
 
     def __init__(self, *, config, llm, bus, expression, surfaces, history_manager,
-                 event_manager, memory_skill_getter, soul_getter, operating_getter):
+                 event_manager, soul_getter, operating_getter):
         self.config = config
         self.llm = llm
         self.bus = bus
@@ -32,7 +32,6 @@ class Consciousness:
         self.surfaces = surfaces
         self.history = history_manager
         self.events = event_manager
-        self._get_memory = memory_skill_getter
         self._get_soul = soul_getter
         self._get_operating = operating_getter
 
@@ -169,15 +168,8 @@ class Consciousness:
         live = [x for x in live if x]
 
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live]
-
-        memory = self._get_memory()
-        if memory and memory.enabled and batch:
-            query = " ".join(p.render() for p in batch if p.kind in (PerceptionKind.CHAT, PerceptionKind.VOICE))
-            if query.strip():
-                ctx = memory.retrieve_context(query)
-                if ctx:
-                    parts.append(f"[LONG TERM MEMORY]\n{ctx}")
+        dynamic = self.surfaces.dynamic_context(batch) if batch else []
+        parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live, *dynamic]
 
         return {"role": "system", "content": compose(*parts)}
 
@@ -206,13 +198,6 @@ class Consciousness:
             {"type": "object", "properties": {"reason": {"type": "string"}}, "required": []},
             self._stay_silent,
         )
-        memory = self._get_memory()
-        if memory and memory.enabled:
-            reg.add(
-                "recall_memory", "Search your long-term memory for relevant context.",
-                {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
-                lambda query: memory.retrieve_context(query),
-            )
         for tool in self.surfaces.tools():
             reg.register(tool)
         return reg
