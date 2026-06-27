@@ -320,6 +320,23 @@ class AIVtuberBrain:
         if self.consciousness and self.config.consciousness.get("enabled", False):
             await self.consciousness.start()
             logger.info("Single-brain consciousness is active.")
+            # prime cold network paths so the FIRST real message doesn't pay
+            # dns/tls/model-routing latency (the 'slow only at first' symptom)
+            asyncio.create_task(self._warmup())
+
+    async def _warmup(self):
+        """Background priming of the LLM connection and the embedding endpoint."""
+        ms = self.memory_skill
+        if ms and ms.active and getattr(ms.storage, "collection", None) is not None:
+            try:
+                await asyncio.to_thread(ms.storage.query_similar, "warmup", 1)
+            except Exception as e:
+                logger.debug(f"memory warmup skipped: {e}")
+        try:
+            await self.llm.complete([{"role": "user", "content": "hi"}])
+        except Exception as e:
+            logger.debug(f"llm warmup skipped: {e}")
+        logger.info("Warmup complete (LLM + memory primed).")
 
     async def stop_skills(self):
         if self.consciousness:

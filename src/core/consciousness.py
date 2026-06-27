@@ -23,6 +23,9 @@ class Consciousness:
     interrupting what she's doing.
     """
 
+    # output tools that end a turn: no follow-up llm call needed after them
+    _TERMINAL_TOOLS = {"speak", "stay_silent"}
+
     def __init__(self, *, config, llm, bus, expression, surfaces, history_manager,
                  event_manager, soul_getter, operating_getter):
         self.config = config
@@ -152,9 +155,18 @@ class Consciousness:
                     continue
 
                 is_idle = bool(batch) and all(p.kind == PerceptionKind.IDLE for p in batch)
+                if not is_idle:
+                    logger.info(f"batch of {len(batch)} perception(s): "
+                                f"{', '.join(p.surface for p in batch)}")
+
+                t_ctx = time.perf_counter()
                 self.context[0] = await self._build_system_message(batch, is_idle=is_idle)
+                if not is_idle:
+                    logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
                 self.context.append(self._frame(batch))
 
+                t_turn = time.perf_counter()
+                steps = 0
                 for _ in range(self.burst_steps):
                     steer = self.bus.drain_nowait()
                     if steer:
@@ -164,7 +176,12 @@ class Consciousness:
                             if p.meta.get("correlation_id") in self._correlations
                         ]
 
+                    steps += 1
+                    t_llm = time.perf_counter()
                     assistant = await self.llm.complete(self.context, tools=self._tool_schemas())
+                    if not is_idle:
+                        logger.info(f"llm step {steps} took {(time.perf_counter() - t_llm) * 1000:.0f}ms"
+                                    f"{' (tools: ' + ', '.join(c.name for c in assistant.tool_calls) + ')' if assistant.tool_calls else ' (final)'}")
                     self.context.append(self._assistant_to_message(assistant))
                     if assistant.content:
                         self.events.publish(EventCategory.THOUGHT, "consciousness", assistant.content)
@@ -176,6 +193,17 @@ class Consciousness:
                         obs = await self._dispatch(call)
                         self.context.append(self._tool_result(call, obs))
 
+                    # once she's only spoken or chosen silence, the turn is over:
+                    # don't burn another (slow) llm call just to confirm she's done.
+                    # a message that arrives now becomes its own next turn.
+                    if assistant.tool_calls and all(
+                        c.name in self._TERMINAL_TOOLS for c in assistant.tool_calls
+                    ):
+                        break
+
+                if not is_idle:
+                    logger.info(f"turn done: {steps} llm call(s) in "
+                                f"{(time.perf_counter() - t_turn) * 1000:.0f}ms")
                 self._resolve_dangling_correlations()
                 self._trim()
             except asyncio.CancelledError:
