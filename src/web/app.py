@@ -195,6 +195,9 @@ class DiscordChatRequest(BaseModel):
     username: str = Field(..., min_length=1)
     message: str = Field(..., min_length=1, max_length=4000)
     channelId: str = "unknown"
+    userId: Optional[str] = None
+    messageId: Optional[str] = None
+    isDm: bool = False
 
     @field_validator("message")
     @classmethod
@@ -205,43 +208,40 @@ class DiscordChatRequest(BaseModel):
         return stripped
 
 @app.post("/discord/chat")
-async def discord_chat(request: DiscordChatRequest, background_tasks: BackgroundTasks):
+async def discord_chat(request: DiscordChatRequest):
     brain = get_brain()
-    
-    logger.info(f"Discord Chat from {request.username}: {request.message}")
-    
-    # format message
-    formatted_message = f"[{request.username}] {request.message}"
 
-    # generate response
-    mood, message = await brain.generate_response(formatted_message)
-    
-    return {
-        "status": "success",
-        "response": message,
-        "mood": mood
-    }
+    logger.info(f"Discord Chat from {request.username}: {request.message}")
+
+    # one mind: deposit a perception and return immediately. Bea answers on her
+    # own via the discord tools (reply/send_message), not via a synchronous reply.
+    brain.perceive_discord_text(
+        request.message, request.username, request.channelId,
+        message_id=request.messageId, user_id=request.userId, is_dm=request.isDm,
+    )
+    return {"status": "perceived"}
 
 @app.post("/discord/audio")
 async def discord_audio_interaction(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     username: str = Form(...),
-    flush_buffer: str = Form(default="false")
+    flush_buffer: str = Form(default="false"),
+    user_id: Optional[str] = Form(default=None),
 ):
     brain = get_brain()
-    
+
     # save temp file
     temp_dir = Path("temp_discord")
     temp_dir.mkdir(exist_ok=True)
     temp_file = temp_dir / f"{username}_{int(os.times().elapsed)}.wav"
-    
+
     with open(temp_file, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
+
     try:
         # process
-        status, text_response, transcript, audio_bytes = await brain.process_discord_interaction(str(temp_file), username)
+        status, text_response, transcript, audio_bytes = await brain.process_discord_interaction(str(temp_file), username, user_id=user_id)
         
         # convert audio to base64
         import base64
@@ -266,7 +266,8 @@ async def discord_audio_interaction(
 @app.post("/voice/transcript")
 async def buffer_voice_transcript(
     file: UploadFile = File(...),
-    username: str = Form(...)
+    username: str = Form(...),
+    user_id: Optional[str] = Form(default=None)
 ):
     """
     Overheard speech: transcribes a short snippet and feeds it to the
@@ -292,7 +293,7 @@ async def buffer_voice_transcript(
         if transcript and transcript.strip() and transcript != "[Unintelligible]":
             voice = brain.surface_registry.get("voice:discord")
             if voice:
-                voice.perceive(transcript, username)
+                voice.perceive(transcript, username, user_id=user_id)
 
         return {"status": "perceived", "transcript": transcript}
     except Exception as e:

@@ -13,16 +13,23 @@ const axios = require('axios');
 const fs = require('fs');
 const FormData = require('form-data');
 const { Readable } = require('stream');
+const config = require('../config');
 
 class VoiceManager {
     constructor(client) {
         this.client = client;
         this.connections = new Map(); // guildId -> connection data
-        this.apiBaseUrl = process.env.BRAIN_API_URL || 'http://127.0.0.1:8000';
+        this.apiBaseUrl = config.BRAIN_API_URL;
 
         // sustained-speech threshold: only interrupt bea if someone talks for this long
-        // each frame is ~20ms, so 2000ms = 100 frames
-        this.INTERRUPT_THRESHOLD_MS = 2000;
+        this.INTERRUPT_THRESHOLD_MS = config.INTERRUPT_THRESHOLD_MS;
+    }
+
+    // leave every voice channel we're connected to (the discord_leave_voice tool)
+    leaveAll() {
+        for (const guildId of [...this.connections.keys()]) {
+            this.handleLeave(guildId);
+        }
     }
 
     async handleJoin(guildId, channelId, adapterCreator) {
@@ -218,7 +225,7 @@ class VoiceManager {
      * transcribes locally then sends to /voice/transcript for accumulation.
      */
     async bufferTranscript(guildId, userId, pcmBuffer) {
-        // 1. fetch username
+        // 1. fetch display name (userId stays the stable identity)
         let username = userId;
         try {
             const guild = await this.client.guilds.fetch(guildId);
@@ -228,14 +235,15 @@ class VoiceManager {
             console.error("Error fetching user:", e);
         }
 
-        // 2. convert pcm to wav
-        const wavBuffer = this.pcmToWav(pcmBuffer, 48000, 2);
+        // 2. downsample to mono 16khz and wrap as wav (smaller, enough for stt)
+        const wavBuffer = this.pcmToWav(this.downsampleMono16k(pcmBuffer), 16000, 1);
 
         // 3. send to /voice/transcript (buffer-only endpoint)
         try {
             const form = new FormData();
             form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
             form.append('username', username);
+            form.append('user_id', userId);
 
             const response = await axios.post(`${this.apiBaseUrl}/voice/transcript`, form, {
                 headers: { ...form.getHeaders() }
@@ -262,14 +270,15 @@ class VoiceManager {
 
         console.log(`[VoiceManager] Processing audio from ${username} (${pcmBuffer.length} bytes, flush=${flushBuffer})`);
 
-        // 2. convert pcm to wav
-        const wavBuffer = this.pcmToWav(pcmBuffer, 48000, 2);
+        // 2. downsample to mono 16khz and wrap as wav
+        const wavBuffer = this.pcmToWav(this.downsampleMono16k(pcmBuffer), 16000, 1);
 
         // 3. send to backend
         try {
             const form = new FormData();
             form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
             form.append('username', username);
+            form.append('user_id', userId);
             if (flushBuffer) {
                 form.append('flush_buffer', 'true');
             }
@@ -324,6 +333,22 @@ class VoiceManager {
         } catch (e) {
             console.error("[VoiceManager] Playback Logic Error:", e);
         }
+    }
+
+    // stereo 48khz s16le -> mono 16khz s16le. simple average + 3x decimation:
+    // good enough for speech-to-text and roughly halves the bytes we ship.
+    downsampleMono16k(pcmData) {
+        const groupBytes = 12; // 3 stereo frames (3 * 2ch * 2 bytes)
+        const outLen = Math.floor(pcmData.length / groupBytes) * 2;
+        const out = Buffer.alloc(outLen);
+        let oi = 0;
+        for (let i = 0; i + 4 <= pcmData.length && oi + 2 <= outLen; i += groupBytes) {
+            const l = pcmData.readInt16LE(i);
+            const r = pcmData.readInt16LE(i + 2);
+            out.writeInt16LE((l + r) >> 1, oi);
+            oi += 2;
+        }
+        return out;
     }
 
     // helper: add wav header

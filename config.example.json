@@ -91,6 +91,8 @@
             "token": "",
             "target_channel": "",
             "api_port": 3030,
+            "brain_api_url": "http://127.0.0.1:8000",
+            "admin_id": "",
             "interrupt_threshold_ms": 3000
         }
     },

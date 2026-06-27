@@ -243,7 +243,8 @@ class AIVtuberBrain:
         await self.perform_output_task(mood, message)
         return mood, message
 
-    async def process_discord_interaction(self, audio_path: str, username: str) -> Tuple[str, str, str, bytes]:
+    async def process_discord_interaction(self, audio_path: str, username: str,
+                                          user_id: Optional[str] = None) -> Tuple[str, str, str, bytes]:
         """Discord voice: transcribe, feed a voice perception, return Bea's spoken bytes."""
         transcript = ""
         if self.stt:
@@ -253,12 +254,24 @@ class AIVtuberBrain:
         text = transcript or "[Unintelligible]"
         payload = await self._perceive_and_wait(
             lambda cid: self.surface_registry.get("voice:discord").perceive(
-                text, username, meta={"correlation_id": cid}),
+                text, username, meta={"correlation_id": cid}, user_id=user_id),
             route="discord",
         )
         if not payload:
             return "ignored", "", transcript, b""
         return payload.get("status", "success"), payload.get("text", ""), transcript, payload.get("audio", b"")
+
+    def perceive_discord_text(self, text: str, username: str, channel_id: str,
+                              message_id: Optional[str] = None, user_id: Optional[str] = None,
+                              is_dm: bool = False) -> None:
+        """Discord text: deposit a CHAT perception on the bus and return immediately.
+        Bea decides on her own whether/how to answer, using the discord tools
+        (reply/send_message/react) with the ids carried in the perception. This is
+        the 'one mind' path: no synchronous request-reply, full autonomy."""
+        surface = self.surface_registry.get("voice:discord")
+        if surface:
+            surface.perceive_text(text, username, channel_id, message_id=message_id,
+                                  user_id=user_id, is_dm=is_dm)
 
     async def run_loop(self):
         logger.info("Starting interactive loop. Type 'exit' to quit.")
