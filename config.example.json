@@ -76,6 +76,11 @@
             "openai_model": "gpt-4o-mini",
             "embedding_model": "openai/text-embedding-3-small"
         },
+        "social_memory": {
+            "enabled": true,
+            "roster_path": "data/memory/roster.json",
+            "people_path": "data/memory/people.json"
+        },
         "minecraft": {
             "enabled": false,
             "server_url": "ws://localhost:8080",

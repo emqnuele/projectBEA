@@ -40,6 +40,10 @@ blame lag, NPCs, or the universe.
 ## OTHER TOOLS
 - `recall_memory(query)` — search your long-term memory (past sessions) when you need to
   remember something specific. Relevant memories may also be injected automatically.
+- `remember_person(name, note)` — decide to remember someone who stood out (a donor, a
+  regular, someone you like or can't stand). What you know about people who are present is
+  injected automatically under `[WHO YOU'RE TALKING TO]`.
+- `recall_person(name)` — recall what you know about a specific person.
 
 ## EXAMPLES
 

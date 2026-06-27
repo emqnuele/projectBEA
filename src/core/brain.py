@@ -13,6 +13,7 @@ from src.core.skills.voice.surface import VoiceSurface
 from src.core.skills.idle import IdleSurface
 from src.core.skills.minecraft.surface import MinecraftSurface
 from src.core.skills.memory.memory import MemorySkill
+from src.core.skills.social.social import SocialMemory
 from src.core.consciousness import Consciousness
 from src.core.agent import LLMClient
 from src.utils.prompts import load_text, compose
@@ -104,7 +105,7 @@ class AIVtuberBrain:
         self.perception_bus = PerceptionBus(window=self.config.consciousness.get("window", 0.3))
         self.skill_registry = SkillRegistry()
 
-        for skill_cls in (ChatSurface, VoiceSurface, IdleSurface, MinecraftSurface, MemorySkill):
+        for skill_cls in (ChatSurface, VoiceSurface, IdleSurface, MinecraftSurface, MemorySkill, SocialMemory):
             skill = skill_cls(self.config, self.perception_bus, self.expression, self)
             skill.initialize()
             self.skill_registry.register(skill)
