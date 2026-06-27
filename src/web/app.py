@@ -269,37 +269,34 @@ async def buffer_voice_transcript(
     username: str = Form(...)
 ):
     """
-    Buffer-only endpoint: Transcribes short audio snippets and accumulates them
-    without triggering an LLM response. Used when Bea is speaking and someone
-    makes a short comment (< 3s). The buffered text will be included as context
-    in Bea's next response.
+    Overheard speech: transcribes a short snippet and feeds it to the
+    consciousness as a VOICE perception (steering), without waiting for a reply.
+    Bea decides on her own whether it's worth reacting to.
     """
     brain = get_brain()
-    
+
     # save temp file
     temp_dir = Path("temp_discord")
     temp_dir.mkdir(exist_ok=True)
     temp_file = temp_dir / f"buf_{username}_{int(os.times().elapsed)}.wav"
-    
+
     with open(temp_file, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    
+
     transcript = ""
     try:
-        # transcribe
         if brain.stt:
             transcript = brain.stt.transcribe(str(temp_file))
-            logger.info(f"Voice Buffer: [{username}] '{transcript}'")
-        
-        # buffer it
+            logger.info(f"Overheard: [{username}] '{transcript}'")
+
         if transcript and transcript.strip() and transcript != "[Unintelligible]":
-            async with brain.transcript_buffer_lock:
-                brain.pending_transcripts.append(f"[{username}]: {transcript}")
-                logger.info(f"Voice Buffer: {len(brain.pending_transcripts)} transcript(s) queued")
-        
-        return {"status": "buffered", "transcript": transcript}
+            voice = brain.surface_registry.get("voice:discord")
+            if voice:
+                voice.perceive(transcript, username)
+
+        return {"status": "perceived", "transcript": transcript}
     except Exception as e:
-        logger.error(f"Voice Buffer Error: {e}")
+        logger.error(f"Overheard transcript error: {e}")
         return {"status": "error", "transcript": "", "error": str(e)}
     finally:
         if temp_file.exists():
