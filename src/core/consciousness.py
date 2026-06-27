@@ -44,6 +44,7 @@ class Consciousness:
 
         self.context: List[Dict[str, Any]] = []
         self.alive = False
+        self.sleeping = False
         self._loop_task: Optional[asyncio.Task] = None
         self._body_task: Optional[asyncio.Task] = None
 
@@ -63,6 +64,30 @@ class Consciousness:
                 logger.error(f"Surface '{s.name}' failed to start: {e}")
         self._loop_task = asyncio.create_task(self.run())
         logger.info("Consciousness started.")
+
+    def sleep(self, reason: str = "") -> None:
+        """Bea goes to sleep: stop reacting and show the sleeping avatar."""
+        if self.sleeping:
+            return
+        self.sleeping = True
+        try:
+            self.expression.set_mood_avatar("sleeping")
+        except Exception as e:
+            logger.error(f"Failed to set sleeping avatar: {e}")
+        self.events.publish(EventCategory.SYSTEM, "consciousness", f"Bea fell asleep ({reason}).")
+        logger.info(f"Consciousness asleep ({reason}).")
+
+    def wake(self) -> None:
+        """Bea wakes up: resume reacting and restore the normal avatar."""
+        if not self.sleeping:
+            return
+        self.sleeping = False
+        try:
+            self.expression.set_mood_avatar("normal")
+        except Exception as e:
+            logger.error(f"Failed to restore avatar on wake: {e}")
+        self.events.publish(EventCategory.SYSTEM, "consciousness", "Bea woke up.")
+        logger.info("Consciousness awake.")
 
     async def set_surface_active(self, name: str, state: bool) -> None:
         """Live capability toggle from the UI: arm/disarm a surface at runtime."""
@@ -119,6 +144,13 @@ class Consciousness:
                     p.meta["correlation_id"] for p in batch
                     if p.meta.get("correlation_id") in self._correlations
                 ]
+
+                # asleep: ignore the world (but free any waiting callers so they
+                # don't hang) until the dreamer wakes her up
+                if self.sleeping:
+                    self._resolve_dangling_correlations()
+                    continue
+
                 is_idle = bool(batch) and all(p.kind == PerceptionKind.IDLE for p in batch)
                 self.context[0] = self._system_message(batch, is_idle=is_idle)
                 self.context.append(self._frame(batch))

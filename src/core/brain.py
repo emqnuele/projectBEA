@@ -14,6 +14,7 @@ from src.core.skills.idle import IdleSurface
 from src.core.skills.minecraft.surface import MinecraftSurface
 from src.core.skills.memory.memory import MemorySkill
 from src.core.skills.social.social import SocialMemory
+from src.core.skills.dream.surface import DreamSkill
 from src.core.consciousness import Consciousness
 from src.core.agent import LLMClient
 from src.utils.prompts import load_text, compose
@@ -73,6 +74,26 @@ class AIVtuberBrain:
         skill = self.skill_registry.get("memory") if self.skill_registry else None
         return skill if isinstance(skill, MemorySkill) else None
 
+    @property
+    def dream_skill(self) -> Optional[DreamSkill]:
+        skill = self.skill_registry.get("dream") if self.skill_registry else None
+        return skill if isinstance(skill, DreamSkill) else None
+
+    async def run_dream(self) -> dict:
+        """Trigger a dream/consolidation pass (from the UI or a schedule)."""
+        if not self.dream_skill or not self.dream_skill.active:
+            return {"ok": False, "error": "dream skill not active"}
+        return await self.dream_skill.run_dream()
+
+    def wake_up(self) -> None:
+        """Force Bea awake (UI button)."""
+        if self.consciousness:
+            self.consciousness.wake()
+
+    @property
+    def is_sleeping(self) -> bool:
+        return bool(self.consciousness and self.consciousness.sleeping)
+
     def _load_operating_rules(self) -> str:
         """The unified operating manual; falls back to the legacy chat rules."""
         rules = load_text(self.config.operating_prompt_path)
@@ -105,7 +126,7 @@ class AIVtuberBrain:
         self.perception_bus = PerceptionBus(window=self.config.consciousness.get("window", 0.3))
         self.skill_registry = SkillRegistry()
 
-        for skill_cls in (ChatSurface, VoiceSurface, IdleSurface, MinecraftSurface, MemorySkill, SocialMemory):
+        for skill_cls in (ChatSurface, VoiceSurface, IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill):
             skill = skill_cls(self.config, self.perception_bus, self.expression, self)
             skill.initialize()
             self.skill_registry.register(skill)

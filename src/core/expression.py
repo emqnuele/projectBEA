@@ -48,6 +48,10 @@ class Expression:
     def set_png_map(self, png_map) -> None:
         self.png_map = png_map
 
+    def set_mood_avatar(self, mood: str) -> None:
+        """Set a static (idle) avatar for a mood without speaking — e.g. sleeping."""
+        self._set_idle(mood)
+
     def reload_config(self, config: BrainConfig) -> None:
         self.config = config
 

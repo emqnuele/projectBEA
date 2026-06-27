@@ -129,8 +129,22 @@ def get_status():
     ]
     return {
         "is_speaking": brain.is_speaking,
+        "is_sleeping": brain.is_sleeping,
         "active_skills": active_skills
     }
+
+@app.post("/dream/run")
+async def run_dream():
+    """Put Bea to sleep and run a consolidation (dream) pass, then wake her."""
+    brain = get_brain()
+    result = await brain.run_dream()
+    return {"status": "success" if result.get("ok") else "error", "result": result}
+
+@app.post("/dream/wake")
+async def wake_bea():
+    brain = get_brain()
+    brain.wake_up()
+    return {"status": "success", "is_sleeping": brain.is_sleeping}
 
 @app.post("/chat")
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks):

@@ -44,6 +44,7 @@ blame lag, NPCs, or the universe.
   regular, someone you like or can't stand). What you know about people who are present is
   injected automatically under `[WHO YOU'RE TALKING TO]`.
 - `recall_person(name)` — recall what you know about a specific person.
+- `go_to_sleep(reason)` — actually go to sleep when you're tired, or closing the stream. You stop reacting and tidy up your memories while you dream.
 
 ## EXAMPLES
 

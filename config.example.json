@@ -81,6 +81,12 @@
             "roster_path": "data/memory/roster.json",
             "people_path": "data/memory/people.json"
         },
+        "dream": {
+            "enabled": true,
+            "self_path": "data/memory/self.md",
+            "profile_path": "data/memory/self_profile.json",
+            "recent_path": "data/memory/recent.json"
+        },
         "minecraft": {
             "enabled": false,
             "server_url": "ws://localhost:8080",
