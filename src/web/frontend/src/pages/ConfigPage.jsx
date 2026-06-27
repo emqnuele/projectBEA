@@ -464,15 +464,27 @@ export default function ConfigPage({ activeCategory }) {
                                     </div>
 
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-medium text-zinc-500">System Prompt File</label>
+                                        <label className="text-xs font-medium text-zinc-500">Soul File</label>
+                                        <input
+                                            type="text"
+                                            value={config.soul_path || ''}
+                                            onChange={(e) => updateField('soul_path', e.target.value)}
+                                            className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 outline-none"
+                                            placeholder="data/prompts/soul.md"
+                                        />
+                                        <p className="text-[10px] text-zinc-400">Bea's shared persona, prepended to every context (chat, minecraft, monologue).</p>
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-medium text-zinc-500">Chat Rules File</label>
                                         <input
                                             type="text"
                                             value={config.system_prompt_path || ''}
                                             onChange={(e) => updateField('system_prompt_path', e.target.value)}
                                             className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 outline-none"
-                                            placeholder="data/prompts/sys-prompt.txt"
+                                            placeholder="data/prompts/chat.md"
                                         />
-                                        <p className="text-[10px] text-zinc-400">The file loaded from the root directory as Bea's identity.</p>
+                                        <p className="text-[10px] text-zinc-400">Chat-context rules (output format, moods). Bea's shared persona lives in soul.md.</p>
                                     </div>
                                 </div>
                             </section>

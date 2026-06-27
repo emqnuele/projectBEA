@@ -1,15 +1,15 @@
 import asyncio
-from pathlib import Path
 
 from src.core.agent.runner import AgentHooks
 from src.modules.skills.base_skill import BaseSkill
 from src.modules.skills.minecraft.agent import MinecraftAgent
 from src.modules.skills.minecraft.mc_client import MinecraftClient
+from src.utils.prompts import load_text, compose
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.minecraft")
 
-DEFAULT_PROMPT = "You are a Minecraft survival agent. Use the available tools to stay alive and progress."
+DEFAULT_RULES = "You are playing Minecraft. Use the available tools to stay alive and progress."
 
 
 class MinecraftSkill(BaseSkill):
@@ -26,19 +26,20 @@ class MinecraftSkill(BaseSkill):
         except RuntimeError:
             self.loop = asyncio.new_event_loop()
 
-        self.system_prompt = self._load_prompt()
+        self.rules = self._load_rules()
+        self.system_prompt = self._build_prompt()
         self.client = None
         self.agent = None
         self._task = None
 
-    def _load_prompt(self) -> str:
+    def _load_rules(self) -> str:
         path = self.skill_config.get("system_prompt_path")
-        if path and Path(path).exists():
-            try:
-                return Path(path).read_text(encoding="utf-8")
-            except Exception as e:
-                self.log(f"Could not read system prompt ({path}): {e}")
-        return DEFAULT_PROMPT
+        return load_text(path, DEFAULT_RULES) if path else DEFAULT_RULES
+
+    def _build_prompt(self) -> str:
+        """Bea's shared soul + the minecraft-specific rules."""
+        soul = getattr(self.context, "soul", "")
+        return compose(soul, self.rules)
 
     async def start(self):
         await super().start()
@@ -48,6 +49,7 @@ class MinecraftSkill(BaseSkill):
             self.log("Cannot start: no LLM available on the brain.")
             return
 
+        self.system_prompt = self._build_prompt()
         url = self.skill_config.get("server_url", "ws://localhost:8080")
         self.client = MinecraftClient(url, self.loop)
         hooks = AgentHooks(
@@ -99,7 +101,8 @@ class MinecraftSkill(BaseSkill):
         await self.context.perform_output_task("normal", thought)
 
     def on_config_reload(self):
-        new_prompt = self._load_prompt()
+        self.rules = self._load_rules()
+        new_prompt = self._build_prompt()
         if new_prompt != self.system_prompt:
             self.system_prompt = new_prompt
         if self.is_active:

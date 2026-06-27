@@ -1,6 +1,7 @@
 {
     "language": "en",
-    "system_prompt_path": "data/prompts/sys-prompt.txt",
+    "soul_path": "data/prompts/soul.md",
+    "system_prompt_path": "data/prompts/chat.md",
     "llm_provider": "openrouter",
     "openrouter_model": "openai/gpt-4o-mini",
     "openai_model": "gpt-5",
@@ -67,7 +68,7 @@
             "enabled": false,
             "interval_seconds": 30,
             "chunk_pause_seconds": 4.0,
-            "prompt_path": "data/prompts/monologue.txt"
+            "prompt_path": "data/prompts/monologue.md"
         },
         "memory": {
             "enabled": true,
@@ -83,7 +84,7 @@
             "auto_chat_thoughts": false,
             "auto_speak_thoughts": false,
             "mc_openai_model": "gpt-4o-mini",
-            "system_prompt_path": "data/prompts/minecraft.txt"
+            "system_prompt_path": "data/prompts/minecraft.md"
         },
         "discord": {
             "enabled": false,

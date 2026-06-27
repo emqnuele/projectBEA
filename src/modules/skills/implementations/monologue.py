@@ -15,7 +15,7 @@ class MonologueSkill(BaseSkill):
         # config
         self.interval_seconds = self.skill_config.get("interval_seconds", 30)
         self.chunk_pause_seconds = self.skill_config.get("chunk_pause_seconds", 4.0)
-        self.prompt_path = self.skill_config.get("prompt_path", "data/prompts/monologue.txt")
+        self.prompt_path = self.skill_config.get("prompt_path", "data/prompts/monologue.md")
         
         # load prompt
         self.monologue_rules = ""

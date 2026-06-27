@@ -10,6 +10,7 @@ from src.core.events import EventManager, EventCategory
 from src.core.agent import AgentRunner, AgentHooks, ToolRegistry, LLMClient
 from src.modules.skills.memory.memory_skill import MemorySkill
 from src.utils.llm_utils import parse_llm_json
+from src.utils.prompts import load_text, compose
 from src.utils.logger import get_logger
 import datetime
 
@@ -30,7 +31,8 @@ class AIVtuberBrain:
         self.stt = stt
         self.obs = obs
         self.png_map = {}
-        self.system_prompt = ""
+        self.soul = ""           # shared persona, prepended to every context's rules
+        self.system_prompt = ""  # composed: soul + chat rules
         self.history_manager = HistoryManager()
         self.is_speaking = False
         self.current_typing_task: Optional[asyncio.Task] = None
@@ -100,16 +102,10 @@ class AIVtuberBrain:
         if not self.png_map:
             logger.warning("No avatar resources loaded from avatar_map.")
 
-        sys_path = Path(self.config.system_prompt_path)
-        try:
-            if sys_path.exists():
-                self.system_prompt = sys_path.read_text(encoding="utf-8")
-                logger.info(f"Loaded system prompt from {sys_path}")
-            else:
-                logger.warning(f"System prompt file not found: {sys_path}")
-        except Exception as e:
-            logger.error(f"Error loading system prompt: {e}")
-
+        self.soul = load_text(self.config.soul_path)
+        chat_rules = load_text(self.config.system_prompt_path)
+        self.system_prompt = compose(self.soul, chat_rules)
+        logger.info(f"Loaded soul + chat rules ({len(self.system_prompt)} chars).")
 
         self._obs_connect()
 
@@ -125,15 +121,11 @@ class AIVtuberBrain:
         """
         logger.info("Hot Reloading Configuration")
         
-        sys_path = Path(self.config.system_prompt_path)
-        try:
-            if sys_path.exists():
-                new_prompt = sys_path.read_text(encoding="utf-8")
-                if new_prompt != self.system_prompt:
-                    self.system_prompt = new_prompt
-                    logger.info("Updated System Prompt.")
-        except Exception as e:
-            logger.error(f"Error reloading system prompt: {e}")
+        self.soul = load_text(self.config.soul_path)
+        new_prompt = compose(self.soul, load_text(self.config.system_prompt_path))
+        if new_prompt != self.system_prompt:
+            self.system_prompt = new_prompt
+            logger.info("Updated soul + chat rules.")
 
         self.llm.reload_config(self.config)
         self.tts.reload_config(self.config)

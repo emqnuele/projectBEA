@@ -11,7 +11,8 @@ CONFIG_FILE = "config.json"
 @dataclass
 class BrainConfig:
     language: str = "en" # default language
-    system_prompt_path: str = "data/prompts/sys-prompt.txt"
+    soul_path: str = "data/prompts/soul.md"  # shared persona, prepended to every context
+    system_prompt_path: str = "data/prompts/chat.md"
     llm_provider: str = "openrouter" # openrouter, openai, groq
 
     # openrouter (routes to virtually any model via one openai-compatible endpoint)
@@ -84,7 +85,7 @@ class BrainConfig:
             "enabled": False,
             "interval_seconds": 30,
             "chunk_pause_seconds": 4.0,
-            "prompt_path": "data/prompts/monologue.txt"
+            "prompt_path": "data/prompts/monologue.md"
         },
         "memory": {
             "enabled": True,
@@ -97,7 +98,7 @@ class BrainConfig:
             "server_url": "ws://localhost:8080",
             "auto_chat_thoughts": False,
             "auto_speak_thoughts": False,
-            "system_prompt_path": "data/prompts/minecraft.txt"
+            "system_prompt_path": "data/prompts/minecraft.md"
         },
         "discord": {
             "enabled": False,
