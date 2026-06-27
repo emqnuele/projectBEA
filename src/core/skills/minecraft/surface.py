@@ -66,10 +66,14 @@ class MinecraftSurface(Skill):
 
     async def _perceive_loop(self) -> None:
         """Streams game events + periodic state snapshots onto the bus."""
+        if self.client is None:
+            return
         await self.client.wait_until_ready()
         self.bus.put(Perception(PerceptionKind.GAME, self.name, self._snapshot(), salience=0.4))
-        while self.active:
+        while self.active and self.client is not None:
             await self.client.wait_for_event_or_timeout(10.0)
+            if self.client is None:
+                break
             events = self.client.drain_events()
             content = self._snapshot(events)
             salience = 0.9 if events else 0.3  # an interrupt grabs attention
@@ -79,7 +83,8 @@ class MinecraftSurface(Skill):
         parts = []
         if events:
             parts.append("EVENTS:\n" + "\n".join(events))
-        parts.append("GAME STATE:\n" + json.dumps(self.client.latest_state))
+        latest_state = self.client.latest_state if self.client is not None else {}
+        parts.append("GAME STATE:\n" + json.dumps(latest_state))
         return "\n\n".join(parts)
 
     @property
