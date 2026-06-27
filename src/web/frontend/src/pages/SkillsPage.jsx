@@ -115,7 +115,7 @@ export default function SkillsPage() {
     if (loading) return <div className="p-10">Loading Skills...</div>;
 
     return (
-        <div className="flex h-screen bg-gray-50">
+        <div className="flex h-screen bg-transparent text-zinc-900">
             {consoleOpen && (
                 <MinecraftConsole
                     serverUrl={config?.skills?.minecraft?.server_url || "ws://localhost:8080"}
@@ -129,7 +129,7 @@ export default function SkillsPage() {
                     animate={{ opacity: 1, y: 0 }}
                     className="max-w-6xl"
                 >
-                    <h1 className="text-3xl font-bold text-gray-900 mb-8 tracking-tight">Skills & Behaviors</h1>
+                    <h1 className="text-2xl font-bold text-zinc-900 mb-8 tracking-tight">Skills & Behaviors</h1>
 
                     <motion.div
                         initial="hidden"
@@ -149,13 +149,13 @@ export default function SkillsPage() {
                                         visible: { opacity: 1, y: 0 }
                                     }}
                                 >
-                                    <Card className="shadow-sm border-zinc-200">
+                                    <Card className="bg-white border-zinc-200/80 shadow-sm">
                                         <CardHeader className="pb-3">
                                             <div className="flex justify-between items-center">
                                                 <div>
-                                                    <CardTitle className="capitalize text-lg">{skillName}</CardTitle>
-                                                    <CardDescription>
-                                                        Status: {runtimeStatus.active ? <span className="text-green-600 font-bold">Active</span> : 'Idle'}
+                                                    <CardTitle className="capitalize text-lg text-zinc-900">{skillName}</CardTitle>
+                                                    <CardDescription className="text-zinc-400 text-xs mt-1">
+                                                        Status: {runtimeStatus.active ? <span className="text-emerald-600 font-semibold">Active</span> : <span className="text-zinc-400">Idle</span>}
                                                     </CardDescription>
                                                 </div>
                                                 <div className="flex items-center gap-2">
@@ -163,7 +163,7 @@ export default function SkillsPage() {
                                                         checked={skillConfig.enabled}
                                                         onCheckedChange={(checked) => toggleSkill(skillName, checked)}
                                                     />
-                                                    <span className="text-sm font-medium">{skillConfig.enabled ? "ON" : "OFF"}</span>
+                                                    <span className={`text-xs font-medium ${skillConfig.enabled ? "text-zinc-900" : "text-zinc-400"}`}>{skillConfig.enabled ? "ON" : "OFF"}</span>
                                                 </div>
                                             </div>
                                         </CardHeader>
@@ -172,18 +172,20 @@ export default function SkillsPage() {
                                             {skillName === 'monologue' && (
                                                 <>
                                                     <div className="grid grid-cols-1 gap-2">
-                                                        <Label className="text-xs text-muted-foreground">Trigger Interval (seconds)</Label>
+                                                        <Label className="text-xs text-zinc-500">Trigger Interval (seconds)</Label>
                                                         <Input
                                                             type="number"
                                                             value={skillConfig.interval_seconds}
                                                             onChange={(e) => updateSkillConfig(skillName, 'interval_seconds', parseInt(e.target.value))}
+                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
                                                         />
                                                     </div>
                                                     <div className="grid grid-cols-1 gap-2">
-                                                        <Label className="text-xs text-muted-foreground">Instruction / System Prompt</Label>
+                                                        <Label className="text-xs text-zinc-500">Instruction / System Prompt</Label>
                                                         <Input
                                                             value={skillConfig.prompt_instructions}
                                                             onChange={(e) => updateSkillConfig(skillName, 'prompt_instructions', e.target.value)}
+                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
                                                         />
                                                     </div>
                                                 </>
@@ -191,16 +193,17 @@ export default function SkillsPage() {
                                             {skillName === 'memory' && (
                                                 <div className="space-y-4">
                                                     <div className="space-y-1.5">
-                                                        <Label className="text-xs text-muted-foreground">ChromaDB Path</Label>
+                                                        <Label className="text-xs text-zinc-500">ChromaDB Path</Label>
                                                         <Input
                                                             value={skillConfig.chroma_path || 'data/memory_db'}
                                                             onChange={(e) => updateSkillConfig(skillName, 'chroma_path', e.target.value)}
+                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
                                                         />
                                                     </div>
 
                                                     <Button
                                                         size="sm"
-                                                        className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                                                        className="w-full mt-2 bg-black text-white hover:bg-zinc-800 cursor-pointer text-xs font-semibold"
                                                         onClick={async () => {
                                                             const btn = document.getElementById("save-mem-btn");
                                                             if (btn) btn.disabled = true;
@@ -218,7 +221,7 @@ export default function SkillsPage() {
                                                         }}
                                                         id="save-mem-btn"
                                                     >
-                                                        <Save className="w-4 h-4 mr-2" />
+                                                        <Save className="w-3.5 h-3.5 mr-2" />
                                                         Save Memory Now
                                                     </Button>
                                                 </div>
@@ -226,15 +229,16 @@ export default function SkillsPage() {
                                             {skillName === 'minecraft' && (
                                                 <div className="space-y-4">
                                                     <div className="space-y-1.5">
-                                                        <Label className="text-xs text-muted-foreground">Server URL</Label>
+                                                        <Label className="text-xs text-zinc-500">Server URL</Label>
                                                         <Input
                                                             value={skillConfig.server_url || ''}
                                                             onChange={(e) => updateSkillConfig(skillName, 'server_url', e.target.value)}
                                                             placeholder="ws://localhost:8080"
+                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
                                                         />
                                                     </div>
-                                                    <div className="flex items-center justify-between border border-gray-100 rounded-md p-2 bg-gray-50/50">
-                                                        <Label className="text-xs text-muted-foreground">Auto Speak Thoughts</Label>
+                                                    <div className="flex items-center justify-between border border-zinc-150 rounded-md p-2 bg-zinc-50/50">
+                                                        <Label className="text-xs text-zinc-500">Auto Speak Thoughts</Label>
                                                         <Switch
                                                             checked={skillConfig.auto_speak_thoughts || false}
                                                             onCheckedChange={(checked) => updateSkillConfig(skillName, 'auto_speak_thoughts', checked)}
@@ -245,23 +249,25 @@ export default function SkillsPage() {
                                             {skillName === 'discord' && (
                                                 <div className="space-y-4">
                                                     <div className="space-y-1.5">
-                                                        <Label className="text-xs text-muted-foreground">Bot Token</Label>
+                                                        <Label className="text-xs text-zinc-500">Bot Token</Label>
                                                         <Input
                                                             type="password"
                                                             value={skillConfig.token || ''}
                                                             onChange={(e) => updateSkillConfig(skillName, 'token', e.target.value)}
                                                             placeholder="Enter Discord Bot Token"
+                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
                                                         />
                                                     </div>
                                                     <div className="space-y-1.5">
-                                                        <Label className="text-xs text-muted-foreground">Target Channel ID</Label>
+                                                        <Label className="text-xs text-zinc-500">Target Channel ID</Label>
                                                         <Input
                                                             value={skillConfig.target_channel || ''}
                                                             onChange={(e) => updateSkillConfig(skillName, 'target_channel', e.target.value)}
                                                             placeholder="123456789012345678"
+                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
                                                         />
                                                     </div>
-                                                    <p className="text-xs text-gray-500">
+                                                    <p className="text-[11px] text-zinc-400 mt-1.5">
                                                         Enable the skill and restart the brain to start the bot process.
                                                     </p>
                                                 </div>
@@ -271,13 +277,13 @@ export default function SkillsPage() {
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        className="text-zinc-500 hover:text-zinc-900"
+                                                        className="text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 cursor-pointer"
                                                         onClick={() => setConsoleOpen(true)}
                                                     >
                                                         <Settings className="w-4 h-4 mr-2" /> Console
                                                     </Button>
                                                 )}
-                                                <Button size="sm" variant="outline" onClick={saveConfig}>Save Settings</Button>
+                                                <Button size="sm" variant="outline" className="cursor-pointer border-zinc-200 hover:bg-zinc-50" onClick={saveConfig}>Save Settings</Button>
                                             </div>
                                         </CardContent>
                                     </Card>

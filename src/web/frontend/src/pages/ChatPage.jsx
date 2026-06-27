@@ -17,16 +17,16 @@ function MetadataViewer({ data }) {
         <div className="mt-2 text-xs">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-1 text-zinc-400 hover:text-zinc-600 transition-colors"
+                className="flex items-center gap-1 text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
                 title="Show Metadata"
             >
                 <Info size={12} />
-                <span className="font-medium">Details</span>
+                <span className="font-medium text-[10px]">Details</span>
                 {isOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             </button>
 
             {isOpen && (
-                <div className="mt-2 p-2 bg-zinc-50 rounded border border-zinc-100 font-mono text-[10px] text-zinc-600 space-y-1 overflow-x-auto">
+                <div className="mt-2 p-2 bg-zinc-50 rounded-xl border border-zinc-200/60 font-mono text-[10px] text-zinc-650 space-y-1 overflow-x-auto">
                     {keys.map(key => (
                         <div key={key} className="flex flex-col">
                             <span className="font-bold text-zinc-400 capitalize">{key}:</span>
@@ -49,7 +49,7 @@ export default function ChatPage() {
     // auto mode vs manual mode
     const [mode, setMode] = useState('manual'); // 'manual' | 'auto'
 
-    const messagesEndRef = useRef(null);
+    const chatContainerRef = useRef(null);
     const mediaRecorderRef = useRef(null);
     const audioChunks = useRef([]);
 
@@ -86,7 +86,12 @@ export default function ChatPage() {
     }, []);
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTo({
+                top: chatContainerRef.current.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
     }, [messages]);
 
 
@@ -238,7 +243,7 @@ export default function ChatPage() {
     };
 
     return (
-        <div className="flex flex-col h-full bg-white relative">
+        <div className="flex flex-col h-full bg-white relative overflow-hidden">
 
             {/* vad visualizer */}
             {mode === 'auto' && (
@@ -254,13 +259,13 @@ export default function ChatPage() {
                 <VoiceVisualizer status="speaking" volume={0} isUserSpeaking={false} />
             )}
 
-            <div className="flex-1 overflow-y-auto px-4 md:px-20 py-8 space-y-6 flex flex-col">
+            <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-4 md:px-20 py-8 space-y-6 flex flex-col min-h-0 bg-white">
                 {messages.length === 0 && (
-                    <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 min-h-[50vh]">
-                        <div className="bg-zinc-100 p-4 rounded-full mb-4">
+                    <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 min-h-[50vh] select-none">
+                        <div className="bg-zinc-50 border border-zinc-200/60 p-4 rounded-full mb-4">
                             <Mic size={24} className="text-zinc-400" />
                         </div>
-                        <p>Start a conversation...</p>
+                        <p className="text-sm font-medium">Start a conversation...</p>
                     </div>
                 )}
                 {messages.map((msg, idx) => {
@@ -269,17 +274,17 @@ export default function ChatPage() {
                         <div key={idx} className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} animate-in`}>
                             <div
                                 className={`max-w-[85%] md:max-w-[70%] px-5 py-3 rounded-2xl text-sm leading-relaxed shadow-sm
-                        ${isUser
-                                        ? 'bg-black text-white rounded-br-sm'
-                                        : 'bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-bl-sm'
+                                    ${isUser
+                                        ? 'bg-zinc-900 text-white border border-zinc-900 rounded-br-sm'
+                                        : 'bg-zinc-50 text-zinc-800 border border-zinc-200/60 rounded-bl-sm'
                                     }`}
                             >
                                 {!isUser && msg.mood && (
-                                    <div className="text-[10px] uppercase font-bold text-zinc-500 mb-1 opacity-70">
+                                    <div className="text-[10px] uppercase font-bold text-zinc-400 mb-1 opacity-70 tracking-wider">
                                         {msg.mood}
                                     </div>
                                 )}
-                                <p>{msg.content}</p>
+                                <p className="whitespace-pre-wrap">{msg.content}</p>
 
                                 {/* metadata */}
                                 {!isUser && <MetadataViewer data={msg} />}
@@ -287,31 +292,30 @@ export default function ChatPage() {
                         </div>
                     );
                 })}
-                <div ref={messagesEndRef} />
             </div>
 
             {/* footer / input area */}
-            <div className="p-4 bg-white/80 backdrop-blur-md border-t border-zinc-100 z-10">
+            <div className="p-6 bg-white z-10 relative">
                 {/* speaking indicator */}
                 {isSpeaking && (
-                    <div className="absolute top-[-40px] left-1/2 transform -translate-x-1/2 bg-zinc-900 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-2 shadow-sm animate-in fade-in slide-in-from-bottom-2">
-                        <Volume2 size={12} className="animate-pulse" />
-                        <span className="font-medium">AI is speaking...</span>
+                    <div className="absolute top-[-24px] left-1/2 transform -translate-x-1/2 bg-zinc-900 text-white text-xs px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-md animate-in">
+                        <Volume2 size={12} className="animate-pulse text-zinc-300" />
+                        <span className="font-medium text-zinc-200">AI is speaking...</span>
                     </div>
                 )}
 
-                <div className={`flex items-center gap-2 max-w-3xl mx-auto border rounded-full p-2 shadow-sm transition-all focus-within:ring-1 focus-within:ring-black focus-within:border-black
-            ${isSpeaking ? 'bg-zinc-50 border-zinc-100 cursor-not-allowed opacity-80' : 'bg-white border-zinc-200'}
-        `}>
+                <div className={`flex items-center gap-2 max-w-3xl mx-auto border rounded-full p-2 shadow-sm transition-all focus-within:ring-1 focus-within:ring-black/10 focus-within:border-black/20
+                    ${isSpeaking ? 'bg-zinc-50 border-zinc-200 cursor-not-allowed opacity-60' : 'bg-white border-zinc-250'}
+                `}>
                     {/* auto mode toggle */}
                     <button
                         onClick={toggleMode}
                         title={mode === 'auto' ? "Disable Voice Mode" : "Enable Voice Mode"}
-                        className={`p-2.5 rounded-full transition-all duration-300 flex-shrink-0 flex items-center justify-center
-                            ${mode === 'auto' ? 'bg-green-50 text-green-600' : 'text-zinc-400 hover:text-black hover:bg-zinc-50'}
+                        className={`p-2.5 rounded-full transition-all duration-300 flex-shrink-0 flex items-center justify-center cursor-pointer
+                            ${mode === 'auto' ? 'bg-emerald-50 text-emerald-650 border border-emerald-200' : 'text-zinc-400 hover:text-black hover:bg-zinc-50 border border-transparent'}
                         `}
                     >
-                        <Phone size={18} className={mode === 'auto' ? "fill-green-600" : ""} />
+                        <Phone size={18} className={mode === 'auto' ? "fill-emerald-600" : ""} />
                     </button>
 
                     <button
@@ -319,12 +323,12 @@ export default function ChatPage() {
                         onMouseUp={mode === 'manual' ? stopManualRecording : undefined}
                         onMouseLeave={mode === 'manual' ? stopManualRecording : undefined}
                         disabled={isSpeaking || mode === 'auto'}
-                        className={`p-2.5 rounded-full transition-all duration-300 flex-shrink-0
-                ${isRecording
-                                ? 'bg-red-50 text-red-500'
+                        className={`p-2.5 rounded-full transition-all duration-300 flex-shrink-0 cursor-pointer
+                            ${isRecording
+                                ? 'bg-rose-50 text-rose-500 border border-rose-100'
                                 : isSpeaking
                                     ? 'text-zinc-300 cursor-not-allowed'
-                                    : (mode === 'auto' ? 'text-zinc-300' : 'text-zinc-400 hover:text-black hover:bg-zinc-50')
+                                    : (mode === 'auto' ? 'text-zinc-300' : 'text-zinc-400 hover:text-black hover:bg-zinc-50 border border-transparent')
                             }`}
                     >
                         {isRecording ? <MicOff size={20} className="animate-pulse" /> : <Mic size={20} />}
@@ -343,15 +347,17 @@ export default function ChatPage() {
                     <button
                         onClick={handleSend}
                         disabled={!input.trim() || isLoading || isSpeaking}
-                        className="p-2.5 bg-black text-white rounded-full hover:bg-zinc-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="p-2.5 bg-black text-white rounded-full hover:bg-zinc-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                     >
                         <Send size={18} />
                     </button>
                 </div>
-                <div className="text-center mt-2">
-                    <span className="text-[10px] text-zinc-300">AI Vtuber Engine</span>
+                <div className="text-center mt-3 select-none">
+                    <span className="text-[10px] text-zinc-400 uppercase tracking-widest">Vtuber Engine</span>
                 </div>
             </div>
         </div>
     );
 }
+
+

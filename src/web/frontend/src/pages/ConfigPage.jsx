@@ -87,7 +87,7 @@ export default function ConfigPage({ activeCategory }) {
     if (loading || !config) return <div className="p-12 text-center text-sm text-zinc-500">Loading...</div>
 
     return (
-        <div className="h-full flex flex-col max-w-4xl mx-auto animate-in">
+        <div className="h-full flex flex-col max-w-4xl mx-auto animate-in config-page">
             {/* header */}
             <div className="px-8 py-8 flex items-center justify-between">
                 <div>

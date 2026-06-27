@@ -9,35 +9,34 @@ import { motion, AnimatePresence } from 'framer-motion';
 const API_BASE = 'http://localhost:8000';
 
 // cmd style components
-
 const TerminalLine = ({ event }) => {
     const timeStr = new Date(event.timestamp * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-    let colorClass = "text-gray-600";
+    let colorClass = "text-zinc-650";
     let bgClass = "bg-transparent";
     let prefix = "INFO";
-    let prefixColor = "bg-gray-200 text-gray-700";
+    let prefixColor = "bg-zinc-100 text-zinc-600 border border-zinc-200/50";
 
-    if (event.category === 'input') { prefix = "INPT"; prefixColor = "bg-blue-100 text-blue-700"; bgClass = "bg-blue-50/30"; }
-    else if (event.category === 'output') { prefix = "OUTP"; prefixColor = "bg-green-100 text-green-700"; bgClass = "bg-green-50/30"; }
-    else if (event.category === 'thought') { prefix = "THGT"; prefixColor = "bg-purple-100 text-purple-700"; bgClass = "bg-purple-50/30"; }
-    else if (event.category === 'skill') { prefix = "EXEC"; prefixColor = "bg-amber-100 text-amber-700"; bgClass = "bg-amber-50/30"; }
-    else if (event.category === 'error') { prefix = "ERR "; prefixColor = "bg-red-100 text-red-700"; bgClass = "bg-red-50/50"; }
+    if (event.category === 'input') { prefix = "INPT"; prefixColor = "bg-blue-50 text-blue-700 border-blue-100"; bgClass = "bg-blue-50/10"; }
+    else if (event.category === 'output') { prefix = "OUTP"; prefixColor = "bg-emerald-50 text-emerald-700 border-emerald-100"; bgClass = "bg-emerald-50/10"; }
+    else if (event.category === 'thought') { prefix = "THGT"; prefixColor = "bg-purple-50 text-purple-700 border-purple-100"; bgClass = "bg-purple-50/10"; }
+    else if (event.category === 'skill') { prefix = "EXEC"; prefixColor = "bg-amber-50 text-amber-700 border-amber-100"; bgClass = "bg-amber-50/10"; }
+    else if (event.category === 'error') { prefix = "ERR "; prefixColor = "bg-rose-50 text-rose-700 border-rose-100"; bgClass = "bg-rose-50/20"; }
 
     return (
         <motion.div
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
-            className={`font-mono text-sm py-2 px-3 border-b border-gray-100 flex items-start gap-4 ${bgClass} hover:bg-gray-50 transition-colors`}
+            className={`font-mono text-xs py-2.5 px-4 border-b border-zinc-100 flex items-start gap-4 ${bgClass} hover:bg-zinc-50/50 transition-colors`}
         >
-            <span className="text-gray-400 select-none text-xs pt-0.5 min-w-[60px]">{timeStr}</span>
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded select-none min-w-[45px] text-center ${prefixColor}`}>{prefix}</span>
-            <div className="flex-1 break-words text-gray-800 leading-relaxed">
+            <span className="text-zinc-400 select-none text-[10px] pt-0.5 min-w-[50px]">{timeStr}</span>
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded select-none min-w-[40px] text-center ${prefixColor}`}>{prefix}</span>
+            <div className="flex-1 break-words text-zinc-800 leading-relaxed">
                 <span>{event.message}</span>
                 {event.metadata && Object.keys(event.metadata).length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1">
                         {Object.entries(event.metadata).map(([k, v]) => (
-                            <span key={k} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-200 text-gray-600">
+                            <span key={k} className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-50 text-zinc-500 border border-zinc-200/50">
                                 {k}: {String(v)}
                             </span>
                         ))}
@@ -49,39 +48,36 @@ const TerminalLine = ({ event }) => {
 };
 
 // status hud
-
 const BigStatusCard = ({ icon: Icon, label, value, subtext, active, color }) => {
     const baseColor = {
-        green: "text-green-600 bg-green-50 border-green-200",
-        purple: "text-purple-600 bg-purple-50 border-purple-200",
-        amber: "text-amber-600 bg-amber-50 border-amber-200",
-        blue: "text-blue-600 bg-blue-50 border-blue-200",
-        gray: "text-gray-600 bg-gray-50 border-gray-200",
-    }[color] || "text-gray-600 bg-gray-50";
+        green: "text-emerald-700 bg-emerald-50 border-emerald-200 shadow-emerald-500/[0.02]",
+        purple: "text-purple-700 bg-purple-50 border-purple-200 shadow-purple-500/[0.02]",
+        amber: "text-amber-700 bg-amber-50 border-amber-200 shadow-amber-500/[0.02]",
+        blue: "text-blue-700 bg-blue-50 border-blue-200 shadow-blue-500/[0.02]",
+        gray: "text-zinc-500 bg-zinc-50 border-zinc-200/60 shadow-none",
+    }[color] || "text-zinc-500 bg-zinc-50 border-zinc-200/60";
 
     return (
         <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: active ? 1.02 : 1 }}
-            whileHover={{ y: -2 }}
-            className={`relative flex-1 min-w-[200px] p-5 rounded-xl border-2 transition-all duration-300 shadow-sm ${active ? `${baseColor} shadow-md` : 'bg-white border-gray-100 text-gray-400'}`}
+            className={`relative flex-1 min-w-[200px] p-5 rounded-xl border transition-all duration-300 shadow-[0_2px_8px_rgba(0,0,0,0.01)] ${active ? `${baseColor} shadow-sm` : 'bg-zinc-50/50 border-zinc-200/40 text-zinc-400'}`}
         >
             <div className="flex items-start justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-widest opacity-70">{label}</span>
-                <Icon className={`w-6 h-6 ${active ? 'animate-pulse' : 'opacity-20'}`} />
+                <span className="text-[10px] font-bold uppercase tracking-wider opacity-85">{label}</span>
+                <Icon className={`w-5 h-5 ${active ? 'opacity-90' : 'opacity-20'}`} />
             </div>
-            <div className={`text-2xl font-black tracking-tight ${active ? '' : 'text-gray-700'}`}>
+            <div className={`text-xl font-bold tracking-tight ${active ? 'text-zinc-900' : 'text-zinc-400'}`}>
                 {value}
             </div>
             {subtext && (
-                <div className="text-[10px] font-mono mt-1 opacity-60 truncate">
+                <div className="text-[9px] font-mono mt-1 opacity-70 truncate">
                     {subtext}
                 </div>
             )}
         </motion.div>
     );
 };
-
 
 const HUD = ({ status, lastEvent }) => {
     // derived state
@@ -96,16 +92,15 @@ const HUD = ({ status, lastEvent }) => {
     const lastActiveTime = lastEvent ? new Date(lastEvent.timestamp * 1000).toLocaleTimeString() : "--:----";
 
     return (
-        <div className="bg-white border-b border-gray-200 p-6 sticky top-0 z-30 shadow-sm">
+        <div className="bg-white border-b border-zinc-200/60 p-6 sticky top-0 z-30">
             <div className="max-w-7xl mx-auto flex flex-col gap-6">
 
                 {/* header title */}
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full ${isSpeaking ? 'bg-green-500 animate-ping' : 'bg-green-500'}`}></div>
-                        <h1 className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
+                        <h1 className="text-lg font-bold text-zinc-900 tracking-tight flex items-center gap-2">
                             BRAIN ACTIVITY MONITOR
-                            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-mono border border-gray-200">LIVE</span>
+                            <span className="px-2 py-0.5 rounded-full bg-zinc-55 text-zinc-500 text-[9px] font-mono border border-zinc-200/60">LIVE</span>
                         </h1>
                     </div>
                 </div>
@@ -183,32 +178,32 @@ export default function BrainActivityPage() {
     // no auto-scroll
 
     return (
-        <div className="h-screen flex flex-col bg-gray-50 font-sans text-gray-900">
+        <div className="h-screen flex flex-col bg-white font-sans text-zinc-900">
 
             <HUD status={status} lastEvent={events[0]} />
 
             <div className="flex-1 overflow-hidden relative flex flex-col max-w-7xl mx-auto w-full mt-4 mb-4 px-6">
 
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col flex-1 overflow-hidden">
+                <div className="bg-white rounded-2xl border border-zinc-200/60 flex flex-col flex-1 overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.01)]">
                     {/* log header */}
-                    <div className="px-4 py-3 bg-gray-100/50 border-b border-gray-200 flex justify-between items-center text-xs font-mono text-gray-500">
-                        <span className="font-bold flex items-center gap-2">
-                            <Terminal className="w-4 h-4" /> EVENT STREAM
+                    <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-200/60 flex justify-between items-center text-[10px] font-mono text-zinc-500">
+                        <span className="font-bold flex items-center gap-2 text-zinc-650">
+                            <Terminal className="w-3.5 h-3.5" /> EVENT STREAM
                         </span>
                         <span>{events.length} EVENTS LOGGED</span>
                     </div>
 
                     {/* log content */}
-                    <ScrollArea className="flex-1 bg-white" viewportRef={scrollViewportRef}>
+                    <ScrollArea className="flex-1 bg-transparent" viewportRef={scrollViewportRef}>
                         <div className="w-full">
                             {events.length === 0 && (
-                                <div className="text-gray-400 italic p-8 text-center">Waiting for system events...</div>
+                                <div className="text-zinc-400 italic p-8 text-center text-xs">Waiting for system events...</div>
                             )}
                             {events.map((event, i) => (
                                 <TerminalLine key={event.id || i} event={event} />
                             ))}
                             {/* blinking cursor */}
-                            <div className="px-4 py-2 animate-pulse text-gray-400 font-bold">_</div>
+                            <div className="px-4 py-2 animate-pulse text-zinc-300 font-bold font-mono">_</div>
                         </div>
                     </ScrollArea>
                 </div>
@@ -217,3 +212,5 @@ export default function BrainActivityPage() {
         </div>
     );
 }
+
+
