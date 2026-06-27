@@ -42,6 +42,7 @@ temp/
 tts_debug_output.txt
 *.log
 data/conversations/
+data/memory_db/
 
 
 # Frontend
