@@ -95,5 +95,13 @@
         }
     },
     "stt_provider": "groq",
-    "stt_model": "whisper-large-v3-turbo"
+    "stt_model": "whisper-large-v3-turbo",
+    "consciousness": {
+        "enabled": false,
+        "idle_after": 30.0,
+        "window": 0.3,
+        "burst_steps": 6,
+        "history_limit": 30,
+        "correlation_timeout": 30.0
+    }
 }

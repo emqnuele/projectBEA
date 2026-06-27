@@ -380,8 +380,6 @@ class AIVtuberBrain:
         return mood, message
 
     async def generate_audio_response(self, audio_path: str) -> Tuple[str, str, str]:
-        import os
-        filename = os.path.basename(audio_path)
         history = self.history_manager.get_recent_history()
         transcript = ""
 

@@ -284,6 +284,34 @@ When a new session is started, the previous session is asynchronously processed 
 
 ---
 
+## Single Consciousness (experimental)
+
+By default Bea runs as separate flows: a reactive chat brain, an autonomous Minecraft
+agent, and an idle monologue loop, each with its own context. An opt-in **unified
+consciousness** replaces these with one always-on mind.
+
+Enable it via `config.json`:
+
+```json
+"consciousness": { "enabled": true }
+```
+
+When on:
+
+- **One context, one loop** (`src/core/consciousness.py`). All channels push
+  `Perception`s onto a single `PerceptionBus`; Bea drains them, reasons, and acts.
+- **Surfaces** (`src/core/surfaces/`) are the channels: chat, discord voice, minecraft,
+  idle — each an input adapter + output sink. Adding Twitch/Telegram = one new `Surface`.
+- **Expression** (`src/core/expression.py`) is the single output sink (VOICE/BODY/TEXT).
+- **Steering**: new perceptions are folded into the live context mid-reasoning; Bea
+  decides whether to interrupt what she's doing. No hard channel priority.
+- **Parallel actuators**: speaking is non-blocking and body (game) actions run async
+  (single-slot), so Bea can talk and play at the same time.
+
+While the flag is off, the legacy per-flow paths remain the default.
+
+---
+
 ## Related Docs
 
 - [Configuration →](configuration.md)
