@@ -1,6 +1,10 @@
+import os
 import asyncio
 import argparse
 import faulthandler
+
+# the local embedding model runs in a subprocess; silence the noisy fork warning
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 from dotenv import load_dotenv
 
