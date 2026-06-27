@@ -165,11 +165,6 @@ class BrainConfig:
                         else:
                             setattr(self, key, value)
 
-                # force disable all skills on startup, except memory
-                for skill_name, skill_val in self.skills.items():
-                    if isinstance(skill_val, dict) and skill_name != "memory":
-                        skill_val["enabled"] = False
-                        
             except Exception as e:
                 logger.error(f"Error loading config.json: {e}")
 
