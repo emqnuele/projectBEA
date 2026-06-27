@@ -37,14 +37,15 @@ class MemorySkill(Skill):
 
         cfg = config.skills.get("memory", {})
         self.memory_db_path = cfg.get("chroma_path", "data/memory_db")
-        self.embedding_model = cfg.get("embedding_model", "openai/text-embedding-3-small")
+        self.embedding_model = cfg.get("embedding_model", "local")
 
-        is_openrouter = (
-            "/" in self.embedding_model or
-            config.llm_provider == "openrouter"
-        )
-
-        if is_openrouter:
+        # "local" runs the embedding model on-device: no network round-trip on the
+        # hot path (the old openrouter embedding cost ~10s per turn)
+        self.local = self.embedding_model == "local"
+        if self.local:
+            self.api_key = None
+            self.api_base = None
+        elif "/" in self.embedding_model or config.llm_provider == "openrouter":
             self.api_key = config.openrouter_key
             self.api_base = "https://openrouter.ai/api/v1"
         else:
@@ -56,7 +57,8 @@ class MemorySkill(Skill):
             db_path=self.memory_db_path,
             api_key=self.api_key,
             embedding_model=self.embedding_model,
-            api_base=self.api_base
+            api_base=self.api_base,
+            local=self.local,
         )
         self.generator = None
 
@@ -83,14 +85,10 @@ class MemorySkill(Skill):
             self.active = True
 
     def tools(self) -> List[Tool]:
-        if not self.active:
-            return []
-        return [Tool(
-            "recall_memory",
-            "Search your long-term memory (past sessions) for relevant context.",
-            {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
-            self.retrieve_context,
-        )]
+        # no recall tool: long-term memory is injected automatically every turn
+        # (context_for). exposing a manual recall made Bea burn an extra slow llm
+        # round-trip + a second embedding to fetch what she already had.
+        return []
 
     def context_for(self, batch) -> Optional[str]:
         if not self.active:
