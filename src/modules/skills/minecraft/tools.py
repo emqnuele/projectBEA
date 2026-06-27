@@ -143,7 +143,9 @@ def build_minecraft_tools(client: MinecraftClient, notebook: Notebook) -> ToolRe
         return handler
 
     for name, (description, parameters) in _TOOLS.items():
-        registry.add(name, description, parameters, make_handler(name, name in _INSTANT))
+        instant = name in _INSTANT
+        # long-running body actions run async (single-slot) so they never block reasoning
+        registry.add(name, description, parameters, make_handler(name, instant), long_running=not instant)
 
     registry.add(
         "update_notebook",

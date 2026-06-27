@@ -25,6 +25,7 @@ class Tool:
     description: str
     parameters: Dict[str, Any]
     handler: ToolHandler
+    long_running: bool = False  # BODY actions that should run async (single-slot), not block reasoning
 
     def schema(self) -> Dict[str, Any]:
         return {
@@ -54,8 +55,9 @@ class ToolRegistry:
         description: str,
         parameters: Dict[str, Any],
         handler: ToolHandler,
+        long_running: bool = False,
     ) -> None:
-        self.register(Tool(name, description, parameters, handler))
+        self.register(Tool(name, description, parameters, handler, long_running))
 
     def get(self, name: str) -> Optional[Tool]:
         return self._tools.get(name)

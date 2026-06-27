@@ -7,6 +7,13 @@ from src.utils.history_manager import HistoryManager
 from src.modules.skills.skill_manager import SkillManager
 from src.core.events import EventManager, EventCategory
 from src.core.expression import Expression
+from src.core.perception.bus import PerceptionBus
+from src.core.surfaces.base import SurfaceRegistry
+from src.core.surfaces.chat import ChatSurface
+from src.core.surfaces.voice import VoiceSurface
+from src.core.surfaces.idle import IdleSurface
+from src.core.surfaces.minecraft import MinecraftSurface
+from src.core.consciousness import Consciousness
 from src.core.agent import AgentRunner, AgentHooks, ToolRegistry, LLMClient
 from src.modules.skills.memory.memory_skill import MemorySkill
 from src.utils.llm_utils import parse_llm_json
@@ -66,6 +73,11 @@ class AIVtuberBrain:
 
         # single output sink (VOICE actuator + barge-in/resume)
         self.expression = Expression(config, tts, obs, self.event_manager)
+
+        # unified consciousness (built in initialize, started only if enabled)
+        self.perception_bus: Optional[PerceptionBus] = None
+        self.surface_registry: Optional[SurfaceRegistry] = None
+        self.consciousness: Optional[Consciousness] = None
 
         # skills
         self.skill_manager = SkillManager(config, self)
@@ -189,6 +201,35 @@ class AIVtuberBrain:
 
         self.skill_manager.initialize()
 
+        self._build_consciousness()
+
+    def _build_consciousness(self):
+        """Wires the single-brain stack. Started later only if enabled in config."""
+        self.perception_bus = PerceptionBus(window=self.config.consciousness.get("window", 0.3))
+        self.surface_registry = SurfaceRegistry()
+
+        for surface_cls in (ChatSurface, VoiceSurface, IdleSurface, MinecraftSurface):
+            surface = surface_cls(self.config, self.perception_bus, self.expression, self)
+            surface.initialize()
+            self.surface_registry.register(surface)
+
+        self.consciousness = Consciousness(
+            config=self.config,
+            llm=self.llm,
+            bus=self.perception_bus,
+            expression=self.expression,
+            surfaces=self.surface_registry,
+            history_manager=self.history_manager,
+            event_manager=self.event_manager,
+            memory_skill_getter=lambda: self.memory_skill,
+            soul_getter=lambda: self.soul,
+            operating_getter=self._load_operating_rules,
+        )
+
+    @property
+    def consciousness_active(self) -> bool:
+        return bool(self.consciousness and self.consciousness.alive)
+
     def reload_configuration(self):
         """
         Hot-reloads configuration for all components.
@@ -239,8 +280,24 @@ class AIVtuberBrain:
              
         return self.history_manager.session_id
 
+    async def _perceive_and_wait(self, putter, route: str):
+        """Deposits a perception (via `putter(correlation_id)`) and waits for the reply."""
+        cid, fut = self.consciousness.register_correlation(route)
+        putter(cid)
+        try:
+            return await asyncio.wait_for(fut, timeout=self.consciousness.correlation_timeout)
+        except asyncio.TimeoutError:
+            logger.info("Correlation timed out (Bea did not respond).")
+            return None
+
     async def perform_output_task(self, mood: str, message: str):
-        """Renders a spoken turn locally through the single Expression sink."""
+        """Renders a spoken turn locally through the single Expression sink.
+
+        In single-brain mode the consciousness already rendered the speech, so this
+        becomes a no-op to avoid double output.
+        """
+        if self.consciousness_active:
+            return
         await self.expression.speak(mood, message, route="local")
 
     async def interrupt(self):
@@ -274,7 +331,18 @@ class AIVtuberBrain:
 
     async def generate_response(self, user_text: str, system_prompt: Optional[str] = None) -> Tuple[str, str]:
         """Generates the response but does NOT play it."""
-        
+
+        # single-brain path: deposit a perception and wait for Bea to decide to reply
+        if self.consciousness_active:
+            payload = await self._perceive_and_wait(
+                lambda cid: self.surface_registry.get("chat:ui").perceive(
+                    user_text, meta={"correlation_id": cid}),
+                route="local",
+            )
+            if not payload:
+                return "normal", ""
+            return payload.get("mood", "normal"), payload.get("message", "")
+
         if self.resume_buffer is not None and self._is_backchannel(user_text):
             logger.info(f"Backchannel detected ('{user_text}'). Resuming...")
             self.history_manager.add_message("user", user_text)
@@ -313,10 +381,22 @@ class AIVtuberBrain:
 
     async def generate_audio_response(self, audio_path: str) -> Tuple[str, str, str]:
         import os
-        filename = os.path.basename(audio_path)       
+        filename = os.path.basename(audio_path)
         history = self.history_manager.get_recent_history()
         transcript = ""
-        
+
+        if self.consciousness_active:
+            transcript = self.stt.transcribe(audio_path) if self.stt else ""
+            text = transcript or "[Audio Message]"
+            payload = await self._perceive_and_wait(
+                lambda cid: self.surface_registry.get("voice:discord").perceive(
+                    text, "user", meta={"correlation_id": cid}),
+                route="local",
+            )
+            if not payload:
+                return "normal", "", transcript
+            return payload.get("mood", "normal"), payload.get("message", ""), transcript
+
         if self.stt:
              transcript = self.stt.transcribe(audio_path)
              if transcript:
@@ -379,6 +459,18 @@ class AIVtuberBrain:
         if self.stt:
             transcript = self.stt.transcribe(audio_path)
             logger.info(f"Transcript from {username}: '{transcript}'")
+
+        # single-brain path: feed a voice perception, wait for Bea's spoken reply (bytes)
+        if self.consciousness_active:
+            text = transcript or "[Unintelligible]"
+            payload = await self._perceive_and_wait(
+                lambda cid: self.surface_registry.get("voice:discord").perceive(
+                    text, username, meta={"correlation_id": cid}),
+                route="discord",
+            )
+            if not payload:
+                return "ignored", "", transcript, b""
+            return payload.get("status", "success"), payload.get("text", ""), transcript, payload.get("audio", b"")
         
         if not transcript:
              transcript = "[Unintelligible]"
@@ -491,8 +583,12 @@ class AIVtuberBrain:
                 await self.process_text_input(user_text)
 
     async def start_skills(self):
-        """Starts the background skill manager loop."""
+        """Starts the background skill manager loop (and the consciousness if enabled)."""
         await self.skill_manager.start()
+
+        if self.consciousness and self.config.consciousness.get("enabled", False):
+            await self.consciousness.start()
+            logger.info("Single-brain consciousness is active.")
 
     def shutdown(self):
         self.obs.disconnect()

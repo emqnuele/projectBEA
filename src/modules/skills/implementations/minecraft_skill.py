@@ -44,6 +44,11 @@ class MinecraftSkill(BaseSkill):
     async def start(self):
         await super().start()
 
+        # the single-brain consciousness drives minecraft via MinecraftSurface
+        if getattr(self.context, "consciousness_active", False):
+            self.log("Skipping legacy minecraft agent: consciousness owns the game.")
+            return
+
         llm = getattr(self.context, "llm", None)
         if llm is None:
             self.log("Cannot start: no LLM available on the brain.")

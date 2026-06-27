@@ -110,6 +110,16 @@ class BrainConfig:
         }
     })
 
+    # unified consciousness loop (single always-on brain). off by default until rolled out.
+    consciousness: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": False,
+        "idle_after": 30.0,        # seconds of silence before an IDLE perception (monologue trigger)
+        "window": 0.3,             # perception aggregation window
+        "burst_steps": 6,          # max reasoning steps per perception batch
+        "history_limit": 30,       # rolling context size
+        "correlation_timeout": 30.0,  # how long an HTTP caller waits for Bea to respond
+    })
+
     # STT
     stt_provider: str = "groq"
     stt_model: str = "whisper-large-v3-turbo"

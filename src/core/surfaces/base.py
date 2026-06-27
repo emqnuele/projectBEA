@@ -57,6 +57,10 @@ class Surface(ABC):
         """Tools armed only while this surface is active (e.g. in-game actions)."""
         return []
 
+    def live_state(self) -> Optional[str]:
+        """Volatile state injected into every perception frame (e.g. the game notebook)."""
+        return None
+
 
 class SurfaceRegistry:
     """Holds the active set of surfaces and aggregates what they contribute."""

@@ -37,6 +37,9 @@ class MinecraftSurface(Surface):
         return self.config.skills.get("minecraft", {})
 
     async def start(self) -> None:
+        if not self.skill_config.get("enabled", False):
+            logger.info("MinecraftSurface inactive (minecraft skill disabled).")
+            return
         url = self.skill_config.get("server_url", "ws://localhost:8080")
         loop = asyncio.get_running_loop()
         self.client = MinecraftClient(url, loop)
@@ -84,3 +87,9 @@ class MinecraftSurface(Surface):
 
     def tools(self) -> List[Tool]:
         return self._registry.tools() if self._registry else []
+
+    def live_state(self) -> Optional[str]:
+        if not self.active:
+            return None
+        return ("YOUR NOTEBOOK (private working memory — never spoken; update it with "
+                "update_notebook):\n" + self.notebook.render())

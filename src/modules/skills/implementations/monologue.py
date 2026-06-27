@@ -37,6 +37,10 @@ class MonologueSkill(BaseSkill):
         self.last_speech_time: float = time.time()
 
     async def update(self):
+        # the single-brain consciousness owns idle/monologue behaviour
+        if getattr(self.context, "consciousness_active", False):
+            return
+
         # 1. global busy check
         if self.context.is_speaking:
             self.last_speech_time = time.time()
