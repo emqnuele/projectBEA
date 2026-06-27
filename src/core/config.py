@@ -12,7 +12,8 @@ CONFIG_FILE = "config.json"
 class BrainConfig:
     language: str = "en" # default language
     soul_path: str = "data/prompts/soul.md"  # shared persona, prepended to every context
-    system_prompt_path: str = "data/prompts/chat.md"
+    system_prompt_path: str = "data/prompts/chat.md"  # deprecated: fallback when operating manual is absent
+    operating_prompt_path: str = "data/prompts/operating.md"  # unified operating manual (speak tool, moods, perception)
     llm_provider: str = "openrouter" # openrouter, openai, groq
 
     # openrouter (routes to virtually any model via one openai-compatible endpoint)

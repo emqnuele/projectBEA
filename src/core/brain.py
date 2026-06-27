@@ -1,12 +1,12 @@
 import asyncio
-from pathlib import Path
 from typing import Dict, Tuple, Optional
 from src.interfaces.base_interfaces import TTSInterface, OBSInterface, STTInterface
 from src.core.config import BrainConfig
-from src.core.resources import load_avatar_resources, resolve_mood_paths
+from src.core.resources import load_avatar_resources
 from src.utils.history_manager import HistoryManager
 from src.modules.skills.skill_manager import SkillManager
 from src.core.events import EventManager, EventCategory
+from src.core.expression import Expression
 from src.core.agent import AgentRunner, AgentHooks, ToolRegistry, LLMClient
 from src.modules.skills.memory.memory_skill import MemorySkill
 from src.utils.llm_utils import parse_llm_json
@@ -15,6 +15,32 @@ from src.utils.logger import get_logger
 import datetime
 
 logger = get_logger("bea.brain")
+
+
+class _SpeechIntent:
+    """Captures what Bea decides to say via the `speak` tool during a turn.
+
+    Rendering still happens through the existing output pipeline; this only
+    records the chosen mood/message so the turn can return it to its caller.
+    """
+
+    def __init__(self):
+        self.spoke = False
+        self.mood = "normal"
+        self.message = ""
+
+    def speak(self, mood: str, message: str) -> str:
+        self.spoke = True
+        self.mood = mood or "normal"
+        # support multi-sentence turns: concatenate successive speak calls
+        self.message = f"{self.message} {message}".strip() if self.message else message
+        return "Spoken."
+
+    def stay_silent(self, reason: str = "") -> str:
+        self.spoke = True
+        self.message = ""
+        return "Staying silent."
+
 
 class AIVtuberBrain:
     def __init__(
@@ -34,18 +60,13 @@ class AIVtuberBrain:
         self.soul = ""           # shared persona, prepended to every context's rules
         self.system_prompt = ""  # composed: soul + chat rules
         self.history_manager = HistoryManager()
-        self.is_speaking = False
-        self.current_typing_task: Optional[asyncio.Task] = None
-        self.current_speech_task: Optional[asyncio.Task] = None
-        self.audio_lock = asyncio.Lock() 
-        self.current_audio_buffer = None
-        self.playback_start_time = 0
-        self.playback_sample_rate = 24000
-        self.resume_buffer = None
-        
+
         # event manager
         self.event_manager = EventManager()
-        
+
+        # single output sink (VOICE actuator + barge-in/resume)
+        self.expression = Expression(config, tts, obs, self.event_manager)
+
         # skills
         self.skill_manager = SkillManager(config, self)
 
@@ -59,13 +80,62 @@ class AIVtuberBrain:
 
 
     @property
+    def is_speaking(self) -> bool:
+        return self.expression.is_speaking
+
+    @property
+    def resume_buffer(self):
+        return self.expression.resume_buffer
+
+    @property
     def memory_skill(self) -> Optional[MemorySkill]:
         skill = self.skill_manager.skills.get("memory")
         return skill if isinstance(skill, MemorySkill) else None
 
-    def _build_tool_registry(self) -> ToolRegistry:
-        """Aggregates tools contributed by enabled skills for a chat turn."""
+    def _load_operating_rules(self) -> str:
+        """The unified operating manual; falls back to the legacy chat rules."""
+        rules = load_text(self.config.operating_prompt_path)
+        if not rules:
+            rules = load_text(self.config.system_prompt_path)
+        return rules
+
+    def _build_tool_registry(self, speech: Optional["_SpeechIntent"] = None) -> ToolRegistry:
+        """Aggregates tools for a chat turn: speak/silence/recall + skill tools."""
         registry = ToolRegistry()
+
+        if speech is not None:
+            registry.add(
+                "speak",
+                "Say something out loud to your audience with a facial expression.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "mood": {"type": "string", "description": "one of: normal, shock, love, cry, angry, ew, bored"},
+                        "message": {"type": "string", "description": "the spoken line"},
+                    },
+                    "required": ["mood", "message"],
+                },
+                speech.speak,
+            )
+            registry.add(
+                "stay_silent",
+                "Choose to say nothing right now.",
+                {"type": "object", "properties": {"reason": {"type": "string"}}, "required": []},
+                speech.stay_silent,
+            )
+
+        if self.memory_skill and self.memory_skill.enabled:
+            registry.add(
+                "recall_memory",
+                "Search your long-term memory (past sessions) for relevant context.",
+                {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+                lambda query: self.memory_skill.retrieve_context(query),
+            )
+
         for skill in self.skill_manager.skills.values():
             if not skill.enabled:
                 continue
@@ -76,8 +146,8 @@ class AIVtuberBrain:
     async def _run_agent_turn(self, user_text: str, system_prompt: str, history: list) -> Tuple[str, str, Dict]:
         """Runs one conversational turn through the agent harness.
 
-        Tools (if any enabled skills expose them) let Bea act mid-turn; the
-        final spoken answer is JSON {mood, message}, parsed leniently.
+        Bea speaks by calling the `speak` tool; if she never does, we fall back to
+        parsing a legacy JSON {mood, message} from her final message.
         """
         messages = [{"role": "system", "content": system_prompt}]
         if history:
@@ -85,13 +155,18 @@ class AIVtuberBrain:
                 messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({"role": "user", "content": user_text})
 
+        speech = _SpeechIntent()
         hooks = AgentHooks(
             on_tool_call=lambda name, args: self.event_manager.publish(
                 EventCategory.SKILL, f"tool:{name}", str(args)
             ),
         )
-        runner = AgentRunner(self.llm, self._build_tool_registry(), max_steps=6, hooks=hooks)
+        runner = AgentRunner(self.llm, self._build_tool_registry(speech), max_steps=6, hooks=hooks)
         final = await runner.run(messages)
+
+        if speech.spoke:
+            return speech.mood, speech.message, {}
+        # legacy fallback: parse JSON from the final plain-text answer
         return parse_llm_json(final.content or "")
 
     def initialize(self):
@@ -101,11 +176,11 @@ class AIVtuberBrain:
         self.png_map = load_avatar_resources(self.config.avatar_map)
         if not self.png_map:
             logger.warning("No avatar resources loaded from avatar_map.")
+        self.expression.set_png_map(self.png_map)
 
         self.soul = load_text(self.config.soul_path)
-        chat_rules = load_text(self.config.system_prompt_path)
-        self.system_prompt = compose(self.soul, chat_rules)
-        logger.info(f"Loaded soul + chat rules ({len(self.system_prompt)} chars).")
+        self.system_prompt = compose(self.soul, self._load_operating_rules())
+        logger.info(f"Loaded soul + operating manual ({len(self.system_prompt)} chars).")
 
         self._obs_connect()
 
@@ -122,7 +197,7 @@ class AIVtuberBrain:
         logger.info("Hot Reloading Configuration")
         
         self.soul = load_text(self.config.soul_path)
-        new_prompt = compose(self.soul, load_text(self.config.system_prompt_path))
+        new_prompt = compose(self.soul, self._load_operating_rules())
         if new_prompt != self.system_prompt:
             self.system_prompt = new_prompt
             logger.info("Updated soul + chat rules.")
@@ -130,6 +205,7 @@ class AIVtuberBrain:
         self.llm.reload_config(self.config)
         self.tts.reload_config(self.config)
         self.obs.reload_config(self.config)
+        self.expression.reload_config(self.config)
         if self.stt:
             self.stt.reload_config(self.config)
         
@@ -163,200 +239,18 @@ class AIVtuberBrain:
              
         return self.history_manager.session_id
 
-    async def _play_audio(self, audio_data, sample_rate, device_id):
-        """
-        Internal helper to play audio via sounddevice with tracking.
-        """
-        import sounddevice as sd
-        import time
-        import numpy as np
-
-        if len(audio_data) == 0:
-            return
-
-        self.current_audio_buffer = audio_data
-        self.playback_sample_rate = sample_rate
-        self.playback_start_time = time.time()
-        
-        if audio_data.ndim == 1:
-            channels = 1
-        else:
-            channels = audio_data.shape[1]
-
-        sd.play(audio_data, samplerate=sample_rate, device=device_id, blocking=False)
-        
-        duration = len(audio_data) / sample_rate
-        try:
-            await asyncio.sleep(duration)
-        except asyncio.CancelledError:
-            sd.stop()
-            raise
-
     async def perform_output_task(self, mood: str, message: str):
-        """Background task to handle audio/visual output."""
-        import sounddevice as sd
-        self.is_speaking = True
-        font_used = self.config.text_font_size
-        try:
-            logger.info(f"Mood: {mood}")
-            logger.info(f"Message: {message}")
-
-            if self.current_typing_task and not self.current_typing_task.done():
-                logger.info("Interrupting previous typing task...")
-                self.current_typing_task.cancel()
-            
-            if self.current_speech_task and not self.current_speech_task.done():
-                logger.info("Interrupting previous speech task...")
-                self.current_speech_task.cancel()
-
-            if self.config.obs_text_source:
-                self.obs.set_text("", self.config.obs_text_source)
-
-            try:
-                idle_path, talking_path = resolve_mood_paths(self.png_map, mood)
-            except KeyError:
-                 logger.warning(f"Could not resolve mood {mood}, checking 'normal'...")
-                 if "normal" in self.png_map:
-                     idle_path, talking_path = self.png_map["normal"]
-                 else:
-                     idle_path = talking_path = Path("placeholder.png") 
-
-            if self.config.obs_source_type == "media":
-                self.obs.set_media(talking_path)
-            else:
-                self.obs.set_image(talking_path)
-
-
-            async with self.audio_lock:
-                self.current_typing_task = None
-                if self.config.obs_text_source:
-                    self.current_typing_task = asyncio.create_task(
-                        self.obs.type_text(
-                            text=message,
-                            source_name=self.config.obs_text_source,
-                            line_width=self.config.text_line_width,
-                            max_lines=self.config.text_lines,
-                            base_font_size=self.config.text_font_size,
-                            min_font_size=self.config.text_min_font_size,
-                            font_step=self.config.text_font_step,
-                            typing_delay=self.config.typing_delay,
-                            min_page_duration=self.config.text_min_duration
-                        )
-                    )
-
-                self.event_manager.publish(EventCategory.OUTPUT, "tts", f"Speaking: {message[:50]}...", metadata={"device_id": self.config.audio_device_id})
-
-                if message:
-                    audio_data, fs = await self.tts.generate_audio(message)
-                    self.current_speech_task = asyncio.create_task(
-                        self._play_audio(audio_data, fs, self.config.audio_device_id)
-                    )
-
-                    font_used = self.config.text_font_size
-                    try:
-                        if self.current_typing_task:
-                            results = await asyncio.gather(self.current_typing_task, self.current_speech_task)
-                            font_used = results[0]
-                        else:
-                            await self.current_speech_task
-                    except asyncio.CancelledError:
-                        logger.info("Output tasks cancelled (Interruption).")
-                        pass
-
-            if self.config.obs_text_source:
-                 self.obs.set_text("", self.config.obs_text_source, font_size=font_used)
-            
-            if self.config.obs_source_type == "media":
-                self.obs.set_media(idle_path)
-            else:
-                self.obs.set_image(idle_path)
-        finally:
-            self.is_speaking = False
+        """Renders a spoken turn locally through the single Expression sink."""
+        await self.expression.speak(mood, message, route="local")
 
     async def interrupt(self):
-        """
-        Stops current speech/typing immediately.
-        Intended for 'Barge-in' functionality.
-        """
-        logger.info("Interruption Signal Received!")
-        import sounddevice as sd
-        import time
-        
-        if self.is_speaking and self.current_audio_buffer is not None:
-            try:
-                elapsed = time.time() - self.playback_start_time
-                consumed_samples = int(elapsed * self.playback_sample_rate)
-                total_samples = len(self.current_audio_buffer)
-                
-                if consumed_samples < total_samples:
-                    remaining = self.current_audio_buffer[consumed_samples:]
-                    if len(remaining) > (0.5 * self.playback_sample_rate):
-                        self.resume_buffer = remaining
-                        logger.info(f"Buffered {len(remaining)/self.playback_sample_rate:.2f}s for resume.")
-                    else:
-                        self.resume_buffer = None
-                else:
-                    self.resume_buffer = None
-            except Exception as e:
-                logger.error(f"Error calculating resume buffer: {e}")
-                self.resume_buffer = None
-        
-        try:
-            sd.stop()
-        except Exception as e:
-             logger.error(f"Error stopping sounddevice: {e}")
-        
-        if self.current_speech_task and not self.current_speech_task.done():
-            self.current_speech_task.cancel()
-        
-        if self.current_typing_task and not self.current_typing_task.done():
-            self.current_typing_task.cancel()
-            
-        if self.config.obs_text_source:
-             self.obs.set_text("", self.config.obs_text_source)
-        
+        """Barge-in: stops current speech via Expression and logs it."""
+        result = await self.expression.interrupt()
         self.history_manager.add_message("system", "[Interrupted by User]")
-        
-        self.is_speaking = False
-        return "Interrupted"
+        return result
 
     async def _resume_speech(self):
-        """
-        Resumes speech from the resume_buffer.
-        """
-        if self.resume_buffer is None:
-            logger.info("No resume buffer found.")
-            return
-
-        logger.info("Resuming speech...")
-        self.is_speaking = True
-        try:
-             async with self.audio_lock:
-
-                 if "normal" in self.png_map:
-                     _, talking_path = self.png_map["normal"]
-                     if self.config.obs_source_type == "media":
-                        self.obs.set_media(talking_path)
-                     else:
-                        self.obs.set_image(talking_path)
-
-                 self.current_speech_task = asyncio.create_task(
-                     self._play_audio(self.resume_buffer, self.playback_sample_rate, self.config.audio_device_id)
-                 )
-                 try:
-                    await self.current_speech_task
-                 except asyncio.CancelledError:
-                    pass
-                 
-                 self.resume_buffer = None
-        finally:
-            self.is_speaking = False
-            if "normal" in self.png_map:
-                 idle_path, _ = self.png_map["normal"]
-                 if self.config.obs_source_type == "media":
-                    self.obs.set_media(idle_path)
-                 else:
-                    self.obs.set_image(idle_path)
+        await self.expression.resume()
 
     def _is_backchannel(self, text: str) -> bool:
         """
@@ -562,16 +456,8 @@ class AIVtuberBrain:
         logger.info(f"Combined Context:\n{combined_text.strip()}")
 
         mood, message = await self.generate_response(combined_text.strip())
-        
-        audio_data, sample_rate = await self.tts.generate_audio(message)
-        
-        import io
-        import soundfile as sf
-        byte_io = io.BytesIO()
-        sf.write(byte_io, audio_data, sample_rate, format='WAV')
-        audio_bytes = byte_io.getvalue()
-        
-        asyncio.create_task(self._perform_visual_only_task(mood, message, len(audio_data)/sample_rate))
+
+        audio_bytes = await self.expression.speak(mood, message, route="remote")
 
         leader = items[0]
         
@@ -582,53 +468,6 @@ class AIVtuberBrain:
         for item in items[1:]:
              if not item['future'].done():
                  item['future'].set_result(("success", "(Merged)", item['transcript'], b""))
-
-    async def _perform_visual_only_task(self, mood: str, message: str, duration: float):
-        """
-        Updates OBS visuals/text without playing local audio.
-        """
-        self.is_speaking = True
-        try:
-             # resolve imagse
-            try:
-                _, talking_path = resolve_mood_paths(self.png_map, mood)
-            except KeyError:
-                 _, talking_path = self.png_map.get("normal", (Path("placeholder.png"), Path("placeholder.png")))
-
-            # START ANIMATOIN
-            if self.config.obs_source_type == "media":
-                self.obs.set_media(talking_path)
-            else:
-                self.obs.set_image(talking_path)
-
-            if self.config.obs_text_source:
-                 await self.obs.type_text(
-                    text=message,
-                    source_name=self.config.obs_text_source,
-                    line_width=self.config.text_line_width,
-                    max_lines=self.config.text_lines,
-                    base_font_size=self.config.text_font_size,
-                    min_font_size=self.config.text_min_font_size,
-                    font_step=self.config.text_font_step,
-                    typing_delay=self.config.typing_delay,
-                    min_page_duration=self.config.text_min_duration
-                )
-            else:
-                await asyncio.sleep(duration)
-                
-            # END ANIMATION
-            if "normal" in self.png_map:
-                 idle_path, _ = self.png_map["normal"]
-                 if self.config.obs_source_type == "media":
-                    self.obs.set_media(idle_path)
-                 else:
-                    self.obs.set_image(idle_path)
-
-            if self.config.obs_text_source:
-                 self.obs.set_text("", self.config.obs_text_source)
-                 
-        finally:
-            self.is_speaking = False
 
     async def run_loop(self):
         logger.info("Starting interactive loop. Type 'exit' to quit.")
