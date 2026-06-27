@@ -63,6 +63,9 @@ class ToolRegistry:
     def schemas(self) -> List[Dict[str, Any]]:
         return [t.schema() for t in self._tools.values()]
 
+    def tools(self) -> List[Tool]:
+        return list(self._tools.values())
+
     def __len__(self) -> int:
         return len(self._tools)
 
