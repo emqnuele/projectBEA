@@ -1,23 +1,38 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form
+import os
+import shutil
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
-from typing import Dict, Any, Optional
-import shutil
-import os
-from pathlib import Path
-from src.core.config import BrainConfig
+
 from src.core.brain import AIVtuberBrain
+from src.core.config import MASK
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.web")
 
 app = FastAPI(title="AI Vtuber Brain API")
 
-# cors
+# the dashboard is served from this same origin; a wildcard would let any page
+# the browser has open read the brain's state and drive it
+DEFAULT_ORIGINS = [
+    "http://localhost:8000", "http://127.0.0.1:8000",
+    "http://localhost:5173", "http://127.0.0.1:5173",  # vite dev server
+]
+
+
+def _allowed_origins() -> list:
+    extra = os.getenv("BEA_ALLOWED_ORIGINS", "")
+    return DEFAULT_ORIGINS + [o.strip() for o in extra.split(",") if o.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,12 +60,24 @@ def get_brain() -> AIVtuberBrain:
         raise HTTPException(status_code=503, detail="Brain not initialized")
     return brain_instance
 
+
+def _merge_skills(current: Dict[str, Any], incoming: Dict[str, Any]) -> None:
+    """Folds a (possibly partial) skills payload into the live config.
+
+    The UI reads secrets back as `MASK`; writing that value would replace a real
+    token with asterisks, so masked fields are dropped instead of applied.
+    """
+    for skill_key, block in incoming.items():
+        if not isinstance(block, dict):
+            current[skill_key] = block
+            continue
+        clean = {k: v for k, v in block.items() if v != MASK}
+        current.setdefault(skill_key, {}).update(clean)
+
 @app.get("/config")
 def get_config():
     brain = get_brain()
-    # eeturn as dict
-    from dataclasses import asdict
-    return asdict(brain.config)
+    return brain.config.public_dict()
 
 @app.post("/config")
 def update_config(request: ConfigUpdateRequest):
@@ -63,31 +90,36 @@ def update_config(request: ConfigUpdateRequest):
         # uppdate config object
         for key, value in request.config.items():
             if hasattr(brain.config, key):
+                if key == "skills" and isinstance(value, dict):
+                    # merge, so a partial post never drops the skills it omitted
+                    # (and a masked secret never overwrites the real one)
+                    _merge_skills(brain.config.skills, value)
+                    continue
                 setattr(brain.config, key, value)
-                
+
                 # check for critical changes
                 if key == "tts_provider" and value != current_tts:
                     restart_required = True
                 if key == "stt_provider" and value != current_stt:
                     restart_required = True
-        
+
         # save to file
         brain.config.save_to_file()
-        
+
         # hot reload
         brain.reload_configuration()
-        
+
         msg = "Configuration updated."
         if restart_required:
             msg += " RESTART REQUIRED to apply new provider settings."
-            
+
         return {
-            "status": "success", 
+            "status": "success",
             "message": msg,
             "restart_required": restart_required
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 @app.get("/history")
 def get_history():
@@ -117,7 +149,7 @@ async def save_memory():
     brain = get_brain()
     if not brain.memory_skill:
         raise HTTPException(status_code=400, detail="Memory skill not initialized")
-        
+
     if brain.memory_skill.save_current_session():
         return {"status": "success", "message": "Memory saving triggered."}
     else:
@@ -154,15 +186,15 @@ async def wake_bea():
 @app.post("/chat")
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
     brain = get_brain()
-    
+
     # 1. generate text
     mood, message = await brain.generate_response(request.message)
-    
+
     # 2. schedule output
     background_tasks.add_task(brain.perform_output_task, mood, message)
-    
+
     return {
-        "status": "success", 
+        "status": "success",
         "response": {
             "role": "assistant",
             "content": message,
@@ -180,28 +212,28 @@ async def interrupt_speech():
 @app.post("/audio")
 async def upload_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     brain = get_brain()
-    
+
     # save temp file
     temp_dir = Path("temp")
     temp_dir.mkdir(exist_ok=True)
     filename = file.filename or "audio_upload.wav"
     temp_file = temp_dir / filename
-    
+
     with open(temp_file, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    
+
     # process
     mood, message, transcript = await brain.generate_audio_response(str(temp_file))
-    
+
     # schedule output
     background_tasks.add_task(brain.perform_output_task, mood, message)
-    
+
     # cleanup
     if temp_file.exists():
         os.remove(temp_file)
-        
+
     return {
-        "status": "success", 
+        "status": "success",
         "response": {
             "role": "assistant",
             "content": message,
@@ -261,13 +293,13 @@ async def discord_audio_interaction(
     try:
         # process
         status, text_response, transcript, audio_bytes = await brain.process_discord_interaction(str(temp_file), username, user_id=user_id)
-        
+
         # convert audio to base64
         import base64
         audio_b64 = ""
         if audio_bytes:
              audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-        
+
         return {
             "status": status, # "success" or "resume"
             "text": text_response,
@@ -276,7 +308,7 @@ async def discord_audio_interaction(
         }
     except Exception as e:
         logger.error(f"Discord Audio Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
         # cleanup
         if temp_file.exists():
@@ -313,7 +345,7 @@ async def buffer_voice_transcript(
             if brain.surface_registry is not None:
                 voice = brain.surface_registry.get("voice:discord")
                 if voice is not None and hasattr(voice, "perceive"):
-                    getattr(voice, "perceive")(transcript, username, user_id=user_id)
+                    voice.perceive(transcript, username, user_id=user_id)
 
         return {"status": "perceived", "transcript": transcript}
     except Exception as e:
@@ -374,7 +406,6 @@ else:
     logger.warning(f"Frontend build not found at {frontend_path}. Run 'npm run build' in src/web/frontend.")
 
 # --- SPA CATCH-ALL ROUTE ---
-from fastapi.responses import FileResponse
 
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):

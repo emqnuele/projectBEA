@@ -1,4 +1,3 @@
-from abc import ABC
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
@@ -7,7 +6,8 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.skills")
 
 
-class Skill(ABC):
+# not an ABC: every hook below is optional, a skill overrides only what it supports
+class Skill:
     """A toggleable capability of the one consciousness.
 
     A skill may do any subset of these — all optional:

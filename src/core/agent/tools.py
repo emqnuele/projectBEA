@@ -1,7 +1,6 @@
-import asyncio
 import inspect
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.core.agent.types import ToolCall
 from src.utils.logger import get_logger

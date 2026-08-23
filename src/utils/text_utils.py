@@ -1,5 +1,6 @@
 import textwrap
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
+
 
 def fit_text_for_box(
     message: str,
@@ -28,7 +29,7 @@ def fit_text_for_box(
         wrapped = textwrap.wrap(message, width=width)
         if not wrapped:
             wrapped = [""]
-        
+
         if allow_infinite or len(wrapped) <= limit_lines:
             chosen_lines = wrapped
             chosen_size = size
@@ -72,13 +73,13 @@ def paginate_text_for_box(
     temp = re.sub(r'([.!?])\s+', r'\1' + token, clean_message)
     raw_sentences = temp.split(token)
     sentences = [s.strip() for s in raw_sentences if s.strip()]
-    
+
     if not sentences:
         sentences = [clean_message]
 
     pages = []
     current_page_sentences = []
-    
+
     def measure_lines(text_chunk):
         w = textwrap.wrap(text_chunk, width=target_width)
         return len(w) if w else 0
@@ -90,7 +91,7 @@ def paginate_text_for_box(
         # try adding to current page
         candidate_list = current_page_sentences + [sent]
         candidate_text = " ".join(candidate_list)
-        
+
         if measure_lines(candidate_text) <= max_lines:
             current_page_sentences.append(sent)
         else:
@@ -113,5 +114,5 @@ def paginate_text_for_box(
 
     if current_page_sentences:
         pages.append("\n".join(textwrap.wrap(" ".join(current_page_sentences), width=target_width)))
-        
+
     return pages, target_size

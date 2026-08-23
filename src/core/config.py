@@ -1,12 +1,24 @@
+import copy
 import json
 import os
-from dataclasses import dataclass, field, asdict
-from typing import Optional, Dict, Any
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.config")
 
 CONFIG_FILE = "config.json"
+
+# secrets nested inside the `skills` dict: (skill key, field). Top-level secrets
+# live in BrainConfig.SECRET_KEYS.
+SECRET_SKILL_FIELDS: List[Tuple[str, str]] = [
+    ("discord", "token"),
+    ("telegram", "token"),
+    ("twitch", "oauth_token"),
+]
+
+MASK = "********"
 
 @dataclass
 class BrainConfig:
@@ -35,13 +47,13 @@ class BrainConfig:
     obs_port: int = 4455
     obs_password: str = ""
     audio_device_id: int = 0
-    
+
     tts_provider: str = "edge" # edge or kokoro or orpheus
     tts_voice: str = "en-US-AvaNeural"
     tts_pitch: str = "+5Hz"
     tts_rate: str = "+10%"
     tts_volume: str = "+33%"
-    
+
 
 
     # orpheus
@@ -55,9 +67,9 @@ class BrainConfig:
     kokoro_voice: str = "af_bella"
     kokoro_speed: float = 1.0
     kokoro_lang: str = "en-us"
-    
 
-    
+
+
     # avatar
     avatar_map: Dict[str, Dict[str, str]] = field(default_factory=lambda: {
         "normal": {"idle": "", "talking": ""},
@@ -68,9 +80,9 @@ class BrainConfig:
         "love": {"idle": "", "talking": ""},
         "shock": {"idle": "", "talking": ""},
     })
-    
-    png_dir: str = "data/pngs" 
-    
+
+    png_dir: str = "data/pngs"
+
     # typing animation
     text_line_width: int = 40
     text_lines: Optional[int] = 4
@@ -112,9 +124,9 @@ class BrainConfig:
             "auto_speak_thoughts": False,
             "system_prompt_path": "data/prompts/minecraft.md"
         },
+        # the discord token is deliberately absent: it is read from DISCORD_TOKEN
         "discord": {
             "enabled": False,
-            "token": "",
             "target_channel": "",
             "api_port": 3030,
             "brain_api_url": "http://127.0.0.1:8000",
@@ -149,7 +161,7 @@ class BrainConfig:
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                
+
                 # migration: image to avatar source
                 if "obs_image_source" in data and "obs_avatar_source" not in data:
                     data["obs_avatar_source"] = data.pop("obs_image_source")
@@ -184,15 +196,42 @@ class BrainConfig:
     def save_to_file(self):
         """Saves current configuration to config.json, EXCLUDING secrets."""
         data = asdict(self)
-        
+
         # security: strip secrets
         for secret in self.SECRET_KEYS:
-            if secret in data:
-                del data[secret]
-        
+            data.pop(secret, None)
+
+        skills = data.get("skills", {})
+        for skill_key, field_name in SECRET_SKILL_FIELDS:
+            if skills.get(skill_key, {}).pop(field_name, None):
+                logger.warning(
+                    f"Not persisting skills.{skill_key}.{field_name} to {CONFIG_FILE}. "
+                    f"Set it via the environment instead."
+                )
+
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
             logger.info(f"Configuration saved to {CONFIG_FILE} (secrets excluded)")
         except Exception as e:
             logger.error(f"Error saving config.json: {e}")
+
+    def public_dict(self) -> Dict[str, Any]:
+        """The config as the UI may see it: every secret removed or masked.
+
+        `GET /config` is unauthenticated and reachable from any page the browser
+        has open, so it must never carry a usable key. Masked (rather than
+        removed) nested secrets so the UI can still show 'a token is set'.
+        """
+        data = copy.deepcopy(asdict(self))
+
+        for secret in self.SECRET_KEYS:
+            data.pop(secret, None)
+
+        skills = data.get("skills", {})
+        for skill_key, field_name in SECRET_SKILL_FIELDS:
+            block = skills.get(skill_key)
+            if isinstance(block, dict) and field_name in block:
+                block[field_name] = MASK if block[field_name] else ""
+
+        return data

@@ -8,8 +8,8 @@ from src.core.skills.base import Skill
 from src.core.skills.minecraft.client import MinecraftClient
 from src.core.skills.minecraft.notebook import Notebook
 from src.core.skills.minecraft.tools import build_minecraft_tools
-from src.utils.prompts import load_text
 from src.utils.logger import get_logger
+from src.utils.prompts import load_text
 
 logger = get_logger("bea.skills.minecraft")
 

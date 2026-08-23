@@ -94,6 +94,10 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
             logger.error(f"JSON generation error: {e}")
             return {}
 
+    async def complete_json(self, user_input: str, system_prompt: Optional[str] = None,
+                            history: Optional[list] = None) -> Union[Dict, list]:
+        return await asyncio.to_thread(self.generate_json, user_input, system_prompt, history)
+
     @staticmethod
     def _build_messages(user_input: str, system_prompt: Optional[str], history: Optional[list]) -> List[Dict[str, Any]]:
         messages: List[Dict[str, Any]] = []

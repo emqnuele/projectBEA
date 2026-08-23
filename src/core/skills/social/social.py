@@ -2,12 +2,16 @@ import datetime
 from typing import Dict, List, Optional
 
 from src.core.agent.tools import Tool
-from src.core.perception.types import Perception, PerceptionKind
+from src.core.perception.types import PerceptionKind
 from src.core.skills.base import Skill
-from src.core.skills.social.roster import RosterStore, RosterEntry
 from src.core.skills.social.people import (
-    PeopleStore, PersonCard, should_promote, promotion_reason, resolve_or_create_card,
+    PeopleStore,
+    PersonCard,
+    promotion_reason,
+    resolve_or_create_card,
+    should_promote,
 )
+from src.core.skills.social.roster import RosterEntry, RosterStore
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.social")

@@ -6,9 +6,9 @@ from typing import List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.skills.base import Skill
-from src.core.skills.dream.selflore import SelfLore
+from src.core.skills.dream.dreamer import DAY_SECONDS, Dreamer
 from src.core.skills.dream.recent import RecentStore
-from src.core.skills.dream.dreamer import Dreamer, DAY_SECONDS
+from src.core.skills.dream.selflore import SelfLore
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.dream")

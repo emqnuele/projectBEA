@@ -36,8 +36,30 @@ bea = "src.cli:run"
 # extra deps for the standalone minecraft agent skill
 minecraft = ["flask"]
 
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
+
 [tool.uv]
 package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+# deliberately no "UP": modernizing typing across ~6k lines is a separate
+# refactor, and a gate that fails on day one is a gate nobody runs
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501", "E741", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# the cli must set env vars and load .env before importing anything heavy
+"src/cli.py" = ["E402"]
 
 [build-system]
 requires = ["hatchling"]

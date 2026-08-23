@@ -8,8 +8,8 @@ from src.core.agent.tools import Tool, ToolRegistry
 from src.core.agent.types import AssistantMessage, ToolCall
 from src.core.events import EventCategory
 from src.core.perception.types import Perception, PerceptionKind
-from src.utils.prompts import compose
 from src.utils.logger import get_logger
+from src.utils.prompts import compose
 
 logger = get_logger("bea.consciousness")
 

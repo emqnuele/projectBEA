@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install install-all run web frontend lock clean
+.PHONY: help install install-all run web frontend lock clean test lint
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -18,6 +18,12 @@ web: frontend ## build the frontend and start the web dashboard
 
 frontend: ## install deps and build the react dashboard
 	cd src/web/frontend && npm install && npm run build
+
+test: ## run the test suite
+	uv run pytest -q
+
+lint: ## static checks
+	uv run ruff check src tests
 
 lock: ## refresh uv.lock after changing dependencies
 	uv lock

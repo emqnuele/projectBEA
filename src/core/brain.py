@@ -1,24 +1,25 @@
 import asyncio
-from typing import Tuple, Optional
-from src.interfaces.base_interfaces import TTSInterface, OBSInterface, STTInterface
+from typing import Optional, Tuple
+
+from src.core.agent import LLMClient
 from src.core.config import BrainConfig
-from src.core.resources import load_avatar_resources
-from src.utils.history_manager import HistoryManager
+from src.core.consciousness import Consciousness
 from src.core.events import EventManager
 from src.core.expression import Expression
 from src.core.perception.bus import PerceptionBus
+from src.core.resources import load_avatar_resources
 from src.core.skills.base import SkillRegistry
 from src.core.skills.chat import ChatSurface
-from src.core.skills.voice.surface import VoiceSurface
-from src.core.skills.idle import IdleSurface
-from src.core.skills.minecraft.surface import MinecraftSurface
-from src.core.skills.memory.memory import MemorySkill
-from src.core.skills.social.social import SocialMemory
 from src.core.skills.dream.surface import DreamSkill
-from src.core.consciousness import Consciousness
-from src.core.agent import LLMClient
-from src.utils.prompts import load_text, compose
+from src.core.skills.idle import IdleSurface
+from src.core.skills.memory.memory import MemorySkill
+from src.core.skills.minecraft.surface import MinecraftSurface
+from src.core.skills.social.social import SocialMemory
+from src.core.skills.voice.surface import VoiceSurface
+from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
+from src.utils.history_manager import HistoryManager
 from src.utils.logger import get_logger
+from src.utils.prompts import compose, load_text
 
 logger = get_logger("bea.brain")
 
@@ -182,7 +183,7 @@ class AIVtuberBrain:
 
     def _obs_connect(self):
         if hasattr(self.obs, "source_name"):
-            setattr(self.obs, "source_name", self.config.obs_avatar_source)
+            self.obs.source_name = self.config.obs_avatar_source
         self.obs.connect()
 
     def list_sessions(self):
@@ -231,11 +232,22 @@ class AIVtuberBrain:
         self.history_manager.add_message("system", "[Interrupted by User]")
         return result
 
+    def _surface(self, name: str):
+        """A skill by name, or None when the brain has not been initialized yet.
+
+        The HTTP entrypoints are reachable the moment the server binds; without
+        this guard an early request raises AttributeError instead of a 503.
+        """
+        return self.surface_registry.get(name) if self.surface_registry else None
+
     async def generate_response(self, user_text: str, system_prompt: Optional[str] = None) -> Tuple[str, str]:
         """Deposits a chat perception and waits for Bea to decide to reply."""
+        chat = self._surface("chat:ui")
+        if not chat or not self.consciousness:
+            logger.warning("generate_response called before initialize().")
+            return "normal", ""
         payload = await self._perceive_and_wait(
-            lambda cid: self.surface_registry.get("chat:ui").perceive(
-                user_text, meta={"correlation_id": cid}),
+            lambda cid: chat.perceive(user_text, meta={"correlation_id": cid}),
             route="local",
         )
         if not payload:
@@ -246,9 +258,11 @@ class AIVtuberBrain:
         """Transcribes audio, deposits a voice perception, waits for the reply."""
         transcript = self.stt.transcribe(audio_path) if self.stt else ""
         text = transcript or "[Audio Message]"
+        voice = self._surface("voice:discord")
+        if not voice or not self.consciousness:
+            return "normal", "", transcript
         payload = await self._perceive_and_wait(
-            lambda cid: self.surface_registry.get("voice:discord").perceive(
-                text, "user", meta={"correlation_id": cid}),
+            lambda cid: voice.perceive(text, "user", meta={"correlation_id": cid}),
             route="local",
         )
         if not payload:
@@ -274,9 +288,12 @@ class AIVtuberBrain:
             logger.info(f"Transcript from {username}: '{transcript}'")
 
         text = transcript or "[Unintelligible]"
+        voice = self._surface("voice:discord")
+        if not voice or not self.consciousness:
+            return "ignored", "", transcript, b""
         payload = await self._perceive_and_wait(
-            lambda cid: self.surface_registry.get("voice:discord").perceive(
-                text, username, meta={"correlation_id": cid}, user_id=user_id),
+            lambda cid: voice.perceive(text, username, meta={"correlation_id": cid},
+                                       user_id=user_id),
             route="discord",
         )
         if not payload:
@@ -290,7 +307,7 @@ class AIVtuberBrain:
         Bea decides on her own whether/how to answer, using the discord tools
         (reply/send_message/react) with the ids carried in the perception. This is
         the 'one mind' path: no synchronous request-reply, full autonomy."""
-        surface = self.surface_registry.get("voice:discord")
+        surface = self._surface("voice:discord")
         if surface:
             surface.perceive_text(text, username, channel_id, message_id=message_id,
                                   user_id=user_id, is_dm=is_dm)

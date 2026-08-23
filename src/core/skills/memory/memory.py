@@ -1,19 +1,17 @@
 import asyncio
-import time
 import datetime
-from typing import List, Dict, Optional, Any
+import re
+import time
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from src.core.agent.tools import Tool
-from src.core.perception.types import PerceptionKind
 from src.core.skills.base import Skill
-from src.core.skills.memory.storage import MemoryStorage
 from src.core.skills.memory.generator import DiaryGenerator
+from src.core.skills.memory.storage import MemoryStorage
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.memory")
-
-import re
 
 # strips the rendered routing prefix ("[marco] (discord text, channel_id=123): hi")
 # so the retrieval query is the actual words, not noisy ids
@@ -118,7 +116,7 @@ class MemorySkill(Skill):
         if not self.generator:
             logger.error("MemorySkill: Generator not initialized.")
             return
-        
+
         # double check inside async
         if self.storage.entry_exists(f"diary_{session_id}"):
              return
@@ -126,7 +124,7 @@ class MemorySkill(Skill):
         try:
             # generate diary
             diary_json = await self.generator.generate_diary(history)
-            
+
             if not diary_json:
                 return
 
@@ -140,35 +138,35 @@ class MemorySkill(Skill):
         diary_content = diary_json.get("diary_content", "")
         tags = diary_json.get("tags", [])
         user_id = diary_json.get("user_id", "owner")
-        
+
         if not diary_content:
             return
 
         timestamp = time.time()
         today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        
+
         metadata = {
             "timestamp": timestamp,
             "date": today_str,
             "user_id": user_id,
-            "tags": ",".join(tags), 
+            "tags": ",".join(tags),
             "session_id": session_id
         }
-        
+
         self.storage.add_entry(diary_content, metadata, f"diary_{session_id}")
         logger.info(f"MemorySkill: Saved Diary for {session_id}. Tags: {tags}")
 
     def retrieve_context(self, query: str, limit: int = 3) -> str:
         if not self.enabled:
             return ""
-            
+
         try:
             # retrieve candidates
             fetch_limit = limit * 3
             results = self.storage.query_similar(query, fetch_limit)
             if not results:
                 return ""
-            
+
             docs = results.get('documents')
             metas = results.get('metadatas')
             dists = results.get('distances')
@@ -187,7 +185,8 @@ class MemorySkill(Skill):
             now = time.time()
 
             for i, doc in enumerate(docs_list):
-                if not doc: continue
+                if not doc:
+                    continue
 
                 dist_val = dists_list[i]
                 similarity = 1.0 - (float(dist_val) if dist_val is not None else 0.0)
@@ -198,35 +197,35 @@ class MemorySkill(Skill):
                     timestamp_val = 0
                 age_seconds = now - float(timestamp_val)
                 age_days = age_seconds / 86400
-                
+
                 # decay
-                decay_rate = 0.1 
+                decay_rate = 0.1
                 recency = 1 / (1 + age_days * decay_rate)
-                
+
                 # 3. final score (weighted average)
                 # 70% smilarity, 30% recency
                 final_score = (similarity * 0.7) + (recency * 0.3)
-                
+
                 scored_entries.append({
                     "doc": doc,
                     "date": meta_item.get("date", "Unknown") if meta_item else "Unknown",
                     "score": final_score
                 })
-            
+
             # sort by score desc
             scored_entries.sort(key=lambda x: x["score"], reverse=True)
-            
+
             # take top 'limit'
             top_entries = scored_entries[:limit]
-            
+
             context_str = "RELEVANT DIARY ENTRIES:\n"
             found = False
             for entry in top_entries:
                 context_str += f"- [{entry['date']}]: {entry['doc']}\n"
                 found = True
-            
+
             return context_str if found else ""
-            
+
         except Exception as e:
             logger.error(f"MemorySkill: Error retrieving context: {e}")
             return ""
@@ -235,18 +234,18 @@ class MemorySkill(Skill):
         """Manually triggers saving of the current session."""
         if not self.enabled:
             return False
-            
+
         if not hasattr(self.context, 'history_manager'):
              return False
-             
+
         hm = self.context.history_manager
         session_id = hm.session_id
         history = hm.history
-        
+
         if not session_id or not history:
              logger.warning("MemorySkill: No active session to save.")
              return False
-             
+
         logger.info(f"MemorySkill: Manual save triggered for {session_id}")
         self.process_previous_session(session_id, history)
         return True
@@ -260,12 +259,12 @@ class MemorySkill(Skill):
             return
 
         logger.info("MemorySkill: Checking for pending sessions to save...")
-        
+
         if hasattr(self.context, 'history_manager'):
             hm = self.context.history_manager
             session_id = hm.session_id
             history = hm.history
-            
+
             if session_id and history and len(history) >= 2:
                 if not self.storage.entry_exists(f"diary_{session_id}"):
                     logger.info(f"MemorySkill: Saving final session {session_id}...")

@@ -1,7 +1,8 @@
+from typing import Any, Dict, Optional, cast
+
 import chromadb
 from chromadb.utils import embedding_functions
-import time
-from typing import Optional, List, Dict, cast, Any
+
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.memory.storage")
@@ -77,7 +78,7 @@ class MemoryStorage:
     def add_entry(self, content: str, metadata: Dict, entry_id: str):
         if not self.collection:
             return
-        
+
         self.collection.add(
             documents=[content],
             metadatas=[metadata],
@@ -87,7 +88,7 @@ class MemoryStorage:
     def query_similar(self, query: str, limit: int = 3):
         if not self.collection:
             return None
-            
+
         return self.collection.query(
             query_texts=[query],
             n_results=limit,

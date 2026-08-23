@@ -93,7 +93,7 @@ class Dreamer:
         today = datetime.datetime.now().strftime("%Y-%m-%d")
         system = self._prompt.replace("{date}", today)
         try:
-            res = self.llm.generate_json(f"CONVERSATION:\n{convo}", system)
+            res = await self.llm.complete_json(f"CONVERSATION:\n{convo}", system)
             return res if isinstance(res, dict) else None
         except Exception as e:
             logger.error(f"Dreamer: generation failed: {e}")

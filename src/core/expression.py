@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from src.core.config import BrainConfig
-from src.core.events import EventManager, EventCategory
+from src.core.events import EventCategory, EventManager
 from src.core.resources import resolve_mood_paths
-from src.interfaces.base_interfaces import TTSInterface, OBSInterface
+from src.interfaces.base_interfaces import OBSInterface, TTSInterface
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.expression")
@@ -113,7 +113,6 @@ class Expression:
     @staticmethod
     def _fit_channels(audio_data, channels: int):
         """Reshapes mono/stereo audio to at most `channels` columns."""
-        import numpy as np
 
         if getattr(audio_data, "ndim", 1) == 1:
             return audio_data

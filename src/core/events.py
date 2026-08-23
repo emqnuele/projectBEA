@@ -1,8 +1,9 @@
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import List, Dict, Any, Optional
 import time
 import uuid
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.events")
@@ -33,20 +34,20 @@ class EventManager:
     def publish(self, category: EventCategory, source: str, message: str, metadata: Optional[Dict[str, Any]] = None):
         if metadata is None:
             metadata = {}
-            
+
         event = BrainEvent(
             category=category,
             source=source,
             message=message,
             metadata=metadata
         )
-        
+
         self.events.append(event)
-        
+
         # keep buffer size in check
         if len(self.events) > self.max_history:
             self.events.pop(0)
-            
+
         logger.debug(f"[{category.upper()}] [{source}] {message}")
 
     def get_events(self, limit: int = 50) -> List[Dict]:

@@ -1,9 +1,11 @@
-import os
 import base64
+import os
 from typing import Optional
+
 import requests
-from src.interfaces.base_interfaces import STTInterface
+
 from src.core.config import BrainConfig
+from src.interfaces.base_interfaces import STTInterface
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stt.openrouter")
@@ -11,15 +13,15 @@ logger = get_logger("bea.stt.openrouter")
 class OpenRouterSTT(STTInterface):
     def __init__(self, config: BrainConfig):
         self.config = config
-        
+
         # get key priority: config > env
         self.key = self.config.openrouter_key
         if not self.key:
             self.key = os.getenv("OPENROUTER_API_KEY")
-            
+
         if not self.key:
             logger.error("No OpenRouter API Key found.")
-            
+
         raw_model = self.config.stt_model or "openai/whisper-large-v3-turbo"
         if raw_model == "whisper-large-v3-turbo":
             self.model = "openai/whisper-large-v3-turbo"
@@ -29,7 +31,7 @@ class OpenRouterSTT(STTInterface):
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         # use provided language or fall back to global config
         lang = language if language else self.config.language
-        
+
         if not self.key:
             logger.error("OpenRouter API Key not configured.")
             return ""

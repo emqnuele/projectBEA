@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from src.core.agent.types import AssistantMessage
 
@@ -21,6 +21,21 @@ class LLMClient(ABC):
         response_format: Optional[Dict[str, Any]] = None,
     ) -> AssistantMessage:
         """One model turn. Returns the assistant message, possibly with tool calls."""
+        ...
+
+    @abstractmethod
+    async def complete_json(
+        self,
+        user_input: str,
+        system_prompt: Optional[str] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
+    ) -> Union[Dict[str, Any], list]:
+        """One JSON-mode turn, awaitable.
+
+        Background work (diary, dreamer, summaries) runs inside the same event
+        loop as the consciousness. The blocking `generate_json` froze it for the
+        whole call — with a dozen sessions to dream, Bea went deaf for minutes.
+        """
         ...
 
     @abstractmethod
