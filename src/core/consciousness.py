@@ -1,13 +1,15 @@
 import asyncio
 import datetime
 import time
-import uuid
 from typing import Any, Dict, List, Optional
 
-from src.core.agent.tools import Tool, ToolRegistry
-from src.core.agent.types import AssistantMessage, ToolCall, Usage
+from src.core.agent.messages import assistant_to_message, tool_result_message
+from src.core.agent.tools import Tool
+from src.core.agent.types import ToolCall, Usage
 from src.core.events import EventCategory
+from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.routing import route
+from src.core.mind.tools import MindTools
 from src.core.perception.types import Perception, PerceptionKind
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
@@ -59,9 +61,12 @@ class Consciousness:
         self._loop_task: Optional[asyncio.Task] = None
         self._body_task: Optional[asyncio.Task] = None
 
-        # correlations active for the current batch (HTTP callers waiting on a reply)
-        self._correlations: Dict[str, Dict[str, Any]] = {}
-        self._batch_correlations: List[str] = []
+        # HTTP callers waiting on a reply. Its own concern: a request lifecycle,
+        # not part of thinking.
+        self.correlations = CorrelationRegistry()
+
+        # rebuilt only when a capability is toggled, not twice per model step
+        self.tools = MindTools(surfaces, speak=self._speak, stay_silent=self._stay_silent)
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -73,6 +78,7 @@ class Consciousness:
                 await s.start()
             except Exception as e:
                 logger.error(f"Surface '{s.name}' failed to start: {e}")
+        self.tools.invalidate()
         self._loop_task = asyncio.create_task(self.run())
         logger.info("Consciousness started.")
 
@@ -109,6 +115,7 @@ class Consciousness:
             await s.start()
         elif not state and s.active:
             await s.stop()
+        self.tools.invalidate()
         logger.info(f"Surface '{name}' -> {'active' if s.active else 'inactive'}.")
 
     async def stop(self):
@@ -130,10 +137,7 @@ class Consciousness:
 
     def register_correlation(self, route: str = "local") -> "tuple[str, asyncio.Future]":
         """Lets an HTTP caller wait for Bea's next spoken reply to its input."""
-        cid = str(uuid.uuid4())
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
-        self._correlations[cid] = {"future": fut, "route": route}
-        return cid, fut
+        return self.correlations.register(route)
 
     # --- the loop -----------------------------------------------------------
 
@@ -149,12 +153,12 @@ class Consciousness:
 
                 # collected from the RAW batch: a caller the gate filtered out
                 # must still be freed, not left hanging until its timeout
-                self._batch_correlations = self._correlations_in(batch)
+                self.correlations.start_batch(batch)
 
                 # asleep: ignore the world (but free any waiting callers so they
                 # don't hang) until the dreamer wakes her up
                 if self.sleeping:
-                    self._resolve_dangling_correlations()
+                    self.correlations.release()
                     continue
 
                 batch, noted = self._filter(batch)
@@ -167,7 +171,7 @@ class Consciousness:
                     await self.expression.interrupt()
 
                 if not batch:
-                    self._resolve_dangling_correlations()
+                    self.correlations.release()
                     continue
 
                 is_idle = bool(batch) and all(p.kind == PerceptionKind.IDLE for p in batch)
@@ -187,7 +191,7 @@ class Consciousness:
                 for _ in range(self.burst_steps):
                     steer = self.bus.drain_nowait()
                     if steer:
-                        self._batch_correlations += self._correlations_in(steer)
+                        self.correlations.extend_batch(steer)
                         steer, steer_noted = self._filter(steer)
                         if steer_noted and self.attention:
                             self.attention.remember(steer_noted)
@@ -204,7 +208,7 @@ class Consciousness:
                     if not is_idle:
                         logger.info(f"llm step {steps} took {(time.perf_counter() - t_llm) * 1000:.0f}ms"
                                     f"{' (tools: ' + ', '.join(c.name for c in assistant.tool_calls) + ')' if assistant.tool_calls else ' (final)'}")
-                    self.context.append(self._assistant_to_message(assistant))
+                    self.context.append(assistant_to_message(assistant))
                     if assistant.content:
                         self.events.publish(EventCategory.THOUGHT, "consciousness", assistant.content)
 
@@ -213,7 +217,7 @@ class Consciousness:
 
                     for call in assistant.tool_calls:
                         obs = await self._dispatch(call)
-                        self.context.append(self._tool_result(call, obs))
+                        self.context.append(tool_result_message(call, obs))
 
                     # once she's only spoken or chosen silence, the turn is over:
                     # don't burn another (slow) llm call just to confirm she's done.
@@ -228,7 +232,7 @@ class Consciousness:
                     logger.info(f"turn done: {steps} llm call(s), {spent.total} tokens, "
                                 f"in {elapsed_ms:.0f}ms")
                     self._publish_cost(steps, spent, elapsed_ms)
-                self._resolve_dangling_correlations()
+                self.correlations.release()
                 self._trim()
             except asyncio.CancelledError:
                 break
@@ -306,12 +310,6 @@ class Consciousness:
             doing.append("you're talking out loud right now")
         return ", ".join(doing)
 
-    def _correlations_in(self, batch: List[Perception]) -> List[str]:
-        return [
-            p.meta["correlation_id"] for p in batch
-            if p.meta.get("correlation_id") in self._correlations
-        ]
-
     # --- context building ---------------------------------------------------
 
     async def _build_system_message(self, batch: List[Perception], is_idle: bool = False) -> Dict[str, Any]:
@@ -355,41 +353,20 @@ class Consciousness:
 
     # --- tools --------------------------------------------------------------
 
-    def _tool_registry(self) -> ToolRegistry:
-        reg = ToolRegistry()
-        reg.add(
-            "speak",
-            "Say something out loud (with a facial expression). Non-blocking: you keep acting while it plays.",
-            {"type": "object", "properties": {
-                "mood": {"type": "string", "description": "normal, shock, love, cry, angry, ew, bored"},
-                "message": {"type": "string"},
-            }, "required": ["mood", "message"]},
-            self._speak,
-        )
-        reg.add(
-            "stay_silent",
-            "Choose to say nothing right now.",
-            {"type": "object", "properties": {"reason": {"type": "string"}}, "required": []},
-            self._stay_silent,
-        )
-        for tool in self.surfaces.tools():
-            reg.register(tool)
-        return reg
-
     def _tool_schemas(self):
-        return self._tool_registry().schemas() or None
+        return self.tools.schemas()
 
     async def _dispatch(self, call: ToolCall) -> str:
         self.events.publish(EventCategory.TOOL, "consciousness", f"{call.name}({call.arguments})")
-        reg = self._tool_registry()
-        tool = reg.get(call.name)
+        registry = self.tools.registry()
+        tool = registry.get(call.name)
         if tool is None:
             return f"ERROR: unknown tool '{call.name}'."
 
         if tool.long_running:
             return self._dispatch_body(tool, call.arguments)
 
-        return await reg.dispatch(call)
+        return await registry.dispatch(call)
 
     def _dispatch_body(self, tool: Tool, args: Dict[str, Any]) -> str:
         """Starts a BODY action async (single-slot, preempts the previous one)."""
@@ -429,16 +406,18 @@ class Consciousness:
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
 
-        routes = {self._correlations[c]["route"] for c in self._batch_correlations if c in self._correlations}
+        routes = self.correlations.routes
 
         if "discord" in routes:
             audio = await self.expression.speak(mood, message, route="remote")
-            self._resolve(lambda r: r == "discord", {"status": "success", "text": message, "audio": audio})
+            self.correlations.resolve(lambda r: r == "discord",
+                                      {"status": "success", "text": message, "audio": audio})
 
         if "discord" not in routes or "local" in routes:
             # local stream/OBS: fire-and-forget so reasoning keeps going
             asyncio.create_task(self._speak_local_safe(mood, message))
-            self._resolve(lambda r: r != "discord", {"mood": mood, "message": message})
+            self.correlations.resolve(lambda r: r != "discord",
+                                      {"mood": mood, "message": message})
 
         return "Spoken."
 
@@ -450,47 +429,8 @@ class Consciousness:
             logger.error(f"Local speech failed: {e}")
 
     async def _stay_silent(self, reason: str = "") -> str:
-        self._resolve(lambda r: True, {"mood": "normal", "message": ""})
+        self.correlations.resolve(lambda r: True, {"mood": "normal", "message": ""})
         return "Staying silent."
-
-    def _resolve(self, route_pred, payload):
-        for cid in list(self._batch_correlations):
-            c = self._correlations.get(cid)
-            if not c or c["future"].done():
-                continue
-            if route_pred(c["route"]):
-                c["future"].set_result(payload)
-                self._correlations.pop(cid, None)
-                self._batch_correlations.remove(cid)
-
-    def _resolve_dangling_correlations(self):
-        """If Bea ignored an HTTP caller this batch, free it (she said nothing)."""
-        for cid in list(self._batch_correlations):
-            c = self._correlations.pop(cid, None)
-            if c and not c["future"].done():
-                if c["route"] == "discord":
-                    c["future"].set_result({"status": "ignored", "text": "", "audio": b""})
-                else:
-                    c["future"].set_result({"mood": "normal", "message": ""})
-        self._batch_correlations = []
-
-    # --- context plumbing (shared with AgentRunner conventions) -------------
-
-    @staticmethod
-    def _assistant_to_message(msg: AssistantMessage) -> Dict[str, Any]:
-        import json
-        out: Dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
-        if msg.tool_calls:
-            out["tool_calls"] = [
-                {"id": c.id, "type": "function",
-                 "function": {"name": c.name, "arguments": json.dumps(c.arguments)}}
-                for c in msg.tool_calls
-            ]
-        return out
-
-    @staticmethod
-    def _tool_result(call: ToolCall, observation: str) -> Dict[str, Any]:
-        return {"role": "tool", "tool_call_id": call.id, "name": call.name, "content": observation}
 
     def _trim(self):
         if len(self.context) <= self.history_limit + 1:

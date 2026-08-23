@@ -29,6 +29,9 @@ reactive chat path — the consciousness is the only mind.
 |---|---|---|
 | `PerceptionBus` | `src/core/perception/bus.py` | the one sensory channel (asyncio.Queue + coalescing window) |
 | `SkillRegistry` | `src/core/skills/base.py` | the catalog of capabilities |
+| `ConversationMind` | `src/core/mind/conversation.py` | scoped written turns, one per channel, beside the live loop |
+| `ConversationScheduler` | `src/core/mind/scheduler.py` | one turn at a time per conversation, several at once |
+| `SpontaneousPresence` | `src/core/mind/spontaneous.py` | occasionally opens a conversation herself |
 | `Expression` | `src/core/expression/voice.py` | the **only** voice/visual output sink |
 | `TextHumanizer` | `src/core/expression/humanizer.py` | written output: one line = one message, with typing |
 | `Attention` | `src/core/attention/` | the gate: what wakes the mind vs what she merely notices |
@@ -38,8 +41,62 @@ reactive chat path — the consciousness is the only mind.
 | `HistoryManager` | `src/utils/history_manager.py` | one session = one JSON in `data/conversations/` |
 
 Skills are registered in this order (`brain.py`, `_build_consciousness`):
-`ChatSurface`, `VoiceSurface`, `IdleSurface`, `MinecraftSurface`, `MemorySkill`,
-`SocialMemory`, `DreamSkill`.
+`ChatSurface`, `VoiceSurface`, `TelegramSkill`, `TwitchSkill`, `DonationSkill`,
+`IdleSurface`, `MinecraftSurface`, `MemorySkill`, `SocialMemory`, `DreamSkill`.
+
+---
+
+## One mind, two clocks
+
+"One mind" is a constraint on *identity* — one soul, one self-lore, one set of
+people, one memory — not on *concurrency*. A person holds a conversation at the
+bar and answers a message on their phone.
+
+```
+                          ┌────────────────────────────────────────┐
+   senses  ──────────────▶│           PerceptionBus                │
+                          └──────────────────┬─────────────────────┘
+                                             ▼
+                          ┌────────────────────────────────────────┐
+                          │            Attention                   │
+                          │  addressed? → REACT   (deterministic)  │
+                          │  score()    → REACT   (heuristic+rng)  │
+                          │  otherwise  → NOTE    (digest, 0 llm)  │
+                          └───────┬────────────────────┬───────────┘
+                                  │ REACT              │ NOTE
+                          ┌───────▼──────────┐  ┌──────▼──────────┐
+                          │  routing.route() │  │  digest buffer  │
+                          └───┬──────────┬───┘  └─────────────────┘
+                  stage ──────┘          └────── conversation_key
+                        ▼                              ▼
+              ┌──────────────────┐        ┌────────────────────────┐
+              │  Mind — live loop│        │  Mind — conversation   │
+              │  voice, game,    │        │  turns (discord text,  │
+              │  console, twitch │        │  telegram)             │
+              └────────┬─────────┘        └───────────┬────────────┘
+                       ▼                              ▼
+              ┌──────────────────┐        ┌────────────────────────┐
+              │  Expression      │        │  TextHumanizer         │
+              │  voice + OBS     │        │  line-per-message      │
+              └──────────────────┘        └────────────────────────┘
+```
+
+**The rule that must never break:** a perception reaches exactly one turn. The
+routing is an explicit if/else (`src/core/mind/routing.py`), not two consumers of
+the same batch — answering the same message twice, from two contexts that know
+nothing about each other, is the worst failure mode here.
+
+What is the **stage**: her voice, a Discord call, the game, the console, Twitch
+chat. She is present, live, and answers out loud. What is a **scoped
+conversation**: asynchronous written text — a Discord channel, a Telegram group.
+Those get their own thread, their own context, and only the platform's tools —
+no `speak`, no body — so answering a written message out loud is impossible by
+construction rather than by a rule a model can ignore.
+
+Cross-awareness is **one line each way**: the live loop sees
+`[ELSEWHERE, JUST NOW]`, a scoped turn sees `[WHAT YOU'RE DOING RIGHT NOW]`.
+Pouring more context between them would rebuild the single slow mind, with more
+machinery.
 
 ---
 
@@ -96,9 +153,12 @@ truth**. Bea can never arm a capability by herself.
 | Skill | `name` | toggle | What it does |
 |---|---|---|---|
 | `ChatSurface` | `chat:ui` | — (core) | text input from the dashboard; `Author(platform="ui", is_owner=True)` |
-| `VoiceSurface` | `voice:discord` | `discord` | owns the **node subprocess**; 7 tools; input arrives via the HTTP endpoints the bot calls |
+| `VoiceSurface` | `voice:discord` | `discord` | owns the **node subprocess** (needed for voice); input arrives via the HTTP endpoints the bot calls |
+| `TelegramSkill` | `chat:telegram` | `telegram` | in-process polling, no subprocess; scoped conversations |
+| `TwitchSkill` | `chat:twitch` | `twitch` | anonymous IRC read; every message tallied, only the ones that pass the gate reach the mind |
+| `DonationSkill` | `donation` | `donations` | `POST /webhook/donation`; always reacts, promotes the donor immediately |
 | `IdleSurface` | `idle` | `monologue` | produces no input: supplies the monologue rules on a pure-idle frame |
-| `MinecraftSurface` | `game:mc` | `minecraft` | WebSocket client to the mod; 24 tools + `update_notebook`; perception loop |
+| `MinecraftSurface` | `game:mc` | `minecraft` | WebSocket client to the mod; **7** tools to the mind, the other 24 to the `GameAgent` |
 | `MemorySkill` | `memory` | `memory` | RAG over `bea.db`, injected via `context_for` in two labelled blocks; no tools |
 | `SocialMemory` | `social` | `social_memory` | roster tally + person cards; injects `[WHO YOU'RE TALKING TO]` |
 | `DreamSkill` | `dream` | `dream` | self-lore + hot facts always in context; morning pass; `go_to_sleep`; offline dreamer |
@@ -143,10 +203,25 @@ packets, so to a server it looks like an ordinary client.
 
 Python side (`src/core/skills/minecraft/`):
 - `client.py` — WebSocket thread bridged to the event loop with
-  `call_soon_threadsafe`. `execute()` turns the mod's async protocol into
-  "call a tool → get an observation" by awaiting `FINISHED`/`IDLE`.
-- `tools.py` — 24 declarative tools + `update_notebook`.
-- `surface.py` — the perception loop pushes a snapshot at least every 10s.
+  `call_soon_threadsafe`. Dispatches on packet `type` **before** `status`, so
+  chat, joins, combat and the full death event reach the surface instead of
+  falling on the floor.
+- `surface.py` — turns those packets into perceptions with a real `Author` built
+  on the player's UUID. That one detail is what switches the entire social stack
+  on inside the game: the roster, person cards, promotion and the attention gate
+  are all keyed on `Author`, so none of them needed Minecraft-specific code.
+- `agent.py` — the `GameAgent`. The mind decides an **intention**
+  (`play_minecraft("get a stone pickaxe")`); the body pursues it on the
+  `background` model with all 24 game tools and the notebook, and reports only
+  milestones. The mind keeps seven tools and its personality.
+- `state.py` — renders the state packet as a few readable lines instead of a wall
+  of JSON, and it lives in `live_state()` rather than in a perception: it is
+  *where she is*, always true, not an event that should make her think.
+
+**Two audiences, on purpose.** `speak` is her voice — her stream hears it.
+`mc_chat` is what she types in game — the players read it. Using both in the same
+turn is usually right, and is much of what makes a VTuber playing multiplayer
+worth watching.
 
 ---
 
@@ -190,11 +265,46 @@ Migration from the old stores: `uv run python tools/migrate_to_sqlite.py`
 
 ---
 
+## Attention
+
+`src/core/attention/`. Before it existed, every perception cost a full reasoning
+cycle: with the game connected, one model call every ten seconds forever.
+
+- `rules.py` is **pure** — no IO, no asyncio, no `Skill`. It takes primitives and
+  returns a number or a reason, which is what makes the thresholds testable
+  against a table of cases instead of tuned by watching a live stream.
+- `gate.py` holds the state (per-conversation activity, when she last spoke, the
+  digest) with `rng` and `clock` injected.
+
+Two questions, deliberately kept apart. **"Is this for me?"** (`is_addressed`) is
+deterministic and bypasses cooldowns and quiet hours — rolling a die to decide
+whether to answer someone who just spoke to you is what makes a bot feel broken.
+**"Does this concern me?"** (`score`) is rightly probabilistic.
+
+Every decision is published as a `system` event with `reaction`, `score` and
+`reason`, and shown in Brain Activity. That is not optional instrumentation:
+without seeing *why* something was ignored, tuning the thresholds is guesswork.
+
+## Models
+
+`src/core/agent/registry.py`. One pool per role, as `provider:model` specs.
+Round-robin spreads rate limits; the rest of the pool is the fallback, so a
+single 429 no longer makes her mute.
+
+- **`mind`** — the consciousness. Every model in it **must support tool calling**:
+  she speaks only through tools, so one that cannot would never say anything.
+  A model that rejects tools is skipped and logged at `ERROR` — that is
+  configuration, not a transient failure.
+- **`background`** — diary, dreamer, summaries, person profiles, and the game
+  body. Batch work that must never compete with the part of her that talks.
+
 ## Web and UI
 
-FastAPI (`src/web/app.py`) + React/Vite/Tailwind (`src/web/frontend`). The
-dashboard polls `/skills`, `/skills/logs` and `/events`. The built frontend is
-served by the backend behind an SPA catch-all.
+FastAPI (`src/web/app.py`) + React/Vite/Tailwind (`src/web/frontend`). Events
+arrive over **SSE** (`GET /events/stream`) rather than a two-second poll, so the
+UI is current and the brain is not answering requests for nothing. Each turn
+publishes what it cost (calls, tokens, ms) — the point of the attention gate is
+spending fewer of them, and that cannot be tuned unseen.
 
 **Security posture:** the API has no authentication. The server therefore binds
 to `127.0.0.1` by default (`--host` is an explicit opt-in), CORS carries an
@@ -235,7 +345,27 @@ Tool(
 ```
 
 Errors are **not raised**: they come back as observations, so the model can
-react to them instead of dropping the loop.
+react to them instead of dropping the loop. `surface` is what a long-running
+action's result gets attributed to when it comes back as a perception.
+
+---
+
+## Testing
+
+> Decisions are pure functions. Effects are injected.
+
+That is the whole rule, and it is why the pure layers here (`attention/rules.py`,
+`humanizer.split`, `sanitize`, `routing`, the scheduler, `is_bot_called`, the
+Twitch IRC parser) are tested against tables of cases rather than against a live
+stream.
+
+`tests/fakes.py` carries the piece neither this project nor its reference had: a
+`FakeLLMClient` that replays scripted `AssistantMessage`s. With it, the whole
+consciousness loop runs end-to-end without a network, and questions like "how
+many model calls did those thirty chat messages cost?" become assertions.
+
+Coverage is not a percentage target. The rule is: **every new pure function
+arrives with its tests in the same commit.**
 
 ---
 
@@ -247,6 +377,7 @@ make run            # CLI
 make web            # build the frontend + dashboard on :8000
 make test           # pytest
 make lint           # ruff
+make migrate        # one-shot: old json/chroma stores -> data/bea.db (dry run first)
 ```
 
 Discord bot: `cd src/core/skills/voice/bot && npm install` (once).
