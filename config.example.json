@@ -73,20 +73,16 @@
         },
         "memory": {
             "enabled": true,
-            "chroma_path": "data/memory_db",
-            "openai_model": "gpt-4o-mini",
-            "embedding_model": "local"
+            "db_path": "data/bea.db",
+            "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            "embedding_cache_dir": "data/embeddings_cache",
+            "min_similarity": 0.35
         },
         "social_memory": {
-            "enabled": true,
-            "roster_path": "data/memory/roster.json",
-            "people_path": "data/memory/people.json"
+            "enabled": true
         },
         "dream": {
-            "enabled": true,
-            "self_path": "data/memory/self.md",
-            "profile_path": "data/memory/self_profile.json",
-            "recent_path": "data/memory/recent.json"
+            "enabled": true
         },
         "minecraft": {
             "enabled": false,

@@ -2,16 +2,14 @@ import datetime
 from typing import Dict, List, Optional
 
 from src.core.agent.tools import Tool
+from src.core.memory.store import PersonCard, RosterEntry
 from src.core.perception.types import PerceptionKind
 from src.core.skills.base import Skill
 from src.core.skills.social.people import (
-    PeopleStore,
-    PersonCard,
     promotion_reason,
     resolve_or_create_card,
     should_promote,
 )
-from src.core.skills.social.roster import RosterEntry, RosterStore
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.social")
@@ -33,9 +31,11 @@ class SocialMemory(Skill):
     skill_name = "social_memory"
 
     def initialize(self) -> None:
-        cfg = self.config.skills.get("social_memory", {})
-        self.roster = RosterStore(cfg.get("roster_path", "data/memory/roster.json"))
-        self.people = PeopleStore(cfg.get("people_path", "data/memory/people.json"))
+        # one shared store: promoting someone now touches two tables inside a
+        # single transaction instead of rewriting two json files independently
+        memory = self.context.memory
+        self.roster = memory.roster
+        self.people = memory.people
 
     # --- per-batch hook: tally + promote + inject --------------------------
 

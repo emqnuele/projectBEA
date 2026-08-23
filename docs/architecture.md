@@ -144,16 +144,41 @@ Python side (`src/core/skills/minecraft/`):
 
 ## Memory
 
-| Register | Storage | Always in context | Written by |
-|---|---|---|---|
-| Episodic diary | ChromaDB `data/memory_db`, local embeddings | no, top-3 per batch | `DiaryGenerator` at session end |
-| Roster (tally) | `data/memory/roster.json` | never | `SocialMemory.context_for`, per perception |
-| Person cards | `data/memory/people.json` | only those present, max 5 | auto-promotion + `remember_person` + dreamer |
-| Self-lore | `data/memory/self.md` + `self_profile.json` | yes (last 15 facts) | the dreamer only |
-| Hot facts | `data/memory/recent.json` (TTL) | yes (max 6) | dreamer + morning pass |
+Everything lives in one transactional SQLite file, `data/bea.db`
+(`src/core/memory/`). It replaced five stores that could not stay in sync — a
+Chroma collection plus four JSON files, each rewritten whole on every write, with
+no atomicity across them.
 
-Diary re-ranking is `similarity*0.7 + recency*0.3` with `1/(1+days*0.1)` decay.
-Every injection is explicitly capped so the prompt cannot bloat.
+| Register | Table | Always in context | Written by |
+|---|---|---|---|
+| Episodic diary | `memories` (scope `diary`) | no, top-3 per batch | `DiaryGenerator` at session end |
+| Roster (tally) | `roster` + `identities` | never | `SocialMemory.context_for`, per perception |
+| Person cards | `people` + `facts` | only those present, max 5 | auto-promotion + `remember_person` + dreamer + profiler |
+| Conversations | `messages` + `summaries` | per conversation turn | the platform skills |
+| Self-lore | `self_facts` + `self_profile` | yes (last 15 facts) | the dreamer only |
+| Hot facts | `hot_facts` (TTL) | yes (max 6) | dreamer + morning pass |
+| Sessions | `sessions` | never | the brain + the dreamer |
+
+Re-ranking is `similarity*0.7 + recency*0.3` with `1/(1+days*0.1)` decay. Every
+injection is explicitly capped so the prompt cannot bloat.
+
+**Two things worth knowing:**
+
+- **`memories.source`** separates what *people said* (`person`) from what *Bea
+  said* (`bea`). `recall_split` returns them as two labelled blocks. Bea invents
+  on purpose; without the split her own inventions would re-enter the prompt as
+  facts and the fiction would compound into incoherence.
+- **The embedding model is multilingual**
+  (`paraphrase-multilingual-MiniLM-L12-v2`), because her people write in Italian
+  and an English-only model collapses Italian into one region of the space,
+  making retrieval close to random. `Rag.ensure_model` re-embeds automatically if
+  the model ever changes — vectors from two models are not comparable.
+
+Vector search uses `sqlite-vec` when available, purely as a coarse pre-filter;
+the ranking decision is always the same Python cosine, so both paths agree.
+
+Migration from the old stores: `uv run python tools/migrate_to_sqlite.py`
+(idempotent, `--dry-run` supported).
 
 ---
 

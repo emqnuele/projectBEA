@@ -2,18 +2,22 @@
 
 import pytest
 
+from src.core.memory.store import RosterEntry
 from src.core.skills.social.people import (
     REGULAR_SESSION_THRESHOLD,
     promotion_reason,
     should_promote,
 )
-from src.core.skills.social.roster import RosterEntry
 
 
 def entry(**kwargs) -> RosterEntry:
     base = dict(identity="discord:1", display_name="marco", platform="discord")
     base.update(kwargs)
     return RosterEntry(**base)
+
+
+def with_sessions(n: int, **kwargs) -> RosterEntry:
+    return entry(session_count=n, **kwargs)
 
 
 def test_a_stranger_earns_nothing():
@@ -36,10 +40,9 @@ def test_a_one_on_one_promotes():
 
 
 def test_a_regular_promotes_at_the_threshold():
-    sessions = [f"s{i}" for i in range(REGULAR_SESSION_THRESHOLD)]
-    assert should_promote(entry(sessions=sessions[:-1])) is False
-    assert should_promote(entry(sessions=sessions)) is True
-    assert promotion_reason(entry(sessions=sessions)) == "a regular"
+    assert should_promote(with_sessions(REGULAR_SESSION_THRESHOLD - 1)) is False
+    assert should_promote(with_sessions(REGULAR_SESSION_THRESHOLD)) is True
+    assert promotion_reason(with_sessions(REGULAR_SESSION_THRESHOLD)) == "a regular"
 
 
 def test_already_promoted_never_promotes_twice():
@@ -51,7 +54,7 @@ def test_already_promoted_never_promotes_twice():
     [
         ({"donation_total": 1.0, "marked_by_bea": True}, "donated"),
         ({"marked_by_bea": True, "had_1on1": True}, "you marked them"),
-        ({"had_1on1": True, "sessions": ["a", "b", "c"]}, "had a 1:1 with you"),
+        ({"had_1on1": True, "session_count": 3}, "had a 1:1 with you"),
     ],
 )
 def test_reason_reports_the_strongest_signal(kwargs, expected):

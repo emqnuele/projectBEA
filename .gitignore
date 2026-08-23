@@ -44,6 +44,10 @@ tts_debug_output.txt
 data/conversations/
 data/memory_db/
 data/memory/
+data/bea.db
+data/bea.db-wal
+data/bea.db-shm
+data/embeddings_cache/
 
 
 # Frontend

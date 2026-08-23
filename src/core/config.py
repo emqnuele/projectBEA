@@ -100,22 +100,20 @@ class BrainConfig:
             "chunk_pause_seconds": 4.0,
             "prompt_path": "data/prompts/monologue.md"
         },
+        # everything Bea remembers now lives in one sqlite file; the embedding
+        # model is multilingual because her people write in italian
         "memory": {
             "enabled": True,
-            "chroma_path": "data/memory_db",
-            "openai_model": "gpt-4o-mini",
-            "embedding_model": "local"
+            "db_path": "data/bea.db",
+            "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            "embedding_cache_dir": "data/embeddings_cache",
+            "min_similarity": 0.35
         },
         "social_memory": {
-            "enabled": True,
-            "roster_path": "data/memory/roster.json",
-            "people_path": "data/memory/people.json"
+            "enabled": True
         },
         "dream": {
-            "enabled": True,
-            "self_path": "data/memory/self.md",
-            "profile_path": "data/memory/self_profile.json",
-            "recent_path": "data/memory/recent.json"
+            "enabled": True
         },
         "minecraft": {
             "enabled": False,

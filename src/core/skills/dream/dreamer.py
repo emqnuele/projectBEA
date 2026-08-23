@@ -24,17 +24,15 @@ class Dreamer:
     """
 
     def __init__(self, *, llm, history_manager, roster, people, selflore, recent,
-                 conversations_dir: str = "data/conversations",
-                 processed_path: str = "data/memory/dreamed.json"):
+                 sessions, conversations_dir: str = "data/conversations"):
         self.llm = llm
         self.history = history_manager
         self.roster = roster
         self.people = people
         self.selflore = selflore
         self.recent = recent
+        self.sessions = sessions
         self.conversations_dir = Path(conversations_dir)
-        self.processed_path = Path(processed_path)
-        self.processed_path.parent.mkdir(parents=True, exist_ok=True)
         self._prompt = self._load_prompt()
 
     def _load_prompt(self) -> str:
@@ -45,17 +43,10 @@ class Dreamer:
             return "Summarize the conversation as JSON with title, self_facts, people, hot_facts."
 
     def _processed(self) -> set:
-        if not self.processed_path.exists():
-            return set()
-        try:
-            return set(json.loads(self.processed_path.read_text(encoding="utf-8")))
-        except Exception:
-            return set()
+        return self.sessions.dreamed()
 
     def _mark_processed(self, session_id: str) -> None:
-        done = self._processed()
-        done.add(session_id)
-        self.processed_path.write_text(json.dumps(sorted(done)), encoding="utf-8")
+        self.sessions.mark_dreamed(session_id)
 
     async def run(self) -> Dict[str, Any]:
         """Consolidate every un-dreamed session except the active one."""
@@ -103,6 +94,7 @@ class Dreamer:
         title = (result.get("title") or "").strip()
         if title:
             self.history.set_session_title(sid, title)
+            self.sessions.set_title(sid, title)
 
         # structured profile bits (e.g. birthday) the morning pass needs
         self.selflore.update_profile(result.get("profile") or {})

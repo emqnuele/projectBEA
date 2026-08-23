@@ -7,6 +7,8 @@ from src.core.config import BrainConfig
 from src.core.consciousness import Consciousness
 from src.core.events import EventCategory, EventManager
 from src.core.expression import Expression
+from src.core.memory.profiler import Profiler
+from src.core.memory.store import MemoryStore
 from src.core.perception.bus import PerceptionBus
 from src.core.resources import load_avatar_resources
 from src.core.skills.base import SkillRegistry
@@ -59,10 +61,14 @@ class AIVtuberBrain:
         # single output sink (VOICE actuator + barge-in)
         self.expression = Expression(config, tts, obs, self.event_manager)
 
+        # everything Bea remembers, in one transactional file
+        self.memory = self._build_memory()
+
         # unified consciousness (built in initialize, started only if enabled)
         self.perception_bus: Optional[PerceptionBus] = None
         self.skill_registry: Optional[SkillRegistry] = None
         self.attention: Optional[Attention] = None
+        self.profiler: Optional[Profiler] = None
         self.consciousness: Optional[Consciousness] = None
 
     @property
@@ -99,6 +105,38 @@ class AIVtuberBrain:
     def is_sleeping(self) -> bool:
         return bool(self.consciousness and self.consciousness.sleeping)
 
+    def _build_memory(self) -> MemoryStore:
+        """Opens `bea.db` and wires the embedder.
+
+        The embedder is optional on purpose: if the model cannot be loaded, Bea
+        keeps her roster, her people and her hot facts — she just loses recall
+        until it comes back. Losing everything over a missing download would be
+        a far worse failure.
+        """
+        cfg = self.config.skills.get("memory", {})
+        embedder = None
+        try:
+            from src.core.memory.embedder import DEFAULT_MODEL, FastEmbedEmbedder
+            embedder = FastEmbedEmbedder(
+                cfg.get("embedding_model") or DEFAULT_MODEL,
+                cfg.get("embedding_cache_dir", "data/embeddings_cache"),
+            )
+        except Exception as e:
+            logger.error(f"Embedder unavailable ({e}); long-term recall is disabled.")
+
+        store = MemoryStore(
+            cfg.get("db_path", "data/bea.db"),
+            embedder=embedder,
+            min_similarity=float(cfg.get("min_similarity", 0.35)),
+        )
+        if store.rag is not None and embedder is not None:
+            # vectors from two models are not comparable: a change re-embeds
+            try:
+                store.rag.ensure_model(embedder.model_name)
+            except Exception as e:
+                logger.error(f"Could not verify the embedding model: {e}")
+        return store
+
     def _load_operating_rules(self) -> str:
         """The unified operating manual; falls back to the legacy chat rules."""
         rules = load_text(self.config.operating_prompt_path)
@@ -122,6 +160,7 @@ class AIVtuberBrain:
         self._obs_connect()
 
         self.history_manager.create_session()
+        self.memory.sessions.record(self.history_manager.session_id)
         logger.info(f"Brain Initialized. Session ID: {self.history_manager.session_id}")
 
         self._build_consciousness()
@@ -135,6 +174,9 @@ class AIVtuberBrain:
             skill = skill_cls(self.config, self.perception_bus, self.expression, self)
             skill.initialize()
             self.skill_registry.register(skill)
+
+        # background passes that keep the cards and summaries fresh between dreams
+        self.profiler = Profiler(self.model_for(BACKGROUND), self.memory)
 
         social = self.skill_registry.get("social")
         self.attention = Attention(
@@ -244,6 +286,7 @@ class AIVtuberBrain:
         prev_history = self.history_manager.history
 
         self.history_manager.create_session()
+        self.memory.sessions.record(self.history_manager.session_id)
         logger.info(f"Created new session: {self.history_manager.session_id}")
 
         if prev_session_id and prev_history and self.memory_skill:
@@ -387,10 +430,10 @@ class AIVtuberBrain:
 
     async def _warmup(self):
         """Background priming of the LLM connection and the embedding endpoint."""
-        ms = self.memory_skill
-        if ms and ms.active and getattr(ms.storage, "collection", None) is not None:
+        if self.memory.rag is not None:
+            # first embed pays the model load; do it before the first real message
             try:
-                await asyncio.to_thread(ms.storage.query_similar, "warmup", 1)
+                await asyncio.to_thread(self.memory.rag.recall, "warmup", scope="diary")
             except Exception as e:
                 logger.debug(f"memory warmup skipped: {e}")
         try:
@@ -405,3 +448,4 @@ class AIVtuberBrain:
 
     def shutdown(self):
         self.obs.disconnect()
+        self.memory.close()

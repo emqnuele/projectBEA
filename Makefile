@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install install-all run web frontend lock clean test lint
+.PHONY: help install install-all run web frontend lock clean test lint migrate
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -9,6 +9,11 @@ install: ## create the venv and install python deps
 
 install-all: ## install python deps including the optional minecraft skill
 	uv sync --extra minecraft
+
+migrate: ## one-shot: move the old json/chroma stores into data/bea.db
+	uv sync --extra migrate
+	uv run python tools/migrate_to_sqlite.py --dry-run
+	@echo "--- re-run without --dry-run to apply ---"
 
 run: ## start the engine in CLI mode
 	uv run bea

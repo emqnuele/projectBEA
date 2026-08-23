@@ -1,14 +1,11 @@
 import asyncio
 import datetime
 import time
-from pathlib import Path
 from typing import List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.skills.base import Skill
 from src.core.skills.dream.dreamer import DAY_SECONDS, Dreamer
-from src.core.skills.dream.recent import RecentStore
-from src.core.skills.dream.selflore import SelfLore
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.dream")
@@ -29,12 +26,10 @@ class DreamSkill(Skill):
     skill_name = "dream"
 
     def initialize(self) -> None:
-        cfg = self.config.skills.get("dream", {})
-        self.selflore = SelfLore(
-            cfg.get("self_path", "data/memory/self.md"),
-            cfg.get("profile_path", "data/memory/self_profile.json"),
-        )
-        self.recent = RecentStore(cfg.get("recent_path", "data/memory/recent.json"))
+        memory = self.context.memory
+        self.selflore = memory.selflore
+        self.recent = memory.hot
+        self.sessions = memory.sessions
         self.dreamer: Optional[Dreamer] = None
         self._dreaming = False
 
@@ -66,7 +61,7 @@ class DreamSkill(Skill):
         self.dreamer = Dreamer(
             llm=llm, history_manager=hm,
             roster=social.roster, people=social.people,
-            selflore=self.selflore, recent=self.recent,
+            selflore=self.selflore, recent=self.recent, sessions=self.sessions,
         )
 
     # --- always-in-context --------------------------------------------------
@@ -118,15 +113,11 @@ class DreamSkill(Skill):
                     )
 
     def _days_since_last_session(self) -> Optional[int]:
-        d = Path("data/conversations")
-        if not d.exists():
-            return None
         active = getattr(getattr(self.context, "history_manager", None), "session_id", None)
-        files = [f for f in d.glob("session_*.json") if f.stem != active]
-        if not files:
+        last = self.sessions.last_ended_at(exclude=active)
+        if last is None:
             return None
-        newest = max(files, key=lambda f: f.stat().st_mtime)
-        return int((time.time() - newest.stat().st_mtime) / DAY_SECONDS)
+        return int((time.time() - last) / DAY_SECONDS)
 
     # --- sleep & dream ------------------------------------------------------
 
