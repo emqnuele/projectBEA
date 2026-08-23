@@ -92,7 +92,8 @@
             "auto_chat_thoughts": false,
             "auto_speak_thoughts": false,
             "mc_openai_model": "gpt-4o-mini",
-            "system_prompt_path": "data/prompts/minecraft.md"
+            "system_prompt_path": "data/prompts/minecraft.md",
+            "body_prompt_path": "data/prompts/minecraft_body.md"
         },
         "discord": {
             "enabled": false,

@@ -166,7 +166,8 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
 }
 
 
-def build_minecraft_tools(client: MinecraftClient, notebook: Notebook) -> ToolRegistry:
+def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
+                          surface: str = "game:mc") -> ToolRegistry:
     """Builds a registry whose handlers drive the mod and return observations.
 
     Also registers the local `update_notebook` tool, which mutates the agent's
@@ -185,7 +186,8 @@ def build_minecraft_tools(client: MinecraftClient, notebook: Notebook) -> ToolRe
     for name, (description, parameters) in _TOOLS.items():
         instant = name in _INSTANT
         # long-running body actions run async (single-slot) so they never block reasoning
-        registry.add(name, description, parameters, make_handler(name, instant), long_running=not instant)
+        registry.add(name, description, parameters, make_handler(name, instant),
+                     long_running=not instant, surface=surface)
 
     registry.add(
         "update_notebook",

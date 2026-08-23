@@ -25,6 +25,9 @@ class Tool:
     parameters: Dict[str, Any]
     handler: ToolHandler
     long_running: bool = False  # BODY actions that should run async (single-slot), not block reasoning
+    # which surface owns it, so the result of a long-running action comes back
+    # attributed to the right place instead of a hardcoded guess
+    surface: str = ""
 
     def schema(self) -> Dict[str, Any]:
         return {
@@ -55,8 +58,9 @@ class ToolRegistry:
         parameters: Dict[str, Any],
         handler: ToolHandler,
         long_running: bool = False,
+        surface: str = "",
     ) -> None:
-        self.register(Tool(name, description, parameters, handler, long_running))
+        self.register(Tool(name, description, parameters, handler, long_running, surface))
 
     def get(self, name: str) -> Optional[Tool]:
         return self._tools.get(name)

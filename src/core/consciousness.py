@@ -379,8 +379,10 @@ class Consciousness:
             return
         except Exception as e:
             result = f"ERROR: {e}"
+        # attributed to the surface that owns the tool: hardcoding "game:mc" here
+        # mislabelled the result of every body action that was not minecraft
         self.bus.put(Perception(
-            PerceptionKind.ACTION, "game:mc",
+            PerceptionKind.ACTION, tool.surface or "body",
             f"[{tool.name}] result: {result}", salience=0.7,
         ))
 

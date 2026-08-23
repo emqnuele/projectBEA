@@ -120,7 +120,8 @@ class BrainConfig:
             "server_url": "ws://127.0.0.1:8080",
             "auto_chat_thoughts": False,
             "auto_speak_thoughts": False,
-            "system_prompt_path": "data/prompts/minecraft.md"
+            "system_prompt_path": "data/prompts/minecraft.md",
+            "body_prompt_path": "data/prompts/minecraft_body.md"
         },
         # the oauth token is deliberately absent: read from TWITCH_OAUTH_TOKEN.
         # reading chat needs no credentials at all (anonymous irc).

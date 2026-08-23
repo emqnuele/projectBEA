@@ -4,6 +4,7 @@ from typing import List, Optional
 from src.core.agent.tools import Tool
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.base import Skill
+from src.core.skills.minecraft.agent import GameAgent
 from src.core.skills.minecraft.client import MinecraftClient
 from src.core.skills.minecraft.notebook import Notebook
 from src.core.skills.minecraft.state import render_state
@@ -27,10 +28,15 @@ class MinecraftSurface(Skill):
     skill_name = "minecraft"
 
     def initialize(self) -> None:
-        self._rules = load_text(self.skill_config.get("system_prompt_path", "data/prompts/minecraft.md"))
+        cfg = self.skill_config
+        self._rules = load_text(cfg.get("system_prompt_path", "data/prompts/minecraft.md"))
+        # the survival guide and the crafting chains belong to the body, not to
+        # the mind: she should not be carrying recipe trees around in her head
+        self._body_rules = load_text(cfg.get("body_prompt_path", "data/prompts/minecraft_body.md"))
         self.client: Optional[MinecraftClient] = None
         self.notebook = Notebook()
         self._registry = None
+        self.agent: Optional[GameAgent] = None
         self._poll_task: Optional[asyncio.Task] = None
 
     @property
@@ -45,6 +51,14 @@ class MinecraftSurface(Skill):
         loop = asyncio.get_running_loop()
         self.client = MinecraftClient(url, loop, on_event=self._on_mod_event)
         self._registry = build_minecraft_tools(self.client, self.notebook)
+        self.agent = GameAgent(
+            llm=self._body_model(),
+            registry=self._registry,
+            notebook=self.notebook,
+            state_getter=self._latest_state,
+            rules=self._body_rules,
+            on_milestone=self._emit_milestone,
+        )
         self.client.connect()
         self.active = True
         self._poll_task = asyncio.create_task(self._perceive_loop())
@@ -249,19 +263,124 @@ class MinecraftSurface(Skill):
     def context_section(self) -> Optional[str]:
         return self._rules or None
 
+    def _body_model(self):
+        model_for = getattr(self.context, "model_for", None)
+        return model_for("background") if model_for else getattr(self.context, "llm", None)
+
+    def _emit_milestone(self, text: str) -> None:
+        """Something worth interrupting her for. Everything else stays in the body."""
+        self.bus.put(Perception(
+            PerceptionKind.GAME, self.name, text, salience=0.6,
+            meta={"event": "milestone"},
+        ))
+
+    # --- what the MIND can do (seven tools, not twenty-five) ----------------
+
     def tools(self) -> List[Tool]:
-        return self._registry.tools() if self._registry else []
+        if not self.active or self.client is None:
+            return []
+
+        def body(action: str, rename: Optional[dict] = None):
+            """Binds a mod action, renaming arguments where the mod calls them
+            something else (LookSkill takes `player`, not `name`)."""
+            rename = rename or {}
+
+            async def handler(**kwargs):
+                args = {rename.get(k, k): v for k, v in kwargs.items()}
+                return await self.client.execute(action, args)
+            return handler
+
+        return [
+            Tool(
+                "play_minecraft",
+                "Give your body something to achieve in the game (\"get a stone pickaxe\", "
+                "\"build a shelter before dark\", \"find iron\"). It goes and does it while "
+                "you carry on doing whatever else you're doing, and tells you when something "
+                "worth knowing happens. One goal at a time — a new one replaces the old.",
+                {"type": "object", "properties": {
+                    "goal": {"type": "string", "description": "what you want done, in plain words"}},
+                 "required": ["goal"]},
+                self._tool_play, long_running=True, surface=self.name,
+            ),
+            Tool(
+                "mc_chat",
+                "TYPE a message in the game chat. The players there read it — a different "
+                "audience from your voice. Use it to answer them; use `speak` to comment "
+                "for your stream. Both in the same turn is usually right.",
+                {"type": "object", "properties": {"message": {"type": "string"}},
+                 "required": ["message"]},
+                self._tool_chat,
+            ),
+            Tool(
+                "mc_stop",
+                "Put your body down: it stops whatever it was doing and stands still.",
+                {"type": "object", "properties": {}, "required": []},
+                self._tool_stop,
+            ),
+            Tool(
+                "mc_goto_player",
+                "Walk over to a player and stop next to them. They move; you keep up.",
+                {"type": "object", "properties": {"name": {"type": "string"}},
+                 "required": ["name"]},
+                body("goto_player"), long_running=True, surface=self.name,
+            ),
+            Tool(
+                "mc_follow_player",
+                "Stay with a player, a few blocks behind, until you stop. Gives up on its "
+                "own if you lose them.",
+                {"type": "object", "properties": {"name": {"type": "string"}},
+                 "required": ["name"]},
+                body("follow_player"), long_running=True, surface=self.name,
+            ),
+            Tool(
+                "mc_look_at_player",
+                "Turn and look at a player. Staring at someone is communication — use it "
+                "when you want them to know you noticed.",
+                {"type": "object", "properties": {"name": {"type": "string"}},
+                 "required": ["name"]},
+                body("look_at", {"name": "player"}), long_running=True, surface=self.name,
+            ),
+            Tool(
+                "mc_give_item",
+                "Take something to a player: you walk over and drop it at their feet "
+                "(vanilla has no way to hand something over directly). Omit `count` to give "
+                "them everything you have of it.",
+                {"type": "object", "properties": {
+                    "name": {"type": "string"}, "item": {"type": "string"},
+                    "count": {"type": "integer"}},
+                 "required": ["name", "item"]},
+                body("give_item"), long_running=True, surface=self.name,
+            ),
+        ]
+
+    async def _tool_play(self, goal: str) -> str:
+        if self.agent is None:
+            return "FAILED: your body isn't connected."
+        return await self.agent.pursue(goal)
+
+    async def _tool_chat(self, message: str) -> str:
+        if self.client is None:
+            return "FAILED: your body isn't connected."
+        await self.client.execute("chat", {"message": message}, instant=True)
+        return "Typed it in game chat."
+
+    async def _tool_stop(self) -> str:
+        if self.client is None:
+            return "FAILED: your body isn't connected."
+        await self.client.execute("stop_moving", {}, instant=True)
+        return "Body stopped."
+
 
     def live_state(self) -> Optional[str]:
         if not self.active:
             return None
-        parts = [
-            "YOUR NOTEBOOK (private working memory — never spoken; update it with "
-            "update_notebook):\n" + self.notebook.render()
-        ]
+        parts = []
         # the game state lives here rather than in a perception: it is *where she
         # is*, always true, not an event that should make her think
         body = render_state(self._latest_state())
+        doing = self.agent.describe() if self.agent else ""
+        if doing:
+            body = f"- {doing}\n{body}" if body else f"- {doing}"
         if body:
             parts.append("YOUR BODY IN MINECRAFT (right now):\n" + body)
         return "\n\n".join(parts)
