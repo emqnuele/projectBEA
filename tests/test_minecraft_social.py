@@ -305,3 +305,54 @@ def test_players_are_called_out_among_the_entities():
     rendered = render_state(state)
     assert "PLAYER Marco 4m" in rendered
     assert "Zombie 9m" in rendered
+
+
+# --- playing with people (phase 8C) ------------------------------------------
+
+
+def test_the_interaction_tools_are_armed(surface):
+    from src.core.skills.minecraft.notebook import Notebook
+    from src.core.skills.minecraft.tools import build_minecraft_tools
+
+    s, _, _ = surface
+    names = {t.name for t in build_minecraft_tools(_RecordingClient(), Notebook()).tools()}
+    assert {"goto_player", "follow_player", "look_at_player", "give_item"} <= names
+
+
+async def test_looking_at_a_player_uses_the_look_skill():
+    """One mod skill, told who to look at instead of where."""
+    from src.core.skills.minecraft.notebook import Notebook
+    from src.core.skills.minecraft.tools import build_minecraft_tools
+
+    client = _RecordingClient()
+    registry = build_minecraft_tools(client, Notebook())
+    await registry.get("look_at_player").handler(name="Marco")
+    assert client.calls == [("look_at", {"player": "Marco"})]
+
+
+async def test_giving_something_carries_the_count():
+    from src.core.skills.minecraft.notebook import Notebook
+    from src.core.skills.minecraft.tools import build_minecraft_tools
+
+    client = _RecordingClient()
+    registry = build_minecraft_tools(client, Notebook())
+    await registry.get("give_item").handler(name="Marco", item="oak_log", count=5)
+    assert client.calls == [("give_item", {"name": "Marco", "item": "oak_log", "count": 5})]
+
+
+async def test_following_is_a_body_action():
+    """It runs for as long as she wants it to, so it must not block reasoning."""
+    from src.core.skills.minecraft.notebook import Notebook
+    from src.core.skills.minecraft.tools import build_minecraft_tools
+
+    registry = build_minecraft_tools(_RecordingClient(), Notebook())
+    assert registry.get("follow_player").long_running is True
+
+
+class _RecordingClient:
+    def __init__(self):
+        self.calls = []
+
+    async def execute(self, action, params, instant=False):
+        self.calls.append((action, params))
+        return "SUCCESS"
