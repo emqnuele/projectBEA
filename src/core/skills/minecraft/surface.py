@@ -88,8 +88,14 @@ class MinecraftSurface(Skill):
                 self.bus.put(Perception(PerceptionKind.GAME, self.name, "(still playing)",
                                         salience=0.15, meta={"noise": True}))
                 continue
+            # an interrupt is her body shouting: it must always reach her, so it
+            # is declared in `meta` rather than left for the gate to guess from
+            # the salience alone
+            interrupted = any(e.startswith("INTERRUPTED") for e in events)
             self.bus.put(Perception(
-                PerceptionKind.GAME, self.name, self._snapshot(events), salience=0.9,
+                PerceptionKind.GAME, self.name, self._snapshot(events),
+                salience=0.95 if interrupted else 0.9,
+                meta={"event": "interrupted"} if interrupted else {},
             ))
 
     def _snapshot(self, events: Optional[List[str]] = None) -> str:

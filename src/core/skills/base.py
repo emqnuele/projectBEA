@@ -75,6 +75,16 @@ class Skill:
         """Tools armed only while active (e.g. in-game actions, recall_memory)."""
         return []
 
+    def conversation_tools(self, channel_id: Optional[str],
+                           reply_to: Optional[str] = None) -> List[Tool]:
+        """Tools for a SCOPED conversation turn in one channel.
+
+        Deliberately a different set from `tools()`: a scoped turn has no voice
+        and no body, and the channel is context rather than an argument — she is
+        talking in one place, so she should not have to name it every time.
+        """
+        return []
+
     def live_state(self) -> Optional[str]:
         """Volatile state injected into every perception frame (e.g. the notebook)."""
         return None

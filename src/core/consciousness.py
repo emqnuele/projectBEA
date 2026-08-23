@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from src.core.agent.tools import Tool, ToolRegistry
 from src.core.agent.types import AssistantMessage, ToolCall
 from src.core.events import EventCategory
+from src.core.mind.routing import route
 from src.core.perception.types import Perception, PerceptionKind
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
@@ -29,7 +30,8 @@ class Consciousness:
     _TERMINAL_TOOLS = {"speak", "stay_silent"}
 
     def __init__(self, *, config, llm, bus, expression, surfaces, history_manager,
-                 event_manager, soul_getter, operating_getter, attention=None):
+                 event_manager, soul_getter, operating_getter, attention=None,
+                 conversations=None):
         self.config = config
         self.llm = llm
         self.bus = bus
@@ -38,6 +40,7 @@ class Consciousness:
         self.history = history_manager
         self.events = event_manager
         self.attention = attention
+        self.conversations = conversations
         self._get_soul = soul_getter
         self._get_operating = operating_getter
 
@@ -155,6 +158,7 @@ class Consciousness:
                 batch, noted = self._filter(batch)
                 if noted and self.attention:
                     self.attention.remember(noted)
+                batch = self._route(batch)
 
                 # a real input barges in on an ongoing monologue
                 if self.expression.is_speaking and any(p.kind != PerceptionKind.IDLE for p in batch):
@@ -184,6 +188,9 @@ class Consciousness:
                         steer, steer_noted = self._filter(steer)
                         if steer_noted and self.attention:
                             self.attention.remember(steer_noted)
+                        # a message for another channel is dispatched here, mid-burst:
+                        # it does not have to wait for the game turn to finish
+                        steer = self._route(steer)
                     if steer:
                         self.context.append(self._frame(steer, steering=True))
 
@@ -239,6 +246,38 @@ class Consciousness:
             logger.debug(f"attention: noted {len(noted)}, nothing to react to")
         return react, noted
 
+    def _route(self, batch: List[Perception]) -> List[Perception]:
+        """Keeps what belongs on the stage; hands the rest to scoped turns.
+
+        An explicit if/else, not two consumers of the same batch: a perception
+        must reach exactly one turn, or Bea answers the same message twice from
+        two contexts that know nothing about each other.
+        """
+        if not self.conversations or not batch:
+            return batch
+        stage, scoped = route(batch)
+        for key, perceptions in scoped.items():
+            logger.info(f"routing {len(perceptions)} perception(s) to conversation '{key}'")
+            self.conversations.dispatch(key, perceptions)
+        return stage
+
+    def now_line(self) -> str:
+        """One line for a scoped turn: what she is doing on stage right now.
+
+        Deliberately one line. Cross-awareness is what keeps her coherent;
+        pouring context between turns is what would make her one slow mind again.
+        """
+        if self.sleeping:
+            return "you're asleep"
+        doing = []
+        if self._body_task and not self._body_task.done():
+            doing.append("your body is busy in Minecraft")
+        elif self.surfaces.get("game:mc") and self.surfaces.get("game:mc").active:
+            doing.append("you're in Minecraft")
+        if self.expression.is_speaking:
+            doing.append("you're talking out loud right now")
+        return ", ".join(doing)
+
     def _correlations_in(self, batch: List[Perception]) -> List[str]:
         return [
             p.meta["correlation_id"] for p in batch
@@ -271,9 +310,12 @@ class Consciousness:
         if dynamic is None:
             dynamic = self.surfaces.dynamic_context(batch) if batch else []
         digest = self.attention.digest() if self.attention else ""
+        elsewhere = self.conversations.recent_lines() if self.conversations else ""
         parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live, *dynamic]
         if digest:
             parts.append(digest)
+        if elsewhere:
+            parts.append(elsewhere)
 
         return {"role": "system", "content": compose(*parts)}
 

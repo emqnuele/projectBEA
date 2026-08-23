@@ -23,6 +23,7 @@ class VoiceSurface(Skill):
 
     name = "voice:discord"
     skill_name = "discord"
+    platform = "discord"
 
     def initialize(self) -> None:
         self.transport = DiscordTransport(self.config)
@@ -102,17 +103,17 @@ class VoiceSurface(Skill):
             return None
         return (
             "## DISCORD\n"
-            "You are connected to Discord. Some perceptions are tagged `(discord ...)` "
-            "and carry a `channel_id` (and a `message_id` for text messages).\n"
-            "- `speak` is your LIVE VOICE — use it when you're in a voice call or on stream.\n"
-            "- For Discord TEXT, do NOT use `speak`. Answer with `discord_reply` "
-            "(to the message_id) or `discord_send_message` (to the channel_id). React with "
-            "`discord_react`. DM with `discord_send_dm`.\n"
-            "- Write like you text: every LINE you send becomes a separate message, with a "
-            "typing pause in between. Two short lines beat one paragraph.\n"
-            "- You decide on your own whether a message is worth answering. You may also "
-            "act first: check `discord_list_voice_channels`, `discord_join_voice` to hang "
-            "out, or `discord_summon` to call someone in."
+            "You are connected to Discord.\n"
+            "- `speak` is your LIVE VOICE — the voice call and the stream. Use it here.\n"
+            "- Text messages people send you are handled in their own thread, one per "
+            "channel, while you keep doing whatever you're doing. You don't answer them "
+            "from here — you'll find yourself in that conversation on its own.\n"
+            "- What you CAN do from here is act first: `discord_send_message` to write in "
+            "a channel unprompted, `discord_send_dm` to message someone privately, "
+            "`discord_list_voice_channels` to see where people are, `discord_join_voice` "
+            "to go hang out, `discord_summon` to call someone in.\n"
+            "- When you write, every LINE becomes a separate message with a typing pause "
+            "in between. Two short lines beat one paragraph."
         )
 
     # --- output sink --------------------------------------------------------
@@ -146,6 +147,56 @@ class VoiceSurface(Skill):
             await self.transport.typing(channel_id)
 
         return await self.humanizer.deliver(text, send_text=send, send_typing=typing)
+
+    # --- scoped conversation tools -----------------------------------------
+
+    def conversation_tools(self, channel_id: Optional[str],
+                           reply_to: Optional[str] = None) -> List[Tool]:
+        """The three things she can do inside one channel, with the ids bound.
+
+        No `speak` here by construction: answering a written message out loud
+        was a real failure mode, and a rule in the prompt is something a model
+        can ignore — an absent tool is not.
+        """
+        if not self.active or not channel_id:
+            return []
+
+        tools = [
+            Tool(
+                "send_message",
+                "Write in this channel. Each LINE becomes its own message, with a "
+                "typing pause in between — write like you text.",
+                {"type": "object", "properties": {"text": {"type": "string"}},
+                 "required": ["text"]},
+                lambda text: self._scoped_send(channel_id, text),
+            ),
+        ]
+        if reply_to:
+            tools.insert(0, Tool(
+                "reply",
+                "Answer the last message directly (it gets quoted). Each LINE becomes "
+                "its own message; only the first one quotes theirs.",
+                {"type": "object", "properties": {"text": {"type": "string"}},
+                 "required": ["text"]},
+                lambda text: self._scoped_send(channel_id, text, reply_to=reply_to),
+            ))
+            tools.append(Tool(
+                "react",
+                "React to the last message with a single emoji, instead of writing.",
+                {"type": "object", "properties": {"emoji": {"type": "string"}},
+                 "required": ["emoji"]},
+                lambda emoji: self._scoped_react(channel_id, reply_to, emoji),
+            ))
+        return tools
+
+    async def _scoped_send(self, channel_id: str, text: str,
+                           reply_to: Optional[str] = None) -> str:
+        sent = await self._deliver(channel_id, text, reply_to=reply_to)
+        return f"Sent ({len(sent)} message(s))." if sent else "FAILED: nothing was sent."
+
+    async def _scoped_react(self, channel_id: str, message_id: str, emoji: str) -> str:
+        return self._fmt(await self.transport.react_message(channel_id, message_id, emoji),
+                         "Reacted.")
 
     # --- tools (brain -> bot) ----------------------------------------------
 

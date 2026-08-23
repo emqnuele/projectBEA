@@ -14,7 +14,8 @@ so it can be checked against the code rather than trusted.
 main.py → src/cli.py:main()
   ├─ BrainConfig()                 # config.json + env + CLI, in that order
   ├─ STT / LLM / TTS / OBS         # interchangeable modules
-  └─ AIVtuberBrain(config, llm, tts, stt, obs)
+  ├─ ModelRegistry(config, stt)   # one model pool per role (mind / background)
+  └─ AIVtuberBrain(config, registry, tts, stt, obs)
        ├─ initialize()             # avatars, soul, OBS, session, _build_consciousness()
        ├─ start_skills()           # start the Consciousness (if enabled) + warmup
        └─ run_loop()  or  run_server(brain, host, port)
@@ -28,7 +29,10 @@ reactive chat path — the consciousness is the only mind.
 |---|---|---|
 | `PerceptionBus` | `src/core/perception/bus.py` | the one sensory channel (asyncio.Queue + coalescing window) |
 | `SkillRegistry` | `src/core/skills/base.py` | the catalog of capabilities |
-| `Expression` | `src/core/expression.py` | the **only** voice/visual output sink |
+| `Expression` | `src/core/expression/voice.py` | the **only** voice/visual output sink |
+| `TextHumanizer` | `src/core/expression/humanizer.py` | written output: one line = one message, with typing |
+| `Attention` | `src/core/attention/` | the gate: what wakes the mind vs what she merely notices |
+| `MemoryStore` | `src/core/memory/` | everything she remembers, in one SQLite file |
 | `Consciousness` | `src/core/consciousness.py` | the mind: one context, one loop |
 | `EventManager` | `src/core/events.py` | 200-event ring buffer for the dashboard |
 | `HistoryManager` | `src/utils/history_manager.py` | one session = one JSON in `data/conversations/` |
@@ -50,6 +54,10 @@ Skills are registered in this order (`brain.py`, `_build_consciousness`):
    `IDLE`, her voice is interrupted.
 3. **Correlations.** Collect the `correlation_id`s in the batch — HTTP callers
    waiting on a synchronous reply.
+3b. **Attention.** `Attention.judge(batch)` splits it into what deserves a
+   reasoning cycle and what is merely noticed. Nothing to react to → the turn ends
+   without a single model call. The rest goes into the digest, which appears in
+   the next system message as `[WHILE YOU WERE BUSY]`.
 4. **Rebuild the system message** (`_build_system_message`):
    `CURRENT DATE + soul + operating manual + context_section of every active
    skill + live_state + dynamic_context(batch)`. The dynamic part (RAG, person
@@ -91,7 +99,7 @@ truth**. Bea can never arm a capability by herself.
 | `VoiceSurface` | `voice:discord` | `discord` | owns the **node subprocess**; 7 tools; input arrives via the HTTP endpoints the bot calls |
 | `IdleSurface` | `idle` | `monologue` | produces no input: supplies the monologue rules on a pure-idle frame |
 | `MinecraftSurface` | `game:mc` | `minecraft` | WebSocket client to the mod; 24 tools + `update_notebook`; perception loop |
-| `MemorySkill` | `memory` | `memory` | ChromaDB `bea_diary_local`; RAG injected via `context_for`; no tools |
+| `MemorySkill` | `memory` | `memory` | RAG over `bea.db`, injected via `context_for` in two labelled blocks; no tools |
 | `SocialMemory` | `social` | `social_memory` | roster tally + person cards; injects `[WHO YOU'RE TALKING TO]` |
 | `DreamSkill` | `dream` | `dream` | self-lore + hot facts always in context; morning pass; `go_to_sleep`; offline dreamer |
 

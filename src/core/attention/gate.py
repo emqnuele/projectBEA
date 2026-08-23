@@ -18,6 +18,7 @@ from typing import Callable, Deque, Dict, List, Optional, Sequence, Tuple
 
 from src.core.attention.rules import in_quiet_hours, is_addressed, score
 from src.core.attention.types import Reaction, Verdict
+from src.core.mind.routing import conversation_key
 from src.core.perception.types import Perception, PerceptionKind
 from src.utils.logger import get_logger
 
@@ -31,6 +32,9 @@ DIGEST_LINE_CHARS = 140
 
 # past this, a surface gets one aggregated line instead of one line per item
 AGGREGATE_AFTER = 2
+
+# the bucket for "wherever she is", as opposed to one specific conversation
+ANYWHERE = "*"
 
 OnVerdict = Callable[[Perception, Verdict], None]
 
@@ -53,8 +57,11 @@ class Attention:
         self._clock = clock or time.time
         self._on_verdict = on_verdict
 
+        # keyed by conversation, not by surface: every discord channel shares one
+        # surface, so surface-wide activity would make a busy channel drag her
+        # into a quiet one
         self._activity: Dict[str, Deque[float]] = {}
-        self._last_spoke: Optional[float] = None
+        self._last_spoke: Dict[str, float] = {}
         self._noted: List[Tuple[str, str]] = []      # (surface, rendered line)
         self._dropped: Dict[str, int] = {}
 
@@ -141,6 +148,7 @@ class Attention:
         if reason:
             return Verdict(Reaction.REACT, 1.0, reason)
 
+        key = self._key(p)
         base = score(
             kind=p.kind,
             salience=p.salience,
@@ -149,14 +157,14 @@ class Attention:
             author_promoted=self._author_promoted(p),
             donation=self._donation(p),
             hot_names=self.hot_names,
-            seconds_since_spoke=self.seconds_since_spoke(),
-            recent_activity=self.activity(p.surface),
+            seconds_since_spoke=self.seconds_since_spoke(key),
+            recent_activity=self.activity(key),
             hour=self._hour(),
             quiet=self.quiet_hours,
             cooldown_seconds=self.cooldown,
         )
         if base <= 0.0:
-            return Verdict(Reaction.NOTE, 0.0, self._zero_reason())
+            return Verdict(Reaction.NOTE, 0.0, self._zero_reason(key))
 
         # human variance: ±0.1 before comparing, so she is not a step function
         effective = base + self._rng.uniform(-0.10, 0.10)
@@ -164,8 +172,8 @@ class Attention:
             return Verdict(Reaction.REACT, base, f"score:{base:.2f}")
         return Verdict(Reaction.NOTE, base, f"score:{base:.2f}")
 
-    def _zero_reason(self) -> str:
-        since = self.seconds_since_spoke()
+    def _zero_reason(self, key: str = ANYWHERE) -> str:
+        since = self.seconds_since_spoke(key)
         if since is not None and since < self.cooldown:
             return "cooldown"
         if in_quiet_hours(self._hour(), *self.quiet_hours):
@@ -174,17 +182,20 @@ class Attention:
 
     # --- state --------------------------------------------------------------
 
-    def mark_spoke(self) -> None:
-        self._last_spoke = self._clock()
+    def mark_spoke(self, key: str = ANYWHERE) -> None:
+        """She just said something. `key` scopes it to one conversation."""
+        now = self._clock()
+        self._last_spoke[ANYWHERE] = now
+        if key != ANYWHERE:
+            self._last_spoke[key] = now
 
-    def seconds_since_spoke(self) -> Optional[float]:
-        if self._last_spoke is None:
-            return None
-        return self._clock() - self._last_spoke
+    def seconds_since_spoke(self, key: str = ANYWHERE) -> Optional[float]:
+        stamp = self._last_spoke.get(key, self._last_spoke.get(ANYWHERE))
+        return None if stamp is None else self._clock() - stamp
 
-    def activity(self, surface: str) -> int:
-        """How many perceptions this surface produced in the recent window."""
-        stamps = self._activity.get(surface)
+    def activity(self, key: str) -> int:
+        """How many perceptions this conversation produced in the recent window."""
+        stamps = self._activity.get(key)
         if not stamps:
             return 0
         cutoff = self._clock() - ACTIVITY_WINDOW_SECONDS
@@ -192,10 +203,16 @@ class Attention:
             stamps.popleft()
         return len(stamps)
 
+    @staticmethod
+    def _key(p: Perception) -> str:
+        key = conversation_key(p)
+        # everything on the stage shares one rhythm; channels get their own
+        return p.surface if key == "stage" else key
+
     def _record_activity(self, p: Perception) -> None:
         if p.kind is PerceptionKind.IDLE:
             return
-        self._activity.setdefault(p.surface, deque(maxlen=200)).append(self._clock())
+        self._activity.setdefault(self._key(p), deque(maxlen=200)).append(self._clock())
 
     def _roster_entry(self, p: Perception):
         if self.roster is None or p.author is None:

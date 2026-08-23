@@ -52,7 +52,7 @@ def gate(clock=None, rng_value: float = 0.0, **cfg) -> Attention:
 
 def chat(content="just chatting", **kwargs) -> Perception:
     base = dict(
-        kind=PerceptionKind.CHAT, surface="discord:text", content=content, salience=0.5,
+        kind=PerceptionKind.CHAT, surface="voice:discord", content=content, salience=0.5,
         author=Author(platform="discord", native_id="4711", display_name="marco"),
     )
     base.update(kwargs)
@@ -162,11 +162,11 @@ def test_being_named_beats_the_cooldown():
     assert len(react) == 1
 
 
-def test_activity_is_counted_per_surface():
+def test_activity_is_counted_per_place():
     g = gate()
-    g.judge([chat(surface="discord:text"), chat(surface="discord:text"), chat(surface="chat:mc")])
-    assert g.activity("discord:text") == 2
-    assert g.activity("chat:mc") == 1
+    g.judge([chat(), chat(), chat(surface="game:mc")])
+    assert g.activity("voice:discord") == 2
+    assert g.activity("game:mc") == 1
     assert g.activity("nowhere") == 0
 
 
@@ -175,7 +175,7 @@ def test_activity_expires_outside_the_window():
     g = gate(clock=clock)
     g.judge([chat()])
     clock.advance(500)
-    assert g.activity("discord:text") == 0
+    assert g.activity("voice:discord") == 0
 
 
 def test_a_busy_room_eventually_makes_her_speak_up():
@@ -261,3 +261,38 @@ def test_a_zero_score_reports_why():
     clock.advance(1)
     g.judge([chat("[marco] niente")])
     assert seen[0].reason == "cooldown"
+
+
+# --- per-conversation rhythm -------------------------------------------------
+
+
+def in_channel(channel: str, text: str = "chiacchiere") -> Perception:
+    return chat(text, meta={"channel_id": channel})
+
+
+def test_activity_is_counted_per_channel_not_per_surface():
+    """One busy discord channel must not drag her into a quiet one."""
+    g = gate()
+    for _ in range(6):
+        g.judge([in_channel("1")])
+    assert g.activity("discord:1") == 6
+    assert g.activity("discord:2") == 0
+
+
+def test_a_busy_channel_does_not_make_her_speak_up_in_a_quiet_one():
+    g = gate()
+    for _ in range(6):
+        g.judge([in_channel("1")])
+    react, noted = g.judge([in_channel("2", "prima cosa detta qui")])
+    assert react == [] and len(noted) == 1
+
+
+def test_speaking_in_one_channel_does_not_silence_the_others_forever():
+    clock = FakeClock()
+    g = gate(clock=clock)
+    g.mark_spoke("discord:1")
+    clock.advance(1)
+    # the global cooldown still applies (she just spoke somewhere), and being
+    # addressed still overrides it
+    react, _ = g.judge([in_channel("2", "bea?")])
+    assert len(react) == 1

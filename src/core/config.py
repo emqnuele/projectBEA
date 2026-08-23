@@ -141,6 +141,10 @@ class BrainConfig:
         "burst_steps": 6,          # max reasoning steps per perception batch
         "history_limit": 30,       # rolling context size
         "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
+        # scoped conversation turns (written channels, beside the live loop)
+        "conversation_history": 16,   # past messages of that channel in the turn
+        "conversation_steps": 3,      # a reply is not an expedition
+        "max_coalesced_runs": 3,      # cap on re-runs when messages keep arriving
     })
 
     # model pools per role, as "provider:model" specs. Round-robin inside a pool

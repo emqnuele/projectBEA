@@ -9,6 +9,7 @@ from src.core.events import EventCategory, EventManager
 from src.core.expression import Expression
 from src.core.memory.profiler import Profiler
 from src.core.memory.store import MemoryStore
+from src.core.mind import ConversationMind, ConversationScheduler
 from src.core.perception.bus import PerceptionBus
 from src.core.resources import load_avatar_resources
 from src.core.skills.base import SkillRegistry
@@ -69,6 +70,7 @@ class AIVtuberBrain:
         self.skill_registry: Optional[SkillRegistry] = None
         self.attention: Optional[Attention] = None
         self.profiler: Optional[Profiler] = None
+        self.conversations: Optional[ConversationMind] = None
         self.consciousness: Optional[Consciousness] = None
 
     @property
@@ -197,6 +199,25 @@ class AIVtuberBrain:
             operating_getter=self._load_operating_rules,
             attention=self.attention,
         )
+
+        # written conversations run beside the live loop: one turn at a time per
+        # channel, different channels in parallel
+        self.conversations = ConversationMind(
+            config=self.config,
+            llm=self.llm,
+            memory=self.memory,
+            surfaces=self.skill_registry,
+            soul_getter=lambda: self.soul,
+            operating_getter=self._load_operating_rules,
+            scheduler=ConversationScheduler(
+                max_coalesced_runs=int(self.config.consciousness.get("max_coalesced_runs", 3))
+            ),
+            event_manager=self.event_manager,
+            profiler=self.profiler,
+            attention=self.attention,
+            now_line=self.consciousness.now_line,
+        )
+        self.consciousness.conversations = self.conversations
 
     def _publish_verdict(self, perception, verdict) -> None:
         """Surfaces every attention decision to the dashboard.
@@ -443,6 +464,9 @@ class AIVtuberBrain:
         logger.info("Warmup complete (LLM + memory primed).")
 
     async def stop_skills(self):
+        if self.conversations:
+            # let the in-flight replies land before the process goes away
+            await self.conversations.drain()
         if self.consciousness:
             await self.consciousness.stop()
 
