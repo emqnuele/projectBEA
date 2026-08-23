@@ -19,11 +19,26 @@ logger = get_logger("bea.memory.embedder")
 DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_CACHE_DIR = "data/embeddings_cache"
 
+# values that used to mean "whatever chroma does by default". An existing
+# config.json still carries them, and passing one to fastembed is an error.
+_LEGACY_NAMES = frozenset({"local", "default", "", "none"})
+
+
+def resolve_model(name: Optional[str]) -> str:
+    """The model to actually load, migrating the pre-sqlite config values."""
+    candidate = (name or "").strip()
+    if candidate.lower() in _LEGACY_NAMES:
+        if candidate:
+            logger.info(f"Embedding model '{candidate}' is from the old config; "
+                        f"using {DEFAULT_MODEL}.")
+        return DEFAULT_MODEL
+    return candidate
+
 
 class FastEmbedEmbedder:
     def __init__(self, model_name: str = DEFAULT_MODEL,
                  cache_dir: Optional[str] = DEFAULT_CACHE_DIR) -> None:
-        self.model_name = model_name
+        self.model_name = resolve_model(model_name)
         self.cache_dir = cache_dir
         self._model = None
         self._dim: Optional[int] = None

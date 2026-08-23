@@ -410,3 +410,23 @@ def test_everything_survives_a_reopen(tmp_path):
     assert len(second.hot.active()) == 1
     assert second.selflore.facts() == ["you exist"]
     second.close()
+
+
+# --- migrating an existing config --------------------------------------------
+
+
+def test_the_old_chroma_sentinel_is_migrated():
+    """An existing config.json still says `embedding_model: "local"`, which
+    fastembed rejects outright."""
+    from src.core.memory.embedder import DEFAULT_MODEL, resolve_model
+
+    assert resolve_model("local") == DEFAULT_MODEL
+    assert resolve_model("default") == DEFAULT_MODEL
+    assert resolve_model("") == DEFAULT_MODEL
+    assert resolve_model(None) == DEFAULT_MODEL
+
+
+def test_a_real_model_name_is_left_alone():
+    from src.core.memory.embedder import resolve_model
+
+    assert resolve_model("BAAI/bge-small-en-v1.5") == "BAAI/bge-small-en-v1.5"

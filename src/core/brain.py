@@ -124,9 +124,9 @@ class AIVtuberBrain:
         cfg = self.config.skills.get("memory", {})
         embedder = None
         try:
-            from src.core.memory.embedder import DEFAULT_MODEL, FastEmbedEmbedder
+            from src.core.memory.embedder import FastEmbedEmbedder
             embedder = FastEmbedEmbedder(
-                cfg.get("embedding_model") or DEFAULT_MODEL,
+                cfg.get("embedding_model"),
                 cfg.get("embedding_cache_dir", "data/embeddings_cache"),
             )
         except Exception as e:
