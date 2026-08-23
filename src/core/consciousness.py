@@ -5,7 +5,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool, ToolRegistry
-from src.core.agent.types import AssistantMessage, ToolCall
+from src.core.agent.types import AssistantMessage, ToolCall, Usage
 from src.core.events import EventCategory
 from src.core.mind.routing import route
 from src.core.perception.types import Perception, PerceptionKind
@@ -52,6 +52,8 @@ class Consciousness:
         self.correlation_timeout = cc.get("correlation_timeout", 30.0)
 
         self.context: List[Dict[str, Any]] = []
+        self.total_tokens = 0
+        self.total_calls = 0
         self.alive = False
         self.sleeping = False
         self._loop_task: Optional[asyncio.Task] = None
@@ -181,6 +183,7 @@ class Consciousness:
 
                 t_turn = time.perf_counter()
                 steps = 0
+                spent = Usage()
                 for _ in range(self.burst_steps):
                     steer = self.bus.drain_nowait()
                     if steer:
@@ -197,6 +200,7 @@ class Consciousness:
                     steps += 1
                     t_llm = time.perf_counter()
                     assistant = await self.llm.complete(self.context, tools=self._tool_schemas())
+                    spent = spent + assistant.usage
                     if not is_idle:
                         logger.info(f"llm step {steps} took {(time.perf_counter() - t_llm) * 1000:.0f}ms"
                                     f"{' (tools: ' + ', '.join(c.name for c in assistant.tool_calls) + ')' if assistant.tool_calls else ' (final)'}")
@@ -220,8 +224,10 @@ class Consciousness:
                         break
 
                 if not is_idle:
-                    logger.info(f"turn done: {steps} llm call(s) in "
-                                f"{(time.perf_counter() - t_turn) * 1000:.0f}ms")
+                    elapsed_ms = (time.perf_counter() - t_turn) * 1000
+                    logger.info(f"turn done: {steps} llm call(s), {spent.total} tokens, "
+                                f"in {elapsed_ms:.0f}ms")
+                    self._publish_cost(steps, spent, elapsed_ms)
                 self._resolve_dangling_correlations()
                 self._trim()
             except asyncio.CancelledError:
@@ -260,6 +266,28 @@ class Consciousness:
             logger.info(f"routing {len(perceptions)} perception(s) to conversation '{key}'")
             self.conversations.dispatch(key, perceptions)
         return stage
+
+    def _publish_cost(self, steps: int, spent: Usage, elapsed_ms: float) -> None:
+        """What the turn cost, for the dashboard.
+
+        Not decoration: the whole point of the attention gate is spending fewer
+        of these, and you cannot tune what you cannot see.
+        """
+        self.total_tokens += spent.total
+        self.total_calls += steps
+        self.events.publish(
+            EventCategory.SYSTEM, "cost",
+            f"turn: {steps} call(s), {spent.total} tokens, {elapsed_ms:.0f}ms",
+            metadata={
+                "steps": steps,
+                "prompt_tokens": spent.prompt_tokens,
+                "completion_tokens": spent.completion_tokens,
+                "tokens": spent.total,
+                "ms": round(elapsed_ms),
+                "session_tokens": self.total_tokens,
+                "session_calls": self.total_calls,
+            },
+        )
 
     def now_line(self) -> str:
         """One line for a scoped turn: what she is doing on stage right now.

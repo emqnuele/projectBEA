@@ -1,11 +1,13 @@
+import asyncio
+import json
 import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -427,6 +429,38 @@ def get_skill_logs():
 def get_events(limit: int = 50):
     brain = get_brain()
     return brain.event_manager.get_events(limit=limit)
+
+@app.get("/events/stream")
+async def stream_events(request: Request, backlog: int = 50):
+    """Server-sent events: the dashboard stops polling every two seconds.
+
+    Polling three endpoints on a timer meant the UI was always slightly stale and
+    the brain paid for a request whether or not anything had happened. Here the
+    events arrive when they occur.
+    """
+    brain = get_brain()
+    queue = brain.event_manager.subscribe(backlog=backlog)
+
+    async def pump():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # a comment keeps proxies from closing an idle connection
+                    yield ": keep-alive\n\n"
+                    continue
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            brain.event_manager.unsubscribe(queue)
+
+    return StreamingResponse(pump(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",   # nginx would otherwise buffer the stream away
+    })
+
 
 @app.get("/health")
 def health():

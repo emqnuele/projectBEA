@@ -210,3 +210,54 @@ async def test_the_gate_can_be_switched_off(enabled):
 
     await run_until_quiet(mind, bus)
     assert llm.call_count == (0 if enabled else 1)
+
+
+# --- what a turn cost (phase 10) --------------------------------------------
+
+
+async def test_the_cost_of_a_turn_is_published():
+    """The whole point of the gate is spending fewer of these; you cannot tune
+    what you cannot see."""
+    from src.core.agent.types import Usage
+
+    reply = speaks("eccomi")
+    reply.usage = Usage(prompt_tokens=1200, completion_tokens=40)
+    llm = FakeLLMClient([reply])
+    mind, bus, events = build(llm)
+    bus.put(chat("ciao bea"))
+
+    await run_until_quiet(mind, bus)
+    costs = [e for e in events.events if e[1] == "cost"]
+    assert len(costs) == 1
+    assert costs[0][3]["tokens"] == 1240
+    assert costs[0][3]["steps"] == 1
+
+
+async def test_the_session_total_accumulates():
+    from src.core.agent.types import Usage
+
+    replies = []
+    for _ in range(2):
+        r = speaks("ok")
+        r.usage = Usage(prompt_tokens=100, completion_tokens=10)
+        replies.append(r)
+
+    llm = FakeLLMClient(replies)
+    mind, bus, _ = build(llm)
+    bus.put(chat("bea?"))
+    await run_until_quiet(mind, bus)
+    bus.put(chat("bea??"))
+    await run_until_quiet(mind, bus)
+
+    assert mind.total_tokens == 220
+    assert mind.total_calls == 2
+
+
+async def test_an_ignored_batch_costs_nothing_and_reports_nothing():
+    llm = FakeLLMClient()
+    mind, bus, events = build(llm)
+    bus.put(chat("niente di che"))
+
+    await run_until_quiet(mind, bus)
+    assert [e for e in events.events if e[1] == "cost"] == []
+    assert mind.total_tokens == 0

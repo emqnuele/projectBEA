@@ -12,6 +12,22 @@ class ToolCall:
 
 
 @dataclass
+class Usage:
+    """What one model call cost. Zero when the provider did not report it."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+    def __add__(self, other: "Usage") -> "Usage":
+        return Usage(self.prompt_tokens + other.prompt_tokens,
+                     self.completion_tokens + other.completion_tokens)
+
+
+@dataclass
 class AssistantMessage:
     """Normalized assistant turn, provider-agnostic.
 
@@ -21,6 +37,10 @@ class AssistantMessage:
 
     content: Optional[str] = None
     tool_calls: List[ToolCall] = field(default_factory=list)
+    # what it cost. Kept on the message so a turn can add it up without the
+    # caller having to thread a counter through every layer.
+    usage: "Usage" = field(default_factory=lambda: Usage())
+    model: str = ""
 
     @property
     def is_final(self) -> bool:
