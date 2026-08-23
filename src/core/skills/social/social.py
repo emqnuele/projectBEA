@@ -51,6 +51,14 @@ class SocialMemory(Skill):
             if not author or author.is_owner:
                 continue
 
+            if p.meta.get("tallied"):
+                # a high-volume surface counts every message itself, including the
+                # ones that never reach here: counting again would double them
+                card = self.people.get_by_identity(author.identity)
+                if card:
+                    present_cards[card.person_id] = card
+                continue
+
             is_1on1 = p.kind == PerceptionKind.VOICE or bool(p.meta.get("is_dm"))
             donation = float(author.extra.get("amount", 0) or 0)
 

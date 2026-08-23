@@ -106,6 +106,14 @@
             "enabled": false,
             "owner_id": "",
             "allowed_chats": []
+        },
+        "twitch": {
+            "enabled": false,
+            "channel": "",
+            "nick": ""
+        },
+        "donations": {
+            "enabled": false
         }
     },
     "stt_provider": "groq",

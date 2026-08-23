@@ -269,6 +269,37 @@ and masked in `GET /config`.
 Incoming messages become scoped conversation turns — one per chat, in parallel
 with the live loop — so answering on Telegram never holds up the stage.
 
+### Twitch Skill Config Fields
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `false` | UI toggle |
+| `channel` | `""` | The channel to read (without the `#`) |
+| `nick` | `""` | Empty = anonymous read-only; **no credentials needed to follow a chat** |
+
+Writing needs `TWITCH_OAUTH_TOKEN`; reading does not.
+
+Chat belongs to the **stage**, not to a scoped conversation thread: a streamer
+answers chat out loud, so making it a text thread would have Bea typing instead
+of talking. Every message updates the roster, every message goes through the
+attention gate, and only what passes it reaches the mind. The rest becomes one
+always-current line — "chat: 34 messages in the last minute, mostly about X" —
+which costs nothing and is how a streamer actually perceives chat.
+
+### Donations Skill Config Fields
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `false` | UI toggle |
+
+`POST /webhook/donation` accepts `{name, amount, currency, message, platform, donorId, eventId}`.
+Pass `?secret=…` when `DONATION_SECRET` is set — anyone who can reach the endpoint
+could otherwise fake a donation. `eventId` de-duplicates provider retries, which
+would otherwise be counted as a second donation.
+
+A donation always reaches her (past cooldowns and quiet hours) and promotes the
+donor to a person card immediately, without waiting for the dreamer.
+
 ### Minecraft Skill Config Fields
 
 | Key | Default | Description |
@@ -293,6 +324,8 @@ with the live loop — so answering on Telegram never holds up the stage.
 | `ORPHEUS_ENDPOINT` | Orpheus TTS — Baseten endpoint URL (treated as secret: never saved to `config.json`) |
 | `DISCORD_TOKEN` | Discord skill bot |
 | `TELEGRAM_TOKEN` | Telegram skill bot |
+| `TWITCH_OAUTH_TOKEN` | Twitch — only needed to WRITE; reading is anonymous |
+| `DONATION_SECRET` | Shared secret for the donation webhook |
 | `BEA_ALLOWED_ORIGINS` | Extra CORS origins for the dashboard (comma-separated) |
 
 ---

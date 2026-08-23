@@ -122,6 +122,17 @@ class BrainConfig:
             "auto_speak_thoughts": False,
             "system_prompt_path": "data/prompts/minecraft.md"
         },
+        # the oauth token is deliberately absent: read from TWITCH_OAUTH_TOKEN.
+        # reading chat needs no credentials at all (anonymous irc).
+        "twitch": {
+            "enabled": False,
+            "channel": "",
+            "nick": ""
+        },
+        # the shared secret is read from DONATION_SECRET
+        "donations": {
+            "enabled": False
+        },
         # the token is deliberately absent: it is read from TELEGRAM_TOKEN
         "telegram": {
             "enabled": False,

@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.expression.humanizer import TextHumanizer
+from src.core.mind.routing import STAGE
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.base import Skill
 from src.utils.logger import get_logger
@@ -26,6 +27,12 @@ class PlatformSkill(Skill):
     """Base for a text platform Bea can read and write."""
 
     platform: str = "platform"
+
+    # Does a channel here deserve its own conversation thread, or does it belong
+    # to the stage? A Discord channel is an asynchronous exchange with a few
+    # people — its own thread. A twitch chat is the audience standing in the same
+    # room as her voice: she answers it out loud, so it stays on the stage.
+    scoped_conversations: bool = True
 
     def initialize(self) -> None:
         self.humanizer = TextHumanizer()
@@ -48,7 +55,7 @@ class PlatformSkill(Skill):
         )
 
     def conversation_key(self, channel_id: Any) -> str:
-        return f"{self.platform}:{channel_id}"
+        return f"{self.platform}:{channel_id}" if self.scoped_conversations else STAGE
 
     # --- perceiving ---------------------------------------------------------
 
