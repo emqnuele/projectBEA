@@ -28,6 +28,7 @@ dependencies = [
     "pydantic-settings",
     "fastembed>=0.3,<0.8",
     "sqlite-vec>=0.1.1",
+    "python-telegram-bot[job-queue]>=21",
 ]
 
 [project.scripts]

@@ -253,6 +253,22 @@ Maps mood names to file paths. Each mood key (`normal`, `angry`, `bored`, `cry`,
 | `chunk_pause_seconds` | `4.0` | Seconds of silence between story chunks before the next chunk is generated |
 | `prompt_path` | `"data/prompts/monologue.txt"` | Path to the monologue rules prompt |
 
+### Telegram Skill Config Fields
+
+Runs **in-process** (no subprocess — that is Discord's, and only for voice).
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `false` | UI toggle |
+| `owner_id` | `""` | Your Telegram user id, so she knows the owner |
+| `allowed_chats` | `[]` | Empty = every chat she is added to; otherwise an allowlist |
+
+The token is read from `TELEGRAM_TOKEN` only, never written to `config.json`,
+and masked in `GET /config`.
+
+Incoming messages become scoped conversation turns — one per chat, in parallel
+with the live loop — so answering on Telegram never holds up the stage.
+
 ### Minecraft Skill Config Fields
 
 | Key | Default | Description |
@@ -271,11 +287,13 @@ Maps mood names to file paths. Each mood key (`normal`, `angry`, `bored`, `cry`,
 | Variable | Used by |
 |---|---|
 | `OPENROUTER_API_KEY` | OpenRouter LLM (default provider) |
-| `OPENAI_API_KEY` | OpenAI LLM, Memory skill embedding |
+| `OPENAI_API_KEY` | OpenAI LLM |
 | `GROQ_API_KEY` | Groq LLM, Groq STT |
 | `ORPHEUS_API_KEY` | Orpheus TTS — API key |
 | `ORPHEUS_ENDPOINT` | Orpheus TTS — Baseten endpoint URL (treated as secret: never saved to `config.json`) |
 | `DISCORD_TOKEN` | Discord skill bot |
+| `TELEGRAM_TOKEN` | Telegram skill bot |
+| `BEA_ALLOWED_ORIGINS` | Extra CORS origins for the dashboard (comma-separated) |
 
 ---
 

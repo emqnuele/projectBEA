@@ -57,7 +57,7 @@ def test_the_key_uses_the_author_platform():
     perception = p(
         meta={"channel_id": "77"},
         author=Author(platform="telegram", native_id="9", display_name="luca"),
-        surface="telegram",
+        surface="chat:telegram",
     )
     assert conversation_key(perception) == "telegram:77"
 

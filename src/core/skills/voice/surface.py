@@ -3,16 +3,15 @@ import json
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
-from src.core.expression.humanizer import TextHumanizer
 from src.core.perception.types import Author, Perception, PerceptionKind
-from src.core.skills.base import Skill
+from src.core.skills.platform import PlatformSkill
 from src.core.skills.voice.transport import DiscordTransport
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.voice")
 
 
-class VoiceSurface(Skill):
+class VoiceSurface(PlatformSkill):
     """Discord capability (voice + text). Owns the bot transport (node subprocess).
 
     Input: voice transcripts and text messages arrive via the HTTP endpoints the
@@ -26,8 +25,8 @@ class VoiceSurface(Skill):
     platform = "discord"
 
     def initialize(self) -> None:
+        super().initialize()
         self.transport = DiscordTransport(self.config)
-        self.humanizer = TextHumanizer()
         self._monitor: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
@@ -55,11 +54,28 @@ class VoiceSurface(Skill):
                 break
             await asyncio.sleep(2)
 
+    # --- transport (what PlatformSkill calls) -------------------------------
+
+    async def send_text(self, channel_id: str, text: str,
+                        reply_to: Optional[str] = None) -> bool:
+        if reply_to:
+            result = await self.transport.reply_message(channel_id, reply_to, text)
+            if result.get("ok"):
+                return True
+            # the message may have been deleted: fall back to a plain send
+        return bool((await self.transport.send_message(channel_id, text)).get("ok"))
+
+    async def send_typing(self, channel_id: str) -> None:
+        await self.transport.typing(channel_id)
+
+    async def react(self, channel_id: str, message_id: str, emoji: str) -> bool:
+        return bool((await self.transport.react_message(channel_id, message_id, emoji)).get("ok"))
+
     # --- senses (bot -> bus) -----------------------------------------------
 
     def _author(self, user: str, user_id: Optional[str]) -> Author:
         # native_id is the stable discord user id; display_name can change
-        return Author(platform="discord", native_id=user_id or user, display_name=user)
+        return self.build_author(user_id or user, user)
 
     def perceive(self, transcript: str, user: str, meta: Optional[Dict[str, Any]] = None,
                  user_id: Optional[str] = None) -> Perception:
@@ -87,9 +103,10 @@ class VoiceSurface(Skill):
             kind=PerceptionKind.CHAT,
             surface=self.name,
             content=f"[{user}] (discord {kind}, {route}): {text}",
-            salience=0.8,
+            salience=0.9 if is_dm else 0.8,
             meta={**(meta or {}), "user": user, "user_id": user_id,
-                  "channel_id": channel_id, "message_id": message_id, "is_dm": is_dm},
+                  "channel_id": channel_id, "message_id": message_id, "is_dm": is_dm,
+                  "conversation_key": self.conversation_key(channel_id)},
             author=self._author(user, user_id),
         )
         self.bus.put(p)
@@ -115,88 +132,6 @@ class VoiceSurface(Skill):
             "- When you write, every LINE becomes a separate message with a typing pause "
             "in between. Two short lines beat one paragraph."
         )
-
-    # --- output sink --------------------------------------------------------
-
-    async def emit_text(self, text: str, meta: Optional[Dict[str, Any]] = None) -> List[str]:
-        """Writes in a channel the way a person does: line by line, while typing."""
-        meta = meta or {}
-        channel_id = meta.get("channel_id")
-        if not channel_id:
-            return []
-        return await self._deliver(str(channel_id), text, reply_to=meta.get("message_id"))
-
-    async def _deliver(self, channel_id: str, text: str,
-                       reply_to: Optional[str] = None) -> List[str]:
-        """Delivers `text` as several messages; returns what actually went out.
-
-        Only the FIRST chunk is a reply — threading every line off the same
-        message looks like a bot spamming quotes."""
-        first = {"done": False}
-
-        async def send(chunk: str) -> None:
-            if reply_to and not first["done"]:
-                first["done"] = True
-                result = await self.transport.reply_message(channel_id, reply_to, chunk)
-                if result.get("ok"):
-                    return
-                # the message may have been deleted: fall back to a plain send
-            await self.transport.send_message(channel_id, chunk)
-
-        async def typing() -> None:
-            await self.transport.typing(channel_id)
-
-        return await self.humanizer.deliver(text, send_text=send, send_typing=typing)
-
-    # --- scoped conversation tools -----------------------------------------
-
-    def conversation_tools(self, channel_id: Optional[str],
-                           reply_to: Optional[str] = None) -> List[Tool]:
-        """The three things she can do inside one channel, with the ids bound.
-
-        No `speak` here by construction: answering a written message out loud
-        was a real failure mode, and a rule in the prompt is something a model
-        can ignore — an absent tool is not.
-        """
-        if not self.active or not channel_id:
-            return []
-
-        tools = [
-            Tool(
-                "send_message",
-                "Write in this channel. Each LINE becomes its own message, with a "
-                "typing pause in between — write like you text.",
-                {"type": "object", "properties": {"text": {"type": "string"}},
-                 "required": ["text"]},
-                lambda text: self._scoped_send(channel_id, text),
-            ),
-        ]
-        if reply_to:
-            tools.insert(0, Tool(
-                "reply",
-                "Answer the last message directly (it gets quoted). Each LINE becomes "
-                "its own message; only the first one quotes theirs.",
-                {"type": "object", "properties": {"text": {"type": "string"}},
-                 "required": ["text"]},
-                lambda text: self._scoped_send(channel_id, text, reply_to=reply_to),
-            ))
-            tools.append(Tool(
-                "react",
-                "React to the last message with a single emoji, instead of writing.",
-                {"type": "object", "properties": {"emoji": {"type": "string"}},
-                 "required": ["emoji"]},
-                lambda emoji: self._scoped_react(channel_id, reply_to, emoji),
-            ))
-        return tools
-
-    async def _scoped_send(self, channel_id: str, text: str,
-                           reply_to: Optional[str] = None) -> str:
-        sent = await self._deliver(channel_id, text, reply_to=reply_to)
-        return f"Sent ({len(sent)} message(s))." if sent else "FAILED: nothing was sent."
-
-    async def _scoped_react(self, channel_id: str, message_id: str, emoji: str) -> str:
-        return self._fmt(await self.transport.react_message(channel_id, message_id, emoji),
-                         "Reacted.")
 
     # --- tools (brain -> bot) ----------------------------------------------
 
@@ -296,11 +231,11 @@ class VoiceSurface(Skill):
         return self._fmt(await self.transport.leave_voice(), "Left the voice channel.")
 
     async def _tool_send_message(self, channel_id: str, text: str) -> str:
-        sent = await self._deliver(channel_id, text)
+        sent = await self.deliver(channel_id, text)
         return f"Sent ({len(sent)} message(s))." if sent else "FAILED: nothing was sent."
 
     async def _tool_reply(self, channel_id: str, message_id: str, text: str) -> str:
-        sent = await self._deliver(channel_id, text, reply_to=message_id)
+        sent = await self.deliver(channel_id, text, reply_to=message_id)
         return f"Replied ({len(sent)} message(s))." if sent else "FAILED: nothing was sent."
 
     async def _tool_react(self, channel_id: str, message_id: str, emoji: str) -> str:

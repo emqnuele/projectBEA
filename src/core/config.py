@@ -122,6 +122,12 @@ class BrainConfig:
             "auto_speak_thoughts": False,
             "system_prompt_path": "data/prompts/minecraft.md"
         },
+        # the token is deliberately absent: it is read from TELEGRAM_TOKEN
+        "telegram": {
+            "enabled": False,
+            "owner_id": "",
+            "allowed_chats": []   # empty = every chat she is added to
+        },
         # the discord token is deliberately absent: it is read from DISCORD_TOKEN
         "discord": {
             "enabled": False,

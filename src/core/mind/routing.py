@@ -17,8 +17,10 @@ from src.core.perception.types import Perception, PerceptionKind
 
 STAGE = "stage"
 
-# written surfaces whose messages belong to a channel, not to the stage
-TEXT_SURFACES = {"voice:discord", "telegram", "twitch", "chat:mc"}
+# written surfaces whose messages belong to a channel, not to the stage. Only a
+# fallback: a PlatformSkill declares `conversation_key` in the perception itself,
+# which is the path that actually matters.
+TEXT_SURFACES = {"voice:discord", "chat:telegram", "chat:twitch", "chat:mc"}
 
 
 def conversation_key(p: Perception) -> str:
