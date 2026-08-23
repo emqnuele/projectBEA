@@ -7,6 +7,7 @@ from src.core.agent.types import AssistantMessage, ToolCall
 from src.interfaces.base_interfaces import LLMInterface, STTInterface
 from src.utils.llm_utils import parse_llm_json
 from src.utils.logger import get_logger
+from src.utils.sanitize import clean_model_output
 
 logger = get_logger("bea.llm.openai_compat")
 
@@ -57,7 +58,9 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
                 args = {}
             tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
 
-        return AssistantMessage(content=message.content, tool_calls=tool_calls)
+        # cheap models leak <think> blocks and special tokens; unfiltered they
+        # end up spoken out loud
+        return AssistantMessage(content=clean_model_output(message.content), tool_calls=tool_calls)
 
     # --- legacy helpers, implemented on top of the sync sdk ---
 

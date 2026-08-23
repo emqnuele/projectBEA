@@ -47,6 +47,22 @@ function createServer({ client, voiceManager }) {
         }
     });
 
+    // "she's writing": shown for ~10s or until the next message lands. The
+    // humanizer calls this before each chunk so a multi-line reply reads as
+    // someone typing, not as a webhook dumping a paragraph.
+    app.post('/typing', async (req, res) => {
+        const { channelId } = req.body;
+        if (!channelId) return fail(res, 400, 'Missing channelId');
+        try {
+            const channel = await client.channels.fetch(channelId);
+            if (!channel || !channel.isTextBased()) return fail(res, 400, 'Channel is not text-based');
+            await channel.sendTyping();
+            return ok(res);
+        } catch (e) {
+            return fail(res, 500, e.message);
+        }
+    });
+
     app.post('/react', async (req, res) => {
         const { channelId, messageId, emoji } = req.body;
         if (!channelId || !messageId || !emoji) return fail(res, 400, 'Missing channelId, messageId or emoji');

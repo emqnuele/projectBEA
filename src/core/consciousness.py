@@ -10,6 +10,7 @@ from src.core.events import EventCategory
 from src.core.perception.types import Perception, PerceptionKind
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
+from src.utils.sanitize import clean_model_output
 
 logger = get_logger("bea.consciousness")
 
@@ -345,6 +346,12 @@ class Consciousness:
 
     async def _speak(self, mood: str, message: str) -> str:
         mood = mood or "normal"
+        # redundant with the client-side clean, deliberately: this is the last
+        # gate before the audience hears it
+        message = clean_model_output(message)
+        if not message:
+            logger.warning("speak() had nothing left after sanitizing; staying silent.")
+            return await self._stay_silent("nothing sayable")
         if self.attention:
             self.attention.mark_spoke()
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
