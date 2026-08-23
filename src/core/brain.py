@@ -2,9 +2,10 @@ import asyncio
 from typing import Optional, Tuple
 
 from src.core.agent import LLMClient
+from src.core.attention import Attention
 from src.core.config import BrainConfig
 from src.core.consciousness import Consciousness
-from src.core.events import EventManager
+from src.core.events import EventCategory, EventManager
 from src.core.expression import Expression
 from src.core.perception.bus import PerceptionBus
 from src.core.resources import load_avatar_resources
@@ -59,6 +60,7 @@ class AIVtuberBrain:
         # unified consciousness (built in initialize, started only if enabled)
         self.perception_bus: Optional[PerceptionBus] = None
         self.skill_registry: Optional[SkillRegistry] = None
+        self.attention: Optional[Attention] = None
         self.consciousness: Optional[Consciousness] = None
 
     @property
@@ -132,6 +134,13 @@ class AIVtuberBrain:
             skill.initialize()
             self.skill_registry.register(skill)
 
+        social = self.skill_registry.get("social")
+        self.attention = Attention(
+            self.config,
+            roster=getattr(social, "roster", None),
+            on_verdict=self._publish_verdict,
+        )
+
         self.consciousness = Consciousness(
             config=self.config,
             llm=self.llm,
@@ -142,6 +151,24 @@ class AIVtuberBrain:
             event_manager=self.event_manager,
             soul_getter=lambda: self.soul,
             operating_getter=self._load_operating_rules,
+            attention=self.attention,
+        )
+
+    def _publish_verdict(self, perception, verdict) -> None:
+        """Surfaces every attention decision to the dashboard.
+
+        Without seeing WHY something was ignored, tuning the thresholds is blind
+        guessing — so this is not optional instrumentation."""
+        self.event_manager.publish(
+            EventCategory.SYSTEM, "attention",
+            f"{verdict.reaction.value}: {perception.surface} ({verdict.reason})",
+            metadata={
+                "reaction": verdict.reaction.value,
+                "score": round(verdict.score, 3),
+                "reason": verdict.reason,
+                "surface": perception.surface,
+                "preview": (perception.content or "")[:120],
+            },
         )
 
     @property

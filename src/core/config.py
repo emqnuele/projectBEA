@@ -145,6 +145,18 @@ class BrainConfig:
         "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
     })
 
+    # attention gate: what wakes the mind vs what she merely notices
+    attention: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": True,
+        "cooldown_seconds": 20,        # she just spoke: let the room breathe
+        "interject_threshold": 0.45,   # score needed to speak up unprompted
+        "quiet_hours": [3, 9],         # never interjects here (being addressed still does)
+        "trigger_words": ["bea", "beatrice"],
+        "hot_names": [],               # names that pull her into a conversation
+        "self_ids": [],                # her own platform ids, to spot replies to her
+        "digest_max_lines": 8,
+    })
+
     # STT
     stt_provider: str = "openrouter"
     stt_model: str = "whisper-large-v3-turbo"

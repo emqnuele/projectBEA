@@ -7,7 +7,7 @@ import { Switch } from './components/ui/switch'
 import { Label } from './components/ui/label'
 import { useVAD } from './hooks/useVAD'
 
-const API_BASE = 'http://localhost:8000'
+import { API_BASE } from './api';
 
 export default function ChatPanel() {
     const [message, setMessage] = useState('')

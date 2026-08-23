@@ -3,7 +3,7 @@ import { Save, Plus, Trash2, Check, X, RefreshCw, Key, Image as ImageIcon, Box, 
 import { useDialog } from '../context/DialogContext';
 import SystemPromptModal from '../components/config/SystemPromptModal';
 
-const API_BASE = 'http://localhost:8000';
+import { API_BASE } from '../api';
 
 export default function ConfigPage({ activeCategory }) {
     const [config, setConfig] = useState(null);

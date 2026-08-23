@@ -28,7 +28,7 @@ class Consciousness:
     _TERMINAL_TOOLS = {"speak", "stay_silent"}
 
     def __init__(self, *, config, llm, bus, expression, surfaces, history_manager,
-                 event_manager, soul_getter, operating_getter):
+                 event_manager, soul_getter, operating_getter, attention=None):
         self.config = config
         self.llm = llm
         self.bus = bus
@@ -36,6 +36,7 @@ class Consciousness:
         self.surfaces = surfaces
         self.history = history_manager
         self.events = event_manager
+        self.attention = attention
         self._get_soul = soul_getter
         self._get_operating = operating_getter
 
@@ -140,18 +141,25 @@ class Consciousness:
                     # monologue is off: block until something real happens, never self-trigger
                     batch = await self.bus.drain()
 
-                # a real input barges in on an ongoing monologue
-                if self.expression.is_speaking and any(p.kind != PerceptionKind.IDLE for p in batch):
-                    await self.expression.interrupt()
-
-                self._batch_correlations = [
-                    p.meta["correlation_id"] for p in batch
-                    if p.meta.get("correlation_id") in self._correlations
-                ]
+                # collected from the RAW batch: a caller the gate filtered out
+                # must still be freed, not left hanging until its timeout
+                self._batch_correlations = self._correlations_in(batch)
 
                 # asleep: ignore the world (but free any waiting callers so they
                 # don't hang) until the dreamer wakes her up
                 if self.sleeping:
+                    self._resolve_dangling_correlations()
+                    continue
+
+                batch, noted = self._filter(batch)
+                if noted and self.attention:
+                    self.attention.remember(noted)
+
+                # a real input barges in on an ongoing monologue
+                if self.expression.is_speaking and any(p.kind != PerceptionKind.IDLE for p in batch):
+                    await self.expression.interrupt()
+
+                if not batch:
                     self._resolve_dangling_correlations()
                     continue
 
@@ -171,11 +179,12 @@ class Consciousness:
                 for _ in range(self.burst_steps):
                     steer = self.bus.drain_nowait()
                     if steer:
+                        self._batch_correlations += self._correlations_in(steer)
+                        steer, steer_noted = self._filter(steer)
+                        if steer_noted and self.attention:
+                            self.attention.remember(steer_noted)
+                    if steer:
                         self.context.append(self._frame(steer, steering=True))
-                        self._batch_correlations += [
-                            p.meta["correlation_id"] for p in steer
-                            if p.meta.get("correlation_id") in self._correlations
-                        ]
 
                     steps += 1
                     t_llm = time.perf_counter()
@@ -213,6 +222,28 @@ class Consciousness:
                 logger.error(f"Consciousness loop error: {e}")
                 await asyncio.sleep(1)
 
+    # --- attention ----------------------------------------------------------
+
+    def _filter(self, batch: List[Perception]) -> "tuple[List[Perception], List[Perception]]":
+        """Splits a batch into what deserves a reasoning cycle and what does not.
+
+        Without the gate every perception costs an LLM call — with the game on
+        that is one every ten seconds, forever, and a person who deliberates
+        over every stimulus does not read as a person.
+        """
+        if not self.attention:
+            return batch, []
+        react, noted = self.attention.judge(batch)
+        if noted and not react:
+            logger.debug(f"attention: noted {len(noted)}, nothing to react to")
+        return react, noted
+
+    def _correlations_in(self, batch: List[Perception]) -> List[str]:
+        return [
+            p.meta["correlation_id"] for p in batch
+            if p.meta.get("correlation_id") in self._correlations
+        ]
+
     # --- context building ---------------------------------------------------
 
     async def _build_system_message(self, batch: List[Perception], is_idle: bool = False) -> Dict[str, Any]:
@@ -238,7 +269,10 @@ class Consciousness:
         today = datetime.datetime.now().strftime("%Y-%m-%d")
         if dynamic is None:
             dynamic = self.surfaces.dynamic_context(batch) if batch else []
+        digest = self.attention.digest() if self.attention else ""
         parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live, *dynamic]
+        if digest:
+            parts.append(digest)
 
         return {"role": "system", "content": compose(*parts)}
 
@@ -311,6 +345,8 @@ class Consciousness:
 
     async def _speak(self, mood: str, message: str) -> str:
         mood = mood or "normal"
+        if self.attention:
+            self.attention.mark_spoke()
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
 
