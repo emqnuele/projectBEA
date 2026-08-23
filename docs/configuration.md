@@ -125,11 +125,72 @@ Configuration is managed via two sources that are merged at startup:
 
 ### LLM Models
 
+Two ways to configure models. The **pool** form is preferred.
+
+#### `models` — one pool per role (preferred)
+
+```json
+"models": {
+  "mind":       ["openrouter:deepseek/deepseek-v4-flash", "groq:openai/gpt-oss-120b"],
+  "background": ["openrouter:google/gemma-4-31b-it:free", "groq:openai/gpt-oss-20b"]
+}
+```
+
+Each entry is `provider:model`, split on the **first** `:` so OpenRouter ids keep
+their `/` and their `:free` suffix. Calls round-robin through a pool to spread
+rate limits; if one model fails, the next one serves the call — a single 429 no
+longer silences Bea.
+
+| Role | Used by | Requirement |
+|---|---|---|
+| `mind` | the consciousness | **must support tool calling** — Bea speaks only through tools, so a model without it would never say anything |
+| `background` | diary, dreamer, summaries | none; a cheap, slow model is the point — it must not compete with the mind |
+
+A model that rejects tool calls is skipped at runtime and logged at `ERROR`:
+that is a configuration mistake, not a transient failure.
+
+#### Single-model fallback (legacy)
+
+With `models` empty, the role falls back to `llm_provider` + `<provider>_model`,
+so existing configs keep working unchanged.
+
 | Field | Default |
 |---|---|
-| `openrouter_model` | `"openai/gpt-4o-mini"` (any model id, e.g. `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash`) |
+| `openrouter_model` | `"deepseek/deepseek-v4-flash"` |
 | `openai_model` | `"gpt-5"` |
 | `groq_model` | `"openai/gpt-oss-20b"` |
+
+### Attention
+
+What wakes the mind versus what Bea merely notices. Without this, every
+perception costs a model call — with the game connected, one every ten seconds.
+
+```json
+"attention": {
+  "enabled": true,
+  "cooldown_seconds": 20,
+  "interject_threshold": 0.45,
+  "quiet_hours": [3, 9],
+  "trigger_words": ["bea", "beatrice"],
+  "hot_names": [],
+  "self_ids": [],
+  "digest_max_lines": 8
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Off means every perception reasons — expensive, and not human |
+| `cooldown_seconds` | `20` | After speaking she lets the room breathe. Being *addressed* overrides it |
+| `interject_threshold` | `0.45` | Score needed to speak up unprompted. Lower = chattier |
+| `quiet_hours` | `[3, 9]` | She never interjects in this window; being addressed still reaches her |
+| `trigger_words` | `["bea", "beatrice"]` | Whole-word match with one-typo tolerance |
+| `hot_names` | `[]` | Names that pull her into a conversation she wasn't part of |
+| `self_ids` | `[]` | Her own platform ids, so a reply to one of her messages is recognised |
+| `digest_max_lines` | `8` | Cap on `[WHILE YOU WERE BUSY]` — peripheral awareness, not a transcript |
+
+Decisions are published as `system` events with `reaction`, `score` and `reason`,
+and shown in Brain Activity. Tune the threshold by reading those, not by guessing.
 
 ### OBS
 
@@ -226,6 +287,8 @@ All arguments mirror `config.json` fields. Most are optional (fall back to confi
 uv run bea [OPTIONS]
 
   --web                    Start the web dashboard (FastAPI + React)
+  --host ADDR              Bind address for the dashboard (default: 127.0.0.1)
+  --port PORT              Dashboard port (default: 8000)
   --system-file PATH       Path to the persona system prompt
   --llm-provider CHOICE    openrouter | openai | groq
   --openrouter-key KEY
@@ -271,6 +334,22 @@ After saving new settings via `POST /config` (web API), the brain calls `reload_
 ### `obs_image_source` migration
 
 During `load_from_file()`, if `config.json` contains the old field name `obs_image_source` (used in earlier versions), it is automatically renamed to `obs_avatar_source`. This migration is silent — no message is printed and the old key is removed from the in-memory dict before processing.
+
+### Network exposure
+
+No endpoint is authenticated, so the dashboard binds to `127.0.0.1` by default:
+anyone who can reach the port has full control of Bea, and `GET /config` used to
+return the raw API keys. Exposing it on the LAN is a deliberate opt-in via
+`--host 0.0.0.0`, and is logged as a warning.
+
+CORS carries an explicit allowlist (`localhost:8000`, `localhost:5173` and their
+`127.0.0.1` forms) instead of a wildcard — with `*`, any page open in the browser
+could read the brain's state and drive it. Extra origins go in
+`BEA_ALLOWED_ORIGINS` (comma-separated).
+
+`GET /config` returns `BrainConfig.public_dict()`: top-level secrets are removed,
+nested tokens are masked as `********`. Posting a masked value back is ignored,
+so saving from the UI never overwrites a real token with asterisks.
 
 ### `save_to_file()` — nested secret stripping
 

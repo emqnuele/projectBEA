@@ -145,6 +145,16 @@ class BrainConfig:
         "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
     })
 
+    # model pools per role, as "provider:model" specs. Round-robin inside a pool
+    # spreads rate limits; the rest of the pool is the fallback when one is down.
+    # Leave a role empty to fall back to llm_provider + <provider>_model.
+    # NOTE: every model in "mind" must support tool calling — Bea only speaks
+    # through tools, so one that cannot would simply never say anything.
+    models: Dict[str, Any] = field(default_factory=lambda: {
+        "mind": [],
+        "background": [],
+    })
+
     # attention gate: what wakes the mind vs what she merely notices
     attention: Dict[str, Any] = field(default_factory=lambda: {
         "enabled": True,

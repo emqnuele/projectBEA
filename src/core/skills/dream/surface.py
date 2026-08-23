@@ -55,7 +55,10 @@ class DreamSkill(Skill):
 
     def _build_dreamer(self) -> None:
         social = self._social()
-        llm = getattr(self.context, "llm", None)
+        # the background pool: a dream pass is dozens of calls in a row and must
+        # never take the mind's model (or its rate limit) hostage
+        model_for = getattr(self.context, "model_for", None)
+        llm = model_for("background") if model_for else None
         hm = getattr(self.context, "history_manager", None)
         if not (social and llm and hm):
             logger.warning("DreamSkill: dreamer not fully wired (need social + llm + history).")

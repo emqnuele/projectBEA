@@ -14,9 +14,9 @@ faulthandler.enable()
 # load env
 load_dotenv()
 
+from src.core.agent.registry import ModelPoolError, ModelRegistry
 from src.core.brain import AIVtuberBrain
 from src.core.config import BrainConfig
-from src.modules.llm.factory import LLMConfigError, build_llm
 from src.modules.obs.obs_websocket import OBSController
 from src.utils.logger import get_logger
 
@@ -140,10 +140,12 @@ async def main():
     else:
         stt = None
 
-    # llm
+    # llm: one pool per role, so a provider outage does not silence her and the
+    # dreamer never competes with the mind
+    registry = ModelRegistry(config, stt=stt)
     try:
-        llm = build_llm(config, stt=stt)
-    except LLMConfigError as e:
+        registry.get("mind")
+    except ModelPoolError as e:
         logger.error(str(e))
         return
 
@@ -182,7 +184,7 @@ async def main():
     )
 
     # 3. Brain
-    brain = AIVtuberBrain(config, llm, tts, stt, obs)
+    brain = AIVtuberBrain(config, registry, tts, stt, obs)
 
     try:
         brain.initialize()

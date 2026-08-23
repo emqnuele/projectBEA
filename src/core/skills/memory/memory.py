@@ -70,10 +70,11 @@ class MemorySkill(Skill):
         if not self.storage.initialize():
             logger.error("MemorySkill: storage failed to initialize.")
             return False
-        if self.context and hasattr(self.context, "llm"):
-            self.generator = DiaryGenerator(self.context.llm)
+        model = getattr(self.context, "model_for", None)
+        if model is not None:
+            self.generator = DiaryGenerator(model("background"))
         else:
-            logger.error("MemorySkill: Brain LLM not available for generator!")
+            logger.error("MemorySkill: no model available for the diary generator!")
         return True
 
     async def start(self):

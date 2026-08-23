@@ -100,7 +100,6 @@
         },
         "discord": {
             "enabled": false,
-            "token": "",
             "target_channel": "",
             "api_port": 3030,
             "brain_api_url": "http://127.0.0.1:8000",
@@ -117,5 +116,31 @@
         "burst_steps": 6,
         "history_limit": 30,
         "correlation_timeout": 90.0
+    },
+    "models": {
+        "mind": [
+            "openrouter:deepseek/deepseek-v4-flash",
+            "groq:openai/gpt-oss-120b"
+        ],
+        "background": [
+            "openrouter:google/gemma-4-31b-it:free",
+            "groq:openai/gpt-oss-20b"
+        ]
+    },
+    "attention": {
+        "enabled": true,
+        "cooldown_seconds": 20,
+        "interject_threshold": 0.45,
+        "quiet_hours": [
+            3,
+            9
+        ],
+        "trigger_words": [
+            "bea",
+            "beatrice"
+        ],
+        "hot_names": [],
+        "self_ids": [],
+        "digest_max_lines": 8
     }
 }

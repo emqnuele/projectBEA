@@ -1,7 +1,7 @@
 import asyncio
 from typing import Optional, Tuple
 
-from src.core.agent import LLMClient
+from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
 from src.core.attention import Attention
 from src.core.config import BrainConfig
 from src.core.consciousness import Consciousness
@@ -37,13 +37,15 @@ class AIVtuberBrain:
     def __init__(
         self,
         config: BrainConfig,
-        llm: LLMClient,
+        registry: ModelRegistry,
         tts: TTSInterface,
         stt: Optional[STTInterface],
         obs: OBSInterface,
     ):
         self.config = config
-        self.llm = llm
+        self.registry = registry
+        # the mind's client; skills reach for `registry.get("background")` instead
+        self.llm = registry.get(MIND)
         self.tts = tts
         self.stt = stt
         self.obs = obs
@@ -171,6 +173,18 @@ class AIVtuberBrain:
             },
         )
 
+    def model_for(self, role: str = BACKGROUND):
+        """A client for `role`, falling back to the mind's if the pool is empty.
+
+        Background work (diary, dreamer, summaries) must not run on the mind's
+        model, but a missing background pool should degrade, not crash.
+        """
+        try:
+            return self.registry.get(role)
+        except Exception as e:
+            logger.warning(f"No '{role}' model ({e}); falling back to the mind's.")
+            return self.llm
+
     @property
     def consciousness_active(self) -> bool:
         return bool(self.consciousness and self.consciousness.alive)
@@ -199,7 +213,10 @@ class AIVtuberBrain:
             self.system_prompt = new_prompt
             logger.info("Updated soul + operating manual.")
 
-        self.llm.reload_config(self.config)
+        self.registry.reload_config(self.config)
+        self.llm = self.registry.get(MIND)
+        if self.consciousness:
+            self.consciousness.llm = self.llm
         self.tts.reload_config(self.config)
         self.obs.reload_config(self.config)
         self.expression.reload_config(self.config)
