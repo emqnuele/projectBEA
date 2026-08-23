@@ -160,6 +160,37 @@ so existing configs keep working unchanged.
 | `openai_model` | `"gpt-5"` |
 | `groq_model` | `"openai/gpt-oss-20b"` |
 
+### Rhythm
+
+A day rather than an event loop: when she starts something on her own, and when
+she consolidates what happened.
+
+```json
+"rhythm": {
+  "enabled": true,
+  "tick_seconds": 900,
+  "spontaneous_enabled": true,
+  "spontaneous_probability": 0.15,
+  "spontaneous_min_silence": 3600,
+  "spontaneous_min_activity": 3
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `tick_seconds` | `900` | How often the spontaneous check runs |
+| `spontaneous_probability` | `0.15` | Even when eligible, usually she doesn't — every time would be a scheduled post, not presence |
+| `spontaneous_min_silence` | `3600` | She spoke there recently: saying more is noise |
+| `spontaneous_min_activity` | `3` | A dead room means talking to nobody |
+
+She never opens a conversation during `attention.quiet_hours`, and never opens
+the stage this way — talking into a room she is standing in is the live loop's
+business.
+
+The dreamer runs nightly at `skills.dream.hour` (default 4) without being asked.
+The morning pass then folds "what happened last time" into her hot facts, taken
+from the rolling conversation summaries.
+
 ### Attention
 
 What wakes the mind versus what Bea merely notices. Without this, every

@@ -82,7 +82,8 @@
             "enabled": true
         },
         "dream": {
-            "enabled": true
+            "enabled": true,
+            "hour": 4
         },
         "minecraft": {
             "enabled": false,
@@ -152,5 +153,13 @@
         "hot_names": [],
         "self_ids": [],
         "digest_max_lines": 8
+    },
+    "rhythm": {
+        "enabled": true,
+        "tick_seconds": 900,
+        "spontaneous_enabled": true,
+        "spontaneous_probability": 0.15,
+        "spontaneous_min_silence": 3600,
+        "spontaneous_min_activity": 3
     }
 }

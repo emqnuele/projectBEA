@@ -113,7 +113,8 @@ class BrainConfig:
             "enabled": True
         },
         "dream": {
-            "enabled": True
+            "enabled": True,
+            "hour": 4          # she consolidates at night, without being asked
         },
         "minecraft": {
             "enabled": False,
@@ -173,6 +174,17 @@ class BrainConfig:
     models: Dict[str, Any] = field(default_factory=lambda: {
         "mind": [],
         "background": [],
+    })
+
+    # a day, not an event loop: when she starts something on her own, and when
+    # she consolidates what happened
+    rhythm: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": True,
+        "tick_seconds": 900,             # how often the spontaneous check runs
+        "spontaneous_enabled": True,
+        "spontaneous_probability": 0.15, # even when eligible, usually she doesn't
+        "spontaneous_min_silence": 3600, # she spoke recently: more is noise, not presence
+        "spontaneous_min_activity": 3,   # a dead room means talking to nobody
     })
 
     # attention gate: what wakes the mind vs what she merely notices

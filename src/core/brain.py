@@ -10,6 +10,7 @@ from src.core.expression import Expression
 from src.core.memory.profiler import Profiler
 from src.core.memory.store import MemoryStore
 from src.core.mind import ConversationMind, ConversationScheduler
+from src.core.mind.spontaneous import SpontaneousPresence
 from src.core.perception.bus import PerceptionBus
 from src.core.resources import load_avatar_resources
 from src.core.skills.base import SkillRegistry
@@ -74,6 +75,8 @@ class AIVtuberBrain:
         self.attention: Optional[Attention] = None
         self.profiler: Optional[Profiler] = None
         self.conversations: Optional[ConversationMind] = None
+        self.spontaneous: Optional[SpontaneousPresence] = None
+        self._rhythm_task: Optional[asyncio.Task] = None
         self.consciousness: Optional[Consciousness] = None
 
     @property
@@ -222,6 +225,10 @@ class AIVtuberBrain:
             now_line=self.consciousness.now_line,
         )
         self.consciousness.conversations = self.conversations
+
+        self.spontaneous = SpontaneousPresence(
+            config=self.config, memory=self.memory, conversations=self.conversations,
+        )
 
     def _publish_verdict(self, perception, verdict) -> None:
         """Surfaces every attention decision to the dashboard.
@@ -449,6 +456,27 @@ class AIVtuberBrain:
             else:
                 await self.process_text_input(user_text)
 
+    async def _rhythm_loop(self):
+        """The slow clock: every so often, does she want to start something?
+
+        Nothing here is on the hot path — it is what makes her a person with a
+        day rather than a process reacting to events.
+        """
+        rhythm = getattr(self.config, "rhythm", {}) or {}
+        interval = float(rhythm.get("tick_seconds", 900))
+        while True:
+            await asyncio.sleep(interval)
+            if self.is_sleeping:
+                continue
+            try:
+                started = await self.spontaneous.run_once()
+                if started:
+                    logger.info(f"Rhythm: opened {started} conversation(s) unprompted.")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Rhythm tick failed: {e}")
+
     async def start_skills(self):
         """Starts the consciousness loop (which starts every enabled skill)."""
         if self.consciousness and self.config.consciousness.get("enabled", False):
@@ -457,6 +485,8 @@ class AIVtuberBrain:
             # prime cold network paths so the FIRST real message doesn't pay
             # dns/tls/model-routing latency (the 'slow only at first' symptom)
             asyncio.create_task(self._warmup())
+            if (getattr(self.config, "rhythm", {}) or {}).get("enabled", True):
+                self._rhythm_task = asyncio.create_task(self._rhythm_loop())
 
     async def _warmup(self):
         """Background priming of the LLM connection and the embedding endpoint."""
@@ -473,6 +503,9 @@ class AIVtuberBrain:
         logger.info("Warmup complete (LLM + memory primed).")
 
     async def stop_skills(self):
+        if self._rhythm_task:
+            self._rhythm_task.cancel()
+            self._rhythm_task = None
         if self.conversations:
             # let the in-flight replies land before the process goes away
             await self.conversations.drain()

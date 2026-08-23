@@ -308,3 +308,40 @@ async def test_three_quick_messages_get_one_answer(setup):
         mind.dispatch("discord:1", [message(f"msg {i}", channel="1", message_id=f"m{i}")])
     await mind.drain(timeout=2.0)
     assert len(discord.sent) <= 2
+
+
+# --- starting something herself (phase 9) ------------------------------------
+
+
+async def test_she_can_open_a_conversation_with_nothing_to_answer(setup):
+    _, _, discord = setup
+    mind = build(setup, FakeLLMClient([replies("comunque", tool="send_message")]))
+    await mind.turn_now("discord:123", [], initiative=True)
+    assert [t for _, t, _ in discord.sent] == ["comunque"]
+
+
+async def test_an_unprompted_turn_says_nobody_is_talking(setup):
+    llm = FakeLLMClient([replies("ciao", tool="send_message")])
+    await build(setup, llm).turn_now("discord:123", [], initiative=True)
+    assert "NOBODY IS TALKING TO YOU" in str(llm.calls[0][-1])
+
+
+async def test_she_is_told_that_posting_for_its_own_sake_is_worse(setup):
+    llm = FakeLLMClient([replies("ciao", tool="send_message")])
+    await build(setup, llm).turn_now("discord:123", [], initiative=True)
+    assert "say_nothing" in str(llm.calls[0][-1])
+
+
+async def test_without_initiative_an_empty_turn_does_nothing(setup):
+    llm = FakeLLMClient()
+    await build(setup, llm).turn_now("discord:123", [])
+    assert llm.call_count == 0
+
+
+async def test_she_can_decide_there_is_nothing_to_say(setup):
+    from src.core.agent.types import AssistantMessage as AM
+    _, _, discord = setup
+    silence = AM(tool_calls=[ToolCall(id="c", name="say_nothing", arguments={})])
+    mind = build(setup, FakeLLMClient([silence]))
+    await mind.turn_now("discord:123", [], initiative=True)
+    assert discord.sent == []

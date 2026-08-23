@@ -51,6 +51,15 @@ stage here: you have no voice in this turn, and no body — just text.
   phone."""
 
 
+INITIATIVE_FRAME = """[NOBODY IS TALKING TO YOU]
+Nothing new here — this one has just gone quiet, and you thought of it. If there
+is something you actually want to say, say it: pick up something from earlier,
+ask about a thing someone left hanging, complain about your day.
+
+If nothing genuinely comes to mind, `say_nothing`. Posting for the sake of it is
+worse than staying quiet, and everyone can tell the difference."""
+
+
 class ConversationMind:
     """Runs scoped conversation turns and remembers one line about each."""
 
@@ -97,16 +106,19 @@ class ConversationMind:
         task.add_done_callback(self._tasks.discard)
 
     async def turn_now(self, key: str, perceptions: List[Perception], *,
-                       first: bool = True) -> None:
+                       first: bool = True, initiative: bool = False) -> None:
         """Queues and runs one turn, awaiting it.
 
         The awaitable twin of `dispatch`, for callers that need the reply to have
-        landed before they continue.
+        landed before they continue. With `initiative` she may open the
+        conversation herself, with nothing new to answer.
         """
         if perceptions:
             self._pending.setdefault(key, []).extend(perceptions)
             self._record_incoming(key, perceptions)
-        await self.turn(key, first=first)
+        await self.scheduler.submit(
+            key, lambda first_run: self.turn(key, first=first_run, initiative=initiative)
+        )
 
     async def _run(self, key: str) -> None:
         try:
@@ -128,9 +140,9 @@ class ConversationMind:
 
     # --- the turn -----------------------------------------------------------
 
-    async def turn(self, key: str, *, first: bool = True) -> None:
+    async def turn(self, key: str, *, first: bool = True, initiative: bool = False) -> None:
         incoming = self._pending.pop(key, [])
-        if not incoming and first:
+        if not incoming and first and not initiative:
             return
 
         skill = self._skill_for(key)
@@ -143,7 +155,7 @@ class ConversationMind:
             logger.warning(f"No tools available for '{key}'; skipping the turn.")
             return
 
-        context = await asyncio.to_thread(self._build_context, key, incoming, first)
+        context = await asyncio.to_thread(self._build_context, key, incoming, first, initiative)
         sent = await self._reason(key, context, tools)
 
         if sent:
@@ -185,7 +197,7 @@ class ConversationMind:
     # --- context ------------------------------------------------------------
 
     def _build_context(self, key: str, incoming: List[Perception],
-                       first: bool) -> List[Dict[str, Any]]:
+                       first: bool, initiative: bool = False) -> List[Dict[str, Any]]:
         """The system message for a scoped turn. Runs off the loop: it queries
         the database and may embed."""
         parts = [
@@ -234,6 +246,8 @@ class ConversationMind:
                 "[MORE ARRIVED WHILE YOU WERE WRITING — answer everything at once]"
             lines = "\n".join(p.render() for p in incoming)
             messages.append({"role": "user", "content": f"{header}\n{lines}"})
+        elif initiative:
+            messages.append({"role": "user", "content": INITIATIVE_FRAME})
         return messages
 
     def _who(self, incoming: List[Perception]) -> str:

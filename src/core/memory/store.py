@@ -487,17 +487,21 @@ class Conversations:
         )
         return [r["author_identity"] for r in rows]
 
-    def seconds_since_bea_spoke(self, conversation_key: str) -> Optional[float]:
+    def seconds_since_bea_spoke(self, conversation_key: str,
+                                now: Optional[float] = None) -> Optional[float]:
         ts = self.db.scalar(
             "SELECT MAX(ts) FROM messages WHERE conversation_key = ? AND role = 'bea'",
             (conversation_key,), default=None,
         )
-        return None if ts is None else time.time() - float(ts)
+        return None if ts is None else (now if now is not None else time.time()) - float(ts)
 
-    def recent_activity(self, conversation_key: str, window_seconds: float = 120.0) -> int:
+    def recent_activity(self, conversation_key: str, window_seconds: float = 120.0,
+                        now: Optional[float] = None) -> int:
+        """`now` is injectable so callers with their own clock stay consistent."""
+        reference = now if now is not None else time.time()
         return int(self.db.scalar(
             "SELECT COUNT(*) FROM messages WHERE conversation_key = ? AND role = 'user' "
-            "AND ts >= ?", (conversation_key, time.time() - window_seconds),
+            "AND ts >= ?", (conversation_key, reference - window_seconds),
         ))
 
     # --- summaries ----------------------------------------------------------

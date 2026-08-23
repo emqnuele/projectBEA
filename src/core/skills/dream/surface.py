@@ -32,6 +32,7 @@ class DreamSkill(Skill):
         self.sessions = memory.sessions
         self.dreamer: Optional[Dreamer] = None
         self._dreaming = False
+        self._night_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         await super().start()
@@ -43,6 +44,36 @@ class DreamSkill(Skill):
             self.morning_pass()
         except Exception as e:
             logger.error(f"DreamSkill: morning pass failed: {e}")
+        self._night_task = asyncio.create_task(self._nightly())
+
+    async def stop(self) -> None:
+        if self._night_task:
+            self._night_task.cancel()
+            self._night_task = None
+        await super().stop()
+
+    async def _nightly(self) -> None:
+        """Dreams once a night, on its own.
+
+        Consolidation is not something she should have to be told to do — people
+        do not decide to sleep on it. The hour is checked rather than a timer
+        being set, so restarting the process does not skip a night or double one.
+        """
+        hour = int(self.config.skills.get("dream", {}).get("hour", 4))
+        last_dreamed_on = None
+        while self.active:
+            await asyncio.sleep(300)
+            now = datetime.datetime.now()
+            if now.hour != hour or last_dreamed_on == now.date():
+                continue
+            last_dreamed_on = now.date()
+            logger.info("DreamSkill: nightly consolidation starting.")
+            try:
+                await self.run_dream()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"DreamSkill: nightly dream failed: {e}")
 
     def _social(self):
         reg = getattr(self.context, "skill_registry", None)
@@ -98,7 +129,12 @@ class DreamSkill(Skill):
         if gap is not None and gap >= 1:
             self.recent.add(f"you haven't streamed in {gap} day(s)", ttl, "morning_pass")
 
-        # 3. regulars who've gone missing
+        # 3. what happened the last time round, from the rolling summaries: she
+        # should be able to pick a conversation up, not restart it every day
+        for line in self._yesterday():
+            self.recent.add(line, ttl, "morning_pass")
+
+        # 4. regulars who've gone missing
         social = self._social()
         if social:
             now = time.time()
@@ -111,6 +147,22 @@ class DreamSkill(Skill):
                         f"{entry.display_name} hasn't shown up in {int(away)} days",
                         ttl, "morning_pass",
                     )
+
+    def _yesterday(self, limit: int = 2) -> List[str]:
+        """One line per conversation that was going somewhere recently."""
+        memory = getattr(self.context, "memory", None)
+        if memory is None:
+            return []
+        try:
+            rows = memory.db.query(
+                "SELECT conversation_key, summary FROM summaries "
+                "WHERE summary != '' ORDER BY updated_at DESC LIMIT ?", (limit,),
+            )
+        except Exception as e:
+            logger.warning(f"DreamSkill: could not read the summaries: {e}")
+            return []
+        return [f"last time in {r['conversation_key']}: {_first_line(r['summary'])}"
+                for r in rows]
 
     def _days_since_last_session(self) -> Optional[int]:
         active = getattr(getattr(self.context, "history_manager", None), "session_id", None)
@@ -163,6 +215,11 @@ class DreamSkill(Skill):
             if consc:
                 consc.wake()
         return summary
+
+
+def _first_line(text: str, limit: int = 120) -> str:
+    line = (text or "").strip().splitlines()[0] if (text or "").strip() else ""
+    return line if len(line) <= limit else line[: limit - 1] + "…"
 
 
 def _days_until(mm_dd: str) -> Optional[int]:
