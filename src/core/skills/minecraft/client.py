@@ -16,6 +16,9 @@ ACTION_TIMEOUT = 60.0
 # statuses the mod sends when a long-running action finishes
 _COMPLETION = {"FINISHED", "IDLE"}
 
+# packets that are senses rather than answers: they are handed to the surface
+_TYPED_EVENTS = {"chat", "player_event", "combat", "death_event"}
+
 
 class MinecraftClient:
     """WebSocket bridge to the Minecraft mod, exposed as the agent's environment.
@@ -27,9 +30,12 @@ class MinecraftClient:
     thread via `call_soon_threadsafe`, so no locks are needed.
     """
 
-    def __init__(self, url: str, loop: asyncio.AbstractEventLoop):
+    def __init__(self, url: str, loop: asyncio.AbstractEventLoop, on_event=None):
         self.url = url
         self.loop = loop
+        # typed packets (chat, player_event, combat, death) go straight to the
+        # surface: they are senses, not the result of an action she asked for
+        self.on_event = on_event
         self.ws: Optional[websocket.WebSocketApp] = None
         self.keep_running = True
         self.is_connected = False
@@ -149,13 +155,34 @@ class MinecraftClient:
         self.loop.call_soon_threadsafe(self._handle, data)
 
     def _handle(self, data: Dict[str, Any]) -> None:
+        """Dispatches on `type` FIRST, then on `status`.
+
+        Half of what the mod sends used to fall on the floor here: it only
+        recognised packets with a `player` key and the FINISHED/IDLE/INTERRUPTED
+        statuses. The full death event — cause, coordinates, what she lost — was
+        already being sent, and was silently discarded every time.
+        """
+        kind = data.get("type")
+        if kind in _TYPED_EVENTS:
+            self._emit(kind, data)
+            # a death also ends whatever she was doing: leaving the caller to
+            # time out for 60 seconds would be a lie about what happened
+            if kind == "death_event":
+                self._resolve_pending("INTERRUPTED: you died.")
+            return
+
         status = data.get("status")
 
         # game-state snapshot
-        if "player" in data:
+        if "player" in data or kind == "game_state":
             self.latest_state = data
             if not self._first_state.is_set():
                 self._first_state.set()
+
+        if status == "ENGAGED_AUTO_ACTION":
+            # self-defence kicked in on its own; she should know she is fighting
+            self._emit("auto_action", data)
+            return
 
         if status == "INTERRUPTED":
             reason = data.get("reason") or data.get("event", {}).get("reason", "unknown emergency")
@@ -173,3 +200,16 @@ class MinecraftClient:
             observation = f"{result}" + (f": {message}" if message else "")
             if self._pending and not self._pending.done():
                 self._pending.set_result(observation)
+
+    def _emit(self, kind: str, data: Dict[str, Any]) -> None:
+        if self.on_event is None:
+            logger.debug(f"No handler for mod event '{kind}'.")
+            return
+        try:
+            self.on_event(kind, data)
+        except Exception as e:
+            logger.error(f"Handling mod event '{kind}' failed: {e}")
+
+    def _resolve_pending(self, observation: str) -> None:
+        if self._pending and not self._pending.done():
+            self._pending.set_result(observation)

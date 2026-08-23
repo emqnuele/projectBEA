@@ -2,7 +2,7 @@ import asyncio
 from typing import List, Optional
 
 from src.core.agent.tools import Tool
-from src.core.perception.types import Perception, PerceptionKind
+from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.base import Skill
 from src.core.skills.minecraft.client import MinecraftClient
 from src.core.skills.minecraft.notebook import Notebook
@@ -41,9 +41,9 @@ class MinecraftSurface(Skill):
         if not self.skill_config.get("enabled", False):
             logger.info("MinecraftSurface inactive (minecraft skill disabled).")
             return
-        url = self.skill_config.get("server_url", "ws://localhost:8080")
+        url = self.skill_config.get("server_url", "ws://127.0.0.1:8080")
         loop = asyncio.get_running_loop()
-        self.client = MinecraftClient(url, loop)
+        self.client = MinecraftClient(url, loop, on_event=self._on_mod_event)
         self._registry = build_minecraft_tools(self.client, self.notebook)
         self.client.connect()
         self.active = True
@@ -97,6 +97,143 @@ class MinecraftSurface(Skill):
                 salience=0.95 if interrupted else 0.9,
                 meta={"event": "interrupted"} if interrupted else {},
             ))
+
+    # --- the social senses --------------------------------------------------
+
+    def _on_mod_event(self, kind: str, data: dict) -> None:
+        """Typed packets from the mod. Called on the event loop thread."""
+        if kind == "chat":
+            self._on_chat(data)
+        elif kind == "player_event":
+            self._on_player_event(data)
+        elif kind == "combat":
+            self._on_combat(data)
+        elif kind == "death_event":
+            self._on_death(data)
+        elif kind == "auto_action":
+            self._on_auto_action(data)
+
+    def _on_chat(self, data: dict) -> None:
+        """Someone talked in game.
+
+        This one line is what switches the whole social stack on inside
+        Minecraft. Everything above — the roster tally, promotion to a person
+        card, the facts about them injected when they are nearby,
+        `remember_person`, the attention gate — is keyed on `Author`, so it all
+        starts working here without a line of new code.
+        """
+        text = str(data.get("text", "")).strip()
+        if not text:
+            return
+
+        author_data = data.get("author") or {}
+        uuid = str(author_data.get("uuid", "") or "")
+        name = str(author_data.get("name", "") or "")
+
+        if data.get("kind") == "system" or not uuid:
+            # server lines: joins, deaths, /me. Nobody said them TO her.
+            self.bus.put(Perception(
+                PerceptionKind.CHAT, "chat:mc", f"(server) {text}", salience=0.3,
+                meta={"conversation_key": "stage", "system": True},
+            ))
+            return
+
+        if uuid == self._self_uuid():
+            return  # her own message coming back
+
+        whisper = self._is_whisper(text, name)
+        distance = data.get("distance")
+        self.bus.put(Perception(
+            kind=PerceptionKind.CHAT,
+            surface="chat:mc",
+            content=f"[{name}] (in game): {text}",
+            salience=0.9 if whisper else 0.7,
+            meta={
+                "uuid": uuid, "whisper": whisper,
+                "distance": float(distance) if distance not in (None, -1) else None,
+                # in-game chat is the room she is standing in, like a voice call:
+                # she answers it from the stage, out loud AND in chat
+                "conversation_key": "stage",
+            },
+            author=Author(platform="minecraft", native_id=uuid, display_name=name or uuid[:8]),
+        ))
+
+    def _on_player_event(self, data: dict) -> None:
+        player = data.get("player") or {}
+        uuid = str(player.get("uuid", "") or "")
+        name = str(player.get("name", "") or "") or uuid[:8]
+        if not uuid or uuid == self._self_uuid():
+            return
+        event = data.get("event", "join")
+        self.bus.put(Perception(
+            PerceptionKind.CHAT, "chat:mc",
+            f"{name} {'joined' if event == 'join' else 'left'} the server.",
+            salience=0.5,
+            meta={"uuid": uuid, "event": f"player_{event}", "conversation_key": "stage"},
+            author=Author(platform="minecraft", native_id=uuid, display_name=name),
+        ))
+
+    def _on_combat(self, data: dict) -> None:
+        """Being hit. By a person it is a social event, not a number going down."""
+        source = str(data.get("source", "environment"))
+        by = data.get("by") or {}
+        health = data.get("health")
+        damage = data.get("damage", 0)
+
+        if source == "player":
+            name = str(by.get("name", "someone"))
+            content = f"{name} just hit you ({damage:g} damage, {health:g} health left)."
+            author = Author(platform="minecraft", native_id=str(by.get("uuid", name)),
+                            display_name=name)
+        elif source == "mob":
+            content = (f"A {by.get('name', 'mob')} is hitting you "
+                       f"({damage:g} damage, {health:g} health left).")
+            author = None
+        else:
+            content = f"You took {damage:g} damage ({health:g} health left)."
+            author = None
+
+        self.bus.put(Perception(
+            PerceptionKind.GAME, "game:mc", content,
+            salience=0.95 if source == "player" else 0.8,
+            meta={"event": "hurt", "source": source, "health": health},
+            author=author,
+        ))
+
+    def _on_death(self, data: dict) -> None:
+        details = data.get("details") or {}
+        pos = details.get("death_pos") or {}
+        lost = details.get("lost_items") or []
+
+        where = ""
+        if pos.get("x") is not None:
+            where = f" at ({pos.get('x', 0):.0f}, {pos.get('y', 0):.0f}, {pos.get('z', 0):.0f})"
+        lines = [f"YOU DIED{where}. Cause: {details.get('cause', 'unknown')}."]
+        if lost:
+            lines.append("You dropped: " + ", ".join(str(i) for i in lost[:10]))
+        lines.append("You respawned.")
+
+        self.bus.put(Perception(
+            PerceptionKind.GAME, "game:mc", "\n".join(lines), salience=1.0,
+            meta={"event": "death", "cause": details.get("cause", "unknown")},
+        ))
+
+    def _on_auto_action(self, data: dict) -> None:
+        event = data.get("event") or {}
+        self.bus.put(Perception(
+            PerceptionKind.GAME, "game:mc",
+            f"Your body defended itself: fighting {event.get('attacker', 'something')}.",
+            salience=0.85, meta={"event": "hurt", "source": "mob"},
+        ))
+
+    def _is_whisper(self, text: str, name: str) -> bool:
+        """Vanilla renders a whisper as "Marco whispers to you: ..."."""
+        low = text.lower()
+        return "whispers to you" in low or low.startswith(f"{name.lower()} whispers")
+
+    def _self_uuid(self) -> str:
+        player = (self._latest_state() or {}).get("player") or {}
+        return str(player.get("uuid", "") or "")
 
     def _snapshot(self, events: Optional[List[str]] = None) -> str:
         parts = []

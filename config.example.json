@@ -86,7 +86,7 @@
         },
         "minecraft": {
             "enabled": false,
-            "server_url": "ws://localhost:8080",
+            "server_url": "ws://127.0.0.1:8080",
             "max_history_events": 20,
             "debug_mode": false,
             "auto_chat_thoughts": false,

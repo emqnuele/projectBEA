@@ -117,7 +117,7 @@ class BrainConfig:
         },
         "minecraft": {
             "enabled": False,
-            "server_url": "ws://localhost:8080",
+            "server_url": "ws://127.0.0.1:8080",
             "auto_chat_thoughts": False,
             "auto_speak_thoughts": False,
             "system_prompt_path": "data/prompts/minecraft.md"

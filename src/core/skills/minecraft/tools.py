@@ -121,11 +121,17 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     }),
     "eat_food": ("Eat the best available food.", {"type": "object", "properties": {}}),
     "check_death_log": ("Check the last death details.", {"type": "object", "properties": {}}),
-    "chat": ("Send a chat message in-game.", {
-        "type": "object",
-        "properties": {"message": {"type": "string"}},
-        "required": ["message"],
-    }),
+    "chat": (
+        "TYPE a message in the game chat. The other players read this — it is a "
+        "different audience from your voice. Your voice (`speak`) is heard by your "
+        "stream; this is what the people in the game see. You can use both in the "
+        "same turn, and often should: comment out loud for your audience, and "
+        "answer in chat for whoever is standing there.",
+        {
+            "type": "object",
+            "properties": {"message": {"type": "string"}},
+            "required": ["message"],
+        }),
 }
 
 
