@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import List, Optional
 
 from src.core.agent.tools import Tool
@@ -14,14 +15,16 @@ from src.utils.prompts import load_text
 
 logger = get_logger("bea.skills.minecraft")
 
+# how long the body may stand still with unfinished objectives before her own
+# body tells her about it. 0 turns the nudge off.
+IDLE_NUDGE_SECONDS = 90.0
+
 
 class MinecraftSurface(Skill):
-    """The game body. Perceives game events/state; exposes in-game actions.
+    """The game body: perceives game events and state, exposes in-game actions.
 
-    While active it injects the survival rules (context_section) and arms the
-    minecraft tools, so Bea only "knows how to play" when actually connected.
-    Game events arrive as GAME perceptions; the consciousness reasons over them
-    in the same single context as chat and voice.
+    While active it injects the survival rules and arms the minecraft tools, so
+    Bea only knows how to play when actually connected.
     """
 
     name = "game:mc"
@@ -30,14 +33,15 @@ class MinecraftSurface(Skill):
     def initialize(self) -> None:
         cfg = self.skill_config
         self._rules = load_text(cfg.get("system_prompt_path", "data/prompts/minecraft.md"))
-        # the survival guide and the crafting chains belong to the body, not to
-        # the mind: she should not be carrying recipe trees around in her head
+        # recipe trees belong to the body, not in her head
         self._body_rules = load_text(cfg.get("body_prompt_path", "data/prompts/minecraft_body.md"))
         self.client: Optional[MinecraftClient] = None
         self.notebook = Notebook()
         self._registry = None
         self.agent: Optional[GameAgent] = None
         self._poll_task: Optional[asyncio.Task] = None
+        self._idle_since: float = 0.0
+        self._last_nudge: float = 0.0
 
     @property
     def skill_config(self) -> dict:
@@ -81,9 +85,8 @@ class MinecraftSurface(Skill):
     async def _perceive_loop(self) -> None:
         """Streams game events onto the bus.
 
-        The periodic snapshot is deliberately marked `noise`: the state is always
-        available as live_state, so it does not need to wake the mind. Only real
-        events (interrupts, deaths) do.
+        The periodic snapshot is marked `noise`: the state is always in
+        live_state, so only real events (interrupts, deaths) wake the mind.
         """
         if self.client is None:
             return
@@ -97,20 +100,74 @@ class MinecraftSurface(Skill):
                 break
             events = self.client.drain_events()
             if not events:
-                # a heartbeat with nothing in it: the state is already live_state,
-                # so don't pay to serialize 700 lidar blocks nobody will read
-                self.bus.put(Perception(PerceptionKind.GAME, self.name, "(still playing)",
-                                        salience=0.15, meta={"noise": True}))
+                nudge = self._idle_nudge()
+                if nudge:
+                    self.bus.put(nudge)
+                else:
+                    # nothing happened: don't pay to serialize 700 lidar blocks
+                    self.bus.put(Perception(PerceptionKind.GAME, self.name, "(still playing)",
+                                            salience=0.15, meta={"noise": True}))
                 continue
-            # an interrupt is her body shouting: it must always reach her, so it
-            # is declared in `meta` rather than left for the gate to guess from
-            # the salience alone
+            # declared in meta so the gate never has to guess from salience
             interrupted = any(e.startswith("INTERRUPTED") for e in events)
             self.bus.put(Perception(
                 PerceptionKind.GAME, self.name, self._snapshot(events),
                 salience=0.95 if interrupted else 0.9,
                 meta={"event": "interrupted"} if interrupted else {},
             ))
+
+    # --- standing still with a plan ------------------------------------------
+
+    def _idle_nudge(self) -> Optional[Perception]:
+        """Her body reporting that it is standing around with work outstanding.
+
+        The game heartbeat is deliberately noise, which is also why nothing ever
+        pushed her to start playing: she only reacted. This is the one game
+        perception that wakes her, and it only exists while the owner's plan has
+        something open and the body has nothing to do.
+        """
+        if self.agent is None or self.agent.busy:
+            self._idle_since = 0.0
+            return None
+
+        pending = self._pending_objectives()
+        if not pending:
+            self._idle_since = 0.0
+            return None
+
+        every = float(self.skill_config.get("idle_nudge_seconds", IDLE_NUDGE_SECONDS))
+        if every <= 0:
+            return None
+
+        now = time.time()
+        if not self._idle_since:
+            self._idle_since = now
+        waited = now - max(self._idle_since, self._last_nudge)
+        if waited < every:
+            return None
+
+        self._last_nudge = now
+        todo = "; ".join(f"#{o.id} {o.text}" for o in pending[:3])
+        return Perception(
+            PerceptionKind.GAME, self.name,
+            f"Your body is standing still in Minecraft, doing nothing, and today's "
+            f"plan still has: {todo}. Give it something to do with play_minecraft, "
+            f"or say why you're not.",
+            salience=0.8,
+            # declared: a nudge that the gate filters out is a nudge that never
+            # happens, and she would go back to waiting to be spoken to
+            meta={"addressed": "idle-body", "event": "idle_body"},
+        )
+
+    def _pending_objectives(self) -> list:
+        plan = getattr(getattr(self.context, "memory", None), "plan", None)
+        if plan is None:
+            return []
+        try:
+            return plan.open()
+        except Exception as e:
+            logger.error(f"Could not read the stream plan: {e}")
+            return []
 
     # --- the social senses --------------------------------------------------
 
@@ -130,11 +187,8 @@ class MinecraftSurface(Skill):
     def _on_chat(self, data: dict) -> None:
         """Someone talked in game.
 
-        This one line is what switches the whole social stack on inside
-        Minecraft. Everything above — the roster tally, promotion to a person
-        card, the facts about them injected when they are nearby,
-        `remember_person`, the attention gate — is keyed on `Author`, so it all
-        starts working here without a line of new code.
+        The whole social stack (roster, person cards, attention) is keyed on
+        `Author`, so building one here is what switches it on in Minecraft.
         """
         text = str(data.get("text", "")).strip()
         if not text:
@@ -165,8 +219,7 @@ class MinecraftSurface(Skill):
             meta={
                 "uuid": uuid, "whisper": whisper,
                 "distance": float(distance) if distance not in (None, -1) else None,
-                # in-game chat is the room she is standing in, like a voice call:
-                # she answers it from the stage, out loud AND in chat
+                # the room she is standing in: she answers out loud AND in chat
                 "conversation_key": "stage",
             },
             author=Author(platform="minecraft", native_id=uuid, display_name=name or uuid[:8]),
@@ -268,7 +321,7 @@ class MinecraftSurface(Skill):
         return model_for("background") if model_for else getattr(self.context, "llm", None)
 
     def _emit_milestone(self, text: str) -> None:
-        """Something worth interrupting her for. Everything else stays in the body."""
+        """Something worth interrupting her for; the rest stays in the body."""
         self.bus.put(Perception(
             PerceptionKind.GAME, self.name, text, salience=0.6,
             meta={"event": "milestone"},
@@ -375,8 +428,7 @@ class MinecraftSurface(Skill):
         if not self.active:
             return None
         parts = []
-        # the game state lives here rather than in a perception: it is *where she
-        # is*, always true, not an event that should make her think
+        # where she is, always true: not an event that should make her think
         body = render_state(self._latest_state())
         doing = self.agent.describe() if self.agent else ""
         if doing:

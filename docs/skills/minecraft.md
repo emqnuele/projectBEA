@@ -136,12 +136,29 @@ lives on one thread and tool handlers can simply `await` completion — no locks
 
 ---
 
+## Getting Her To Actually Play
+
+The heartbeat from the mod is marked `noise`, so a quiet server costs nothing —
+which is also why she would otherwise only ever react to things. What makes her
+*start* something is the **stream plan**: objectives the owner writes on the
+dashboard's Stream Plan page.
+
+When the body is idle and an objective is still open, the surface puts one
+perception on the bus telling her so, at most once every `idle_nudge_seconds`.
+It declares itself addressed, so the attention gate always lets it through, and
+she answers it by handing the body a goal with `play_minecraft`.
+
+No plan means no nudge: with an empty list she reacts and nothing more.
+
+---
+
 ## Configuration
 
 ```json
 "minecraft": {
   "enabled": false,
   "server_url": "ws://localhost:8080",
+  "idle_nudge_seconds": 90,
   "auto_chat_thoughts": false,
   "auto_speak_thoughts": false,
   "system_prompt_path": "data/prompts/minecraft.txt"
@@ -151,6 +168,7 @@ lives on one thread and tool handlers can simply `await` completion — no locks
 | Key | Description |
 |---|---|
 | `server_url` | WebSocket URL of the BeaCraft mod |
+| `idle_nudge_seconds` | Seconds the body may stand still with an open stream objective before it tells her so. `0` disables it |
 | `auto_speak_thoughts` | TTS-speak agent thoughts as Bea's commentary |
 | `auto_chat_thoughts` | Also send thoughts as in-game chat messages |
 | `system_prompt_path` | Custom system prompt for the Minecraft context |

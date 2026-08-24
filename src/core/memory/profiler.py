@@ -1,15 +1,9 @@
-"""Background passes that make Bea feel like she knows you, without a dream.
+"""Background passes that keep the person cards and summaries fresh.
 
-Two count-triggered jobs, both on the `background` model and both run AFTER she
-has already answered, so neither one is ever in the way of a reply:
-
-- **person profile** — the first card is built early, because until it exists Bea
-  genuinely does not know who someone is; refreshes are far rarer, since people
-  do not change every week.
-- **rolling conversation summary** — so a long channel does not have to fit in
-  the context window to be remembered.
-
-Waiting for the nightly dreamer means a regular stays a stranger all evening.
+Two count-triggered jobs on the `background` model, both run after she has
+already answered so neither is in the way of a reply: the person profile and
+the rolling conversation summary. Waiting for the nightly dreamer instead would
+leave a regular a stranger all evening.
 """
 
 import asyncio
@@ -93,8 +87,7 @@ class Profiler:
         if attitude:
             self.store.people.set_attitude(card.person_id, attitude)
 
-        # marked even when the model returned nothing useful, so a person with
-        # nothing to say is not re-profiled on every single message
+        # marked even on an empty result: otherwise every message retries
         self.store.people.mark_profiled(card.person_id, total)
         logger.info(f"Profiler: refreshed the card for {card.primary_name}.")
         return True
@@ -117,8 +110,7 @@ class Profiler:
         payload = f"SUMMARY SO FAR:\n{previous or '(none)'}\n\nRECENT MESSAGES:\n{lines}"
         data = await self._ask(SUMMARY_PROMPT, payload)
 
-        # the counter advances either way: a model that keeps failing must not
-        # make every single turn retry the summary
+        # advances either way, so a failing model does not retry every turn
         self.store.conversations.mark_summarized(conversation_key)
         summary = str((data or {}).get("summary", "")).strip()
         if not summary:

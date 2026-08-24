@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.core.brain import AIVtuberBrain
 from src.core.config import MASK
+from src.core.memory.plan import STATUSES
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.web")
@@ -460,6 +461,110 @@ async def stream_events(request: Request, backlog: int = 50):
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",   # nginx would otherwise buffer the stream away
     })
+
+
+# --- the stream plan --------------------------------------------------------
+
+class DirectiveRequest(BaseModel):
+    text: str = Field(default="", max_length=2000)
+
+
+class ObjectiveRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=500)
+    detail: str = Field(default="", max_length=1000)
+
+    @field_validator("text")
+    @classmethod
+    def strip_text(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("an objective needs some text")
+        return stripped
+
+
+class ObjectiveUpdate(BaseModel):
+    text: Optional[str] = Field(default=None, max_length=500)
+    detail: Optional[str] = Field(default=None, max_length=1000)
+    status: Optional[str] = None
+    outcome: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("status")
+    @classmethod
+    def known_status(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in STATUSES:
+            raise ValueError(f"status must be one of {', '.join(STATUSES)}")
+        return v
+
+
+class PlanOrder(BaseModel):
+    ids: list
+
+
+def _plan_payload(brain: AIVtuberBrain) -> Dict[str, Any]:
+    plan = brain.plan
+    return {
+        "directive": plan.directive,
+        "objectives": [o.as_dict() for o in plan.all()],
+    }
+
+
+@app.get("/plan")
+def get_plan():
+    return _plan_payload(get_brain())
+
+
+@app.post("/plan/directive")
+def set_directive(request: DirectiveRequest):
+    brain = get_brain()
+    brain.plan.set_directive(request.text)
+    brain.plan_changed()
+    return _plan_payload(brain)
+
+
+@app.post("/plan/objectives")
+def add_objective(request: ObjectiveRequest):
+    brain = get_brain()
+    if brain.plan.add(request.text, request.detail) is None:
+        raise HTTPException(status_code=400, detail="An objective needs some text")
+    brain.plan_changed()
+    return _plan_payload(brain)
+
+
+@app.patch("/plan/objectives/{objective_id}")
+def update_objective(objective_id: int, request: ObjectiveUpdate):
+    brain = get_brain()
+    updated = brain.plan.update(
+        objective_id, text=request.text, detail=request.detail,
+        status=request.status, outcome=request.outcome,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="No such objective")
+    return _plan_payload(brain)
+
+
+@app.delete("/plan/objectives/{objective_id}")
+def delete_objective(objective_id: int):
+    brain = get_brain()
+    if not brain.plan.remove(objective_id):
+        raise HTTPException(status_code=404, detail="No such objective")
+    brain.plan_changed()
+    return _plan_payload(brain)
+
+
+@app.post("/plan/order")
+def reorder_plan(request: PlanOrder):
+    brain = get_brain()
+    brain.plan.reorder([int(i) for i in request.ids])
+    return _plan_payload(brain)
+
+
+@app.post("/plan/reset")
+def reset_plan():
+    """A new stream: the old plan goes away entirely."""
+    brain = get_brain()
+    brain.plan.clear()
+    brain.plan_changed()
+    return _plan_payload(brain)
 
 
 @app.get("/health")

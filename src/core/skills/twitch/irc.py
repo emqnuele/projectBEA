@@ -1,14 +1,8 @@
-"""Twitch IRC, by hand.
+"""Twitch IRC over asyncio, by hand: the protocol we need is a dozen lines.
 
-Raw IRC over asyncio instead of a library: the protocol Bea needs is a dozen
-lines, and a client library would drag in another HTTP stack for no benefit.
-
-Read-only works **anonymously** (`justinfan<random>` with no password), which
-means chat can be followed with no credentials at all. A token is only needed to
-write back.
-
-The parsing half is pure and testable; the connection half is a loop that
-reconnects and answers PINGs.
+Read-only works anonymously (`justinfan<random>`, no password); a token is only
+needed to write back. The parsing half is pure; the connection half reconnects
+and answers PINGs.
 """
 
 import asyncio

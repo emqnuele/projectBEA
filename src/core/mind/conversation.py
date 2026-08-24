@@ -1,22 +1,13 @@
 """A scoped turn: Bea answering in one channel, without taking the stage.
 
-One mind, several threads of conversation. "One mind" is a constraint on
-*identity* — the same soul, the same self-lore, the same people, the same
-memory — not on *concurrency*. A real person holds a conversation at the bar and
-answers a message on their phone; the mind is one, the threads are several.
-
-What a scoped turn deliberately does NOT get:
-
-- **`speak`** — this is not the stage. Answering a written message out loud was a
-  real failure mode (B5); here it is impossible by construction rather than by
-  a rule in the prompt that a model can ignore.
-- **body actions** — the game is the live loop's business.
-- **the live loop's context** — it gets its own, built from this conversation.
-  Cross-awareness is one line each way, on purpose: start pouring context between
-  turns and you are back to one giant shared context, with more machinery.
+One mind, several threads: same soul, same memory, same people — just not one
+queue. What a scoped turn does not get, by construction rather than by a prompt
+rule a model can ignore: `speak` (this is not the stage), body actions, and the
+live loop's context. Cross-awareness is one line each way.
 """
 
 import asyncio
+import json
 import time
 from typing import Any, Dict, List, Optional
 
@@ -93,8 +84,7 @@ class ConversationMind:
     def dispatch(self, key: str, perceptions: List[Perception]) -> None:
         """Queues perceptions for `key` and makes sure a turn is running.
 
-        Fire-and-forget on purpose: the live loop must never block waiting for a
-        conversation in another channel.
+        Fire-and-forget: the live loop never blocks on another channel.
         """
         if not perceptions:
             return
@@ -107,11 +97,10 @@ class ConversationMind:
 
     async def turn_now(self, key: str, perceptions: List[Perception], *,
                        first: bool = True, initiative: bool = False) -> None:
-        """Queues and runs one turn, awaiting it.
+        """The awaitable twin of `dispatch`.
 
-        The awaitable twin of `dispatch`, for callers that need the reply to have
-        landed before they continue. With `initiative` she may open the
-        conversation herself, with nothing new to answer.
+        With `initiative` she may open the conversation herself, with nothing
+        new to answer.
         """
         if perceptions:
             self._pending.setdefault(key, []).extend(perceptions)
@@ -131,8 +120,8 @@ class ConversationMind:
     async def drain(self, timeout: float = 5.0) -> None:
         """Waits for the turns in flight, including ones not yet started.
 
-        `dispatch` is fire-and-forget: waiting only on the scheduler would return
-        immediately for a turn whose task has not had a chance to run yet.
+        Waiting on the scheduler alone would return immediately for a dispatched
+        turn whose task has not run yet.
         """
         if self._tasks:
             await asyncio.wait(set(self._tasks), timeout=timeout)
@@ -198,8 +187,7 @@ class ConversationMind:
 
     def _build_context(self, key: str, incoming: List[Perception],
                        first: bool, initiative: bool = False) -> List[Dict[str, Any]]:
-        """The system message for a scoped turn. Runs off the loop: it queries
-        the database and may embed."""
+        """The context for a scoped turn. Runs off the loop: it hits the db."""
         parts = [
             f"CURRENT DATE: {time.strftime('%Y-%m-%d')}",
             self._get_soul(),
@@ -226,9 +214,8 @@ class ConversationMind:
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": compose(*parts)}]
 
-        # the incoming messages were already written to history (the coalescing
-        # re-run needs them there), so they are trimmed off the tail here — they
-        # come back below as an explicit frame instead of appearing twice
+        # already written to history for the coalescing re-run: trim them off
+        # the tail so the explicit frame below is not a duplicate
         history = self.memory.conversations.history(
             key, limit=self.history_limit + len(incoming)
         )
@@ -340,14 +327,13 @@ class ConversationMind:
                 display_name="Bea",
             )
         if self.attention:
-            # scoped: answering in one channel is not a reason to go quiet everywhere
             self.attention.mark_spoke(key)
         # one line for the live loop, so she knows what she just did elsewhere
         self._recent.append(f"{key}: you replied — {_clip(sent[-1])}")
         self._recent = self._recent[-5:]
 
     def _schedule_background(self, key: str, incoming: List[Perception]) -> None:
-        """Profile and summarize AFTER answering, so neither is ever in the way."""
+        """Profile and summarize after answering, so neither is in the way."""
         if self.profiler is None:
             return
         identities = {p.author.identity for p in incoming if p.author}
@@ -376,7 +362,6 @@ class ConversationMind:
 
 
 def _assistant_message(msg: AssistantMessage) -> Dict[str, Any]:
-    import json
     out: Dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
     if msg.tool_calls:
         out["tool_calls"] = [
@@ -388,10 +373,10 @@ def _assistant_message(msg: AssistantMessage) -> Dict[str, Any]:
 
 
 def _strip_prefix(content: str, name: str) -> str:
-    """Drops the rendered "[marco] (discord text, channel_id=…): " routing prefix.
+    """Drops the rendered "[marco] (discord text, channel_id=…): " prefix.
 
-    The history is per-channel and already carries the author, so repeating the
-    ids in every stored line is noise that the model would learn to imitate.
+    The history is per-channel and already carries the author; repeating the ids
+    is noise the model would learn to imitate.
     """
     if not name:
         return content

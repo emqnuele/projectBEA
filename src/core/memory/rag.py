@@ -1,17 +1,11 @@
 """Long-term memory: embedded recollections plus similarity retrieval.
 
-Embeddings live in `memories.embedding` as float32 blobs. The pure-Python cosine
-path is always correct and always testable; sqlite-vec, when present, is only a
-coarse pre-filter whose candidates are re-ranked by the same cosine — so both
-paths return the same thing.
+Embeddings live in `memories.embedding` as float32 blobs. The pure-python
+cosine path is always correct; sqlite-vec, when present, is only a coarse
+pre-filter re-ranked by the same cosine, so both paths return the same thing.
 
-The one thing that is not a straight port: `recall_split`. Bea invents on
-purpose. If her own lines came back as facts she would build on them as if they
-were true, and the fiction would compound. Facts people said and things she said
-are stored with different `source` values and recalled into two separate,
-labelled blocks.
-
-Ported from riba/memory/rag.py.
+`recall_split` keeps what people said apart from what Bea said: she invents on
+purpose, and her own lines coming back as facts would compound into fiction.
 """
 
 import math
@@ -27,9 +21,8 @@ logger = get_logger("bea.memory.rag")
 # below this, a "memory" is a fragment, not a recollection
 MIN_REMEMBER_LEN = 8
 
-# how many candidates to pull from sqlite-vec relative to the final k. Its
-# ordering is L2 and ours is cosine: without the margin the right memory could
-# fall outside the candidate set.
+# candidates to pull from sqlite-vec per final result: it orders by L2 and we
+# re-rank by cosine, so without the margin the right memory can fall outside
 VEC_OVERFETCH = 3
 
 SOURCE_PERSON = "person"
@@ -82,8 +75,7 @@ class Rag:
         self.db = db
         self.embedder = embedder
         self.min_similarity = min_similarity
-        # kept from the Chroma-era ranking: a recent memory beats a marginally
-        # more similar old one, which is how recollection actually feels
+        # a recent memory beats a marginally more similar old one
         self.recency_weight = recency_weight
         self.decay_per_day = decay_per_day
         self._vec_ready = False
@@ -139,8 +131,7 @@ class Rag:
         if not rows:
             return 0
 
-        # the vec table hardcodes its dimension at creation: a model with a
-        # different dim needs the table rebuilt, not just repopulated
+        # the vec table fixes its dimension at creation: a new dim needs a rebuild
         if self._vec_ready:
             try:
                 with self.db.cursor() as cur:
@@ -188,8 +179,7 @@ class Rag:
         try:
             blob = _to_blob(self.embedder.embed([text])[0])
         except Exception as e:
-            # a memory without a vector is still worth keeping: ensure_model or a
-            # later re-embed will fill it in. RAG must never break the main flow.
+            # still worth keeping without a vector: a later re-embed fills it in
             logger.warning(f"Embedding failed, storing without a vector: {e}")
 
         mem_id = self.db.execute(
@@ -327,8 +317,7 @@ class Rag:
         if not rows:
             return 0
         if self._vec_ready:
-            # the vector index has no foreign key back to `memories`: left alone
-            # it would keep pointers to rows that no longer exist
+            # no foreign key back to `memories`: clean it by hand
             for row in rows:
                 try:
                     self.db.execute("DELETE FROM vec_memories WHERE rowid = ?", (row["id"],))

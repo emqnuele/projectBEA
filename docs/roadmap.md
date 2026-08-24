@@ -1,8 +1,8 @@
 # ProjectBEA — Piano di sviluppo per l'autonomia
 
-> **Cos'è questo documento.** L'analisi verificata del codice di `projectBEA`, di
-> `riba-tgbot` e della mod `beacraft`, la diagnosi di cosa manca per arrivare a
-> una persona AI autonoma (stile Neuro-sama), e il piano a fasi per costruirla.
+> **Cos'è questo documento.** L'analisi verificata del codice di `projectBEA` e
+> della mod Minecraft che gli fa da corpo, la diagnosi di cosa manca per arrivare
+> a una persona AI autonoma (stile Neuro-sama), e il piano a fasi per costruirla.
 >
 > **Obiettivo dichiarato.** Bea deve **giocare a Minecraft su un server vanilla
 > insieme ad altri giocatori** — leggere la chat, rispondere, reagire a quello
@@ -30,7 +30,7 @@
 ## Indice
 
 1. [Stato reale del codice](#1-stato-reale-del-codice)
-2. [riba-tgbot: cosa fa bene e cosa prendiamo](#2-riba-tgbot-cosa-fa-bene-e-cosa-prendiamo)
+2. [I componenti da importare](#2-i-componenti-da-importare)
 3. [Diagnosi: perché oggi Bea non sembra una persona](#3-diagnosi-perché-oggi-bea-non-sembra-una-persona)
 4. [Architettura target](#4-architettura-target) — incl. [§4.7 Minecraft multiplayer](#47-minecraft-su-server-vanilla-corpo-e-superficie-sociale)
 5. [Bug e debiti verificati](#5-bug-e-debiti-verificati)
@@ -168,7 +168,7 @@ Due processi che si parlano via HTTP in entrambe le direzioni:
 
 ### 1.5 Minecraft — com'è fatto davvero
 
-La mod è un progetto separato: `../beacraft` (Fabric 1.21.1, Java 21). Espone un
+La mod è un progetto separato: BeaCraft (Fabric 1.21.1, Java 21). Espone un
 WebSocket locale (`SimpleWebSocketServer`), 18 skill di azione
 (`skills/*.java`), manager passivi (auto-eat, self-preservation, anti-stuck,
 gravity, death) e un `GameStateGatherer` che serializza player/inventario/
@@ -229,59 +229,41 @@ Il frontend buildato viene servito dal backend con una catch-all SPA.
 
 ---
 
-## 2. riba-tgbot: cosa fa bene e cosa prendiamo
+## 2. I componenti da importare
 
-**Riba** è un bot Telegram (~5.700 righe di sorgente + ~3.000 di test) con lo
-stesso obiettivo dichiarato — *sembrare una persona* — ma risolto su un asse
-diverso: **testo, gruppi, molte persone**. È esattamente il pezzo che manca a Bea.
+Sette pattern già collaudati altrove su testo, gruppi e molte persone — cioè
+esattamente l'asse su cui Bea è debole. Il principio architetturale che li tiene
+insieme: **le decisioni sono funzioni pure, gli effetti collaterali sono
+iniettati**. Un punteggio di presenza, uno split di messaggi, una sanificazione
+non toccano rete né disco, quindi si testano con tabelle di casi.
 
-### 2.1 Mappa
+### 2.1 Le sette idee
 
-```
-riba/
-├── core/       base_model.py · openai_compat.py · providers.py · registry.py
-│               text_match.py · sanitize.py
-├── memory/     db.py (SQLite WAL + sqlite-vec) · conversations.py · embedder.py · rag.py
-├── persona/    prompts.py · builder.py  (assemblaggio prompt, funzioni pure)
-├── engine/     presence.py · followup.py · humanizer.py · scheduler.py
-│               spontaneous.py · stickers.py · emoji_tags.py · responder.py
-└── telegram/   handlers.py (sottili) · commands.py · callbacks.py · menu.py
-```
+| # | Idea | Dove va in Bea | Perché |
+|---|---|---|---|
+| 1 | **Gate di presenza euristico** — punteggio 0-1 (attività, nomi caldi, "?", silenzio, chi parla) con varianza casuale; nessuna chiamata LLM per decidere *se* parlare | nuovo `src/core/attention/` | oggi Bea "pensa" a ogni stimolo: insostenibile per costo, latenza e credibilità |
+| 2 | **Follow-up deterministico** — "questo messaggio è *per me*?" separato da "questa discussione *mi riguarda*?"; scavalca cooldown e quiet hours | `src/core/attention/rules.py` | tirare un dado per decidere se rispondere a chi ti ha appena parlato è *esattamente* ciò che fa sembrare rotto un bot |
+| 3 | **Humanizer** — una riga = un messaggio, soft-split delle righe lunghe, ritardo proporzionale con varianza, indicatore "sta scrivendo" | `src/core/expression/humanizer.py` | Bea oggi non ha output testuale umano; su Discord/Telegram è la differenza fra persona e webhook |
+| 4 | **Scheduler per conversazione** — un turno alla volta *per chat*, chat diverse in parallelo, accorpamento dei messaggi ravvicinati **senza latenza artificiale** | `src/core/mind/scheduler.py` | è la risposta a "interagire con più persone" senza rompere l'ordine né rispondere tre volte |
+| 5 | **Registry a pool con rotazione e fallback** — ruoli (`mind`/`background`), round-robin per distribuire il carico, fallback automatico al modello successivo | `src/core/agent/registry.py` | un 429 di OpenRouter oggi zittisce Bea; e il dreamer non deve girare sullo stesso modello della mente |
+| 6 | **Sanificazione output** — rimuove `<think>`, il formato harmony di gpt-oss, i token `<\|...\|>`, i prefissi di ruolo | `src/utils/sanitize.py` | con modelli economici questa roba **finisce nel TTS** e Bea la pronuncia |
+| 7 | **`recall_split`** — la memoria RAG separa *i fatti detti dalle persone* da *le cose che ha detto lei* | Fase 4 | Bea è una persona che inventa di proposito; se si ri-legge le proprie invenzioni come fatti, la finzione si autoalimenta e diventa incoerenza |
 
-Il principio architetturale di Riba: **le decisioni sono funzioni pure, gli
-effetti collaterali sono iniettati**. `presence.score()`, `humanizer.split()`,
-`is_followup()`, `clean_model_output()` non toccano rete né disco → sono
-testabili con tabelle di casi. È il motivo per cui ha 16 file di test e Bea zero.
+Altre due cose minori ma gratuite:
 
-### 2.2 Le sette idee da portare
+- **match a parola intera con tolleranza di un refuso** e blocklist, per i
+  trigger word ("bea", "beatrice") senza scattare su "beata".
+- **`summary_due`**: rigenerare il riassunto su *delta* di messaggi e non su
+  modulo del totale. Sottigliezza che evita un bug.
 
-| # | Idea di Riba | File di origine | Dove va in Bea | Perché |
-|---|---|---|---|---|
-| 1 | **Gate di presenza euristico** — punteggio 0-1 (attività, nomi caldi, "?", silenzio, chi parla) con varianza casuale; nessuna chiamata LLM per decidere *se* parlare | `engine/presence.py` | nuovo `src/core/attention/` | oggi Bea "pensa" a ogni stimolo: insostenibile per costo, latenza e credibilità |
-| 2 | **Follow-up deterministico** — "questo messaggio è *per me*?" separato da "questa discussione *mi riguarda*?"; scavalca cooldown e quiet hours; ha un tetto ai turni consecutivi | `engine/followup.py` | `src/core/attention/rules.py` | tirare un dado per decidere se rispondere a chi ti ha appena parlato è *esattamente* ciò che fa sembrare rotto un bot |
-| 3 | **Humanizer** — una riga = un messaggio, soft-split delle righe lunghe, ritardo proporzionale con varianza, indicatore "sta scrivendo" | `engine/humanizer.py` | `src/core/expression/humanizer.py` | Bea oggi non ha output testuale umano; su Discord/Telegram è la differenza fra persona e webhook |
-| 4 | **Scheduler per conversazione** — un turno alla volta *per chat*, chat diverse in parallelo, accorpamento dei messaggi ravvicinati **senza latenza artificiale** | `engine/scheduler.py` | `src/core/mind/scheduler.py` | è la risposta a "interagire con più persone" senza rompere l'ordine né rispondere tre volte |
-| 5 | **Registry a pool con rotazione e fallback** — ruoli (`chat`/`summary`), round-robin per distribuire il carico, fallback automatico al modello successivo | `core/registry.py`, `core/providers.py` | `src/core/agent/registry.py` | un 429 di OpenRouter oggi zittisce Bea; e il dreamer non deve girare sullo stesso modello della mente |
-| 6 | **Sanificazione output** — rimuove `<think>`, il formato harmony di gpt-oss, i token `<\|...\|>`, i prefissi di ruolo | `core/sanitize.py` | `src/utils/sanitize.py` | con modelli economici questa roba **finisce nel TTS**; è un bug già visto in produzione su Riba |
-| 7 | **`recall_split`** — la memoria RAG separa *i fatti detti dalle persone* da *le cose che ha detto lei* | `memory/rag.py:230` | Fase 4 | Bea è una persona che inventa di proposito; se si ri-legge le proprie invenzioni come fatti, la finzione si autoalimenta e diventa incoerenza |
+### 2.2 Cosa NON importare
 
-Altre due cose da rubare, minori ma gratuite:
-
-- **`text_match.contains_any_word_fuzzy`** (`core/text_match.py`): match a parola
-  intera con tolleranza di un refuso e blocklist. Serve per i trigger word
-  ("bea", "beatrice") senza scattare su "beata".
-- **`summary_due`** (`memory/conversations.py:209`): rigenerare il riassunto su
-  *delta* di messaggi e non su modulo del totale. Sottigliezza che evita bug.
-
-### 2.3 Cosa NON prendere da Riba
-
-- **Gli sticker** (`engine/stickers.py`, `emoji_tags.py`, ~680 righe): sono
-  telegram-specifici e Bea è principalmente vocale. Rimandare.
-- **Il menu a pulsanti** (`telegram/menu.py`, `callbacks.py`): UI di Telegram,
-  non applicabile.
-- **L'architettura request-reply**: Riba risponde a un update, Bea vive in
-  continuo. Il modello di Riba è più semplice ma non regge la voce e il gioco.
-  Prendiamo i *componenti*, non il *flusso*.
+- **Gli sticker**: sono telegram-specifici e Bea è principalmente vocale.
+  Rimandare.
+- **Il menu a pulsanti**: UI di Telegram, non applicabile.
+- **L'architettura request-reply**: un bot Telegram risponde a un update, Bea
+  vive in continuo. È più semplice ma non regge la voce e il gioco. Prendiamo i
+  *componenti*, non il *flusso*.
 
 ---
 
@@ -424,7 +406,7 @@ def is_addressed(p: Perception, *, trigger_words: Sequence[str],
     """Ritorna il motivo se la perception è rivolta a Bea, altrimenti None.
 
     Casi deterministici (bypassano cooldown e quiet hours, come il followup
-    di Riba): owner, DM, mention/trigger word, reply a un suo messaggio,
+    deterministici): owner, DM, mention/trigger word, reply a un suo messaggio,
     voce diretta in una call dove è sola con qualcuno, donazione,
     evento di gioco critico (morte, danno, INTERRUPTED)."""
 
@@ -437,7 +419,7 @@ def score(*, kind: PerceptionKind, salience: float, text: str,
 def in_quiet_hours(hour: int, start: int, end: int) -> bool: ...
 ```
 
-Struttura di `score` presa da `riba/engine/presence.py:49-89`, adattata:
+Struttura di `score`:
 
 | Segnale | Peso | Nota |
 |---|---|---|
@@ -522,7 +504,7 @@ Cross-consapevolezza, in entrambi i sensi e a costo zero:
 - il conversation turn vede `[COSA STAI FACENDO ADESSO]` con una riga
   ("stai giocando a Minecraft", "sei in call con Marco").
 
-Concorrenza gestita dal port di `riba/engine/scheduler.py`:
+Concorrenza gestita dallo scheduler per conversazione:
 
 ```python
 # src/core/mind/scheduler.py
@@ -548,7 +530,7 @@ tempo di generazione che sarebbe passato comunque.
 `Expression` resta il sink vocale (invariato). Si aggiunge:
 
 ```python
-# src/core/expression/humanizer.py   (port di riba/engine/humanizer.py)
+# src/core/expression/humanizer.py
 class Chunk(NamedTuple):
     kind: str    # "text"
     value: str
@@ -564,7 +546,7 @@ Ogni `PlatformSkill` implementa `emit_text` passando per l'humanizer.
 Per Discord serve un endpoint `POST /typing {channelId}` nel bot
 (`api/server.js`) che chiami `channel.sendTyping()`.
 
-Sanificazione: port di `riba/core/sanitize.py` in `src/utils/sanitize.py`,
+Sanificazione in `src/utils/sanitize.py`,
 applicato in **due punti**:
 1. `OpenAICompatibleClient.complete()` sul `message.content` prima di costruire
    l'`AssistantMessage` (`openai_compat.py:60`);
@@ -587,7 +569,7 @@ class ModelRegistry:
     def get(self, role: str = "mind") -> LLMClient   # "mind" | "background"
 ```
 
-Spec dei modelli come in Riba: `"provider:model"`, split sul **primo** `:` così
+Spec dei modelli: `"provider:model"`, split sul **primo** `:` così
 gli id OpenRouter con `/` e `:free` restano interi.
 
 ```json
@@ -597,7 +579,7 @@ gli id OpenRouter con `/` e `:free` restano interi.
 }
 ```
 
-⚠️ **Vincolo che Riba non ha:** i modelli del pool `mind` **devono supportare il
+⚠️ **Vincolo:** i modelli del pool `mind` **devono supportare il
 tool calling** — la coscienza di Bea parla solo tramite tool. Un modello senza
 tool use non risponderebbe mai. Il `RotatingClient` deve trattare un errore di
 tipo "tools not supported" come fallimento e passare oltre, e loggarlo a
@@ -612,7 +594,7 @@ lenti/economici, e non devono mai competere con la mente.
 Motivazione: cinque store eterogenei, riscritture O(N) per messaggio, nessuna
 transazione, nessuna query. Con più piattaforme e più persone non regge.
 
-Port di `riba/memory/db.py` (SQLite in WAL + lock + `sqlite-vec` opzionale con
+SQLite in WAL + lock + `sqlite-vec` opzionale con
 fallback Python) in `src/core/memory/db.py`. Schema target:
 
 ```sql
@@ -634,16 +616,16 @@ sessions    (session_id PK, title, started_at, ended_at, dreamed INTEGER DEFAULT
 ```
 
 Note di progetto:
-- **`memories.source`** implementa il `recall_split` di Riba: i ricordi marcati
+- **`memories.source`** implementa il `recall_split`: i ricordi marcati
   `bea` entrano nel prompt in un blocco separato e dichiarato ("cose che hai
   detto TU — sono tue uscite, non fatti accertati"). Senza questa separazione,
   una persona che inventa di proposito si ricicla le invenzioni come verità.
 - **Embedding**: oggi Chroma usa il modello di default (`all-MiniLM-L6-v2`,
-  inglese). Riba documenta esplicitamente che con testo italiano un modello
+  inglese). Con testo italiano un modello
   inglese ammassa tutto nella stessa zona dello spazio e il recupero diventa
   casuale. **Decisione da prendere** (§8): se Bea deve parlare italiano, il
   modello va cambiato in `paraphrase-multilingual-MiniLM-L12-v2` e i vettori
-  esistenti ricalcolati — Riba ha già il meccanismo (`rag.ensure_model`).
+  esistenti ricalcolati (`rag.ensure_model`).
 - **Migrazione**: script one-shot `tools/migrate_to_sqlite.py` che legge
   `roster.json`, `people.json`, `recent.json`, `self.md`, le 23 sessioni JSON e
   la collection Chroma, e popola il DB. Idempotente, con dry-run.
@@ -669,8 +651,7 @@ class PlatformSkill(Skill):
 - **Discord**: adeguare `VoiceSurface` a questa base; aggiungere `/typing`.
 - **Telegram** (nuovo, `src/core/skills/telegram/`): `python-telegram-bot` in
   polling, dentro il processo Python (nessun subprocess). Gli handler sono
-  sottili come in Riba: estraggono, costruiscono l'`Author`, depositano la
-  perception. Riusare `is_bot_called` e `text_match` di Riba.
+  sottili: estraggono, costruiscono l'`Author`, depositano la perception.
 - **Twitch** (nuovo): IRC read-only in prima battuta. Ogni messaggio aggiorna il
   roster (economico), ma **solo quelli che passano l'Attention arrivano alla
   mente**; il resto diventa una riga aggregata nel digest ("chat: 34 messaggi,
@@ -687,7 +668,7 @@ class PlatformSkill(Skill):
 
 #### Verdetto sulla mod: è già pronta per il multiplayer
 
-`../beacraft` è un mod **client-side** Fabric 1.21.1. Non richiede nulla lato
+BeaCraft è un mod **client-side** Fabric 1.21.1. Non richiede nulla lato
 server: per il server è un client normale. La domanda che conta è *come* esegue
 le azioni, e la risposta è la migliore possibile.
 
@@ -974,7 +955,7 @@ lo legge per orientarsi parte con un modello mentale sbagliato del sistema.
 ### B13 · Nessun test, nessun lint, nessuna CI
 
 `pyproject.toml` non ha né `pytest`, né `ruff`, né dipendenze di sviluppo. Per
-confronto, `riba` ha 16 file di test (~3.000 righe) proprio sulle parti che qui
+Servono test proprio sulle parti che qui
 stiamo per riscrivere.
 
 ### B14 · ALTO (Minecraft) · Bea non riceve la chat di gioco
@@ -1075,7 +1056,7 @@ src/core/attention/__init__.py
 src/core/attention/types.py     Reaction, Verdict          (puro)
 src/core/attention/rules.py     is_addressed, score, in_quiet_hours  (puro)
 src/core/attention/gate.py      Attention                  (stato + rng + clock iniettabili)
-src/utils/text_match.py         port di riba/core/text_match.py  (puro)
+src/utils/text_match.py         match a parola intera, puro
 tests/test_attention_rules.py
 tests/test_attention_gate.py
 tests/test_text_match.py
@@ -1092,7 +1073,7 @@ tests/test_text_match.py
 
 **Contratto da rispettare:** `rules.py` non importa nulla di asyncio, di rete o di
 `Skill`. Prende primitivi, ritorna un float. È la condizione per poterlo testare
-a tabella come fa `riba/tests/test_presence.py`.
+a tabella.
 
 **Osservabilità (non opzionale):** ogni `Verdict` va pubblicato come
 `EventCategory.SYSTEM` con `metadata={"reaction","score","reason"}`, e la pagina
@@ -1112,9 +1093,9 @@ funzioni pure.
 
 **Nuovi file:**
 ```
-src/utils/sanitize.py                    port di riba/core/sanitize.py
+src/utils/sanitize.py                    pulizia dell'output del modello
 src/core/expression/__init__.py          (Expression si sposta qui)
-src/core/expression/humanizer.py         port di riba/engine/humanizer.py (senza sticker)
+src/core/expression/humanizer.py         consegna del testo, riga per riga
 tests/test_sanitize.py
 tests/test_humanizer.py
 ```
@@ -1127,7 +1108,7 @@ tests/test_humanizer.py
 - `bot/api/server.js` — nuovo `POST /typing {channelId}` → `channel.sendTyping()`.
 - `voice/transport.py` — metodo `typing(channel_id)`.
 
-**Attenzione al dettaglio che Riba documenta:** la trascrizione salvata in storia
+**Attenzione al dettaglio:** la trascrizione salvata in storia
 deve essere **ciò che è partito davvero**, non il testo generato. Se un chunk non
 parte, non deve comparire nella storia (`humanizer.deliver` ritorna la lista dei
 chunk inviati proprio per questo).
@@ -1153,7 +1134,7 @@ compete con la mente.
 - `config.py` — blocco `models` (§4.4); i vecchi campi `*_model` restano come
   fallback per retrocompatibilità.
 
-**Test da scrivere (copiati concettualmente da Riba):** ordine di rotazione su N
+**Test da scrivere:** ordine di rotazione su N
 chiamate; fallback quando il primo client solleva; errore chiaro quando il pool
 è vuoto; rispetto del vincolo tool-calling.
 
@@ -1170,10 +1151,10 @@ distinguere i fatti dalle invenzioni di Bea.
 
 **Nuovi file:**
 ```
-src/core/memory/db.py             port di riba/memory/db.py (WAL, lock, sqlite-vec opz.)
+src/core/memory/db.py             SQLite (WAL, lock, sqlite-vec opzionale)
 src/core/memory/schema.sql        lo schema di §4.5
 src/core/memory/store.py          facciata (people, roster, messages, summaries)
-src/core/memory/rag.py            port di riba/memory/rag.py con recall_split
+src/core/memory/rag.py            recall con recall_split
 src/core/memory/embedder.py       fastembed locale
 tools/migrate_to_sqlite.py        one-shot, idempotente, con --dry-run
 tests/test_memory_store.py
@@ -1186,7 +1167,7 @@ volta (roster → people → hot facts → self → diario); infine si rimuovono
 
 **Aggiunta funzionale della fase** (non solo un porting): il **riassunto rolling
 per conversazione** e il **profilo persona a trigger di conteggio**, presi da
-Riba (`conversations.py:209` e `:269`, `responder.py:486-517`). Sono ciò che dà
+Sono ciò che dà
 la sensazione "sa chi sei" senza aspettare un dream: la prima scheda si fa
 presto (20 messaggi), gli aggiornamenti sono radi (50), e girano sul modello
 `background` **dopo** aver risposto, così non pesano sul turno.
@@ -1205,7 +1186,7 @@ dietro un turno solo.
 **Nuovi file:**
 ```
 src/core/mind/__init__.py
-src/core/mind/scheduler.py        port di riba/engine/scheduler.py
+src/core/mind/scheduler.py        un turno per conversazione, in parallelo
 src/core/mind/conversation.py     ConversationTurn: costruzione context + esecuzione
 tests/test_scheduler.py
 tests/test_conversation_context.py
@@ -1240,7 +1221,7 @@ risposta; l'ordine dentro un canale è sempre rispettato; ≥12 test.
 src/core/skills/platform.py               base comune (§4.6)
 src/core/skills/telegram/__init__.py
 src/core/skills/telegram/surface.py       TelegramSkill(PlatformSkill)
-src/core/skills/telegram/handlers.py      sottili, stile riba/telegram/handlers.py
+src/core/skills/telegram/handlers.py      sottili: estrai, deposita, esci
 tests/test_telegram_routing.py
 ```
 
@@ -1249,7 +1230,7 @@ Dipendenza: `python-telegram-bot[job-queue]`. Gira **in-process** con
 skill — niente subprocess (a differenza di Discord, dove il subprocess node
 serve per la voce).
 
-Riusare da Riba, quasi verbatim: `is_bot_called` (`telegram/handlers.py:16`) e
+Riusare: `is_bot_called` e
 la logica di follow-up già portata in Fase 1.
 
 ✅ **Done:** Bea risponde in un gruppo Telegram quando chiamata; interviene
@@ -1297,7 +1278,7 @@ costruisce bene da sola.
 
 #### Fase 8A — I sensi: la mod impara a sentire (2-3 giorni, Java)
 
-Tutto in `../beacraft`. Nessuna modifica al comportamento: solo dati in più che
+Tutto nella mod. Nessuna modifica al comportamento: solo dati in più che
 escono dal WebSocket. Testabile da sola con `websocat` senza toccare Python.
 
 **Nuovo file `ChatListener.java`**, registrato in `BeaCraftMod.onInitialize`:
@@ -1443,7 +1424,7 @@ JSON di stato di gioco.
 
 **Obiettivo:** una giornata, non un ciclo di eventi.
 
-- Port di `riba/engine/spontaneous.py`: job periodico che, nelle conversazioni
+- `spontaneous.py`: job periodico che, nelle conversazioni
   vive, fuori dalle quiet hours e dopo abbastanza silenzio, ogni tanto **inizia**
   qualcosa. Bea oggi può solo monologare sul palco.
 - Dreamer su schedule notturno, non solo a comando.
@@ -1509,23 +1490,23 @@ riga come un bot.
 
 ## 7. Strategia di test
 
-La regola che rende testabile Riba e non testabile Bea:
+La regola che rende testabile un progetto:
 
 > **Le decisioni sono funzioni pure. Gli effetti sono iniettati.**
 
 Applicata concretamente:
 
-| Cosa | Come si testa | Modello da imitare |
-|---|---|---|
-| `attention/rules.py` | tabella di casi → punteggio atteso | `riba/tests/test_presence.py` |
-| `attention/gate.py` | `rng` e `clock` iniettati nel costruttore | `riba/engine/presence.py:36-44` |
-| `humanizer.split/delay_for` | stringa → lista di chunk attesa | `riba/tests/test_humanizer.py` |
-| `humanizer.deliver` | `send_text`/`send_typing` finti che registrano | `riba/engine/humanizer.py:136` |
-| `sanitize` | input sporchi noti → output pulito | `riba/tests/test_sanitize.py` |
-| `ConversationScheduler` | turni finti, verifica ordine e accorpamento | `riba/tests/test_scheduler.py` |
-| `RotatingClient` | client finti, uno che solleva | `riba/tests/test_core.py` |
-| memoria / RAG | DB in-memory + embedder finto deterministico | `riba/tests/test_rag.py` |
-| coscienza | `LLMClient` finto che ritorna `AssistantMessage` prefabbricate | — (da inventare) |
+| Cosa | Come si testa |
+|---|---|
+| `attention/rules.py` | tabella di casi → punteggio atteso |
+| `attention/gate.py` | `rng` e `clock` iniettati nel costruttore |
+| `humanizer.split/delay_for` | stringa → lista di chunk attesa |
+| `humanizer.deliver` | `send_text`/`send_typing` finti che registrano |
+| `sanitize` | input sporchi noti → output pulito |
+| `ConversationScheduler` | turni finti, verifica ordine e accorpamento |
+| `RotatingClient` | client finti, uno che solleva |
+| memoria / RAG | DB in-memory + embedder finto deterministico |
+| coscienza | `LLMClient` finto che ritorna `AssistantMessage` prefabbricate |
 
 **Il pezzo che manca a entrambi i progetti** e che va costruito qui: un
 `FakeLLMClient` che, data una sequenza di `AssistantMessage`, permetta di
@@ -1571,10 +1552,9 @@ rischiosa. → decidere prima della **Fase 5**.
 **D3 · Twitch: quanto aggregare.** Una riga di digest ogni N secondi, oppure un
 riassunto LLM della chat ogni M minuti (costa, ma è molto più ricco). → **Fase 7**.
 
-**D4 · Personalità di Bea rispetto a quella di Riba.** Riba ha un carattere
-molto forte e volutamente sgradevole; Bea è ojou-sama viziata. I meccanismi si
-portano, i prompt **no**. Il `soul.md` resta intoccabile (regola del `PLAN.md`,
-§9) — ma va deciso se e come tarare i prompt sul modello che si userà davvero.
+**D4 · Taratura dei prompt.** I meccanismi si importano, i prompt **no**: il
+`soul.md` resta intoccabile (regola del `PLAN.md`, §9). Va deciso se e come
+tarare i prompt operativi sul modello che si userà davvero.
 
 **D5 · Il subprocess node di Discord.** Con Telegram in-process, restare a due
 runtime solo per la voce Discord è un costo operativo. Alternativa: `discord.py`
@@ -1620,7 +1600,7 @@ concreti in cui questo progetto può peggiorare.
   aggiunge 1: è la direzione giusta.
 - **Non toccare i prompt senza toccare il codice, e viceversa.** B4 è nato così.
   Prompt e tool si modificano nello stesso commit.
-- **Non copiare Riba alla lettera.** È request-reply su una piattaforma sola.
+- **Non copiare un bot request-reply alla lettera.** Vive su una sola piattaforma.
   Si prendono i componenti puri (score, split, sanitize, scheduler, rotazione),
   non il flusso.
 
@@ -1648,10 +1628,10 @@ concreti in cui questo progetto può peggiorare.
 | Ingestione voce Discord + VAD | `src/core/skills/voice/bot/classes/VoiceManager.js:122` |
 | Protocollo mod Minecraft (lato Python) | `src/core/skills/minecraft/client.py:66` |
 | Dispatch dei pacchetti dalla mod | `src/core/skills/minecraft/client.py:151` |
-| Entrypoint mod + tick loop | `../beacraft/…/BeaCraftMod.java:36` |
-| Stato di gioco serializzato | `../beacraft/…/GameStateGatherer.java:22` |
-| Canale eventi mod → Python | `../beacraft/…/ActionManager.java:170` (`broadcast`) |
-| Azioni di gioco (skill Java) | `../beacraft/…/skills/*.java` |
+| Entrypoint mod + tick loop | `beacraft/…/BeaCraftMod.java:36` |
+| Stato di gioco serializzato | `beacraft/…/GameStateGatherer.java:22` |
+| Canale eventi mod → Python | `beacraft/…/ActionManager.java:170` (`broadcast`) |
+| Azioni di gioco (skill Java) | `beacraft/…/skills/*.java` |
 | Prompt | `data/prompts/{soul,operating,monologue,minecraft}.md` |
 
 ### 10.2 Contratto di una perception
@@ -1697,19 +1677,4 @@ make lint           # (dalla Fase 0)
 ```
 
 Bot Discord: `cd src/core/skills/voice/bot && npm install` (una volta).
-Mod Minecraft: `cd ../beacraft && make build && make run`.
-
-### 10.5 Riferimenti incrociati a riba-tgbot
-
-Percorso: `../riba-tgbot`. I file da leggere prima di implementare, per fase:
-
-| Fase | Leggere in riba |
-|---|---|
-| 1 | `riba/engine/presence.py`, `riba/engine/followup.py`, `riba/core/text_match.py`, `tests/test_presence.py`, `tests/test_followup.py` |
-| 2 | `riba/engine/humanizer.py`, `riba/core/sanitize.py`, `tests/test_humanizer.py`, `tests/test_sanitize.py` |
-| 3 | `riba/core/registry.py`, `riba/core/providers.py`, `riba/core/base_model.py` |
-| 4 | `riba/memory/db.py`, `riba/memory/rag.py`, `riba/memory/conversations.py`, `riba/memory/embedder.py` |
-| 5 | `riba/engine/scheduler.py`, `riba/engine/responder.py` (§ `_schedule`) |
-| 6 | `riba/telegram/handlers.py`, `riba/app.py` |
-| 9 | `riba/engine/spontaneous.py` |
-| prompt | `riba/persona/builder.py` — l'assemblaggio a blocchi con i commenti che spiegano *perché* ogni blocco sta dov'è: è la parte più istruttiva del progetto |
+Mod Minecraft: build ed esecuzione dalla sua repo (vedi §4.7).

@@ -1,4 +1,4 @@
-"""Twitch: the phase-7 definition of done — high volume that costs almost nothing."""
+"""Twitch: high volume that costs almost nothing."""
 
 import asyncio
 import random
@@ -192,7 +192,7 @@ def test_something_one_person_said_once_is_not_a_topic():
 
 
 async def test_thirty_messages_a_minute_stay_under_four_model_calls(twitch):
-    """Phase-7 definition of done. Without the gate this would be 30 calls."""
+    """Without the gate this would be 30 model calls."""
     skill, store, bus = twitch
     config = Config()
     rng = random.Random(7)

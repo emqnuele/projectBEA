@@ -129,7 +129,6 @@ def test_a_one_to_one_voice_call_is_all_addressed_to_her():
 
 def base_score(**kwargs) -> float:
     args = dict(
-        kind=PerceptionKind.CHAT,
         salience=0.5,
         text="something happened",
         seconds_since_spoke=300.0,

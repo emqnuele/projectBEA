@@ -1,12 +1,7 @@
 -- Bea's memory, in one transactional file.
 --
--- Replaces five stores that could not stay in sync: a Chroma collection for the
--- diary plus roster.json, people.json, recent.json and self.md — each rewritten
--- whole on every single write, with no atomicity across them (promoting someone
--- touched two files, and a crash between them left a half-promoted person).
---
--- Timestamps are REAL epoch seconds, matching what the rest of the code already
--- compares against (`time.time() - last_seen`). No parsing, no timezone.
+-- Timestamps are REAL epoch seconds, which is what the rest of the code
+-- compares against. No parsing, no timezone.
 
 -- --- people -----------------------------------------------------------------
 
@@ -17,9 +12,7 @@ CREATE TABLE IF NOT EXISTS people (
     primary_name    TEXT NOT NULL DEFAULT '',
     attitude        TEXT NOT NULL DEFAULT '',      -- how Bea feels about them
     promoted_reason TEXT NOT NULL DEFAULT '',
-    -- how many of their messages existed at the last profiling pass. The first
-    -- card is worth building early (until it exists Bea has no idea who they
-    -- are); refreshes can be far rarer, since people don't change weekly.
+    -- their message count at the last profiling pass
     profiled_count  INTEGER NOT NULL DEFAULT 0,
     created_at      REAL NOT NULL,
     updated_at      REAL NOT NULL
@@ -40,9 +33,8 @@ CREATE TABLE IF NOT EXISTS identities (
 CREATE INDEX IF NOT EXISTS idx_identities_person ON identities(person_id);
 CREATE INDEX IF NOT EXISTS idx_identities_name ON identities(display_name);
 
--- The cheap tally kept for EVERYONE, thousands of chatters included: it carries
--- no generated content, it just counts, so the system can decide who is worth a
--- card. An INSERT per message instead of rewriting the whole file.
+-- The cheap tally kept for everyone: no generated content, just counts, so it
+-- is affordable for thousands of chatters.
 CREATE TABLE IF NOT EXISTS roster (
     identity       TEXT PRIMARY KEY REFERENCES identities(identity) ON DELETE CASCADE,
     message_count  INTEGER NOT NULL DEFAULT 0,
@@ -52,9 +44,9 @@ CREATE TABLE IF NOT EXISTS roster (
     promoted       INTEGER NOT NULL DEFAULT 0
 );
 
--- Distinct sessions an identity showed up in. A join table rather than a
--- denormalised counter: "3+ distinct sessions" is what promotes a regular, and a
--- counter that can double-count would mint cards for one-time visitors.
+-- Distinct sessions an identity showed up in. A join table, not a counter:
+-- "3+ distinct sessions" promotes a regular, and double-counting would mint
+-- cards for one-time visitors.
 CREATE TABLE IF NOT EXISTS roster_sessions (
     identity   TEXT NOT NULL REFERENCES identities(identity) ON DELETE CASCADE,
     session_id TEXT NOT NULL,
@@ -91,9 +83,8 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_key, id);
 
 -- Rolling summary per conversation. `last_count` is the message count at the
--- last regeneration: the trigger is a DELTA, not a modulo on the total, because
--- the check only runs when Bea answers and the counter jumps — an exact multiple
--- would be stepped over and the summary would never refresh.
+-- last regeneration: the trigger is a delta, not a modulo, because the counter
+-- jumps by more than one and an exact multiple would be stepped over.
 CREATE TABLE IF NOT EXISTS summaries (
     conversation_key TEXT PRIMARY KEY,
     summary          TEXT NOT NULL DEFAULT '',
@@ -103,10 +94,9 @@ CREATE TABLE IF NOT EXISTS summaries (
 
 -- --- long-term memory -------------------------------------------------------
 
--- Embedded recollections. `source` is the important column: 'person' is
--- something someone actually said, 'bea' is something SHE said. Bea invents on
--- purpose — if her own output came back as fact, the fiction would compound into
--- incoherence. They are recalled into two separate, labelled blocks.
+-- Embedded recollections. `source` separates what someone said from what Bea
+-- said: she invents on purpose, so the two are recalled into separate blocks
+-- and her own output never comes back as fact.
 CREATE TABLE IF NOT EXISTS memories (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     scope        TEXT NOT NULL,                   -- 'diary' | 'conversation' | 'person'
@@ -164,4 +154,29 @@ CREATE TABLE IF NOT EXISTS sessions (
     started_at REAL NOT NULL,
     ended_at   REAL,
     dreamed    INTEGER NOT NULL DEFAULT 0
+);
+
+-- --- the stream plan --------------------------------------------------------
+
+-- What the owner asked her to do on stream. Not a memory: it is an instruction
+-- she is given, edited from the dashboard and read back into every prompt.
+CREATE TABLE IF NOT EXISTS objectives (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    text       TEXT    NOT NULL,
+    detail     TEXT    NOT NULL DEFAULT '',
+    -- 'todo' | 'doing' | 'done' | 'dropped'
+    status     TEXT    NOT NULL DEFAULT 'todo',
+    -- how it went, in her words: what she reports back when she closes one
+    outcome    TEXT    NOT NULL DEFAULT '',
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at REAL    NOT NULL,
+    updated_at REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_objectives_order ON objectives(position, id);
+
+-- Small owner-set values that are not memories either; today just the plan's
+-- headline ("today you play minecraft with the mod team").
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );

@@ -1,10 +1,8 @@
 """Whole-word matching for trigger words and hot names.
 
-A plain `in` makes "bea" fire on "beautiful", "beach", "bead" — Bea would think
-she was being called when she wasn't. Here we match on word boundaries, and
-offer a fuzzy variant that tolerates one typo so "beatrcie" still reaches her.
-
-Ported from riba/core/text_match.py.
+A plain `in` makes "bea" fire on "beautiful" and "beach". These match on word
+boundaries, with a fuzzy variant that tolerates one typo so "beatrcie" still
+reaches her.
 """
 
 import re
@@ -14,8 +12,7 @@ from typing import Iterable
 
 @lru_cache(maxsize=512)
 def _pattern(word: str) -> re.Pattern:
-    # (?<!\w) … (?!\w): tight boundaries — underscores count as word characters,
-    # which is what we want for usernames
+    # underscores count as word characters, which is right for usernames
     return re.compile(r"(?<!\w)" + re.escape(word) + r"(?!\w)", re.IGNORECASE)
 
 

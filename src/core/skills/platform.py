@@ -1,14 +1,11 @@
 """What every text platform has in common, so it is written once.
 
-Discord, Telegram and Twitch differ in their transport and almost nothing else:
-each one turns an incoming message into a `Perception` with a correct `Author`,
-and sends text back out through the humanizer. Everything above that — the
-roster, the person cards, the attention gate, the scoped conversation turns — is
-keyed on `Author` and `conversation_key`, so it works on a new platform the
-moment those two are built correctly.
+Discord, Telegram and Twitch differ in their transport and little else: each
+turns an incoming message into a `Perception` with a correct `Author`, and
+sends text back out through the humanizer.
 
 A subclass owes three things: `platform`, a way to build an `Author`, and a way
-to actually send text.
+to send text.
 """
 
 from typing import Any, Dict, List, Optional
@@ -28,10 +25,8 @@ class PlatformSkill(Skill):
 
     platform: str = "platform"
 
-    # Does a channel here deserve its own conversation thread, or does it belong
-    # to the stage? A Discord channel is an asynchronous exchange with a few
-    # people — its own thread. A twitch chat is the audience standing in the same
-    # room as her voice: she answers it out loud, so it stays on the stage.
+    # its own conversation thread, or the stage? a discord channel is an
+    # asynchronous exchange; a twitch chat is the room her voice is already in
     scoped_conversations: bool = True
 
     def initialize(self) -> None:
@@ -66,10 +61,8 @@ class PlatformSkill(Skill):
                       meta: Optional[Dict[str, Any]] = None) -> Perception:
         """Puts one incoming message on the bus.
 
-        The flags matter more than they look: `is_dm`, `mentions_self` and
-        `reply_to_self` are what `is_addressed` reads to decide, deterministically,
-        that this message is *for her* — and being addressed is the one thing that
-        bypasses cooldowns and quiet hours.
+        `is_dm`, `mentions_self` and `reply_to_self` are what `is_addressed`
+        reads to decide this message is for her, which bypasses the cooldown.
         """
         perception = Perception(
             kind=PerceptionKind.CHAT,
@@ -103,11 +96,7 @@ class PlatformSkill(Skill):
 
     async def deliver(self, channel_id: str, text: str,
                       reply_to: Optional[str] = None) -> List[str]:
-        """Writes the way a person does: line by line, with typing in between.
-
-        Returns what actually went out — history must record what was sent, not
-        what was generated.
-        """
+        """Writes line by line, with typing in between. Returns what went out."""
         first = {"done": False}
 
         async def send(chunk: str) -> None:
@@ -134,9 +123,8 @@ class PlatformSkill(Skill):
                            reply_to: Optional[str] = None) -> List[Tool]:
         """`reply`, `send_message`, `react` — with the ids already bound.
 
-        No `speak` and no body actions here, by construction: inside a written
-        conversation those are not hers to use, and an absent tool is a stronger
-        guarantee than a rule in the prompt.
+        No `speak` and no body actions: an absent tool is a stronger guarantee
+        than a rule in the prompt.
         """
         if not self.active or not channel_id:
             return []

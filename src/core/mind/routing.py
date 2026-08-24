@@ -1,14 +1,9 @@
 """Where does a perception go: the stage, or a scoped conversation?
 
-Pure, and deliberately an explicit if/else. The one rule that must never break:
-**a perception goes to exactly one turn.** Two consumers over the same batch
-would mean Bea answering the same message twice, from two contexts that do not
-know about each other.
+The stage is what she does live in front of an audience — voice, the game, the
+console. A scoped conversation is written text in one channel.
 
-The stage is everything she does *live*, in front of an audience: her voice, a
-Discord call, the game, the owner at the console. A scoped conversation is
-asynchronous written text — a channel, a group, a thread — which does not need
-the stage and should not hold it up.
+One rule: a perception goes to exactly one turn, or she answers it twice.
 """
 
 from typing import Optional
@@ -17,9 +12,7 @@ from src.core.perception.types import Perception, PerceptionKind
 
 STAGE = "stage"
 
-# written surfaces whose messages belong to a channel, not to the stage. Only a
-# fallback: a PlatformSkill declares `conversation_key` in the perception itself,
-# which is the path that actually matters.
+# fallback only: a PlatformSkill sets `conversation_key` on the perception
 TEXT_SURFACES = {"voice:discord", "chat:telegram", "chat:mc"}
 
 
@@ -51,8 +44,8 @@ def is_stage(p: Perception) -> bool:
 def awaits_a_reply(p: Perception) -> bool:
     """Someone is blocked on an HTTP call waiting for her answer.
 
-    Those must stay on the stage no matter what the surface says: the caller is
-    waiting on the live loop's correlation, and a scoped turn cannot resolve it.
+    Stays on the stage whatever the surface says: only the live loop can
+    resolve a correlation.
     """
     return bool((p.meta or {}).get("correlation_id"))
 

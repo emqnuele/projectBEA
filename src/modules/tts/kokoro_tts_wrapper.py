@@ -72,7 +72,7 @@ class KokoroTTSWrapper(TTSInterface):
             return np.zeros(0, dtype=np.float32), 24000
 
         # run generation in thread to avoid blocking loop
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         samples, sample_rate = await loop.run_in_executor(
             None,
             self.kokoro.create,

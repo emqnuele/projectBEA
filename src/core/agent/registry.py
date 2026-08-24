@@ -1,18 +1,12 @@
-"""Model pools per role: round-robin to spread load, fallback so one dead
-provider does not make Bea mute.
+"""Model pools per role: round-robin to spread load, fallback on failure.
 
-Today a single 429 from OpenRouter silences her completely, and the dreamer runs
-on the same model as the mind — competing with it for rate limit and latency.
+A pool is a list of `provider:model` specs, split on the FIRST `:` so
+OpenRouter ids keep their `/` and their `:free` suffix.
 
-A pool is a list of `provider:model` specs. The split is on the FIRST `:`, so
-OpenRouter ids keep their `/` and their `:free` suffix intact.
-
-Two roles:
-- `mind`       — the consciousness. MUST support tool calling: Bea speaks only
-                 through tools, so a model without tool use would never say
-                 anything at all.
-- `background` — diary, dreamer, summaries, person profiles. Batch work that
-                 tolerates a slow, cheap model and must never compete with the mind.
+- `mind` — the consciousness. Must support tool calling: she speaks only
+  through tools, so a model without it would never say anything.
+- `background` — diary, dreamer, summaries, profiles. Slow and cheap is fine,
+  and it must never compete with the mind.
 """
 
 import asyncio
@@ -28,8 +22,7 @@ logger = get_logger("bea.agent.registry")
 MIND = "mind"
 BACKGROUND = "background"
 
-# a provider saying "this model has no tool support" is a configuration mistake,
-# not a hiccup: it will fail identically forever, so it is logged loudly
+# a configuration mistake, not a hiccup: it fails identically forever
 _NO_TOOLS_RE = re.compile(
     r"(tool|function)[\s_-]*(call|use|choice)?.{0,40}(not|un)[\s_-]*(support|available|allowed)"
     r"|does not support tools",
@@ -63,7 +56,7 @@ class RotatingClient(LLMClient):
         """The pool starting at the next client, then everyone else as fallback."""
         n = len(self._clients)
         start = self._index
-        # advancing here (not on success) is what actually spreads the load
+        # advancing here, not on success, is what spreads the load
         self._index = (start + 1) % n
         return [self._clients[(start + i) % n] for i in range(n)]
 
@@ -151,10 +144,7 @@ class ModelRegistry:
         return self._legacy_specs(role)
 
     def _legacy_specs(self, role: str) -> List[str]:
-        """Falls back to the pre-pool `llm_provider` + `<provider>_model` fields.
-
-        Existing configs must keep working untouched after an upgrade.
-        """
+        """Falls back to the pre-pool `llm_provider` + `<provider>_model` fields."""
         provider = getattr(self.config, "llm_provider", "openrouter")
         model = getattr(self.config, f"{provider}_model", "")
         if not model:

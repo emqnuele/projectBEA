@@ -1,7 +1,7 @@
-"""Phase 8D: the mind decides an intention, the body pursues it.
+"""The mind decides an intention, the body pursues it.
 
-The point is what the mind stops carrying — twenty-five tools, crafting trees,
-and a stream of `FINISHED: SUCCESS` in the same context as the conversation.
+What matters is what the mind stops carrying: twenty-five tools, crafting
+trees, and a stream of `FINISHED: SUCCESS` in the conversation's context.
 """
 
 import pytest

@@ -14,12 +14,11 @@ REGULAR_ABSENCE_DAYS = 10
 
 
 class DreamSkill(Skill):
-    """Sleep & dream: self-knowledge, 'right now' facts, and offline consolidation.
+    """Sleep and dream: self-knowledge, hot facts, offline consolidation.
 
-    While active, Bea's self-lore and a few hot 'right now' facts are always in
-    context. A morning pass refreshes the hot facts on start. Bea can choose to
-    `go_to_sleep`, which runs the dreamer (consolidating raw conversations into
-    durable memory) and then wakes her up — or it can be triggered from the UI.
+    While active her self-lore and a few "right now" facts are always in
+    context. `go_to_sleep` runs the dreamer and wakes her up again; the UI can
+    trigger the same pass.
     """
 
     name = "dream"
@@ -55,9 +54,8 @@ class DreamSkill(Skill):
     async def _nightly(self) -> None:
         """Dreams once a night, on its own.
 
-        Consolidation is not something she should have to be told to do — people
-        do not decide to sleep on it. The hour is checked rather than a timer
-        being set, so restarting the process does not skip a night or double one.
+        The hour is checked rather than a timer set, so a restart neither skips
+        a night nor doubles one.
         """
         hour = int(self.config.skills.get("dream", {}).get("hour", 4))
         last_dreamed_on = None

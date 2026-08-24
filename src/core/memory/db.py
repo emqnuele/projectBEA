@@ -1,11 +1,8 @@
 """SQLite handle: one file, schema bootstrapped on open.
 
-Operations are serialized by a lock because DB work happens both on the event
-loop and inside `asyncio.to_thread`. SQLite in WAL mode handles that load
-comfortably. sqlite-vec is loaded when available (it accelerates recall);
-everything still works without it.
-
-Ported from riba/memory/db.py.
+Operations are serialized by a lock because db work happens both on the event
+loop and inside `asyncio.to_thread`. sqlite-vec is loaded when available and
+accelerates recall; everything still works without it.
 """
 
 import sqlite3
@@ -20,8 +17,8 @@ logger = get_logger("bea.memory.db")
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
-# columns added after the first release. CREATE TABLE IF NOT EXISTS does not add
-# them to tables that already exist, so they need a guarded ALTER.
+# (table, column, type) for columns added after a table already exists:
+# CREATE TABLE IF NOT EXISTS will not add them, so they need a guarded ALTER
 _MIGRATIONS: List[tuple] = []
 
 

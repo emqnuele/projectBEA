@@ -1,4 +1,4 @@
-"""What the attention gate decides, and why. Pure data — no IO, no imports."""
+"""What the attention gate decides. Pure data, no IO."""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -14,15 +14,12 @@ class Reaction(str, Enum):
 
 @dataclass(frozen=True)
 class Verdict:
-    """The gate's decision on one perception.
-
-    `reason` is meant to be read by a human tuning the thresholds: without
-    seeing *why* something was ignored, calibration is blind guessing.
-    """
+    """The gate's decision on one perception."""
 
     reaction: Reaction
     score: float
-    reason: str   # "addressed:mention" | "addressed:owner" | "score:0.62" | "cooldown"
+    # readable so the thresholds can be tuned: "addressed:owner", "score:0.62", "cooldown"
+    reason: str
 
     @property
     def reacts(self) -> bool:

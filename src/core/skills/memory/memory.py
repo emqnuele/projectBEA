@@ -25,12 +25,10 @@ def _clean_for_query(rendered: str) -> str:
 
 
 class MemorySkill(Skill):
-    """Long-term memory as a capability: when on, Bea recalls past sessions
-    (RAG injected per batch). When off, she has no memory at all.
+    """Long-term memory as a capability: recall is injected per batch.
 
-    Recall comes back in two labelled blocks — what people said, and what SHE
-    said. Bea invents on purpose, and without that split her own inventions would
-    re-enter the prompt as facts and compound into incoherence.
+    It comes back in two labelled blocks — what people said, and what she said —
+    so her own inventions never re-enter the prompt as facts.
     """
 
     name = "memory"
@@ -60,9 +58,7 @@ class MemorySkill(Skill):
         self.active = True
 
     def tools(self) -> List[Tool]:
-        # no recall tool: long-term memory is injected automatically every turn
-        # (context_for). A manual recall burned an extra slow round-trip and a
-        # second embedding to fetch what she already had.
+        # no recall tool: context_for already injects it every turn
         return []
 
     # --- per-batch injection ------------------------------------------------

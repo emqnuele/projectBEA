@@ -1,17 +1,11 @@
 """The body, pursuing a goal on its own.
 
-Before this, the mind drove the game tick by tick: every `FINISHED: SUCCESS`,
-every state JSON, every failed pathfind landed in the same context as the
-conversation. On a server with people talking, her personality drowned in game
-logs — and she was spending her reasoning on where to put her feet.
+The mind decides an intention and the body pursues it: the body gets the
+survival guide and all twenty-odd game tools, the mind gets seven and the
+milestones worth hearing about.
 
-So the mind decides an **intention** and the body pursues it. The body gets the
-survival guide, the crafting chains and all twenty-odd game tools; the mind gets
-seven tools and the milestones that are actually worth hearing about.
-
-It runs on the `background` model on purpose: figuring out that a pickaxe needs
-sticks is not what her good model is for, and it must never compete with the
-part of her that talks to people.
+It runs on the `background` model: working out that a pickaxe needs sticks must
+never compete with the part of her that talks to people.
 """
 
 import asyncio
@@ -26,9 +20,8 @@ from src.utils.prompts import compose
 
 logger = get_logger("bea.skills.minecraft.agent")
 
-# how many think→act→observe cycles one goal gets before it reports back. A goal
-# that has not landed in this many steps is stuck, and saying so is more useful
-# than grinding on.
+# think→act→observe cycles per goal: past this it is stuck, and saying so is
+# more useful than grinding on
 MAX_STEPS = 24
 
 # how often the body re-reads the world, in steps
@@ -114,10 +107,10 @@ class GameAgent:
     # --- milestones ---------------------------------------------------------
 
     def _observe(self, name: str, observation: str) -> None:
-        """Decides whether an observation is worth interrupting her for.
+        """Is this observation worth interrupting her for?
 
-        Almost none are. She does not need to hear that a pathfind succeeded —
-        she needs to hear when something was finished, or went badly wrong.
+        Almost none are: she needs to hear what was finished or went badly
+        wrong, not that a pathfind succeeded.
         """
         if self.on_milestone is None:
             return
@@ -133,8 +126,8 @@ class GameAgent:
             self.on_milestone(f"your body couldn't {name}: {_clip(text)}")
 
 
-# tools whose outcome is a real step forward (or a real setback). Movement and
-# looking are means, not results: she does not need to hear about them.
+# tools whose outcome is a real step forward or setback; moving and looking are
+# means, not results
 _MILESTONE_TOOLS = frozenset({
     "craft_item", "smelt_item", "find_block", "mine_block", "place_block",
     "equip_item", "store_item", "retrieve_item", "attack_entity", "give_item",

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Mic, MicOff, Volume2, Info, ChevronDown, ChevronUp, Phone } from 'lucide-react';
 import { useVAD } from '../hooks/useVAD';
 import VoiceVisualizer from '../components/VoiceVisualizer';
+import { API_BASE } from '../api';
 
 // metadata viewer
 function MetadataViewer({ data }) {
@@ -57,7 +58,7 @@ export default function ChatPage() {
     useEffect(() => {
         const interval = setInterval(async () => {
             try {
-                const res = await fetch('http://localhost:8000/status');
+                const res = await fetch(`${API_BASE}/status`);
                 if (res.ok) {
                     const data = await res.json();
                     setIsSpeaking(data.is_speaking);
@@ -71,7 +72,7 @@ export default function ChatPage() {
 
     const refreshHistory = async () => {
         try {
-            const res = await fetch('http://localhost:8000/history');
+            const res = await fetch(`${API_BASE}/history`);
             if (res.ok) {
                 const data = await res.json();
                 setMessages(data);
@@ -107,7 +108,7 @@ export default function ChatPage() {
         setIsLoading(true);
 
         try {
-            const res = await fetch('http://localhost:8000/audio', {
+            const res = await fetch(`${API_BASE}/audio`, {
                 method: 'POST',
                 body: formData
             });
@@ -155,7 +156,7 @@ export default function ChatPage() {
             console.log("Speech Started (VAD) -> Interrupting");
             try {
                 // interrupt
-                await fetch('http://localhost:8000/interrupt', { method: 'POST' });
+                await fetch(`${API_BASE}/interrupt`, { method: 'POST' });
             } catch (e) { console.error(e); }
         },
         onSpeechEnd: (blob) => {
@@ -185,7 +186,7 @@ export default function ChatPage() {
         setIsLoading(true);
 
         try {
-            const res = await fetch('http://localhost:8000/chat', {
+            const res = await fetch(`${API_BASE}/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: userMsg.content })

@@ -21,18 +21,16 @@ MAX_CARDS_INJECTED = 5
 class SocialMemory(Skill):
     """Bea's memory of the people around her.
 
-    Everyone gets a cheap tally (roster); only the ones who make themselves
-    matter — donors, regulars, real 1:1s, or people Bea decides to remember —
-    earn a rich PersonCard. Cards for whoever is in the current batch are injected
-    so Bea recognises people instead of searching for them.
+    Everyone gets a cheap tally; donors, regulars, real 1:1s and whoever she
+    decides to remember earn a rich card. Cards for the current batch are
+    injected, so she recognises people instead of looking them up.
     """
 
     name = "social"
     skill_name = "social_memory"
 
     def initialize(self) -> None:
-        # one shared store: promoting someone now touches two tables inside a
-        # single transaction instead of rewriting two json files independently
+        # one store: promoting someone is a single transaction
         memory = self.context.memory
         self.roster = memory.roster
         self.people = memory.people

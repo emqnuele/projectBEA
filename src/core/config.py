@@ -166,11 +166,9 @@ class BrainConfig:
         "max_coalesced_runs": 3,      # cap on re-runs when messages keep arriving
     })
 
-    # model pools per role, as "provider:model" specs. Round-robin inside a pool
-    # spreads rate limits; the rest of the pool is the fallback when one is down.
-    # Leave a role empty to fall back to llm_provider + <provider>_model.
-    # NOTE: every model in "mind" must support tool calling — Bea only speaks
-    # through tools, so one that cannot would simply never say anything.
+    # "provider:model" pools per role: round-robin spreads rate limits, the rest
+    # of the pool is the fallback. Empty falls back to llm_provider.
+    # every model in "mind" must support tool calling, or she never speaks
     models: Dict[str, Any] = field(default_factory=lambda: {
         "mind": [],
         "background": [],
@@ -223,9 +221,8 @@ class BrainConfig:
                 # update fields
                 for key, value in data.items():
                     if hasattr(self, key):
-                        # security: env vars always take priority over config.json for secret fields.
-                        # If the env var is already set (non-empty), skip the config.json value entirely.
-                        # If the env var is not set, allow a non-empty config.json value to fill it.
+                        # env always wins for secrets; config.json only fills a
+                        # var that is not set
                         if key in self.SECRET_KEYS:
                             current_val = getattr(self, key, None)
                             if current_val:

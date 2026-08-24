@@ -1,17 +1,11 @@
 """One turn at a time per conversation; different conversations in parallel.
 
-Without this, two messages in the SAME channel would be answered concurrently:
-replies out of order, or one reply per message (flood). Different channels stay
-concurrent, which is the whole point — Bea holds a conversation at the bar and
-answers her phone at the same time.
+Two messages in the same channel would otherwise be answered concurrently:
+replies out of order, or one reply per message.
 
-The coalescing is the interesting half, and it adds **no artificial latency**:
-messages that arrive *while* a turn is generating do not start a new turn, they
-mark the running one to re-run. When it finishes, one extra pass re-reads the
-history, which by then already contains them. So three messages in a row get one
-answer, and the first message waits no longer than it otherwise would.
-
-Ported from riba/engine/scheduler.py.
+Coalescing adds no latency: a message arriving while a turn is generating marks
+the running turn to re-run instead of starting a new one, so three messages in
+a row get one answer and the first waits no longer than before.
 """
 
 import asyncio
@@ -34,9 +28,7 @@ class ConversationScheduler:
     """Runs turns serialized per key, coalescing messages that arrive together."""
 
     def __init__(self, *, max_coalesced_runs: int = 3) -> None:
-        # safety cap: in a very busy channel we do not want endless re-runs.
-        # past the cap new messages simply do not force another pass — the next
-        # real turn will cover them anyway.
+        # cap the re-runs in a busy channel; the next real turn covers the rest
         self._max = max(1, max_coalesced_runs)
         self._states: Dict[str, _State] = {}
 
@@ -80,6 +72,7 @@ class ConversationScheduler:
 
     async def drain(self, timeout: float = 5.0) -> None:
         """Waits for the in-flight turns to finish (used on shutdown)."""
-        deadline = asyncio.get_event_loop().time() + timeout
-        while self.active_keys and asyncio.get_event_loop().time() < deadline:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while self.active_keys and loop.time() < deadline:
             await asyncio.sleep(0.02)

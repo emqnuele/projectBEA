@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Settings, ChevronDown, ChevronRight, Server, Mic, Volume2, Video, Type, User, Plus, BrainCircuit, Activity, Box } from 'lucide-react';
+import { MessageSquare, Settings, ChevronDown, ChevronRight, Server, Mic, Volume2, Video, Type, User, Plus, BrainCircuit, Activity, Box, ListChecks } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useDialog } from '../context/DialogContext';
+import { API_BASE } from '../api';
 
 export default function Sidebar({ view, setView, configCategory, setConfigCategory, onSessionChange }) {
     const [isConfigOpen, setIsConfigOpen] = useState(true);
@@ -29,7 +30,7 @@ export default function Sidebar({ view, setView, configCategory, setConfigCatego
     const fetchSessions = async () => {
         setLoadingSessions(true);
         try {
-            const res = await fetch('http://localhost:8000/sessions');
+            const res = await fetch(`${API_BASE}/sessions`);
             if (res.ok) {
                 const data = await res.json();
                 setSessions(data);
@@ -46,7 +47,7 @@ export default function Sidebar({ view, setView, configCategory, setConfigCatego
         if (!confirmed) return;
 
         try {
-            const res = await fetch('http://localhost:8000/sessions', { method: 'POST' });
+            const res = await fetch(`${API_BASE}/sessions`, { method: 'POST' });
             if (res.ok) {
                 const data = await res.json();
                 fetchSessions();
@@ -60,7 +61,7 @@ export default function Sidebar({ view, setView, configCategory, setConfigCatego
 
     const handleSessionClick = async (sessionId) => {
         try {
-            const res = await fetch(`http://localhost:8000/sessions/${sessionId}/activate`, { method: 'POST' });
+            const res = await fetch(`${API_BASE}/sessions/${sessionId}/activate`, { method: 'POST' });
             if (res.ok) {
                 if (setView) setView('chat');
                 if (onSessionChange) onSessionChange();
@@ -120,6 +121,18 @@ export default function Sidebar({ view, setView, configCategory, setConfigCatego
                     >
                         <MessageSquare size={18} className={view === 'chat' ? 'text-zinc-900' : 'text-zinc-400'} />
                         <span className="ml-3 text-sm font-medium">Chat</span>
+                    </button>
+
+                    <button
+                        onClick={() => setView('plan')}
+                        className={`w-full flex items-center px-3 py-2 rounded-md transition-colors group cursor-pointer
+                            ${view === 'plan'
+                                ? 'bg-zinc-150 text-zinc-900 border border-zinc-200/50 shadow-sm'
+                                : 'text-zinc-500 hover:bg-zinc-100/50 hover:text-zinc-900 border border-transparent'
+                            }`}
+                    >
+                        <ListChecks size={18} className={view === 'plan' ? 'text-zinc-900' : 'text-zinc-400'} />
+                        <span className="ml-3 text-sm font-medium">Stream Plan</span>
                     </button>
 
                     <button

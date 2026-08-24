@@ -1,8 +1,8 @@
 """Who earns a rich memory, and why.
 
-Pure decisions over the roster tally: no IO here, the store does that. Everyone
-gets a cheap tally; only the people who made themselves matter earn a card, so
-the prompt never fills up with strangers.
+Pure decisions over the roster tally: no IO, the store does that. Only the
+people who made themselves matter earn a card, so the prompt never fills up
+with strangers.
 """
 
 from typing import Optional
@@ -52,14 +52,11 @@ def promotion_reason(entry: RosterEntry) -> str:
 
 def record_person(roster, people, name: str, session_id: Optional[str] = None,
                   *, force: bool = False) -> Optional[PersonCard]:
-    """Records a sighting of a named person; returns their card ONLY if earned.
+    """Records a sighting of a named person; returns their card only if earned.
 
-    Bea knows who she is talking to even when the platform never gave us a stable
-    id (someone she names in the UI, or in a transcript). A `named:<name>`
-    identity is synthesized so the tally always persists. `force=True` is her
-    explicit in-character decision and promotes immediately; otherwise the normal
-    thresholds apply, so the dreamer builds a tally for everyone it names but
-    only mints a card for real regulars, donors, 1:1s or people she marked.
+    A `named:<name>` identity is synthesized for people the platform gave no
+    stable id for. `force=True` is her explicit decision and promotes at once;
+    otherwise the normal thresholds apply.
     """
     name = name.strip()
     if not name:

@@ -1,10 +1,7 @@
-"""Telegram, in-process.
+"""Telegram, in-process: text only, so no second runtime to babysit.
 
-Unlike Discord — which needs a node subprocess for voice — Telegram is text only,
-so it runs inside the Python process with no second runtime to babysit. That is
-also the point of the phase: if `PlatformSkill` is a real abstraction, a whole
-new platform is a transport plus an `Author` builder, and everything above it
-(roster, person cards, attention, scoped turns) simply works.
+A whole platform is a transport plus an `Author` builder; everything above it
+(roster, person cards, attention, scoped turns) comes from `PlatformSkill`.
 """
 
 import asyncio

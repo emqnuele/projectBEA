@@ -1,15 +1,8 @@
-"""Starting something, instead of only ever answering.
+"""Starting a conversation, instead of only ever answering one.
 
-Bea can currently only monologue on stage, into an empty room. A person who
-exists in a group also writes to it sometimes without being spoken to first —
-and one who *never* does is a service, not a person.
-
-Deliberately not "post every N minutes". A periodic check looks at the
-conversations that are actually alive, skips the ones she just spoke in, stays
-out of quiet hours, and then only sometimes goes ahead. The eligibility half is
-pure and testable; `rng` and `clock` are injected.
-
-Ported from riba/engine/spontaneous.py.
+Not "post every N minutes": a periodic check looks at the conversations that
+are alive, skips the ones she just spoke in, stays out of quiet hours, and then
+only sometimes goes ahead. `rng` and `clock` are injected for the tests.
 """
 
 import random
@@ -25,8 +18,7 @@ logger = get_logger("bea.mind.spontaneous")
 # how far back "this conversation is alive" looks
 ACTIVITY_WINDOW = 1800.0
 
-# how far back to consider a conversation at all: writing into a channel nobody
-# has touched in a week is not spontaneity, it is a bot with a timer
+# older than this and writing there is a bot with a timer, not spontaneity
 STALE_AFTER = 6 * 3600.0
 
 

@@ -1,12 +1,8 @@
 """The bridge between an HTTP caller and Bea's next reply.
 
-Some entrypoints are synchronous — the dashboard's chat box, a Discord voice
-turn that needs the WAV bytes back. They deposit a perception and then wait for
-whatever she says in response.
-
-Kept apart from the mind because it is not part of thinking: it is a request
-lifecycle, with one rule that matters more than the rest — **a waiting caller is
-always freed**. Silence is an answer; a hang is a bug.
+Synchronous entrypoints (the dashboard chat box, a Discord voice turn) deposit
+a perception and wait. One rule: a waiting caller is always freed — silence is
+an answer, a hang is a bug.
 """
 
 import asyncio
@@ -27,7 +23,7 @@ class CorrelationRegistry:
 
     def register(self, route: str = "local") -> "tuple[str, asyncio.Future]":
         cid = str(uuid.uuid4())
-        future: asyncio.Future = asyncio.get_event_loop().create_future()
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._waiting[cid] = {"future": future, "route": route}
         return cid, future
 
@@ -61,11 +57,7 @@ class CorrelationRegistry:
                 self._batch.remove(cid)
 
     def release(self) -> None:
-        """Frees everyone still waiting: she said nothing, which is an answer.
-
-        Without this, a perception the attention gate filtered out would leave
-        its caller hanging until the timeout.
-        """
+        """Frees everyone still waiting: she said nothing, which is an answer."""
         for cid in list(self._batch):
             entry = self._waiting.pop(cid, None)
             if not entry or entry["future"].done():

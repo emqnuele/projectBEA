@@ -1,15 +1,11 @@
 """Human delivery of written messages: split by line, then type them out.
 
-The model produces several lines; each becomes its own message, sent after a
-delay proportional to its length with random variance and a "typing…" indicator
-in between. On Discord or Telegram this is the whole difference between a person
-and a webhook — a paragraph arriving instantly in one block reads as a machine.
+Each line becomes its own message, sent after a delay proportional to its
+length with a "typing…" indicator in between. A paragraph arriving instantly in
+one block reads as a machine.
 
-`split` and `delay_for` are pure and testable; `deliver` takes injected
-callables so a test can record exactly what went out.
-
-Ported from riba/engine/humanizer.py, without the sticker layer (Bea is
-primarily a voice, and stickers are telegram-shaped).
+`split` and `delay_for` are pure; `deliver` takes injected callables so a test
+can record what went out.
 """
 
 import asyncio
@@ -27,7 +23,7 @@ SOFT_SPLIT_THRESHOLD = 350
 class Chunk(NamedTuple):
     """One message to send."""
 
-    kind: str    # "text"
+    kind: str
     value: str
 
 
@@ -107,9 +103,8 @@ class TextHumanizer:
     ) -> List[str]:
         """Sends `text` as several messages, with typing and delays between them.
 
-        Returns what was *actually* sent. History must record what went out, not
-        what was generated: a chunk that failed to send never happened, and
-        writing it into the transcript teaches her she said something she didn't.
+        Returns what was actually sent: a chunk that failed to send never
+        happened, and history must not record it.
         """
         sent: List[str] = []
 

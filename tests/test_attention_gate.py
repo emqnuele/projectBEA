@@ -287,12 +287,20 @@ def test_a_busy_channel_does_not_make_her_speak_up_in_a_quiet_one():
     assert react == [] and len(noted) == 1
 
 
-def test_speaking_in_one_channel_does_not_silence_the_others_forever():
+def test_speaking_in_one_channel_does_not_silence_the_others():
     clock = FakeClock()
     g = gate(clock=clock)
     g.mark_spoke("discord:1")
     clock.advance(1)
-    # the global cooldown still applies (she just spoke somewhere), and being
-    # addressed still overrides it
+    assert g.seconds_since_spoke("discord:1") == 1
+    assert g.seconds_since_spoke("discord:2") is None
     react, _ = g.judge([in_channel("2", "bea?")])
     assert len(react) == 1
+
+
+def test_speaking_on_stage_quiets_a_conversation_she_never_spoke_in():
+    clock = FakeClock()
+    g = gate(clock=clock)
+    g.mark_spoke()
+    clock.advance(1)
+    assert g.seconds_since_spoke("discord:2") == 1

@@ -162,6 +162,7 @@ truth**. Bea can never arm a capability by herself.
 | `MemorySkill` | `memory` | `memory` | RAG over `bea.db`, injected via `context_for` in two labelled blocks; no tools |
 | `SocialMemory` | `social` | `social_memory` | roster tally + person cards; injects `[WHO YOU'RE TALKING TO]` |
 | `DreamSkill` | `dream` | `dream` | self-lore + hot facts always in context; morning pass; `go_to_sleep`; offline dreamer |
+| `StreamPlanSkill` | `plan` | — (core) | the owner's plan for the stream in `live_state`; `objective_started/done/dropped`. Contributes nothing while the plan is empty |
 
 ---
 
@@ -197,7 +198,7 @@ The bot token is read from `DISCORD_TOKEN`. It is never written to
 
 ## Minecraft
 
-The mod is a separate project (`../beacraft`, Fabric 1.21.1, Java 21). It is
+The mod is a separate project (BeaCraft, Fabric 1.21.1, Java 21). It is
 **client-side**: it drives the local player by simulating input and sends normal
 packets, so to a server it looks like an ordinary client.
 
@@ -222,6 +223,35 @@ Python side (`src/core/skills/minecraft/`):
 `mc_chat` is what she types in game — the players read it. Using both in the same
 turn is usually right, and is much of what makes a VTuber playing multiplayer
 worth watching.
+
+**The idle nudge.** The heartbeat is marked `noise` so a quiet server costs
+nothing, which is also why she used to only ever react: nothing woke her up to
+*start* anything. When the body is idle and the stream plan still has an open
+objective, `surface.py` emits one perception carrying `meta["addressed"]`, at
+most every `idle_nudge_seconds` (90 by default, 0 to disable). Declaring itself
+addressed is what makes it survive the gate: a nudge filed under "noticed" is a
+nudge that never happened.
+
+---
+
+## The stream plan
+
+What the owner tells her to get done, edited from the dashboard's **Stream
+Plan** page and stored in `bea.db` (`objectives` + `settings`).
+
+- `src/core/memory/plan.py` — the store. A headline directive plus an ordered
+  list of objectives, each `todo` / `doing` / `done` / `dropped` with an
+  outcome in her own words.
+- `src/core/skills/plan/surface.py` — a core skill: `live_state()` puts
+  `[TODAY'S PLAN]` in every prompt and `tools()` arms the three tools that close
+  an item. Both are empty while there is no plan, so an unused feature costs no
+  prompt space and no tokens.
+
+The number shown next to an objective is its database id, and it is the same
+number she passes to `objective_done` — one identifier, no mapping to get wrong.
+
+The plan reaches the live loop, not scoped conversation turns: it describes what
+she is doing on stage.
 
 ---
 
@@ -306,6 +336,9 @@ UI is current and the brain is not answering requests for nothing. Each turn
 publishes what it cost (calls, tokens, ms) — the point of the attention gate is
 spending fewer of them, and that cannot be tuned unseen.
 
+`POST`/`PATCH`/`DELETE /plan/...` edit the stream plan and return the whole plan
+back, so the dashboard never has to guess what the server now holds.
+
 **Security posture:** the API has no authentication. The server therefore binds
 to `127.0.0.1` by default (`--host` is an explicit opt-in), CORS carries an
 allowlist rather than a wildcard, and `GET /config` returns
@@ -381,4 +414,4 @@ make migrate        # one-shot: old json/chroma stores -> data/bea.db (dry run f
 ```
 
 Discord bot: `cd src/core/skills/voice/bot && npm install` (once).
-Minecraft mod: `cd ../beacraft && make build && make run`.
+Minecraft mod: `make build && make run` from the BeaCraft repo.

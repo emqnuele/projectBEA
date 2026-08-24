@@ -1,11 +1,8 @@
 """Thin Telegram handlers: extract the minimum, deposit a perception, return.
 
-Deliberately thin, riba-style. No decision is made here — the attention gate
-decides whether Bea reacts, and a scoped conversation turn decides what she says.
-An handler that reasons is an handler that duplicates the mind.
-
-The pure part (`is_bot_called`) is separated out so it can be tested against a
-table of cases instead of against Telegram.
+No decision is made here — the attention gate decides whether Bea reacts, a
+scoped turn decides what she says. `is_bot_called` is split out so it can be
+tested against a table of cases instead of against Telegram.
 """
 
 from typing import Any, Optional, Sequence

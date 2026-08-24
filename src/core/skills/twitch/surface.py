@@ -1,16 +1,11 @@
-"""Twitch chat: the real test of the attention gate.
+"""Twitch chat: high volume, so most of it is texture rather than input.
 
-At thirty messages a minute, one reasoning cycle per message is not just
-expensive — it is not what a streamer does. A streamer *reads* chat as a texture
-and picks out the lines that are for them.
+Every message updates the roster and feeds the attention gate, but only what
+passes the gate reaches the mind. The rest becomes a live "chat is doing N
+messages a minute and keeps saying X" line that costs nothing.
 
-So: **every** message updates the roster (one INSERT, cheap enough for thousands
-of chatters) and feeds the attention gate, but only what passes the gate reaches
-the mind. The rest becomes texture — a live "chat is doing N messages a minute
-and keeps saying X" line that is always in context and costs nothing.
-
-Cheers are money: they carry `bits`, which makes them a donation, which makes
-them always worth answering.
+Cheers carry `bits`, which makes them a donation, which always deserves an
+answer.
 """
 
 import time

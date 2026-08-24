@@ -20,6 +20,7 @@ from src.core.skills.dream.surface import DreamSkill
 from src.core.skills.idle import IdleSurface
 from src.core.skills.memory.memory import MemorySkill
 from src.core.skills.minecraft.surface import MinecraftSurface
+from src.core.skills.plan.surface import StreamPlanSkill
 from src.core.skills.social.social import SocialMemory
 from src.core.skills.telegram.surface import TelegramSkill
 from src.core.skills.twitch.surface import TwitchSkill
@@ -110,6 +111,20 @@ class AIVtuberBrain:
             self.consciousness.wake()
 
     @property
+    def plan(self):
+        """The owner's plan for the stream."""
+        return self.memory.plan
+
+    def plan_changed(self) -> None:
+        """The dashboard edited the plan: her toolbox may have just changed.
+
+        Going from no plan to a plan arms `objective_done` and friends, and the
+        tool set is cached until something says it moved.
+        """
+        if self.consciousness:
+            self.consciousness.tools.invalidate()
+
+    @property
     def is_sleeping(self) -> bool:
         return bool(self.consciousness and self.consciousness.sleeping)
 
@@ -179,7 +194,8 @@ class AIVtuberBrain:
         self.skill_registry = SkillRegistry()
 
         for skill_cls in (ChatSurface, VoiceSurface, TelegramSkill, TwitchSkill, DonationSkill,
-                          IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill):
+                          IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill,
+                          StreamPlanSkill):
             skill = skill_cls(self.config, self.perception_bus, self.expression, self)
             skill.initialize()
             self.skill_registry.register(skill)

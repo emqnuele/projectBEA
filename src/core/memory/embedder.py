@@ -1,13 +1,10 @@
 """Local, in-process embeddings (fastembed / ONNX on CPU).
 
-Lazy: the model (~100MB) is downloaded and initialized on the first `embed`, so
-startup is not held hostage by it. The interface is deliberately tiny — two
-methods — so tests can inject a deterministic fake.
+Lazy: the model (~100MB) is fetched on the first `embed`, so startup does not
+wait for it. Two methods only, so a test can inject a deterministic fake.
 
-The default is MULTILINGUAL on purpose. Bea's people write in Italian; with an
-English-only model (Chroma's default was `all-MiniLM-L6-v2`) Italian sentences
-collapse into the same region of the space and retrieval becomes close to random.
-A multilingual model handles English fine — the reverse is not true.
+The default is multilingual: with an English-only model, non-English sentences
+collapse into the same region and retrieval becomes close to random.
 """
 
 from typing import List, Optional, Sequence
@@ -19,8 +16,7 @@ logger = get_logger("bea.memory.embedder")
 DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_CACHE_DIR = "data/embeddings_cache"
 
-# values that used to mean "whatever chroma does by default". An existing
-# config.json still carries them, and passing one to fastembed is an error.
+# old config values meaning "the default": fastembed rejects them
 _LEGACY_NAMES = frozenset({"local", "default", "", "none"})
 
 

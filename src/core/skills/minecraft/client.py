@@ -21,20 +21,17 @@ _TYPED_EVENTS = {"chat", "player_event", "combat", "death_event"}
 
 
 class MinecraftClient:
-    """WebSocket bridge to the Minecraft mod, exposed as the agent's environment.
+    """WebSocket bridge to the Minecraft mod: the agent's environment.
 
-    The mod streams game-state packets and sends status events when an action
-    completes. `execute()` sends a command and awaits its completion event,
-    turning the async mod protocol into a simple "call tool -> get observation"
-    contract for the agent loop. All state mutation happens on the asyncio loop
-    thread via `call_soon_threadsafe`, so no locks are needed.
+    `execute()` sends a command and awaits its completion event, turning the
+    async mod protocol into "call tool -> get observation". State mutation
+    happens on the loop thread via `call_soon_threadsafe`, so no locks.
     """
 
     def __init__(self, url: str, loop: asyncio.AbstractEventLoop, on_event=None):
         self.url = url
         self.loop = loop
-        # typed packets (chat, player_event, combat, death) go straight to the
-        # surface: they are senses, not the result of an action she asked for
+        # typed packets are senses, not the result of an action she asked for
         self.on_event = on_event
         self.ws: Optional[websocket.WebSocketApp] = None
         self.keep_running = True
@@ -155,18 +152,11 @@ class MinecraftClient:
         self.loop.call_soon_threadsafe(self._handle, data)
 
     def _handle(self, data: Dict[str, Any]) -> None:
-        """Dispatches on `type` FIRST, then on `status`.
-
-        Half of what the mod sends used to fall on the floor here: it only
-        recognised packets with a `player` key and the FINISHED/IDLE/INTERRUPTED
-        statuses. The full death event — cause, coordinates, what she lost — was
-        already being sent, and was silently discarded every time.
-        """
+        """Dispatches on `type` first, then on `status`."""
         kind = data.get("type")
         if kind in _TYPED_EVENTS:
             self._emit(kind, data)
-            # a death also ends whatever she was doing: leaving the caller to
-            # time out for 60 seconds would be a lie about what happened
+            # a death ends whatever she was doing: don't make the caller time out
             if kind == "death_event":
                 self._resolve_pending("INTERRUPTED: you died.")
             return

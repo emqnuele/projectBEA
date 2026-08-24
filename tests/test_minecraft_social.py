@@ -1,8 +1,7 @@
-"""Phase 8B: the game chat enters the social stack.
+"""The game chat enters the social stack.
 
-The point of the phase is that almost no new code is needed — everything above
-`Author` (the roster, person cards, the attention gate) already works, as long as
-the sensor produces a correct, stable identity.
+Everything above `Author` (roster, person cards, attention) already works, as
+long as the sensor produces a correct, stable identity.
 """
 
 import asyncio
@@ -307,7 +306,7 @@ def test_players_are_called_out_among_the_entities():
     assert "Zombie 9m" in rendered
 
 
-# --- playing with people (phase 8C) ------------------------------------------
+# --- playing with people -----------------------------------------------------
 
 
 def test_the_interaction_tools_are_armed(surface):

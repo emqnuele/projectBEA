@@ -1,8 +1,7 @@
 """End-to-end: the gate inside the real loop.
 
-This is the phase-1 definition of done, as a test rather than a stopwatch: with
-the game running and nobody talking, Bea must stop deliberating; a message that
-names her must still always get through.
+With the game running and nobody talking she must stop deliberating; a message
+that names her must always get through.
 """
 
 import asyncio
@@ -212,7 +211,7 @@ async def test_the_gate_can_be_switched_off(enabled):
     assert llm.call_count == (0 if enabled else 1)
 
 
-# --- what a turn cost (phase 10) --------------------------------------------
+# --- what a turn cost --------------------------------------------------------
 
 
 async def test_the_cost_of_a_turn_is_published():

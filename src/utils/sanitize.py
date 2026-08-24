@@ -1,16 +1,11 @@
 """Strips a model's raw output down to the message it actually meant to send.
 
-Cheap models do not always return only the answer: they emit reasoning chains
-(`<think>…</think>`), gpt-oss's channel format
-(`<|channel|>analysis<|message|>…`) and special tokens (`<|endoftext|>`,
-`<|im_end|>`). Unfiltered, that reaches the TTS and Bea *pronounces* it — a bug
-already seen in production on riba, on the same model pool.
+Cheap models emit reasoning chains (`<think>…</think>`), channel formats
+(`<|channel|>analysis<|message|>…`) and special tokens. Unfiltered, that reaches
+the TTS and Bea pronounces it.
 
-Everything here is pure: raw string in, clean string out (possibly empty, if the
-whole thing was scaffolding — in which case the caller should treat it as a
-failed generation rather than say it out loud).
-
-Ported from riba/core/sanitize.py.
+Pure: raw string in, clean string out. An empty result means the whole thing was
+scaffolding and the caller should treat it as a failed generation.
 """
 
 import re
@@ -22,8 +17,7 @@ _THINK_BLOCK_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
-# a reasoning block opened and never closed (truncated output): drop everything
-# from the opening onwards
+# opened and never closed (truncated output): drop from the opening onwards
 _THINK_OPEN_RE = re.compile(
     r"<\s*(?:" + "|".join(_THINK_TAGS) + r")\s*>.*\Z",
     re.DOTALL | re.IGNORECASE,

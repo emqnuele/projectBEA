@@ -18,7 +18,8 @@
 | **Discord Skill** | Full voice call integration — listens, transcribes, responds live |
 | **Minecraft Skill** | Autonomous LLM-driven agent that plays Minecraft via WebSocket |
 | **Monologue Skill** | When idle, Bea automatically starts talking to her audience |
-| **Web Dashboard** | React + FastAPI dashboard for chat, config, skill control, brain activity |
+| **Stream Plan** | Set today's objectives from the dashboard — she works through them and ticks them off |
+| **Web Dashboard** | React + FastAPI dashboard for chat, config, skill control, stream plan, brain activity |
 | **Hot Reload** | Change models, voices, or settings at runtime without restart |
 | **Plugin Skills** | Every capability is a `BaseSkill` plugin — add your own in minutes |
 
@@ -189,6 +190,7 @@ The `--web` flag starts a FastAPI backend (port 8000) and serves a React + Tailw
 
 **Pages:**
 - **Chat** — text chat with Bea, session management
+- **Stream Plan** — what she has to get done today; she closes the objectives as she goes
 - **Brain Activity** — real-time event feed (inputs, outputs, skill events, thoughts)
 - **Skills** — toggle skills on/off at runtime
 - **Config** — edit every setting live with hot reload

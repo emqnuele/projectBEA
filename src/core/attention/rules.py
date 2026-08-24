@@ -1,18 +1,8 @@
-"""The attention decision, as pure functions.
+"""The attention decision, as pure functions: no IO, so it stays testable.
 
-NO io, no asyncio, no Skill: these take primitives (and the plain-data
-`Perception`) and return a number or a reason. That is the whole point — it is
-what makes the thresholds testable against a table of cases instead of tuned by
-staring at a live stream.
-
-Two questions, deliberately kept apart:
-
-- `is_addressed` — "is this *for me*?" It must be deterministic. Rolling a die
-  to decide whether to answer someone who just spoke to you is exactly what
-  makes a bot feel broken, so this bypasses cooldown and quiet hours.
-- `score` — "does this conversation *concern* me?" This one is rightly
-  probabilistic: it is the difference between someone present and someone
-  commenting on every single line.
+Two questions, kept apart: `is_addressed` ("is this for me?") is deterministic
+and bypasses cooldown and quiet hours; `score` ("does this concern me?") is
+probabilistic.
 """
 
 from typing import Optional, Sequence, Tuple
@@ -49,13 +39,14 @@ def is_addressed(
     trigger_words: Sequence[str] = (),
     self_ids: Sequence[str] = (),
 ) -> Optional[str]:
-    """The reason this perception is aimed at Bea, or None.
-
-    Every case here bypasses cooldown and quiet hours: those exist so she is not
-    intrusive, and answering someone who just spoke to her is not intrusion.
-    """
+    """The reason this perception is aimed at Bea, or None."""
     meta = p.meta or {}
     author = p.author
+
+    # a sense that already knows this one is for her says so explicitly
+    declared = meta.get("addressed")
+    if declared:
+        return f"addressed:{declared}"
 
     # her own body shouting: an interrupt, a death, damage from a player
     if p.kind is PerceptionKind.ACTION:
@@ -101,7 +92,6 @@ def is_addressed(
 
 def score(
     *,
-    kind: PerceptionKind,
     salience: float,
     text: str,
     author_known: bool = False,
@@ -116,9 +106,8 @@ def score(
 ) -> float:
     """Appetite to speak up, in [0,1]. Pure and deterministic.
 
-    Structure taken from riba/engine/presence.py, with one addition Bea needs:
-    the existing `salience` becomes an *input* rather than an order. IDLE never
-    reaches here — the bus's idle timer is already its own gate.
+    `salience` is an input, not an order. IDLE never reaches here: the bus's
+    idle timer is already its own gate.
     """
     # hard gates: she just spoke, or it is the middle of the night
     if seconds_since_spoke is not None and seconds_since_spoke < cooldown_seconds:

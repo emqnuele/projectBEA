@@ -96,6 +96,7 @@ Configuration is managed via two sources that are merged at startup:
     "minecraft": {
       "enabled": false,
       "server_url": "ws://localhost:8080",
+      "idle_nudge_seconds": 90,
       "auto_chat_thoughts": false,
       "auto_speak_thoughts": false,
       "system_prompt_path": "data/prompts/minecraft.txt"
@@ -336,6 +337,7 @@ donor to a person card immediately, without waiting for the dreamer.
 | Key | Default | Description |
 |---|---|---|
 | `server_url` | `"ws://localhost:8080"` | WebSocket URL of the Minecraft mod |
+| `idle_nudge_seconds` | `90` | How long the body may stand still with an open objective on the stream plan before her own body tells her about it. `0` turns it off — she will then only ever react, never start something. |
 | `auto_speak_thoughts` | `false` | TTS-speak agent thoughts as Bea's commentary |
 | `auto_chat_thoughts` | `false` | Also send thoughts as in-game chat messages |
 | `system_prompt_path` | `"data/prompts/minecraft.txt"` | Custom system prompt for the Minecraft context |

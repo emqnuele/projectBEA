@@ -1,8 +1,7 @@
 """Telegram, and the proof that `PlatformSkill` is a real abstraction.
 
-A whole new platform should be a transport plus an `Author` builder — everything
-above (roster, person cards, attention, scoped turns) works because it is keyed
-on `Author` and `conversation_key`, not on the platform.
+A whole platform is a transport plus an `Author` builder: everything above is
+keyed on `Author` and `conversation_key`, not on the platform.
 """
 
 import pytest

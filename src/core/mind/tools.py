@@ -1,12 +1,8 @@
-"""What the mind can do right now, assembled once instead of per step.
-
-The registry used to be rebuilt from scratch on every call to `_tool_schemas()`
-AND on every `_dispatch()` — two or more full rebuilds per model step, each one
-walking every active skill and constructing every Tool object.
+"""What the mind can do right now.
 
 The set only changes when a capability is toggled, so it is cached and
-invalidated then. `speak` and `stay_silent` live here because they are not a
-skill's: they are what the mind itself does.
+invalidated then rather than rebuilt on every model step. `speak` and
+`stay_silent` live here: they belong to the mind, not to a skill.
 """
 
 from typing import Callable, List, Optional

@@ -1,4 +1,5 @@
 from src.core.memory.db import Database
+from src.core.memory.plan import Objective, StreamPlan
 from src.core.memory.store import (
     Conversations,
     HotFact,
@@ -14,5 +15,5 @@ from src.core.memory.store import (
 
 __all__ = [
     "Database", "MemoryStore", "RosterStore", "RosterEntry", "PeopleStore", "PersonCard",
-    "HotFacts", "HotFact", "SelfLore", "Conversations", "Sessions",
+    "HotFacts", "HotFact", "SelfLore", "Conversations", "Sessions", "StreamPlan", "Objective",
 ]

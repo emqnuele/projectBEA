@@ -1,13 +1,11 @@
 """Donations: the one input that always deserves a reaction.
 
-A webhook (StreamElements, Ko-fi, Streamlabs, a cheer relayed from twitch) lands
-here, becomes a perception carrying the amount in `Author.extra`, and
-`is_addressed` turns that into an unconditional REACT — past the cooldown, past
-quiet hours.
+A webhook (StreamElements, Ko-fi, Streamlabs, a twitch cheer) becomes a
+perception carrying the amount in `Author.extra`, which `is_addressed` turns
+into an unconditional REACT.
 
-Someone giving her money is also the strongest promotion trigger there is: they
-get a person card immediately, without waiting for the dreamer, so the next thing
-she says already knows who they are.
+A donor is also promoted to a person card immediately, so the next thing she
+says already knows who they are.
 """
 
 import time

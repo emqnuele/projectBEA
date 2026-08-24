@@ -1,7 +1,7 @@
-"""Phase-2 definition of done, on the real Discord surface.
+"""Written delivery on the real Discord surface.
 
-A multi-line reply must arrive as separate messages with "typing" between them,
-and a `<think>` block must never be written or spoken.
+A multi-line reply arrives as separate messages with "typing" between them, and
+a `<think>` block is never written or spoken.
 """
 
 import random

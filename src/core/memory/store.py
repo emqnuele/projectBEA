@@ -1,14 +1,7 @@
 """The facade over `bea.db`: people, roster, conversations, hot facts, self-lore.
 
-Deliberately keeps the shapes the rest of the code already speaks — `RosterEntry`
-and `PersonCard` are the same objects the JSON stores handed out — so swapping
-the storage underneath does not ripple into the social logic, the dreamer or the
-prompt builders.
-
-What changes underneath is the part that mattered: recording a sighting is now
-one INSERT instead of rewriting the whole roster file, promoting someone is a
-single transaction across two tables instead of two independent file writes, and
-"who have I seen most" is a query rather than a full scan in Python.
+Keeps the shapes the rest of the code already speaks (`RosterEntry`,
+`PersonCard`), so the storage underneath stays swappable.
 """
 
 import time
@@ -17,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.core.memory.db import Database
+from src.core.memory.plan import StreamPlan
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.memory.store")
@@ -31,10 +25,10 @@ MAX_FACTS_SHOWN = 6
 
 @dataclass
 class RosterEntry:
-    """A lightweight tally for one identity (platform:native_id).
+    """A tally for one identity (platform:native_id).
 
-    NOT a memory: it carries no generated content, it just counts, so it is cheap
-    to keep for everyone — thousands of chatters included.
+    Not a memory: no generated content, just counts, so it is cheap to keep for
+    every chatter.
     """
 
     identity: str
@@ -277,8 +271,7 @@ class PeopleStore:
                 "INSERT OR IGNORE INTO facts (person_id, text, source, created_at) "
                 "VALUES (?, ?, ?, ?)", (person_id, fact, source, now),
             )
-            # a card that grows forever eventually eats the prompt: keep the most
-            # recent facts and drop the rest
+            # a card that grows forever eats the prompt: keep the recent facts
             cur.execute(
                 "DELETE FROM facts WHERE person_id = ? AND id NOT IN ("
                 "  SELECT id FROM facts WHERE person_id = ? ORDER BY id DESC LIMIT ?)",
@@ -302,8 +295,8 @@ class PeopleStore:
     def profile_due(self, person_id: str, total: int, *, first: int, every: int) -> bool:
         """Should this person's card be (re)built?
 
-        The first one is worth doing early — until it exists Bea genuinely does
-        not know who they are — while refreshes can be far rarer.
+        The first one early (until it exists she has no idea who they are),
+        refreshes far rarer.
         """
         row = self.db.query_one(
             "SELECT profiled_count FROM people WHERE person_id = ?", (person_id,)
@@ -523,9 +516,8 @@ class Conversations:
     def summary_due(self, conversation_key: str, every: int) -> bool:
         """Have `every` messages passed since the last summary?
 
-        A delta, not a modulo on the total: the check only runs when Bea answers
-        and the counter jumps, so an exact multiple would be stepped over and the
-        summary would never refresh.
+        A delta, not a modulo: the counter jumps by more than one, so an exact
+        multiple would be stepped over and never fire.
         """
         total = self.count(conversation_key)
         last = int(self.db.scalar(
@@ -612,6 +604,7 @@ class MemoryStore:
         self.selflore = SelfLore(self.db)
         self.conversations = Conversations(self.db)
         self.sessions = Sessions(self.db)
+        self.plan = StreamPlan(self.db)
 
         self.rag = None
         if embedder is not None:

@@ -1,11 +1,8 @@
 """Turns the mod's game-state packet into a few readable lines.
 
-The raw packet is a wall of JSON: ~700 lidar entries underground, 36 inventory
-slots most of them air, every entity within 20 blocks. Dropped whole into the
-prompt it drowns the personality in logs and costs a fortune in tokens.
-
-Pure functions: a dict in, a string out. The definitive fix is on the mod side
-(send less), but the mind should never depend on that.
+The raw packet is a wall of JSON — ~700 lidar entries underground, 36 inventory
+slots, every nearby entity — which would drown the personality in logs and cost
+a fortune in tokens. Pure: a dict in, a string out.
 """
 
 from typing import Any, Dict, List, Optional

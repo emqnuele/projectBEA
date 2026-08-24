@@ -32,6 +32,7 @@ src/web/frontend/
     │   ├── ChatPage.jsx       Conversation interface
     │   ├── ConfigPage.jsx     Configuration editor
     │   ├── SkillsPage.jsx     Skill toggle panel
+    │   ├── StreamPlanPage.jsx Today's objectives for the stream
     │   └── BrainActivityPage.jsx  Real-time event feed
     ├── layouts/
     │   └── DashboardLayout.jsx    Sidebar + content area wrapper
@@ -62,6 +63,7 @@ The dashboard uses **view state** (not URL sub-routes) to switch between panels,
 | View State | Page | Description |
 |---|---|---|
 | `chat` | `ChatPage` | Conversation with session management |
+| `plan` | `StreamPlanPage` | The owner's objectives for this stream |
 | `activity` | `BrainActivityPage` | Brain event log |
 | `config` | `ConfigPage` | Settings editor |
 | `skills` | `SkillsPage` | Enable/disable skills at runtime |
@@ -82,6 +84,14 @@ The main chat interface:
 - **Text input** — standard text field sending to `POST /chat`
 - **Interrupt button** — calls `POST /interrupt`
 - **Session management** — list, switch, and create sessions via `/sessions`
+
+---
+
+### `StreamPlanPage`
+Where the owner writes what Bea has to get done today: a headline directive and
+an ordered list of objectives. Reads and writes `/plan`, and re-reads it every
+five seconds — Bea closes objectives herself while the stream runs, so the page
+has to follow her.
 
 ---
 

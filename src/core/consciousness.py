@@ -21,11 +21,9 @@ logger = get_logger("bea.consciousness")
 class Consciousness:
     """The single, always-on mind.
 
-    One context, one loop. It drains perceptions from every surface, folds new
+    One context, one loop: it drains perceptions from every surface, folds new
     ones in mid-burst (steering), reasons, and acts through tools. Speaking is
-    non-blocking and body actions run async (single-slot), so Bea can talk and
-    play at the same time — and decide for herself whether a new input is worth
-    interrupting what she's doing.
+    non-blocking and body actions run async, so she can talk and play at once.
     """
 
     # output tools that end a turn: no follow-up llm call needed after them
@@ -61,8 +59,7 @@ class Consciousness:
         self._loop_task: Optional[asyncio.Task] = None
         self._body_task: Optional[asyncio.Task] = None
 
-        # HTTP callers waiting on a reply. Its own concern: a request lifecycle,
-        # not part of thinking.
+        # a request lifecycle, not part of thinking
         self.correlations = CorrelationRegistry()
 
         # rebuilt only when a capability is toggled, not twice per model step
@@ -151,14 +148,12 @@ class Consciousness:
                     # monologue is off: block until something real happens, never self-trigger
                     batch = await self.bus.drain()
 
-                # collected from the RAW batch: a caller the gate filtered out
-                # must still be freed, not left hanging until its timeout
+                # from the RAW batch: a caller the gate filtered out must still
+                # be freed, not left hanging until its timeout
                 self.correlations.start_batch(batch)
 
-                # asleep: ignore the world (but free any waiting callers so they
-                # don't hang) until the dreamer wakes her up
+                # asleep: ignore the world until the dreamer wakes her up
                 if self.sleeping:
-                    self.correlations.release()
                     continue
 
                 batch, noted = self._filter(batch)
@@ -171,7 +166,6 @@ class Consciousness:
                     await self.expression.interrupt()
 
                 if not batch:
-                    self.correlations.release()
                     continue
 
                 is_idle = bool(batch) and all(p.kind == PerceptionKind.IDLE for p in batch)
@@ -195,8 +189,8 @@ class Consciousness:
                         steer, steer_noted = self._filter(steer)
                         if steer_noted and self.attention:
                             self.attention.remember(steer_noted)
-                        # a message for another channel is dispatched here, mid-burst:
-                        # it does not have to wait for the game turn to finish
+                        # dispatched mid-burst: another channel does not wait
+                        # for the game turn to finish
                         steer = self._route(steer)
                     if steer:
                         self.context.append(self._frame(steer, steering=True))
@@ -219,9 +213,8 @@ class Consciousness:
                         obs = await self._dispatch(call)
                         self.context.append(tool_result_message(call, obs))
 
-                    # once she's only spoken or chosen silence, the turn is over:
-                    # don't burn another (slow) llm call just to confirm she's done.
-                    # a message that arrives now becomes its own next turn.
+                    # she spoke or chose silence: the turn is over, and a new
+                    # message becomes its own next turn
                     if assistant.tool_calls and all(
                         c.name in self._TERMINAL_TOOLS for c in assistant.tool_calls
                     ):
@@ -232,23 +225,21 @@ class Consciousness:
                     logger.info(f"turn done: {steps} llm call(s), {spent.total} tokens, "
                                 f"in {elapsed_ms:.0f}ms")
                     self._publish_cost(steps, spent, elapsed_ms)
-                self.correlations.release()
                 self._trim()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Consciousness loop error: {e}")
                 await asyncio.sleep(1)
+            finally:
+                # a turn that raised must not leave its caller hanging for the
+                # whole correlation timeout
+                self.correlations.release()
 
     # --- attention ----------------------------------------------------------
 
     def _filter(self, batch: List[Perception]) -> "tuple[List[Perception], List[Perception]]":
-        """Splits a batch into what deserves a reasoning cycle and what does not.
-
-        Without the gate every perception costs an LLM call — with the game on
-        that is one every ten seconds, forever, and a person who deliberates
-        over every stimulus does not read as a person.
-        """
+        """Splits a batch into what deserves a reasoning cycle and what does not."""
         if not self.attention:
             return batch, []
         react, noted = self.attention.judge(batch)
@@ -257,12 +248,7 @@ class Consciousness:
         return react, noted
 
     def _route(self, batch: List[Perception]) -> List[Perception]:
-        """Keeps what belongs on the stage; hands the rest to scoped turns.
-
-        An explicit if/else, not two consumers of the same batch: a perception
-        must reach exactly one turn, or Bea answers the same message twice from
-        two contexts that know nothing about each other.
-        """
+        """Keeps what belongs on the stage; hands the rest to scoped turns."""
         if not self.conversations or not batch:
             return batch
         stage, scoped = route(batch)
@@ -272,11 +258,7 @@ class Consciousness:
         return stage
 
     def _publish_cost(self, steps: int, spent: Usage, elapsed_ms: float) -> None:
-        """What the turn cost, for the dashboard.
-
-        Not decoration: the whole point of the attention gate is spending fewer
-        of these, and you cannot tune what you cannot see.
-        """
+        """What the turn cost, for the dashboard: the gate cannot be tuned blind."""
         self.total_tokens += spent.total
         self.total_calls += steps
         self.events.publish(
@@ -296,8 +278,8 @@ class Consciousness:
     def now_line(self) -> str:
         """One line for a scoped turn: what she is doing on stage right now.
 
-        Deliberately one line. Cross-awareness is what keeps her coherent;
-        pouring context between turns is what would make her one slow mind again.
+        One line on purpose — pouring context between turns would make her one
+        slow mind again.
         """
         if self.sleeping:
             return "you're asleep"
@@ -313,8 +295,7 @@ class Consciousness:
     # --- context building ---------------------------------------------------
 
     async def _build_system_message(self, batch: List[Perception], is_idle: bool = False) -> Dict[str, Any]:
-        """Async wrapper: dynamic context (RAG embeddings, network IO) is computed
-        off the event loop so a slow retrieval never stalls speech/steering/body."""
+        """Builds it off the loop: a slow retrieval must not stall speech."""
         dynamic = await asyncio.to_thread(self.surfaces.dynamic_context, batch) if batch else []
         return self._system_message(batch, is_idle=is_idle, dynamic=dynamic)
 
@@ -323,7 +304,7 @@ class Consciousness:
         soul = self._get_soul()
         operating = self._get_operating()
 
-        # idle/monologue rules are a last resort: mount them only on a pure-idle frame
+        # monologue rules only on a pure-idle frame
         sections = [
             s.context_section for s in self.surfaces.active()
             if s.context_section and (s.name != "idle" or is_idle)
@@ -384,8 +365,7 @@ class Consciousness:
             return
         except Exception as e:
             result = f"ERROR: {e}"
-        # attributed to the surface that owns the tool: hardcoding "game:mc" here
-        # mislabelled the result of every body action that was not minecraft
+        # attributed to the surface that owns the tool, not to minecraft
         self.bus.put(Perception(
             PerceptionKind.ACTION, tool.surface or "body",
             f"[{tool.name}] result: {result}", salience=0.7,
@@ -395,8 +375,7 @@ class Consciousness:
 
     async def _speak(self, mood: str, message: str) -> str:
         mood = mood or "normal"
-        # redundant with the client-side clean, deliberately: this is the last
-        # gate before the audience hears it
+        # redundant with the client-side clean: last gate before the audience
         message = clean_model_output(message)
         if not message:
             logger.warning("speak() had nothing left after sanitizing; staying silent.")
@@ -414,7 +393,7 @@ class Consciousness:
                                       {"status": "success", "text": message, "audio": audio})
 
         if "discord" not in routes or "local" in routes:
-            # local stream/OBS: fire-and-forget so reasoning keeps going
+            # fire-and-forget so reasoning keeps going
             asyncio.create_task(self._speak_local_safe(mood, message))
             self.correlations.resolve(lambda r: r != "discord",
                                       {"mood": mood, "message": message})
@@ -422,7 +401,7 @@ class Consciousness:
         return "Spoken."
 
     async def _speak_local_safe(self, mood: str, message: str) -> None:
-        """Renders local speech without letting playback errors become unretrieved."""
+        """Local speech in a task: a playback error must not go unretrieved."""
         try:
             await self.expression.speak(mood, message, route="local")
         except Exception as e:

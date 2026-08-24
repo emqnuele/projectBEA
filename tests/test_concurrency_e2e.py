@@ -1,8 +1,7 @@
-"""Phase-5 definition of done, through the real consciousness loop.
+"""Parallel conversations, through the real consciousness loop.
 
-Two channels answered in parallel; three quick messages in one channel getting
-one reply; order inside a channel always respected; and — the one that matters
-most — no message ever answered twice.
+Two channels answered at once, three quick messages in one channel getting one
+reply, order respected inside a channel, and no message ever answered twice.
 """
 
 import asyncio

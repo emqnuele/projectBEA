@@ -301,6 +301,49 @@ POST /skills/discord/toggle?enable=true
 
 ---
 
+### Stream Plan
+
+What the owner wants Bea to get done on this stream. Every endpoint returns the
+whole plan, so the dashboard never has to guess what the server now holds:
+
+```json
+{
+  "directive": "today you play minecraft on the survival server",
+  "objectives": [
+    { "id": 1, "text": "build a base", "detail": "", "status": "todo",
+      "outcome": "", "position": 1, "created_at": 0.0, "updated_at": 0.0 }
+  ]
+}
+```
+
+`status` is one of `todo`, `doing`, `done`, `dropped`. The `id` is also the
+number Bea passes to `objective_done`.
+
+#### `GET /plan`
+Returns the current plan.
+
+#### `POST /plan/directive`
+Sets the headline. Body: `{ "text": "..." }` (empty clears it).
+
+#### `POST /plan/objectives`
+Adds an objective. Body: `{ "text": "...", "detail": "..." }`. Blank text is a
+`422`.
+
+#### `PATCH /plan/objectives/{id}`
+Updates one objective. Body may carry any of `text`, `detail`, `status`,
+`outcome`. An unknown status is a `422`; an unknown id is a `404`.
+
+#### `DELETE /plan/objectives/{id}`
+Removes an objective. Unknown id is a `404`.
+
+#### `POST /plan/order`
+Reorders the list. Body: `{ "ids": [3, 1, 2] }`.
+
+#### `POST /plan/reset`
+Clears the headline and every objective — a new stream from nothing.
+
+---
+
 ### Health
 
 #### `GET /health`

@@ -1,9 +1,8 @@
 """Test doubles for the pieces the consciousness talks to.
 
-The important one is `FakeLLMClient`: given a scripted sequence of
-`AssistantMessage`s it lets the whole loop run end-to-end with no network, so
-questions like "how many model calls did that batch cost?" become assertions
-instead of guesses.
+`FakeLLMClient` replays a scripted sequence of `AssistantMessage`s, so the whole
+loop runs with no network and "how many model calls did that batch cost?"
+becomes an assertion.
 """
 
 import asyncio

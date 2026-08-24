@@ -1,10 +1,5 @@
 """The attention gate: what wakes the mind, and what merely gets noticed.
 
-Before this existed, every perception triggered a full reasoning cycle. With
-Minecraft on that meant an LLM call every ten seconds forever; with a busy chat,
-one per message. Beyond the cost, it is not how a person works: most of what
-reaches you gets registered, not deliberated over.
-
 State lives here (activity counters, when she last spoke, the digest buffer);
 the decisions live in `rules.py` and stay pure. `rng` and `clock` are injected
 so the whole thing is deterministic under test.
@@ -57,13 +52,11 @@ class Attention:
         self._clock = clock or time.time
         self._on_verdict = on_verdict
 
-        # keyed by conversation, not by surface: every discord channel shares one
-        # surface, so surface-wide activity would make a busy channel drag her
-        # into a quiet one
+        # keyed by conversation, not by surface: all discord channels share one
+        # surface, and a busy channel must not drag her into a quiet one
         self._activity: Dict[str, Deque[float]] = {}
         self._last_spoke: Dict[str, float] = {}
         self._noted: List[Tuple[str, str]] = []      # (surface, rendered line)
-        self._dropped: Dict[str, int] = {}
 
     # --- config -------------------------------------------------------------
 
@@ -99,7 +92,7 @@ class Attention:
     # --- the decision -------------------------------------------------------
 
     def judge(self, batch: List[Perception]) -> Tuple[List[Perception], List[Perception]]:
-        """Returns (react, noted). Records activity and drop counters as it goes."""
+        """Returns (react, noted). Records activity as it goes."""
         if not batch:
             return [], []
         if not self.enabled:
@@ -118,27 +111,22 @@ class Attention:
                 react.append(p)
             elif verdict.reaction is Reaction.NOTE:
                 noted.append(p)
-            else:
-                self._dropped[p.surface] = self._dropped.get(p.surface, 0) + 1
 
-        # anything worth reacting to drags the rest of its batch along: they are
-        # the same moment, and answering "ciao bea" without the two lines that
-        # came with it would strip the context. Dropped noise stays dropped.
+        # a reaction drags the rest of its batch along: same moment, same context
         if react and noted:
             react = sorted(react + noted, key=lambda p: p.ts)
             noted = []
         return react, noted
 
     def _judge_one(self, p: Perception) -> Verdict:
-        # the idle timer IS the gate for idleness: the bus only emits IDLE after
-        # `idle_after` seconds of nothing, so there is nothing left to decide
+        # the bus only emits IDLE after `idle_after` seconds of nothing: the
+        # timer is already the gate
         if p.kind is PerceptionKind.IDLE:
             if in_quiet_hours(self._hour(), *self.quiet_hours):
                 return Verdict(Reaction.DROP, 0.0, "idle:quiet-hours")
             return Verdict(Reaction.REACT, 1.0, "idle:timer")
 
-        # noise the senses flagged themselves (a repeated game snapshot): it is
-        # already available as live state, it does not need a digest line
+        # flagged by the sense itself: already in live state, no digest line needed
         if p.meta.get("noise"):
             return Verdict(Reaction.DROP, 0.0, "noise")
 
@@ -150,7 +138,6 @@ class Attention:
 
         key = self._key(p)
         base = score(
-            kind=p.kind,
             salience=p.salience,
             text=p.content,
             author_known=self._author_known(p),
@@ -183,11 +170,13 @@ class Attention:
     # --- state --------------------------------------------------------------
 
     def mark_spoke(self, key: str = ANYWHERE) -> None:
-        """She just said something. `key` scopes it to one conversation."""
-        now = self._clock()
-        self._last_spoke[ANYWHERE] = now
-        if key != ANYWHERE:
-            self._last_spoke[key] = now
+        """She just said something. `key` scopes it to one conversation.
+
+        A scoped reply records only under its key: typing in one channel is not
+        a reason to go quiet everywhere. Speaking on stage is, so it lands on
+        ANYWHERE, which every key without its own stamp falls back to.
+        """
+        self._last_spoke[key] = self._clock()
 
     def seconds_since_spoke(self, key: str = ANYWHERE) -> Optional[float]:
         stamp = self._last_spoke.get(key, self._last_spoke.get(ANYWHERE))
@@ -249,11 +238,10 @@ class Attention:
     def digest(self, max_lines: Optional[int] = None) -> str:
         """What happened while she wasn't paying attention. Consumed on read.
 
-        This is NOT memory — it is peripheral awareness. It is capped, it empties
-        when read, and it does not survive the turn. Anything worth keeping is
-        the memory layer's job.
+        Peripheral awareness, not memory: capped, emptied on read, gone after
+        the turn.
         """
-        if not self._noted and not self._dropped:
+        if not self._noted:
             return ""
         cap = max_lines if max_lines is not None else int(self._cfg.get("digest_max_lines", 8))
 
@@ -269,7 +257,6 @@ class Attention:
                 lines.extend(f"- {surface}: {e}" for e in entries)
 
         self._noted.clear()
-        self._dropped.clear()
 
         if not lines:
             return ""

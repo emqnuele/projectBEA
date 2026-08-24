@@ -310,7 +310,7 @@ async def test_three_quick_messages_get_one_answer(setup):
     assert len(discord.sent) <= 2
 
 
-# --- starting something herself (phase 9) ------------------------------------
+# --- starting something herself ----------------------------------------------
 
 
 async def test_she_can_open_a_conversation_with_nothing_to_answer(setup):
