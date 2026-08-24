@@ -62,3 +62,6 @@ Thumbs.db
 *.onnx
 *.bin
 PLAN.md
+
+# personal planning notes, not part of the repo
+docs/roadmap.md
