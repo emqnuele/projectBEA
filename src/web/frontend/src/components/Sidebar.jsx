@@ -133,19 +133,21 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
             >
                 <header
                     className={cn(
-                        'mb-3 flex shrink-0 pt-0.5',
-                        rail ? 'flex-col items-center gap-2' : 'items-center gap-2 px-1',
+                        'mb-3 flex shrink-0 items-center pt-0.5',
+                        rail ? 'justify-center' : 'gap-2 px-1',
                     )}
                 >
                     <BrandMark rail={rail} />
-                    <IconButton
-                        label={rail ? 'Expand the sidebar' : 'Collapse the sidebar'}
-                        size="sm"
-                        onClick={() => setCollapsedPreference((v) => !v)}
-                        className={cn('max-lg:hidden', !rail && 'ml-auto')}
-                    >
-                        {rail ? <PanelLeft size={14} /> : <ChevronLeft size={14} />}
-                    </IconButton>
+                    {!rail && (
+                        <IconButton
+                            label="Collapse the sidebar"
+                            size="sm"
+                            onClick={() => setCollapsedPreference(true)}
+                            className="ml-auto max-lg:hidden"
+                        >
+                            <ChevronLeft size={14} />
+                        </IconButton>
+                    )}
                     <IconButton label="Close the menu" size="sm" onClick={onCloseMobile} className="ml-auto lg:hidden">
                         <X size={15} />
                     </IconButton>
@@ -282,6 +284,16 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                 </div>
 
                 <div className="mt-2 shrink-0 border-t border-line pt-2">
+                    {rail && (
+                        <div className="mb-1 flex justify-center">
+                            <IconButton
+                                label="Expand the sidebar"
+                                onClick={() => setCollapsedPreference(false)}
+                            >
+                                <PanelLeft size={17} />
+                            </IconButton>
+                        </div>
+                    )}
                     <NavLink
                         to="/dashboard/settings"
                         onClick={onCloseMobile}
@@ -313,12 +325,13 @@ function sessionLabel(session) {
 function BrandMark({ rail }) {
     return (
         <div className={cn('flex min-w-0 items-center', rail ? 'justify-center' : 'gap-2.5')}>
-            <span
-                className="grid h-8 w-8 shrink-0 place-items-center rounded-b2 font-display text-[13px] font-extrabold"
-                style={{ background: 'var(--vital)', color: 'var(--bg)' }}
-            >
-                B
-            </span>
+            <img
+                src="/bea.ico"
+                alt=""
+                width={32}
+                height={32}
+                className="h-8 w-8 shrink-0 rounded-b2 border border-line object-cover"
+            />
             {!rail && (
                 <span className="min-w-0">
                     <span className="block truncate font-display text-[13px] font-bold leading-none text-text">Bea</span>

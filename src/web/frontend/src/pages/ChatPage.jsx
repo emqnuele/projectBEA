@@ -266,7 +266,7 @@ export default function ChatPage() {
                         }}
                         placeholder={placeholder}
                         aria-label="Message"
-                        className="max-h-[168px] min-h-[38px] flex-1 resize-none bg-transparent px-1 py-2 text-[13px]
+                        className="bare max-h-[168px] min-h-[38px] flex-1 resize-none bg-transparent px-1 py-2 text-[13px]
                                    leading-relaxed text-text outline-none placeholder:text-faint"
                     />
 

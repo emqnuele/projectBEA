@@ -150,7 +150,7 @@ export default function PlanPage() {
                         rows={2}
                         placeholder="Today you're playing Minecraft on the survival server…"
                         aria-label="Today's orders"
-                        className="w-full resize-none bg-transparent font-display text-2xl font-bold leading-snug
+                        className="bare w-full resize-none bg-transparent font-display text-2xl font-bold leading-snug
                                    tracking-tight text-text outline-none placeholder:text-faint sm:text-3xl"
                     />
                     <p className="mt-2 text-[11px] text-faint">
@@ -201,7 +201,7 @@ export default function PlanPage() {
                             aria-label="New objective"
                             className="min-w-0 flex-1 rounded-b2 border border-line bg-fill px-3 py-2
                                        text-[13px] text-text outline-none transition-colors
-                                       placeholder:text-faint focus:border-line-strong"
+                                       placeholder:text-faint"
                         />
                         <Button variant="primary" onClick={addObjective} disabled={!newObjective.trim()}>
                             <Plus size={14} /> Add

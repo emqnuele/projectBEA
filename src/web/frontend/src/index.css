@@ -177,11 +177,37 @@ h3,
   color: var(--text);
 }
 
-/* one visible focus ring for the whole app */
+/* One focus ring for the whole app.
+   No border-radius here: forcing one made the ring a different shape from the
+   control it was wrapping, which is what made it look pasted on. An outline
+   follows the element's own radius by itself. */
 :focus-visible {
-  outline: 2px solid var(--vital);
+  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
   outline-offset: 2px;
-  border-radius: var(--r-1);
+}
+
+/* a panel that takes focus only so the keyboard has somewhere to land */
+[data-focus-ring="off"]:focus-visible {
+  outline: none;
+}
+
+/* A text field already has a border to say it is focused, so it says it there
+   instead of wearing a second ring on the outside. This is the only place that
+   styles field focus — no component adds its own `focus:border-*`, or the two
+   fight over the cascade. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: color-mix(in oklab, var(--accent) 55%, var(--line-strong));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 14%, transparent);
+}
+
+/* …unless it has no border of its own, in which case its container carries it */
+input.bare:focus-visible,
+textarea.bare:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 ::-webkit-scrollbar {

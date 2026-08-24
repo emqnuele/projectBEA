@@ -882,7 +882,15 @@ async def catch_all(full_path: str):
     if full_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="API Endpoint not found")
 
-    # serve index.html
-    if frontend_path.exists():
-        return FileResponse(frontend_path / "index.html")
-    return {"error": "Frontend not found"}
+    if not frontend_path.exists():
+        return {"error": "Frontend not found"}
+
+    # a real file in the build — the favicon, the icon the sidebar shows — must
+    # not be answered with index.html just because it lives outside /assets
+    if full_path:
+        root = frontend_path.resolve()
+        candidate = (root / full_path).resolve()
+        if candidate.is_file() and candidate.is_relative_to(root):
+            return FileResponse(candidate)
+
+    return FileResponse(frontend_path / "index.html")

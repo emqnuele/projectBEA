@@ -151,7 +151,7 @@ export function CommandPalette({ open, onClose }) {
                         onKeyDown={onKeyDown}
                         placeholder="Where to, or what should she do?"
                         aria-label="Search commands"
-                        className="w-full bg-transparent text-sm text-text outline-none placeholder:text-faint"
+                        className="bare w-full bg-transparent text-sm text-text outline-none placeholder:text-faint"
                     />
                     <kbd className="hidden shrink-0 rounded border border-line px-1.5 py-0.5 font-mono text-[10px] text-faint sm:block">
                         esc

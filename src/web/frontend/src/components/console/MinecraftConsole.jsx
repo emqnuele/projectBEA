@@ -491,7 +491,7 @@ function Panel({ title, hint, children }) {
 
 const FIELD =
     'min-w-0 rounded-b1 border border-line bg-fill px-2 py-1 text-[11px] text-text ' +
-    'outline-none transition-colors placeholder:text-faint focus:border-line-strong';
+    'outline-none transition-colors placeholder:text-faint';
 
 function Coord({ value, onChange, label }) {
     return (

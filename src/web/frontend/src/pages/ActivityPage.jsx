@@ -132,7 +132,7 @@ export default function ActivityPage() {
                                 aria-label="Filter the log"
                                 className="w-28 rounded-b1 border border-line bg-fill py-1 pl-7 pr-6 text-[11px]
                                            text-text outline-none transition-all placeholder:text-faint
-                                           focus:w-44 focus:border-line-strong"
+                                           focus:w-44"
                             />
                             {query && (
                                 <button

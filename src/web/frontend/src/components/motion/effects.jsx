@@ -74,38 +74,6 @@ export function Magnetic({ children, strength = 0.28, className }) {
     );
 }
 
-/** A tile that catches the light where the cursor is. */
-export function Spotlight({ children, className, color = 'rgb(255 255 255 / 7%)', ...props }) {
-    const ref = useRef(null);
-    const [position, setPosition] = useState(null);
-
-    const onMove = (event) => {
-        const box = ref.current?.getBoundingClientRect();
-        if (!box) return;
-        setPosition({ x: event.clientX - box.left, y: event.clientY - box.top });
-    };
-
-    return (
-        <div
-            ref={ref}
-            onMouseMove={onMove}
-            onMouseLeave={() => setPosition(null)}
-            className={cn('relative', className)}
-            {...props}
-        >
-            <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-300"
-                style={position ? {
-                    opacity: 1,
-                    background: `radial-gradient(340px circle at ${position.x}px ${position.y}px, ${color}, transparent 70%)`,
-                } : undefined}
-            />
-            {children}
-        </div>
-    );
-}
-
 /**
  * A lucide icon that reacts instead of sitting still: `spin` while something is
  * running, `pulse` while she is live, `bounce` on the way in.

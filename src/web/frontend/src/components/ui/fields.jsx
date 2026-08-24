@@ -4,7 +4,7 @@ import { cn } from '../../lib/cn';
 
 const BASE =
     'w-full rounded-b2 border border-line bg-fill px-3 py-2 text-[13px] text-text ' +
-    'placeholder:text-faint transition-colors outline-none focus:border-line-strong focus:bg-fill-2 ' +
+    'placeholder:text-faint transition-colors outline-none ' +
     'disabled:opacity-40';
 
 /**

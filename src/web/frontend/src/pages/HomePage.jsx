@@ -13,7 +13,7 @@ import { AttentionFlux } from '../components/AttentionFlux';
 import { Glass } from '../components/glass/Glass';
 import { Button } from '../components/ui/controls';
 import { Badge, EmptyState, Skeleton } from '../components/ui/feedback';
-import { AnimatedIcon, CountUp, ProgressRing, Spotlight } from '../components/motion/effects';
+import { AnimatedIcon, CountUp, ProgressRing } from '../components/motion/effects';
 
 export default function HomePage() {
     const { overview, events, isSpeaking, isSleeping, status, connection, interrupt, toggleSleep, refreshOverview } = useBrain();
@@ -54,7 +54,7 @@ export default function HomePage() {
             <div className="grid auto-rows-min grid-cols-1 gap-2.5 md:grid-cols-6 xl:grid-cols-12">
 
                 {/* --- the hero: is she alive, and what is she doing --- */}
-                <Tile className="md:col-span-6 xl:col-span-5 xl:row-span-2" spotlight>
+                <Tile className="md:col-span-6 xl:col-span-5 xl:row-span-2">
                     <div className="flex h-full flex-col">
                         <div className="flex items-start gap-3">
                             <span
@@ -301,7 +301,7 @@ const OBJECTIVE_COLOR = {
     dropped: 'var(--flux-mute)',
 };
 
-function Tile({ title, hint, to, icon: Icon, children, className, bodyClassName, spotlight }) {
+function Tile({ title, hint, to, icon: Icon, children, className, bodyClassName }) {
     const head = (title || Icon) && (
         <div className="mb-3.5 flex items-center gap-2.5">
             {Icon && <Icon size={14} className="shrink-0 text-faint" />}
@@ -320,20 +320,23 @@ function Tile({ title, hint, to, icon: Icon, children, className, bodyClassName,
         </>
     );
 
-    const inner = spotlight
-        ? <Spotlight className="flex h-full flex-col rounded-[inherit]">{body}</Spotlight>
-        : body;
-
     return (
         <motion.div
-            layout
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
             className={className}
         >
-            <Glass quiet className="group flex h-full flex-col p-4 transition-colors hover:border-line-strong">
-                {to ? <Link to={to} className="flex h-full flex-col rounded-[inherit] outline-none">{inner}</Link> : inner}
+            <Glass
+                quiet
+                className={cn(
+                    'group flex h-full flex-col transition-colors duration-200',
+                    to && 'hover:border-line-strong hover:bg-fill-2',
+                )}
+            >
+                {to
+                    ? <Link to={to} className="flex h-full flex-col rounded-[inherit] p-4">{body}</Link>
+                    : <div className="flex h-full flex-col p-4">{body}</div>}
             </Glass>
         </motion.div>
     );

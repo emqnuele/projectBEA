@@ -191,7 +191,7 @@ function RosterTable({ roster }) {
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Find someone"
                     aria-label="Find someone on the roster"
-                    className="w-full bg-transparent text-[12px] text-text outline-none placeholder:text-faint"
+                    className="bare w-full bg-transparent text-[12px] text-text outline-none placeholder:text-faint"
                 />
                 <span className="shrink-0 font-mono text-[10px] text-faint">{rows.length}</span>
             </div>
@@ -267,7 +267,7 @@ function RecallPanel() {
                         aria-label="Search her memory"
                         className="min-w-0 flex-1 rounded-b2 border border-line bg-fill px-3 py-2
                                    text-[13px] text-text outline-none transition-colors
-                                   placeholder:text-faint focus:border-line-strong"
+                                   placeholder:text-faint"
                     />
                     <Button type="submit" variant="primary" loading={busy} disabled={!query.trim()}>
                         <Search size={14} /> Recall

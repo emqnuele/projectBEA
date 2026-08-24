@@ -82,6 +82,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
                         aria-modal="true"
                         aria-labelledby={labelledBy || headingId}
                         tabIndex={-1}
+                        data-focus-ring="off"
                         onKeyDown={handleKeyDown}
                         initial={{ opacity: 0, y: 14, scale: 0.98 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}

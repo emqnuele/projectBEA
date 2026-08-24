@@ -58,7 +58,7 @@ export function PromptEditor({ open, value, onClose, onSave }) {
                     spellCheck="false"
                     aria-label="Instructions"
                     placeholder="Leave empty to use the defaults."
-                    className="min-h-0 flex-1 resize-none bg-transparent p-5 font-mono text-[12.5px]
+                    className="bare min-h-0 flex-1 resize-none bg-transparent p-5 font-mono text-[12.5px]
                                leading-relaxed text-text outline-none placeholder:text-faint"
                 />
             </div>
