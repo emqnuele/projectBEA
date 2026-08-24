@@ -8,6 +8,7 @@ import { api } from '../api';
 import { cn } from '../lib/cn';
 import { NAV, VERSION } from '../lib/nav';
 import { relativeTime } from '../lib/format';
+import { DESKTOP, useMediaQuery } from '../hooks/useMediaQuery';
 import { useToast } from '../state/ToastProvider';
 import { useDialog } from '../state/DialogProvider';
 import { useBrain } from '../state/BrainProvider';
@@ -18,7 +19,9 @@ import { Spinner } from './ui/feedback';
 const COLLAPSE_KEY = 'bea.sidebar.collapsed';
 
 export function Sidebar({ mobileOpen, onCloseMobile }) {
-    const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1');
+    const [collapsedPreference, setCollapsedPreference] = useState(
+        () => localStorage.getItem(COLLAPSE_KEY) === '1',
+    );
     const [sessions, setSessions] = useState(null);
     const [renaming, setRenaming] = useState(null);
     const [draftTitle, setDraftTitle] = useState('');
@@ -26,10 +29,17 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
     const navigate = useNavigate();
     const toast = useToast();
     const dialog = useDialog();
+    const isDesktop = useMediaQuery(DESKTOP);
     const { status, refreshOverview } = useBrain();
     const activeSession = status?.session_id;
 
-    useEffect(() => { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); }, [collapsed]);
+    // the rail only narrows on desktop: on a phone this is a drawer that slides
+    // over the page, and a 74px drawer would be a worse version of the menu
+    const rail = collapsedPreference && isDesktop;
+
+    useEffect(() => {
+        localStorage.setItem(COLLAPSE_KEY, collapsedPreference ? '1' : '0');
+    }, [collapsedPreference]);
 
     const loadSessions = useCallback(async () => {
         try {
@@ -98,8 +108,6 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
         }
     };
 
-    const width = collapsed ? 'lg:w-[74px]' : 'lg:w-[248px]';
-
     return (
         <>
             <AnimatePresence>
@@ -116,38 +124,44 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                 as="nav"
                 aria-label="Sections"
                 className={cn(
-                    'fixed inset-y-0 left-0 z-50 flex w-[264px] flex-col rounded-none border-y-0 border-l-0 p-3',
+                    'fixed inset-y-0 left-0 z-50 flex w-[264px] flex-col overflow-hidden rounded-none border-y-0 border-l-0 p-3',
                     'transition-transform duration-300 lg:static lg:z-auto lg:h-full lg:rounded-b4 lg:border',
                     'lg:translate-x-0 lg:transition-[width] lg:duration-300',
-                    width,
+                    rail ? 'lg:w-[76px]' : 'lg:w-[248px]',
                     mobileOpen ? 'translate-x-0' : '-translate-x-full',
                 )}
             >
-                <div className="mb-4 flex items-center gap-2 px-1.5 pt-1">
-                    <BrandMark collapsed={collapsed} />
+                <header
+                    className={cn(
+                        'mb-3 flex shrink-0 pt-0.5',
+                        rail ? 'flex-col items-center gap-2' : 'items-center gap-2 px-1',
+                    )}
+                >
+                    <BrandMark rail={rail} />
                     <IconButton
-                        label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                        label={rail ? 'Expand the sidebar' : 'Collapse the sidebar'}
                         size="sm"
-                        onClick={() => setCollapsed((v) => !v)}
-                        className="ml-auto hidden lg:inline-grid"
+                        onClick={() => setCollapsedPreference((v) => !v)}
+                        className={cn('max-lg:hidden', !rail && 'ml-auto')}
                     >
-                        {collapsed ? <PanelLeft size={14} /> : <ChevronLeft size={14} />}
+                        {rail ? <PanelLeft size={14} /> : <ChevronLeft size={14} />}
                     </IconButton>
-                    <IconButton label="Close menu" size="sm" onClick={onCloseMobile} className="ml-auto lg:hidden">
+                    <IconButton label="Close the menu" size="sm" onClick={onCloseMobile} className="ml-auto lg:hidden">
                         <X size={15} />
                     </IconButton>
-                </div>
+                </header>
 
-                <ul className="space-y-0.5">
+                <ul className="shrink-0 space-y-0.5">
                     {NAV.map((item) => (
                         <li key={item.to}>
                             <NavLink
                                 to={item.to}
                                 end={item.end}
                                 onClick={onCloseMobile}
-                                title={collapsed ? item.label : undefined}
+                                title={rail ? item.label : undefined}
                                 className={({ isActive }) => cn(
-                                    'group relative flex items-center gap-3 rounded-b2 px-2.5 py-2 text-[13px] font-medium transition-colors',
+                                    'group relative flex items-center rounded-b2 py-2 text-[13px] font-medium transition-colors',
+                                    rail ? 'justify-center px-0' : 'gap-3 px-2.5',
                                     isActive ? 'text-text' : 'text-dim hover:bg-fill-2 hover:text-text',
                                 )}
                             >
@@ -161,8 +175,8 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                                             />
                                         )}
                                         <span className="relative shrink-0"><item.icon size={17} /></span>
-                                        {!collapsed && <span className="relative truncate">{item.label}</span>}
-                                        {isActive && !collapsed && (
+                                        {!rail && <span className="relative truncate">{item.label}</span>}
+                                        {isActive && !rail && (
                                             <span
                                                 className="relative ml-auto h-1.5 w-1.5 rounded-full"
                                                 style={{ background: 'var(--vital)' }}
@@ -175,20 +189,25 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                     ))}
                 </ul>
 
-                <div className="mt-4 min-h-0 flex-1 overflow-hidden">
-                    <div className="mb-2 flex items-center gap-2 px-2.5">
-                        {!collapsed && (
+                <div className="mt-4 flex min-h-0 flex-1 flex-col">
+                    <div className={cn('mb-2 flex shrink-0 items-center', rail ? 'justify-center' : 'gap-2 px-2.5')}>
+                        {!rail && (
                             <span className="text-[10px] font-semibold uppercase tracking-widest text-faint">
                                 Conversations
                             </span>
                         )}
-                        <IconButton label="New conversation" size="sm" onClick={startNewChat} className="ml-auto">
+                        <IconButton
+                            label="New conversation"
+                            size="sm"
+                            onClick={startNewChat}
+                            className={cn(!rail && 'ml-auto')}
+                        >
                             <MessageSquarePlus size={15} />
                         </IconButton>
                     </div>
 
-                    {!collapsed && (
-                        <div className="h-full space-y-0.5 overflow-y-auto pb-2 pr-0.5">
+                    {!rail && (
+                        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-2 pr-0.5">
                             {sessions === null && (
                                 <div className="flex justify-center py-4"><Spinner /></div>
                             )}
@@ -210,9 +229,10 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                                                     if (e.key === 'Enter') saveTitle(session.id);
                                                     if (e.key === 'Escape') setRenaming(null);
                                                 }}
+                                                aria-label="Conversation name"
                                                 className="min-w-0 flex-1 rounded-b1 border border-line-strong bg-fill-2 px-2 py-1 text-xs text-text outline-none"
                                             />
-                                            <IconButton label="Save name" size="sm" onClick={() => saveTitle(session.id)}>
+                                            <IconButton label="Save the name" size="sm" onClick={() => saveTitle(session.id)}>
                                                 <Check size={13} />
                                             </IconButton>
                                         </div>
@@ -223,11 +243,14 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                                         key={session.id}
                                         className={cn(
                                             'group flex items-center gap-1 rounded-b2 px-1 transition-colors',
-                                            isActive ? 'border border-line bg-fill-3' : 'border border-transparent hover:bg-fill-2',
+                                            isActive
+                                                ? 'border border-line bg-fill-3'
+                                                : 'border border-transparent hover:bg-fill',
                                         )}
                                     >
                                         <button
                                             onClick={() => openSession(session.id)}
+                                            title={`Open “${sessionLabel(session)}”`}
                                             className="min-w-0 flex-1 px-1.5 py-1.5 text-left"
                                         >
                                             <span className={cn('block truncate text-xs font-medium', isActive ? 'text-text' : 'text-dim')}>
@@ -258,21 +281,22 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                     )}
                 </div>
 
-                <div className="mt-2 border-t border-line pt-2">
+                <div className="mt-2 shrink-0 border-t border-line pt-2">
                     <NavLink
                         to="/dashboard/settings"
                         onClick={onCloseMobile}
-                        title={collapsed ? 'Settings' : undefined}
+                        title={rail ? 'Settings' : undefined}
                         className={({ isActive }) => cn(
-                            'flex items-center gap-3 rounded-b2 px-2.5 py-2 text-[13px] font-medium transition-colors',
+                            'flex items-center rounded-b2 py-2 text-[13px] font-medium transition-colors',
+                            rail ? 'justify-center px-0' : 'gap-3 px-2.5',
                             isActive ? 'bg-fill-3 text-text' : 'text-dim hover:bg-fill-2 hover:text-text',
                         )}
                     >
                         <Settings size={17} className="shrink-0" />
-                        {!collapsed && <span>Settings</span>}
+                        {!rail && <span>Settings</span>}
                     </NavLink>
-                    {!collapsed && (
-                        <p className="px-2.5 pt-2 font-mono text-[10px] tracking-wider text-faint">
+                    {!rail && (
+                        <p className="truncate px-2.5 pt-2 font-mono text-[10px] tracking-wider text-faint">
                             Bea Control Room · {VERSION}
                         </p>
                     )}
@@ -286,16 +310,16 @@ function sessionLabel(session) {
     return session.title?.trim() || session.preview?.replace(/\.\.\.$/, '') || 'Untitled';
 }
 
-function BrandMark({ collapsed }) {
+function BrandMark({ rail }) {
     return (
-        <div className="flex min-w-0 items-center gap-2.5">
+        <div className={cn('flex min-w-0 items-center', rail ? 'justify-center' : 'gap-2.5')}>
             <span
                 className="grid h-8 w-8 shrink-0 place-items-center rounded-b2 font-display text-[13px] font-extrabold"
                 style={{ background: 'var(--vital)', color: 'var(--bg)' }}
             >
                 B
             </span>
-            {!collapsed && (
+            {!rail && (
                 <span className="min-w-0">
                     <span className="block truncate font-display text-[13px] font-bold leading-none text-text">Bea</span>
                     <span className="mt-1 block truncate text-[10px] uppercase tracking-widest text-faint">Control room</span>
