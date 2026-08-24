@@ -67,6 +67,9 @@
   --lg-splay: 0.62;
   --lg-saturate: 1.5;
   --lg-brightness: 1.06;
+
+  --frost-full: blur(var(--lg-frost)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
+  --frost-quiet: blur(calc(var(--lg-frost) * 0.6)) saturate(var(--lg-saturate));
 }
 
 :root[data-theme="light"] {
@@ -265,8 +268,7 @@ textarea.bare:focus-visible {
   /* frost — the plain, always-supported part */
   .glass::before {
     z-index: -2;
-    backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
-    -webkit-backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
+    backdrop-filter: var(--frost-full);
   }
 
   /* refraction — strongest at the rim, almost nothing in the middle (splay) */
@@ -333,13 +335,26 @@ textarea.bare:focus-visible {
     border-radius: var(--r-3);
     border: 1px solid var(--line);
     background: var(--glass-tint);
-    backdrop-filter: blur(calc(var(--lg-frost) * 0.6)) saturate(var(--lg-saturate));
-    -webkit-backdrop-filter: blur(calc(var(--lg-frost) * 0.6)) saturate(var(--lg-saturate));
+    backdrop-filter: var(--frost-quiet);
     box-shadow:
       0 1px 2px rgb(0 0 0 / calc(0.12 * var(--lg-depth))),
       inset 0 1px 0 rgb(255 255 255 / calc(0.4 * var(--lg-light)));
   }
 
+}
+
+/* Safari before 16.4 only knows the prefixed property. It lives in its own rule
+   because the minifier collapses two prefixes of the same property inside one
+   rule down to whichever came last — which is how the production build ended up
+   with no frost at all. */
+@supports not (backdrop-filter: blur(1px)) {
+  .glass::before {
+    -webkit-backdrop-filter: var(--frost-full);
+  }
+
+  .glass-quiet {
+    -webkit-backdrop-filter: var(--frost-quiet);
+  }
 }
 
 /* when the operator turns refraction off entirely */
