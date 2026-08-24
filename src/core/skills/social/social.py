@@ -2,11 +2,13 @@ import datetime
 from typing import Dict, List, Optional
 
 from src.core.agent.tools import Tool
-from src.core.perception.types import Perception, PerceptionKind
+from src.core.memory.store import PersonCard, RosterEntry
+from src.core.perception.types import PerceptionKind
 from src.core.skills.base import Skill
-from src.core.skills.social.roster import RosterStore, RosterEntry
 from src.core.skills.social.people import (
-    PeopleStore, PersonCard, should_promote, promotion_reason, resolve_or_create_card,
+    promotion_reason,
+    resolve_or_create_card,
+    should_promote,
 )
 from src.utils.logger import get_logger
 
@@ -19,19 +21,19 @@ MAX_CARDS_INJECTED = 5
 class SocialMemory(Skill):
     """Bea's memory of the people around her.
 
-    Everyone gets a cheap tally (roster); only the ones who make themselves
-    matter — donors, regulars, real 1:1s, or people Bea decides to remember —
-    earn a rich PersonCard. Cards for whoever is in the current batch are injected
-    so Bea recognises people instead of searching for them.
+    Everyone gets a cheap tally; donors, regulars, real 1:1s and whoever she
+    decides to remember earn a rich card. Cards for the current batch are
+    injected, so she recognises people instead of looking them up.
     """
 
     name = "social"
     skill_name = "social_memory"
 
     def initialize(self) -> None:
-        cfg = self.config.skills.get("social_memory", {})
-        self.roster = RosterStore(cfg.get("roster_path", "data/memory/roster.json"))
-        self.people = PeopleStore(cfg.get("people_path", "data/memory/people.json"))
+        # one store: promoting someone is a single transaction
+        memory = self.context.memory
+        self.roster = memory.roster
+        self.people = memory.people
 
     # --- per-batch hook: tally + promote + inject --------------------------
 
@@ -45,6 +47,14 @@ class SocialMemory(Skill):
         for p in batch:
             author = getattr(p, "author", None)
             if not author or author.is_owner:
+                continue
+
+            if p.meta.get("tallied"):
+                # a high-volume surface counts every message itself, including the
+                # ones that never reach here: counting again would double them
+                card = self.people.get_by_identity(author.identity)
+                if card:
+                    present_cards[card.person_id] = card
                 continue
 
             is_1on1 = p.kind == PerceptionKind.VOICE or bool(p.meta.get("is_dm"))

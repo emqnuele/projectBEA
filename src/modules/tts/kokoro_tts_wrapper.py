@@ -1,10 +1,11 @@
+import asyncio
 import os
+
+import numpy as np
 import requests
 import sounddevice as sd
-import soundfile as sf
-import numpy as np
-import asyncio
 from kokoro_onnx import Kokoro
+
 from src.interfaces.base_interfaces import TTSInterface
 from src.utils.logger import get_logger
 
@@ -57,11 +58,11 @@ class KokoroTTSWrapper(TTSInterface):
         if config.kokoro_voice != self.voice:
             logger.info(f"voice updated to {config.kokoro_voice}")
             self.voice = config.kokoro_voice
-        
+
         if config.kokoro_speed != self.speed:
             logger.info(f"speed updated to {config.kokoro_speed}")
             self.speed = config.kokoro_speed
-        
+
         if config.kokoro_lang != self.lang:
              logger.info(f"language updated to {config.kokoro_lang}")
              self.lang = config.kokoro_lang
@@ -71,22 +72,22 @@ class KokoroTTSWrapper(TTSInterface):
             return np.zeros(0, dtype=np.float32), 24000
 
         # run generation in thread to avoid blocking loop
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         samples, sample_rate = await loop.run_in_executor(
-            None, 
-            self.kokoro.create, 
-            text, 
-            self.voice, 
-            self.speed, 
+            None,
+            self.kokoro.create,
+            text,
+            self.voice,
+            self.speed,
             self.lang
         )
-        
+
         # Ensure format
         if not isinstance(samples, np.ndarray):
             samples = np.array(samples, dtype=np.float32)
         if samples.dtype != np.float32:
              samples = samples.astype(np.float32)
-             
+
         return samples, sample_rate
 
     async def speak(self, text: str, output_device_id: int) -> None:
@@ -98,13 +99,8 @@ class KokoroTTSWrapper(TTSInterface):
 
         try:
              # play using sounddevice (non-blocking + sleep)
-            if samples.ndim == 1:
-                channels = 1
-            else:
-                channels = samples.shape[1]
-            
             sd.play(samples, samplerate=sample_rate, device=output_device_id, blocking=False)
-            
+
             # manual sleep async
             duration = len(samples) / sample_rate
             await asyncio.sleep(duration)

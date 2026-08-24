@@ -1,6 +1,14 @@
-# ProjectBEA — AI VTuber Engine
+# ProjectBEA — AI Persona Engine
 
-**ProjectBEA** is a modular, fully autonomous AI VTuber engine. It powers a living AI persona — **Bea** — that can hold live conversations, monologue to her audience when idle, join Discord voice calls, play Minecraft autonomously, and remember past sessions via a built-in RAG memory system. All of this is orchestrated through a clean plugin-based architecture where every component is swappable.
+**ProjectBEA** is a modular AI persona engine. It runs **Bea**: one always-on
+consciousness that talks out loud, plays Minecraft on a vanilla server with
+other people, holds conversations on Discord, Telegram and Twitch, remembers who
+you are across sessions, and works through the objectives her owner sets for the
+stream.
+
+Everything she perceives arrives on one bus, passes an attention gate, and
+reaches a single mind that acts through tools. Every capability is a swappable
+plugin.
 
 
 > Built for fun by a 19-year-old CS student learning Python. Open-source, self-hostable, and designed to be easily extended.
@@ -11,45 +19,54 @@
 
 | Feature | Description |
 |---|---|
-| **Swappable LLMs** | OpenRouter (any model), OpenAI, Groq — tool-use ready, switch at runtime |
+| **One mind, many places** | Discord, Telegram, Twitch, Minecraft and the dashboard all feed a single consciousness |
+| **Attention** | She reacts to what concerns her and merely notices the rest, so a busy chat costs almost nothing |
+| **Parallel conversations** | One turn at a time per channel, several channels at once — she talks on stage and texts at the same time |
+| **Memory** | Diary, person cards and self-lore in one SQLite file, with local embeddings |
+| **Minecraft** | A body on a vanilla server: she plays toward objectives, reads game chat and remembers players |
+| **Stream Plan** | Set today's objectives from the dashboard — she works through them and ticks them off |
+| **Swappable LLMs** | OpenRouter, OpenAI, Groq — configured per role, pooled for rotation and fallback |
 | **Multiple TTS engines** | EdgeTTS (free), Kokoro (local ONNX), Orpheus (API) |
-| **OBS Integration** | Avatar PNG/video swap, animated text bubble via WebSocket |
-| **RAG Memory** | ChromaDB-powered diary system — Bea remembers past sessions |
-| **Discord Skill** | Full voice call integration — listens, transcribes, responds live |
-| **Minecraft Skill** | Autonomous LLM-driven agent that plays Minecraft via WebSocket |
-| **Monologue Skill** | When idle, Bea automatically starts talking to her audience |
-| **Web Dashboard** | React + FastAPI dashboard for chat, config, skill control, brain activity |
-| **Hot Reload** | Change models, voices, or settings at runtime without restart |
-| **Plugin Skills** | Every capability is a `BaseSkill` plugin — add your own in minutes |
+| **OBS Integration** | Avatar swap and animated text bubble over WebSocket |
+| **Web Dashboard** | React + FastAPI: chat, stream plan, config, skill toggles, live brain activity |
+| **Hot Reload** | Change models, voices or settings at runtime, without a restart |
+| **Plugin Skills** | Every capability is a `Skill` — add your own in minutes |
 
 ---
 
 ## Architecture Overview
 
+Every sense pushes onto one bus. An attention gate decides what is worth a
+thought. One mind reasons over it and acts through tools.
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        AIVtuberBrain                            │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────┐    │
-│  │  LLM     │  │  TTS     │  │  STT     │  │  OBS          │    │
-│  │ (pluggable)│ │ (pluggable)│ │ (Groq)   │  │ (WebSocket) │    │
-│  └──────────┘  └──────────┘  └──────────┘  └───────────────┘    │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                    SkillManager                         │    │
-│  │  ┌──────────┐ ┌──────────┐ ┌───────────┐ ┌─────────┐    │    │
-│  │  │ Memory   │ │ Discord  │ │ Minecraft │ │Monologue│    │    │
-│  │  │ (RAG)    │ │ (Voice)  │ │ (Agent)   │ │ (Idle)  │    │    │
-│  │  └──────────┘ └──────────┘ └───────────┘ └─────────┘    │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│  ┌──────────────────┐   ┌──────────────────────────────────┐    │
-│  │  HistoryManager  │   │  EventManager                    │    │
-│  │  (sessions/JSON) │   │  (system, input, output, skill)  │    │
-│  └──────────────────┘   └──────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │       FastAPI + React         │
-              │       Web Dashboard           │
-              └───────────────────────────────┘
+  discord · telegram · twitch · minecraft · donations · the dashboard
+                          │  perceptions
+                          ▼
+                  ┌───────────────┐
+                  │ PerceptionBus │
+                  └───────┬───────┘
+                          ▼
+                  ┌───────────────┐   react / note / drop
+                  │   Attention   │───────────────┐
+                  └───────┬───────┘               │
+            react ────────┤                       │ noted
+                          ▼                       ▼
+        ┌─────────────────────────┐        [WHILE YOU WERE BUSY]
+        │  the live loop (stage)  │        peripheral awareness
+        │  voice · game · owner   │
+        └────────────┬────────────┘
+                     │  written channels
+                     ▼
+        ┌─────────────────────────┐
+        │ scoped conversation turns│  one per channel, in parallel
+        └─────────────────────────┘
+                     │
+                     ▼  tools
+   speak · mc_chat · discord_reply · play_minecraft · objective_done · …
+                     │
+                     ▼
+        Expression → TTS + OBS      ·      bea.db (memory)
 ```
 
 **[Full Architecture Documentation →](docs/architecture.md)**
@@ -60,44 +77,36 @@
 
 ```
 ProjectBEA/
-├── main.py                    # Entry point (CLI args + engine bootstrap)
-├── config.json                # Persistent runtime configuration
-├── pyproject.toml             # Python project dependencies
-├── uv.lock                    # Dependency lockfile
+├── main.py                 # thin wrapper; the entrypoint is src/cli.py
+├── config.example.json     # copy to config.json and edit
+├── Makefile                # install · run · web · test · lint · migrate
 ├── data/
-│   ├── conversations/         # Saved session JSON files
-│   ├── memory_db/             # ChromaDB persistent storage
-│   ├── pngs/                  # Avatar images per mood (idle/talking)
-│   └── prompts/               # System prompts (persona, monologue, minecraft)
-├── docs/                      # Full documentation (you are here)
+│   ├── bea.db              # everything she remembers (gitignored)
+│   ├── conversations/      # session transcripts
+│   ├── pngs/               # avatars per mood (idle/talking)
+│   └── prompts/            # soul · operating · monologue · minecraft
+├── docs/
+├── tests/                  # 593 tests, no network
 └── src/
+    ├── cli.py              # argument parsing and composition
     ├── core/
-    │   ├── brain.py           # Central orchestrator
-    │   ├── config.py          # BrainConfig dataclass + config.json I/O
-    │   ├── events.py          # EventManager (pub/sub, brain activity log)
-    │   └── resources.py       # Avatar resource loader
-    ├── interfaces/
-    │   └── base_interfaces.py # Abstract contracts: LLM, TTS, STT, OBS
-    ├── modules/
-    │   ├── llm/               # LLM providers (OpenRouter, OpenAI, Groq)
-    │   ├── tts/               # TTS engines (EdgeTTS, Kokoro, Orpheus)
-    │   ├── STT/               # STT (Groq/Whisper)
-    │   ├── obs/               # OBS WebSocket controller
-    │   └── skills/            # Plugin skill system
-    │       ├── base_skill.py
-    │       ├── skill_manager.py
-    │       ├── memory/        # RAG memory + ChromaDB
-    │       ├── discord/       # Discord voice skill + Node.js bot
-    │       ├── minecraft/     # Minecraft autonomous agent
-    │       └── implementations/ # Monologue + misc skills
+    │   ├── brain.py        # composition root
+    │   ├── consciousness.py# the one always-on loop
+    │   ├── config.py
+    │   ├── events.py       # pub/sub + SSE fan-out
+    │   ├── perception/     # bus, Perception, Author
+    │   ├── attention/      # the gate: rules (pure) + state
+    │   ├── mind/           # routing, scheduler, conversations, correlation
+    │   ├── memory/         # sqlite, rag, embedder, profiler, plan
+    │   ├── expression/     # the single output sink + humanizer
+    │   ├── agent/          # LLMClient, role pools, tools, runner
+    │   └── skills/         # one package per capability
+    ├── interfaces/         # TTS · STT · OBS contracts
+    ├── modules/            # llm · tts · STT · obs implementations
     ├── utils/
-    │   ├── history_manager.py # Conversation session persistence
-    │   ├── llm_utils.py       # JSON response parsing
-    │   └── text_utils.py      # Text formatting utilities
     └── web/
-        ├── app.py             # FastAPI REST API
-        ├── server.py          # Uvicorn launcher
-        └── frontend/          # React + Vite + Tailwind dashboard
+        ├── app.py          # FastAPI
+        └── frontend/       # React + Vite + Tailwind
 ```
 
 ---
@@ -151,6 +160,16 @@ uv run bea --llm-provider openrouter --tts-provider kokoro --web
 
 **[Setup & Deployment Guide →](docs/setup.md)**
 
+### 5. Tests and lint
+
+```bash
+make test        # uv run pytest -q
+make lint        # uv run ruff check src tests
+```
+
+The suite runs without network access or API keys: every model client, surface
+and transport is faked.
+
 ---
 
 ## Modules
@@ -161,8 +180,13 @@ The engine is built around three types of components, each defined by an abstrac
 |---|---|---|
 | **LLM** | `LLMClient` (tool-aware) | OpenRouter, OpenAI, Groq |
 | **TTS** | `TTSInterface` | EdgeTTS, Kokoro (local), Orpheus |
-| **STT** | `STTInterface` | Groq (Whisper large-v3-turbo) |
+| **STT** | `STTInterface` | Groq, OpenRouter (Whisper) |
 | **OBS** | `OBSInterface` | OBS WebSocket (obs-websocket-py) |
+
+Models are configured per **role** rather than one at a time: `mind` for the
+consciousness, `background` for the diary, the dreamer and the game body. Each
+role is a pool that round-robins to spread rate limits and falls back when a
+provider is down.
 
 **[LLM Modules →](docs/modules/llm.md)** · **[TTS Modules →](docs/modules/tts.md)** · **[STT →](docs/modules/stt.md)** · **[OBS →](docs/modules/obs.md)**
 
@@ -170,14 +194,22 @@ The engine is built around three types of components, each defined by an abstrac
 
 ## Skills — Plugin System
 
-Skills are autonomous background capabilities managed by the `SkillManager`. Each extends `BaseSkill` and can be enabled/disabled at runtime (including hot-toggle from the web UI).
+A skill is one capability of the single mind. It can perceive, expose tools,
+contribute prompt rules and own infrastructure — and every one can be toggled at
+runtime from the dashboard. Bea can never arm a capability herself.
 
 | Skill | Description |
 |---|---|
-| **Memory** | RAG system: converts sessions into diary entries, stores in ChromaDB, injects relevant context into every prompt |
-| **Discord** | Launches a Node.js Discord bot; listens in voice channels, transcribes speech, sends audio back live |
-| **Minecraft** | Connects via WebSocket to a Minecraft mod; an LLM agent autonomously performs actions using tool-calling |
-| **Monologue** | When the audience is silent, Bea starts unprompted storytelling — episodically, chunk by chunk |
+| **[Discord](docs/skills/discord.md)** | Voice calls and text channels; owns the Node.js bot |
+| **[Telegram](docs/skills/telegram.md)** | Private chats and groups, in-process |
+| **[Twitch](docs/skills/twitch.md)** | Chat read anonymously; volume becomes texture, not thoughts |
+| **[Minecraft](docs/skills/minecraft.md)** | A body on a vanilla server: she plays, chats and remembers players |
+| **[Donations](docs/skills/donations.md)** | A webhook that always earns a reaction |
+| **[Stream Plan](docs/skills/plan.md)** | Today's objectives, set by the owner |
+| **[Memory](docs/skills/memory.md)** | Diary entries and recall, over one SQLite file |
+| **[Social](docs/skills/social.md)** | Who people are: a tally for everyone, a card for the ones who matter |
+| **[Dream](docs/skills/dream.md)** | Sleep, self-lore and nightly consolidation |
+| **[Monologue](docs/skills/monologue.md)** | Filling the silence when nothing is happening |
 
 **[Skills Overview →](docs/skills/overview.md)**
 
@@ -189,9 +221,13 @@ The `--web` flag starts a FastAPI backend (port 8000) and serves a React + Tailw
 
 **Pages:**
 - **Chat** — text chat with Bea, session management
-- **Brain Activity** — real-time event feed (inputs, outputs, skill events, thoughts)
-- **Skills** — toggle skills on/off at runtime
+- **Stream Plan** — what she has to get done today; she closes the objectives as she goes
+- **Brain Activity** — live event feed over SSE: what she perceived, what the attention gate did with it, what she thought, and what each turn cost
+- **Skills** — toggle capabilities on and off at runtime
 - **Config** — edit every setting live with hot reload
+
+The API has no authentication, so the server binds to `127.0.0.1` unless
+`--host` says otherwise.
 
 **[API Reference →](docs/web/api.md)** · **[Frontend →](docs/web/frontend.md)**
 
@@ -206,14 +242,20 @@ The `--web` flag starts a FastAPI backend (port 8000) and serves a React + Tailw
 | [Configuration](docs/configuration.md) | All config fields, CLI args, `.env` vars |
 | [LLM Modules](docs/modules/llm.md) | Providers, response format, adding new LLMs |
 | [TTS Modules](docs/modules/tts.md) | EdgeTTS, Kokoro, Orpheus |
-| [STT Module](docs/modules/stt.md) | Groq Whisper transcription |
 | [OBS Module](docs/modules/obs.md) | Avatar control, text animation |
-| [Skills Overview](docs/skills/overview.md) | BaseSkill API, SkillManager lifecycle |
-| [Memory Skill](docs/skills/memory.md) | RAG system, ChromaDB, diary generation |
-| [Discord Skill](docs/skills/discord.md) | Discord bot setup, voice pipeline |
-| [Minecraft Skill](docs/skills/minecraft.md) | MC agent, tool-calling, WebSocket bridge |
-| [Monologue Skill](docs/skills/monologue.md) | Idle storytelling state machine |
-| [Web API](docs/web/api.md) | All REST endpoints |
+| [STT Module](docs/modules/stt.md) | Whisper transcription |
+| [Skills Overview](docs/skills/overview.md) | The `Skill` API, the registry, every tool |
+| [Memory](docs/skills/memory.md) | Recall, the diary, the embedding model |
+| [Social](docs/skills/social.md) | The roster, person cards, promotion |
+| [Dream](docs/skills/dream.md) | Self-lore, hot facts, the nightly pass |
+| [Stream Plan](docs/skills/plan.md) | Objectives, and what makes her act on them |
+| [Discord](docs/skills/discord.md) | The bot, the voice pipeline, the tools |
+| [Telegram](docs/skills/telegram.md) | In-process polling and scoped turns |
+| [Twitch](docs/skills/twitch.md) | Anonymous IRC, tally, chat as texture |
+| [Donations](docs/skills/donations.md) | The webhook and what one donation writes |
+| [Minecraft](docs/skills/minecraft.md) | The body, the mod protocol, the goal loop |
+| [Monologue](docs/skills/monologue.md) | The idle perception |
+| [Web API](docs/web/api.md) | Every REST endpoint |
 | [Frontend](docs/web/frontend.md) | React component structure |
 
 ---
@@ -222,9 +264,10 @@ The `--web` flag starts a FastAPI backend (port 8000) and serves a React + Tailw
 
 The modular design makes adding new capabilities straightforward:
 
-- **New LLM provider** → implement `LLMInterface`, register in `main.py`
-- **New TTS engine** → implement `TTSInterface`, add to CLI choices
-- **New Skill** → extend `BaseSkill`, register in `SkillManager`
+- **New LLM provider** → extend `OpenAICompatibleClient`, add it to `factory.build_client()`
+- **New TTS engine** → implement `TTSInterface`, add the branch and the CLI choice in `src/cli.py`
+- **New skill** → extend `Skill`, register it in `AIVtuberBrain._build_consciousness()`
+- **New text platform** → extend `PlatformSkill` and the roster, person cards, attention gate and scoped conversations work with no extra code
 
 See [Skills Overview](docs/skills/overview.md) for the full plugin API.
 
@@ -234,7 +277,7 @@ See [Skills Overview](docs/skills/overview.md) for the full plugin API.
 
 Built by **Emanuele Faraci**, 19-year-old Computer Science student from Italy.
 
-This project started as a way to learn Python properly, specifically async programming, API integrations, and modular system design, while building something actually fun. It grew from a simple TTS + OBS script into a full VTuber engine with skills, memory, and a web dashboard.
+This project started as a way to learn Python properly, specifically async programming, API integrations, and modular system design, while building something actually fun. It grew from a simple TTS + OBS script into a full persona engine with skills, memory, and a web dashboard.
 
 just a side project built for fun and learning.
 

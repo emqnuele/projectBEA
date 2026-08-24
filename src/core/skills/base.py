@@ -1,4 +1,3 @@
-from abc import ABC
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
@@ -7,7 +6,8 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.skills")
 
 
-class Skill(ABC):
+# not an ABC: every hook below is optional, a skill overrides only what it supports
+class Skill:
     """A toggleable capability of the one consciousness.
 
     A skill may do any subset of these — all optional:
@@ -73,6 +73,16 @@ class Skill(ABC):
 
     def tools(self) -> List[Tool]:
         """Tools armed only while active (e.g. in-game actions, recall_memory)."""
+        return []
+
+    def conversation_tools(self, channel_id: Optional[str],
+                           reply_to: Optional[str] = None) -> List[Tool]:
+        """Tools for a SCOPED conversation turn in one channel.
+
+        Deliberately a different set from `tools()`: a scoped turn has no voice
+        and no body, and the channel is context rather than an argument — she is
+        talking in one place, so she should not have to name it every time.
+        """
         return []
 
     def live_state(self) -> Optional[str]:

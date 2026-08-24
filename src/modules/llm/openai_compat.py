@@ -3,10 +3,11 @@ import json
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.core.agent.llm_client import LLMClient
-from src.core.agent.types import AssistantMessage, ToolCall
+from src.core.agent.types import AssistantMessage, ToolCall, Usage
 from src.interfaces.base_interfaces import LLMInterface, STTInterface
 from src.utils.llm_utils import parse_llm_json
 from src.utils.logger import get_logger
+from src.utils.sanitize import clean_model_output
 
 logger = get_logger("bea.llm.openai_compat")
 
@@ -57,7 +58,16 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
                 args = {}
             tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
 
-        return AssistantMessage(content=message.content, tool_calls=tool_calls)
+        raw = getattr(response, "usage", None)
+        usage = Usage(
+            prompt_tokens=int(getattr(raw, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(raw, "completion_tokens", 0) or 0),
+        )
+
+        # cheap models leak <think> blocks and special tokens; unfiltered they
+        # end up spoken out loud
+        return AssistantMessage(content=clean_model_output(message.content),
+                                tool_calls=tool_calls, usage=usage, model=self.model_name)
 
     # --- legacy helpers, implemented on top of the sync sdk ---
 
@@ -93,6 +103,10 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
         except Exception as e:
             logger.error(f"JSON generation error: {e}")
             return {}
+
+    async def complete_json(self, user_input: str, system_prompt: Optional[str] = None,
+                            history: Optional[list] = None) -> Union[Dict, list]:
+        return await asyncio.to_thread(self.generate_json, user_input, system_prompt, history)
 
     @staticmethod
     def _build_messages(user_input: str, system_prompt: Optional[str], history: Optional[list]) -> List[Dict[str, Any]]:

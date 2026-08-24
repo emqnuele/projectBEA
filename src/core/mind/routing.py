@@ -1,0 +1,76 @@
+"""Where does a perception go: the stage, or a scoped conversation?
+
+The stage is what she does live in front of an audience — voice, the game, the
+console. A scoped conversation is written text in one channel.
+
+One rule: a perception goes to exactly one turn, or she answers it twice.
+"""
+
+from typing import Optional
+
+from src.core.perception.types import Perception, PerceptionKind
+
+STAGE = "stage"
+
+# fallback only: a PlatformSkill sets `conversation_key` on the perception
+TEXT_SURFACES = {"voice:discord", "chat:telegram", "chat:mc"}
+
+
+def conversation_key(p: Perception) -> str:
+    """The conversation a perception belongs to, or `STAGE`."""
+    explicit = (p.meta or {}).get("conversation_key")
+    if explicit:
+        return str(explicit)
+
+    # her voice, her body and the console are the stage by nature
+    if p.kind in (PerceptionKind.VOICE, PerceptionKind.GAME,
+                  PerceptionKind.ACTION, PerceptionKind.IDLE):
+        return STAGE
+    if p.surface == "chat:ui":
+        return STAGE
+
+    if p.kind is PerceptionKind.CHAT and p.surface in TEXT_SURFACES:
+        channel = (p.meta or {}).get("channel_id")
+        if channel:
+            platform = p.author.platform if p.author else p.surface
+            return f"{platform}:{channel}"
+    return STAGE
+
+
+def is_stage(p: Perception) -> bool:
+    return conversation_key(p) == STAGE
+
+
+def awaits_a_reply(p: Perception) -> bool:
+    """Someone is blocked on an HTTP call waiting for her answer.
+
+    Stays on the stage whatever the surface says: only the live loop can
+    resolve a correlation.
+    """
+    return bool((p.meta or {}).get("correlation_id"))
+
+
+def route(batch) -> "tuple[list, dict]":
+    """Splits a batch into (stage, {conversation_key: [perceptions]}).
+
+    Every perception lands in exactly one bucket.
+    """
+    stage = []
+    scoped: dict = {}
+    for p in batch:
+        key = STAGE if awaits_a_reply(p) else conversation_key(p)
+        if key == STAGE:
+            stage.append(p)
+        else:
+            scoped.setdefault(key, []).append(p)
+    return stage, scoped
+
+
+def channel_of(key: str) -> Optional[str]:
+    """The channel id inside a conversation key, or None."""
+    _, sep, channel = key.partition(":")
+    return channel if sep and channel else None
+
+
+def platform_of(key: str) -> str:
+    return key.partition(":")[0]

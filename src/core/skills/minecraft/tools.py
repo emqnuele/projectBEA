@@ -18,6 +18,12 @@ _NOTEBOOK_DESC = (
 # vs instant actions that return immediately with no completion event.
 _INSTANT = {"request_screenshot", "check_death_log", "stop_moving", "chat"}
 
+# tool name -> (mod action, argument renames). Looking at a person is the same
+# mod skill as looking at a coordinate, told who to look at instead of where.
+_ALIASES = {
+    "look_at_player": ("look_at", {"name": "player"}),
+}
+
 # name -> (description, json-schema parameters)
 _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     "mine_block": ("Navigate to and mine a specific block.", {
@@ -121,15 +127,47 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     }),
     "eat_food": ("Eat the best available food.", {"type": "object", "properties": {}}),
     "check_death_log": ("Check the last death details.", {"type": "object", "properties": {}}),
-    "chat": ("Send a chat message in-game.", {
-        "type": "object",
-        "properties": {"message": {"type": "string"}},
-        "required": ["message"],
-    }),
+    # --- playing WITH people, not just near them ---
+    "goto_player": (
+        "Walk over to a specific player and stop next to them. They move, so she "
+        "re-paths as they go.",
+        {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
+    "follow_player": (
+        "Stay with a player, keeping a few blocks behind them, until you stop. "
+        "Stops on its own if you lose them.",
+        {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
+    "look_at_player": (
+        "Turn and look at a player. Staring at someone is communication — use it "
+        "when you want them to know you noticed.",
+        {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
+    "give_item": (
+        "Take something to a player: walk over and drop it at their feet (vanilla "
+        "has no direct give). Omit `count` to hand over everything you have of it.",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "item": {"type": "string"},
+                "count": {"type": "integer", "description": "how many; omit for all"},
+            },
+            "required": ["name", "item"],
+        }),
+    "chat": (
+        "TYPE a message in the game chat. The other players read this — it is a "
+        "different audience from your voice. Your voice (`speak`) is heard by your "
+        "stream; this is what the people in the game see. You can use both in the "
+        "same turn, and often should: comment out loud for your audience, and "
+        "answer in chat for whoever is standing there.",
+        {
+            "type": "object",
+            "properties": {"message": {"type": "string"}},
+            "required": ["message"],
+        }),
 }
 
 
-def build_minecraft_tools(client: MinecraftClient, notebook: Notebook) -> ToolRegistry:
+def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
+                          surface: str = "game:mc") -> ToolRegistry:
     """Builds a registry whose handlers drive the mod and return observations.
 
     Also registers the local `update_notebook` tool, which mutates the agent's
@@ -137,15 +175,19 @@ def build_minecraft_tools(client: MinecraftClient, notebook: Notebook) -> ToolRe
     """
     registry = ToolRegistry()
 
-    def make_handler(action: str, instant: bool):
+    def make_handler(tool_name: str, instant: bool):
+        action, renames = _ALIASES.get(tool_name, (tool_name, {}))
+
         async def handler(**kwargs):
-            return await client.execute(action, kwargs, instant=instant)
+            args = {renames.get(k, k): v for k, v in kwargs.items()}
+            return await client.execute(action, args, instant=instant)
         return handler
 
     for name, (description, parameters) in _TOOLS.items():
         instant = name in _INSTANT
         # long-running body actions run async (single-slot) so they never block reasoning
-        registry.add(name, description, parameters, make_handler(name, instant), long_running=not instant)
+        registry.add(name, description, parameters, make_handler(name, instant),
+                     long_running=not instant, surface=surface)
 
     registry.add(
         "update_notebook",

@@ -1,24 +1,34 @@
 import asyncio
-from typing import Tuple, Optional
-from src.interfaces.base_interfaces import TTSInterface, OBSInterface, STTInterface
+from typing import Optional, Tuple
+
+from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
+from src.core.attention import Attention
 from src.core.config import BrainConfig
-from src.core.resources import load_avatar_resources
-from src.utils.history_manager import HistoryManager
-from src.core.events import EventManager
+from src.core.consciousness import Consciousness
+from src.core.events import EventCategory, EventManager
 from src.core.expression import Expression
+from src.core.memory.profiler import Profiler
+from src.core.memory.store import MemoryStore
+from src.core.mind import ConversationMind, ConversationScheduler
+from src.core.mind.spontaneous import SpontaneousPresence
 from src.core.perception.bus import PerceptionBus
+from src.core.resources import load_avatar_resources
 from src.core.skills.base import SkillRegistry
 from src.core.skills.chat import ChatSurface
-from src.core.skills.voice.surface import VoiceSurface
-from src.core.skills.idle import IdleSurface
-from src.core.skills.minecraft.surface import MinecraftSurface
-from src.core.skills.memory.memory import MemorySkill
-from src.core.skills.social.social import SocialMemory
+from src.core.skills.donation.surface import DonationSkill
 from src.core.skills.dream.surface import DreamSkill
-from src.core.consciousness import Consciousness
-from src.core.agent import LLMClient
-from src.utils.prompts import load_text, compose
+from src.core.skills.idle import IdleSurface
+from src.core.skills.memory.memory import MemorySkill
+from src.core.skills.minecraft.surface import MinecraftSurface
+from src.core.skills.plan.surface import StreamPlanSkill
+from src.core.skills.social.social import SocialMemory
+from src.core.skills.telegram.surface import TelegramSkill
+from src.core.skills.twitch.surface import TwitchSkill
+from src.core.skills.voice.surface import VoiceSurface
+from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
+from src.utils.history_manager import HistoryManager
 from src.utils.logger import get_logger
+from src.utils.prompts import compose, load_text
 
 logger = get_logger("bea.brain")
 
@@ -35,13 +45,15 @@ class AIVtuberBrain:
     def __init__(
         self,
         config: BrainConfig,
-        llm: LLMClient,
+        registry: ModelRegistry,
         tts: TTSInterface,
         stt: Optional[STTInterface],
         obs: OBSInterface,
     ):
         self.config = config
-        self.llm = llm
+        self.registry = registry
+        # the mind's client; skills reach for `registry.get("background")` instead
+        self.llm = registry.get(MIND)
         self.tts = tts
         self.stt = stt
         self.obs = obs
@@ -55,9 +67,17 @@ class AIVtuberBrain:
         # single output sink (VOICE actuator + barge-in)
         self.expression = Expression(config, tts, obs, self.event_manager)
 
+        # everything Bea remembers, in one transactional file
+        self.memory = self._build_memory()
+
         # unified consciousness (built in initialize, started only if enabled)
         self.perception_bus: Optional[PerceptionBus] = None
         self.skill_registry: Optional[SkillRegistry] = None
+        self.attention: Optional[Attention] = None
+        self.profiler: Optional[Profiler] = None
+        self.conversations: Optional[ConversationMind] = None
+        self.spontaneous: Optional[SpontaneousPresence] = None
+        self._rhythm_task: Optional[asyncio.Task] = None
         self.consciousness: Optional[Consciousness] = None
 
     @property
@@ -91,8 +111,54 @@ class AIVtuberBrain:
             self.consciousness.wake()
 
     @property
+    def plan(self):
+        """The owner's plan for the stream."""
+        return self.memory.plan
+
+    def plan_changed(self) -> None:
+        """The dashboard edited the plan: her toolbox may have just changed.
+
+        Going from no plan to a plan arms `objective_done` and friends, and the
+        tool set is cached until something says it moved.
+        """
+        if self.consciousness:
+            self.consciousness.tools.invalidate()
+
+    @property
     def is_sleeping(self) -> bool:
         return bool(self.consciousness and self.consciousness.sleeping)
+
+    def _build_memory(self) -> MemoryStore:
+        """Opens `bea.db` and wires the embedder.
+
+        The embedder is optional on purpose: if the model cannot be loaded, Bea
+        keeps her roster, her people and her hot facts — she just loses recall
+        until it comes back. Losing everything over a missing download would be
+        a far worse failure.
+        """
+        cfg = self.config.skills.get("memory", {})
+        embedder = None
+        try:
+            from src.core.memory.embedder import FastEmbedEmbedder
+            embedder = FastEmbedEmbedder(
+                cfg.get("embedding_model"),
+                cfg.get("embedding_cache_dir", "data/embeddings_cache"),
+            )
+        except Exception as e:
+            logger.error(f"Embedder unavailable ({e}); long-term recall is disabled.")
+
+        store = MemoryStore(
+            cfg.get("db_path", "data/bea.db"),
+            embedder=embedder,
+            min_similarity=float(cfg.get("min_similarity", 0.35)),
+        )
+        if store.rag is not None and embedder is not None:
+            # vectors from two models are not comparable: a change re-embeds
+            try:
+                store.rag.ensure_model(embedder.model_name)
+            except Exception as e:
+                logger.error(f"Could not verify the embedding model: {e}")
+        return store
 
     def _load_operating_rules(self) -> str:
         """The unified operating manual; falls back to the legacy chat rules."""
@@ -117,6 +183,7 @@ class AIVtuberBrain:
         self._obs_connect()
 
         self.history_manager.create_session()
+        self.memory.sessions.record(self.history_manager.session_id)
         logger.info(f"Brain Initialized. Session ID: {self.history_manager.session_id}")
 
         self._build_consciousness()
@@ -126,10 +193,22 @@ class AIVtuberBrain:
         self.perception_bus = PerceptionBus(window=self.config.consciousness.get("window", 0.3))
         self.skill_registry = SkillRegistry()
 
-        for skill_cls in (ChatSurface, VoiceSurface, IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill):
+        for skill_cls in (ChatSurface, VoiceSurface, TelegramSkill, TwitchSkill, DonationSkill,
+                          IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill,
+                          StreamPlanSkill):
             skill = skill_cls(self.config, self.perception_bus, self.expression, self)
             skill.initialize()
             self.skill_registry.register(skill)
+
+        # background passes that keep the cards and summaries fresh between dreams
+        self.profiler = Profiler(self.model_for(BACKGROUND), self.memory)
+
+        social = self.skill_registry.get("social")
+        self.attention = Attention(
+            self.config,
+            roster=getattr(social, "roster", None),
+            on_verdict=self._publish_verdict,
+        )
 
         self.consciousness = Consciousness(
             config=self.config,
@@ -141,7 +220,60 @@ class AIVtuberBrain:
             event_manager=self.event_manager,
             soul_getter=lambda: self.soul,
             operating_getter=self._load_operating_rules,
+            attention=self.attention,
         )
+
+        # written conversations run beside the live loop: one turn at a time per
+        # channel, different channels in parallel
+        self.conversations = ConversationMind(
+            config=self.config,
+            llm=self.llm,
+            memory=self.memory,
+            surfaces=self.skill_registry,
+            soul_getter=lambda: self.soul,
+            operating_getter=self._load_operating_rules,
+            scheduler=ConversationScheduler(
+                max_coalesced_runs=int(self.config.consciousness.get("max_coalesced_runs", 3))
+            ),
+            event_manager=self.event_manager,
+            profiler=self.profiler,
+            attention=self.attention,
+            now_line=self.consciousness.now_line,
+        )
+        self.consciousness.conversations = self.conversations
+
+        self.spontaneous = SpontaneousPresence(
+            config=self.config, memory=self.memory, conversations=self.conversations,
+        )
+
+    def _publish_verdict(self, perception, verdict) -> None:
+        """Surfaces every attention decision to the dashboard.
+
+        Without seeing WHY something was ignored, tuning the thresholds is blind
+        guessing — so this is not optional instrumentation."""
+        self.event_manager.publish(
+            EventCategory.SYSTEM, "attention",
+            f"{verdict.reaction.value}: {perception.surface} ({verdict.reason})",
+            metadata={
+                "reaction": verdict.reaction.value,
+                "score": round(verdict.score, 3),
+                "reason": verdict.reason,
+                "surface": perception.surface,
+                "preview": (perception.content or "")[:120],
+            },
+        )
+
+    def model_for(self, role: str = BACKGROUND):
+        """A client for `role`, falling back to the mind's if the pool is empty.
+
+        Background work (diary, dreamer, summaries) must not run on the mind's
+        model, but a missing background pool should degrade, not crash.
+        """
+        try:
+            return self.registry.get(role)
+        except Exception as e:
+            logger.warning(f"No '{role}' model ({e}); falling back to the mind's.")
+            return self.llm
 
     @property
     def consciousness_active(self) -> bool:
@@ -171,7 +303,10 @@ class AIVtuberBrain:
             self.system_prompt = new_prompt
             logger.info("Updated soul + operating manual.")
 
-        self.llm.reload_config(self.config)
+        self.registry.reload_config(self.config)
+        self.llm = self.registry.get(MIND)
+        if self.consciousness:
+            self.consciousness.llm = self.llm
         self.tts.reload_config(self.config)
         self.obs.reload_config(self.config)
         self.expression.reload_config(self.config)
@@ -182,7 +317,7 @@ class AIVtuberBrain:
 
     def _obs_connect(self):
         if hasattr(self.obs, "source_name"):
-            setattr(self.obs, "source_name", self.config.obs_avatar_source)
+            self.obs.source_name = self.config.obs_avatar_source
         self.obs.connect()
 
     def list_sessions(self):
@@ -199,6 +334,7 @@ class AIVtuberBrain:
         prev_history = self.history_manager.history
 
         self.history_manager.create_session()
+        self.memory.sessions.record(self.history_manager.session_id)
         logger.info(f"Created new session: {self.history_manager.session_id}")
 
         if prev_session_id and prev_history and self.memory_skill:
@@ -231,11 +367,22 @@ class AIVtuberBrain:
         self.history_manager.add_message("system", "[Interrupted by User]")
         return result
 
+    def _surface(self, name: str):
+        """A skill by name, or None when the brain has not been initialized yet.
+
+        The HTTP entrypoints are reachable the moment the server binds; without
+        this guard an early request raises AttributeError instead of a 503.
+        """
+        return self.surface_registry.get(name) if self.surface_registry else None
+
     async def generate_response(self, user_text: str, system_prompt: Optional[str] = None) -> Tuple[str, str]:
         """Deposits a chat perception and waits for Bea to decide to reply."""
+        chat = self._surface("chat:ui")
+        if not chat or not self.consciousness:
+            logger.warning("generate_response called before initialize().")
+            return "normal", ""
         payload = await self._perceive_and_wait(
-            lambda cid: self.surface_registry.get("chat:ui").perceive(
-                user_text, meta={"correlation_id": cid}),
+            lambda cid: chat.perceive(user_text, meta={"correlation_id": cid}),
             route="local",
         )
         if not payload:
@@ -246,9 +393,11 @@ class AIVtuberBrain:
         """Transcribes audio, deposits a voice perception, waits for the reply."""
         transcript = self.stt.transcribe(audio_path) if self.stt else ""
         text = transcript or "[Audio Message]"
+        voice = self._surface("voice:discord")
+        if not voice or not self.consciousness:
+            return "normal", "", transcript
         payload = await self._perceive_and_wait(
-            lambda cid: self.surface_registry.get("voice:discord").perceive(
-                text, "user", meta={"correlation_id": cid}),
+            lambda cid: voice.perceive(text, "user", meta={"correlation_id": cid}),
             route="local",
         )
         if not payload:
@@ -274,14 +423,22 @@ class AIVtuberBrain:
             logger.info(f"Transcript from {username}: '{transcript}'")
 
         text = transcript or "[Unintelligible]"
+        voice = self._surface("voice:discord")
+        if not voice or not self.consciousness:
+            return "ignored", "", transcript, b""
         payload = await self._perceive_and_wait(
-            lambda cid: self.surface_registry.get("voice:discord").perceive(
-                text, username, meta={"correlation_id": cid}, user_id=user_id),
+            lambda cid: voice.perceive(text, username, meta={"correlation_id": cid},
+                                       user_id=user_id),
             route="discord",
         )
         if not payload:
             return "ignored", "", transcript, b""
         return payload.get("status", "success"), payload.get("text", ""), transcript, payload.get("audio", b"")
+
+    @property
+    def donation_skill(self) -> Optional[DonationSkill]:
+        skill = self.skill_registry.get("donation") if self.skill_registry else None
+        return skill if isinstance(skill, DonationSkill) else None
 
     def perceive_discord_text(self, text: str, username: str, channel_id: str,
                               message_id: Optional[str] = None, user_id: Optional[str] = None,
@@ -290,7 +447,7 @@ class AIVtuberBrain:
         Bea decides on her own whether/how to answer, using the discord tools
         (reply/send_message/react) with the ids carried in the perception. This is
         the 'one mind' path: no synchronous request-reply, full autonomy."""
-        surface = self.surface_registry.get("voice:discord")
+        surface = self._surface("voice:discord")
         if surface:
             surface.perceive_text(text, username, channel_id, message_id=message_id,
                                   user_id=user_id, is_dm=is_dm)
@@ -315,6 +472,27 @@ class AIVtuberBrain:
             else:
                 await self.process_text_input(user_text)
 
+    async def _rhythm_loop(self):
+        """The slow clock: every so often, does she want to start something?
+
+        Nothing here is on the hot path — it is what makes her a person with a
+        day rather than a process reacting to events.
+        """
+        rhythm = getattr(self.config, "rhythm", {}) or {}
+        interval = float(rhythm.get("tick_seconds", 900))
+        while True:
+            await asyncio.sleep(interval)
+            if self.is_sleeping:
+                continue
+            try:
+                started = await self.spontaneous.run_once()
+                if started:
+                    logger.info(f"Rhythm: opened {started} conversation(s) unprompted.")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Rhythm tick failed: {e}")
+
     async def start_skills(self):
         """Starts the consciousness loop (which starts every enabled skill)."""
         if self.consciousness and self.config.consciousness.get("enabled", False):
@@ -323,13 +501,15 @@ class AIVtuberBrain:
             # prime cold network paths so the FIRST real message doesn't pay
             # dns/tls/model-routing latency (the 'slow only at first' symptom)
             asyncio.create_task(self._warmup())
+            if (getattr(self.config, "rhythm", {}) or {}).get("enabled", True):
+                self._rhythm_task = asyncio.create_task(self._rhythm_loop())
 
     async def _warmup(self):
         """Background priming of the LLM connection and the embedding endpoint."""
-        ms = self.memory_skill
-        if ms and ms.active and getattr(ms.storage, "collection", None) is not None:
+        if self.memory.rag is not None:
+            # first embed pays the model load; do it before the first real message
             try:
-                await asyncio.to_thread(ms.storage.query_similar, "warmup", 1)
+                await asyncio.to_thread(self.memory.rag.recall, "warmup", scope="diary")
             except Exception as e:
                 logger.debug(f"memory warmup skipped: {e}")
         try:
@@ -339,8 +519,15 @@ class AIVtuberBrain:
         logger.info("Warmup complete (LLM + memory primed).")
 
     async def stop_skills(self):
+        if self._rhythm_task:
+            self._rhythm_task.cancel()
+            self._rhythm_task = None
+        if self.conversations:
+            # let the in-flight replies land before the process goes away
+            await self.conversations.drain()
         if self.consciousness:
             await self.consciousness.stop()
 
     def shutdown(self):
         self.obs.disconnect()
+        self.memory.close()

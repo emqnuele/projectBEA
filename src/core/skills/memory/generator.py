@@ -1,14 +1,14 @@
 import datetime
-import json
 from pathlib import Path
-from typing import List, Dict, Optional
-from src.interfaces.base_interfaces import LLMInterface
+from typing import Dict, List, Optional
+
+from src.core.agent.llm_client import LLMClient
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.memory.generator")
 
 class DiaryGenerator:
-    def __init__(self, llm: LLMInterface):
+    def __init__(self, llm: LLMClient):
         self.llm = llm
         self._load_prompt()
 
@@ -24,8 +24,8 @@ class DiaryGenerator:
             self.prompt_template = ""
 
     async def generate_diary(self, history: List[Dict]) -> Optional[Dict]:
-        logger.info(f"DiaryGenerator: Generating diary with active LLM...")
-        
+        logger.info("DiaryGenerator: Generating diary with active LLM...")
+
         # 1. format history
         conversation_text = ""
         for msg in history:
@@ -39,7 +39,7 @@ class DiaryGenerator:
         user_prompt = f"CONVERSATION HISTORY:\n{conversation_text}\n\nExisting Tags: []"
 
         try:
-            res = self.llm.generate_json(user_prompt, system_prompt)
+            res = await self.llm.complete_json(user_prompt, system_prompt)
             return res if isinstance(res, dict) else None
         except Exception as e:
             logger.error(f"DiaryGenerator: Generation failed: {e}")

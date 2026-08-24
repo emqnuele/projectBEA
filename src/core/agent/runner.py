@@ -1,7 +1,7 @@
 import inspect
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.core.agent.llm_client import LLMClient
 from src.core.agent.tools import ToolRegistry
@@ -42,6 +42,10 @@ class AgentRunner:
     asks the model what to do, executes any requested tools, feeds the
     observations back, and stops when the model answers without tool calls
     (or `max_steps` is reached).
+
+    The consciousness runs its own variant of this loop (it needs steering and
+    barge-in). This one drives the sub-agents that must NOT pollute the main
+    context — today the minecraft `GameAgent`.
     """
 
     def __init__(
@@ -61,7 +65,7 @@ class AgentRunner:
         tool_schemas = self.tools.schemas() or None
         last = AssistantMessage(content="")
 
-        for step in range(self.max_steps):
+        for _ in range(self.max_steps):
             last = await self.llm.complete(messages, tools=tool_schemas)
             messages.append(self._assistant_to_message(last))
 

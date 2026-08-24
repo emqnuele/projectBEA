@@ -1,7 +1,7 @@
-import os
-import asyncio
 import argparse
+import asyncio
 import faulthandler
+import os
 
 # the local embedding model runs in a subprocess; silence the noisy fork warning
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -14,19 +14,22 @@ faulthandler.enable()
 # load env
 load_dotenv()
 
-from src.utils.logger import get_logger
-from src.core.config import BrainConfig
+from src.core.agent.registry import ModelPoolError, ModelRegistry
 from src.core.brain import AIVtuberBrain
-from src.modules.llm.factory import build_llm, LLMConfigError
+from src.core.config import BrainConfig
 from src.modules.obs.obs_websocket import OBSController
+from src.utils.logger import get_logger
 
 logger = get_logger("bea")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="ProjectBEA - AI Vtuber Engine")
+    parser = argparse.ArgumentParser(description="ProjectBEA - AI Persona Engine")
 
     parser.add_argument("--web", action="store_true", help="Start Web Interface (FastAPI + React)")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="Bind address for the web interface (default: loopback only)")
+    parser.add_argument("--port", type=int, default=8000, help="Port for the web interface")
 
     # core config
     parser.add_argument("--system-file", default=None, help="Path to system prompt file")
@@ -137,10 +140,12 @@ async def main():
     else:
         stt = None
 
-    # llm
+    # llm: one pool per role, so a provider outage does not silence her and the
+    # dreamer never competes with the mind
+    registry = ModelRegistry(config, stt=stt)
     try:
-        llm = build_llm(config, stt=stt)
-    except LLMConfigError as e:
+        registry.get("mind")
+    except ModelPoolError as e:
         logger.error(str(e))
         return
 
@@ -179,7 +184,7 @@ async def main():
     )
 
     # 3. Brain
-    brain = AIVtuberBrain(config, llm, tts, stt, obs)
+    brain = AIVtuberBrain(config, registry, tts, stt, obs)
 
     try:
         brain.initialize()
@@ -187,8 +192,8 @@ async def main():
 
         if args.web:
             from src.web.server import run_server
-            logger.info("Starting Web Interface at http://localhost:8000")
-            await run_server(brain, port=8000)
+            logger.info(f"Starting Web Interface at http://{args.host}:{args.port}")
+            await run_server(brain, host=args.host, port=args.port)
         else:
             await brain.run_loop()
 

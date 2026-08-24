@@ -1,9 +1,11 @@
 
 import os
 from typing import Optional
+
 from groq import Groq
-from src.interfaces.base_interfaces import STTInterface
+
 from src.core.config import BrainConfig
+from src.interfaces.base_interfaces import STTInterface
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stt.groq")
@@ -11,24 +13,24 @@ logger = get_logger("bea.stt.groq")
 class GroqSTT(STTInterface):
     def __init__(self, config: BrainConfig):
         self.config = config
-        
+
         # get key priority: config > env
         key = self.config.groq_key
         if not key:
             key = os.getenv("GROQ_API_KEY")
-            
+
         if not key:
             logger.error("No API Key found.")
             self.client = None
         else:
             self.client = Groq(api_key=key)
-            
+
         self.model = self.config.stt_model or "whisper-large-v3-turbo"
 
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         # use provided language or fall back to global config
         lang = language if language else self.config.language
-        
+
         if not self.client:
             logger.error("Client not initialized.")
             return ""

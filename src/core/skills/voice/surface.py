@@ -4,14 +4,14 @@ from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.perception.types import Author, Perception, PerceptionKind
-from src.core.skills.base import Skill
+from src.core.skills.platform import PlatformSkill
 from src.core.skills.voice.transport import DiscordTransport
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.voice")
 
 
-class VoiceSurface(Skill):
+class VoiceSurface(PlatformSkill):
     """Discord capability (voice + text). Owns the bot transport (node subprocess).
 
     Input: voice transcripts and text messages arrive via the HTTP endpoints the
@@ -22,8 +22,10 @@ class VoiceSurface(Skill):
 
     name = "voice:discord"
     skill_name = "discord"
+    platform = "discord"
 
     def initialize(self) -> None:
+        super().initialize()
         self.transport = DiscordTransport(self.config)
         self._monitor: Optional[asyncio.Task] = None
 
@@ -52,11 +54,28 @@ class VoiceSurface(Skill):
                 break
             await asyncio.sleep(2)
 
+    # --- transport (what PlatformSkill calls) -------------------------------
+
+    async def send_text(self, channel_id: str, text: str,
+                        reply_to: Optional[str] = None) -> bool:
+        if reply_to:
+            result = await self.transport.reply_message(channel_id, reply_to, text)
+            if result.get("ok"):
+                return True
+            # the message may have been deleted: fall back to a plain send
+        return bool((await self.transport.send_message(channel_id, text)).get("ok"))
+
+    async def send_typing(self, channel_id: str) -> None:
+        await self.transport.typing(channel_id)
+
+    async def react(self, channel_id: str, message_id: str, emoji: str) -> bool:
+        return bool((await self.transport.react_message(channel_id, message_id, emoji)).get("ok"))
+
     # --- senses (bot -> bus) -----------------------------------------------
 
     def _author(self, user: str, user_id: Optional[str]) -> Author:
         # native_id is the stable discord user id; display_name can change
-        return Author(platform="discord", native_id=user_id or user, display_name=user)
+        return self.build_author(user_id or user, user)
 
     def perceive(self, transcript: str, user: str, meta: Optional[Dict[str, Any]] = None,
                  user_id: Optional[str] = None) -> Perception:
@@ -84,9 +103,10 @@ class VoiceSurface(Skill):
             kind=PerceptionKind.CHAT,
             surface=self.name,
             content=f"[{user}] (discord {kind}, {route}): {text}",
-            salience=0.8,
+            salience=0.9 if is_dm else 0.8,
             meta={**(meta or {}), "user": user, "user_id": user_id,
-                  "channel_id": channel_id, "message_id": message_id, "is_dm": is_dm},
+                  "channel_id": channel_id, "message_id": message_id, "is_dm": is_dm,
+                  "conversation_key": self.conversation_key(channel_id)},
             author=self._author(user, user_id),
         )
         self.bus.put(p)
@@ -100,23 +120,18 @@ class VoiceSurface(Skill):
             return None
         return (
             "## DISCORD\n"
-            "You are connected to Discord. Some perceptions are tagged `(discord ...)` "
-            "and carry a `channel_id` (and a `message_id` for text messages).\n"
-            "- `speak` is your LIVE VOICE — use it when you're in a voice call or on stream.\n"
-            "- For Discord TEXT, do NOT use `speak`. Answer with `discord_reply` "
-            "(to the message_id) or `discord_send_message` (to the channel_id). React with "
-            "`discord_react`. DM with `discord_send_dm`.\n"
-            "- You decide on your own whether a message is worth answering. You may also "
-            "act first: check `discord_list_voice_channels`, `discord_join_voice` to hang "
-            "out, or `discord_summon` to call someone in."
+            "You are connected to Discord.\n"
+            "- `speak` is your LIVE VOICE — the voice call and the stream. Use it here.\n"
+            "- Text messages people send you are handled in their own thread, one per "
+            "channel, while you keep doing whatever you're doing. You don't answer them "
+            "from here — you'll find yourself in that conversation on its own.\n"
+            "- What you CAN do from here is act first: `discord_send_message` to write in "
+            "a channel unprompted, `discord_send_dm` to message someone privately, "
+            "`discord_list_voice_channels` to see where people are, `discord_join_voice` "
+            "to go hang out, `discord_summon` to call someone in.\n"
+            "- When you write, every LINE becomes a separate message with a typing pause "
+            "in between. Two short lines beat one paragraph."
         )
-
-    # --- output sink --------------------------------------------------------
-
-    async def emit_text(self, text: str, meta: Optional[Dict[str, Any]] = None) -> None:
-        channel_id = (meta or {}).get("channel_id")
-        if channel_id:
-            await self.transport.send_message(str(channel_id), text)
 
     # --- tools (brain -> bot) ----------------------------------------------
 
@@ -146,7 +161,9 @@ class VoiceSurface(Skill):
             ),
             Tool(
                 "discord_send_message",
-                "Write a text message in a discord channel (by channel id).",
+                "Write a text message in a discord channel (by channel id). Each LINE you "
+                "write is sent as its own message, with a typing pause in between — so "
+                "write like you text: short lines, one thought each.",
                 {"type": "object", "properties": {
                     "channel_id": {"type": "string"}, "text": {"type": "string"}},
                  "required": ["channel_id", "text"]},
@@ -154,7 +171,8 @@ class VoiceSurface(Skill):
             ),
             Tool(
                 "discord_reply",
-                "Reply to a specific discord message (by channel id + message id).",
+                "Reply to a specific discord message (by channel id + message id). Each LINE "
+                "is sent as its own message; only the first one quotes theirs.",
                 {"type": "object", "properties": {
                     "channel_id": {"type": "string"}, "message_id": {"type": "string"},
                     "text": {"type": "string"}},
@@ -213,10 +231,12 @@ class VoiceSurface(Skill):
         return self._fmt(await self.transport.leave_voice(), "Left the voice channel.")
 
     async def _tool_send_message(self, channel_id: str, text: str) -> str:
-        return self._fmt(await self.transport.send_message(channel_id, text), "Message sent.")
+        sent = await self.deliver(channel_id, text)
+        return f"Sent ({len(sent)} message(s))." if sent else "FAILED: nothing was sent."
 
     async def _tool_reply(self, channel_id: str, message_id: str, text: str) -> str:
-        return self._fmt(await self.transport.reply_message(channel_id, message_id, text), "Replied.")
+        sent = await self.deliver(channel_id, text, reply_to=message_id)
+        return f"Replied ({len(sent)} message(s))." if sent else "FAILED: nothing was sent."
 
     async def _tool_react(self, channel_id: str, message_id: str, emoji: str) -> str:
         return self._fmt(await self.transport.react_message(channel_id, message_id, emoji), "Reacted.")

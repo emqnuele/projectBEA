@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, Brain, Disc, MessageCircle, Terminal, Cpu, Play, Clock, Zap, Mic, Radio, Archive, LayoutList, Moon, Sun } from 'lucide-react';
+import { Activity, Brain, Disc, MessageCircle, Terminal, Cpu, Play, Clock, Zap, Mic, Radio, Archive, LayoutList, Moon, Sun, Filter } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Separator } from '../components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const API_BASE = 'http://localhost:8000';
+import { API_BASE } from '../api';
+import { useEvents } from '../useEvents';
 
 // cmd style components
 const TerminalLine = ({ event }) => {
@@ -17,7 +18,19 @@ const TerminalLine = ({ event }) => {
     let prefix = "INFO";
     let prefixColor = "bg-zinc-100 text-zinc-600 border border-zinc-200/50";
 
-    if (event.category === 'input') { prefix = "INPT"; prefixColor = "bg-blue-50 text-blue-700 border-blue-100"; bgClass = "bg-blue-50/10"; }
+    if (event.source === 'cost') {
+        prefix = "COST";
+        prefixColor = "bg-amber-50 text-amber-700 border-amber-100";
+    }
+    else if (event.source === 'attention') {
+        const reaction = event.metadata?.reaction;
+        prefix = reaction === 'react' ? "WAKE" : reaction === 'note' ? "NOTE" : "SKIP";
+        prefixColor = reaction === 'react'
+            ? "bg-indigo-50 text-indigo-700 border-indigo-100"
+            : "bg-zinc-50 text-zinc-400 border-zinc-200/50";
+        bgClass = reaction === 'react' ? "bg-indigo-50/10" : "bg-transparent";
+    }
+    else if (event.category === 'input') { prefix = "INPT"; prefixColor = "bg-blue-50 text-blue-700 border-blue-100"; bgClass = "bg-blue-50/10"; }
     else if (event.category === 'output') { prefix = "OUTP"; prefixColor = "bg-emerald-50 text-emerald-700 border-emerald-100"; bgClass = "bg-emerald-50/10"; }
     else if (event.category === 'thought') { prefix = "THGT"; prefixColor = "bg-purple-50 text-purple-700 border-purple-100"; bgClass = "bg-purple-50/10"; }
     else if (event.category === 'skill') { prefix = "EXEC"; prefixColor = "bg-amber-50 text-amber-700 border-amber-100"; bgClass = "bg-amber-50/10"; }
@@ -109,7 +122,7 @@ const DreamButton = ({ status }) => {
     );
 };
 
-const HUD = ({ status, lastEvent }) => {
+const HUD = ({ status, lastEvent, attention = [], cost = [], live = false }) => {
     // derived state
     const isSpeaking = status?.is_speaking || false;
     const isThinking = lastEvent?.category === 'thought' || lastEvent?.category === 'input';
@@ -130,7 +143,11 @@ const HUD = ({ status, lastEvent }) => {
                     <div className="flex items-center gap-3">
                         <h1 className="text-lg font-bold text-zinc-900 tracking-tight flex items-center gap-2">
                             BRAIN ACTIVITY MONITOR
-                            <span className="px-2 py-0.5 rounded-full bg-zinc-55 text-zinc-500 text-[9px] font-mono border border-zinc-200/60">LIVE</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono border ${live
+                                ? 'bg-emerald-50 text-emerald-600 border-emerald-200/60'
+                                : 'bg-zinc-55 text-zinc-500 border-zinc-200/60'}`}>
+                                {live ? 'LIVE' : 'POLLING'}
+                            </span>
                             {status?.is_sleeping && (
                                 <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[9px] font-mono border border-indigo-200/60 flex items-center gap-1">
                                     <Moon className="w-3 h-3" /> SLEEPING
@@ -168,6 +185,28 @@ const HUD = ({ status, lastEvent }) => {
                         color="amber"
                     />
                     <BigStatusCard
+                        icon={Filter}
+                        label="Attention"
+                        value={attention.length
+                            ? `${attention.filter(e => e.metadata?.reaction === 'react').length} / ${attention.length}`
+                            : "--"}
+                        subtext={attention[0] ? `last: ${attention[0].metadata?.reason || '?'}` : "no decisions yet"}
+                        active={attention.length > 0}
+                        color="purple"
+                    />
+                    <BigStatusCard
+                        icon={Cpu}
+                        label="Cost"
+                        value={cost[0]?.metadata?.session_tokens
+                            ? `${(cost[0].metadata.session_tokens / 1000).toFixed(1)}k tok`
+                            : "--"}
+                        subtext={cost[0]
+                            ? `last turn: ${cost[0].metadata.steps} call(s), ${cost[0].metadata.tokens} tok`
+                            : "no turns yet"}
+                        active={cost.length > 0}
+                        color="amber"
+                    />
+                    <BigStatusCard
                         icon={Clock}
                         label="Last Activity"
                         value={lastActiveTime.split(' ')[0]}
@@ -183,40 +222,36 @@ const HUD = ({ status, lastEvent }) => {
 }
 
 export default function BrainActivityPage() {
-    const [events, setEvents] = useState([]);
+    const { events, live } = useEvents(200);
     const [status, setStatus] = useState({});
+    const [showAttention, setShowAttention] = useState(true);
     const scrollViewportRef = useRef(null);
 
-    const fetchData = async () => {
-        try {
-            const [eventsRes, statusRes] = await Promise.all([
-                fetch(`${API_BASE}/events?limit=100`),
-                fetch(`${API_BASE}/status`)
-            ]);
-
-            const eventsData = await eventsRes.json();
-            const statusData = await statusRes.json();
-
-            // reverse events
-            setEvents(eventsData.slice().reverse());
-            setStatus(statusData);
-        } catch (e) {
-            console.error("Failed to fetch activity data:", e);
-        }
-    };
-
+    // status is a snapshot, not a stream: polling it is the right shape
     useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 1000);
+        const fetchStatus = async () => {
+            try {
+                setStatus(await (await fetch(`${API_BASE}/status`)).json());
+            } catch (e) {
+                console.error("Failed to fetch status:", e);
+            }
+        };
+        fetchStatus();
+        const interval = setInterval(fetchStatus, 3000);
         return () => clearInterval(interval);
     }, []);
 
     // no auto-scroll
 
+    const attention = events.filter(e => e.source === 'attention');
+    const cost = events.filter(e => e.source === 'cost');
+    const shown = showAttention ? events : events.filter(e => e.source !== 'attention');
+
     return (
         <div className="h-screen flex flex-col bg-white font-sans text-zinc-900">
 
-            <HUD status={status} lastEvent={events[0]} />
+            <HUD status={status} lastEvent={events.find(e => e.source !== 'attention')}
+                 attention={attention} cost={cost} live={live} />
 
             <div className="flex-1 overflow-hidden relative flex flex-col max-w-7xl mx-auto w-full mt-4 mb-4 px-6">
 
@@ -226,16 +261,27 @@ export default function BrainActivityPage() {
                         <span className="font-bold flex items-center gap-2 text-zinc-650">
                             <Terminal className="w-3.5 h-3.5" /> EVENT STREAM
                         </span>
-                        <span>{events.length} EVENTS LOGGED</span>
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => setShowAttention(v => !v)}
+                                className={`px-2 py-0.5 rounded border transition-colors ${showAttention
+                                    ? 'bg-indigo-50 text-indigo-600 border-indigo-200'
+                                    : 'bg-zinc-50 text-zinc-400 border-zinc-200'}`}
+                                title="Show what Bea decided to ignore"
+                            >
+                                ATTENTION {showAttention ? 'ON' : 'OFF'}
+                            </button>
+                            <span>{shown.length} EVENTS LOGGED</span>
+                        </div>
                     </div>
 
                     {/* log content */}
                     <ScrollArea className="flex-1 bg-transparent" viewportRef={scrollViewportRef}>
                         <div className="w-full">
-                            {events.length === 0 && (
+                            {shown.length === 0 && (
                                 <div className="text-zinc-400 italic p-8 text-center text-xs">Waiting for system events...</div>
                             )}
-                            {events.map((event, i) => (
+                            {shown.map((event, i) => (
                                 <TerminalLine key={event.id || i} event={event} />
                             ))}
                             {/* blinking cursor */}

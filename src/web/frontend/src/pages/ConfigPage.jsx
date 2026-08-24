@@ -3,7 +3,7 @@ import { Save, Plus, Trash2, Check, X, RefreshCw, Key, Image as ImageIcon, Box, 
 import { useDialog } from '../context/DialogContext';
 import SystemPromptModal from '../components/config/SystemPromptModal';
 
-const API_BASE = 'http://localhost:8000';
+import { API_BASE } from '../api';
 
 export default function ConfigPage({ activeCategory }) {
     const [config, setConfig] = useState(null);
@@ -684,16 +684,6 @@ export default function ConfigPage({ activeCategory }) {
                                             onChange={(e) => updateSkillField('discord', 'token', e.target.value)}
                                             className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 outline-none"
                                             placeholder="Bot Token..."
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-medium text-zinc-500">Target Channel ID</label>
-                                        <input
-                                            type="text"
-                                            value={config.skills?.discord?.target_channel || ''}
-                                            onChange={(e) => updateSkillField('discord', 'target_channel', e.target.value)}
-                                            className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 outline-none"
-                                            placeholder="Channel ID..."
                                         />
                                     </div>
                                     <div className="space-y-1.5">

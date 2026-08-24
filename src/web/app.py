@@ -1,23 +1,41 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form
+import asyncio
+import json
+import os
+import shutil
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
-from typing import Dict, Any, Optional
-import shutil
-import os
-from pathlib import Path
-from src.core.config import BrainConfig
+
 from src.core.brain import AIVtuberBrain
+from src.core.config import MASK
+from src.core.memory.plan import STATUSES
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.web")
 
-app = FastAPI(title="AI Vtuber Brain API")
+app = FastAPI(title="ProjectBEA Brain API")
 
-# cors
+# the dashboard is served from this same origin; a wildcard would let any page
+# the browser has open read the brain's state and drive it
+DEFAULT_ORIGINS = [
+    "http://localhost:8000", "http://127.0.0.1:8000",
+    "http://localhost:5173", "http://127.0.0.1:5173",  # vite dev server
+]
+
+
+def _allowed_origins() -> list:
+    extra = os.getenv("BEA_ALLOWED_ORIGINS", "")
+    return DEFAULT_ORIGINS + [o.strip() for o in extra.split(",") if o.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,12 +63,24 @@ def get_brain() -> AIVtuberBrain:
         raise HTTPException(status_code=503, detail="Brain not initialized")
     return brain_instance
 
+
+def _merge_skills(current: Dict[str, Any], incoming: Dict[str, Any]) -> None:
+    """Folds a (possibly partial) skills payload into the live config.
+
+    The UI reads secrets back as `MASK`; writing that value would replace a real
+    token with asterisks, so masked fields are dropped instead of applied.
+    """
+    for skill_key, block in incoming.items():
+        if not isinstance(block, dict):
+            current[skill_key] = block
+            continue
+        clean = {k: v for k, v in block.items() if v != MASK}
+        current.setdefault(skill_key, {}).update(clean)
+
 @app.get("/config")
 def get_config():
     brain = get_brain()
-    # eeturn as dict
-    from dataclasses import asdict
-    return asdict(brain.config)
+    return brain.config.public_dict()
 
 @app.post("/config")
 def update_config(request: ConfigUpdateRequest):
@@ -63,31 +93,36 @@ def update_config(request: ConfigUpdateRequest):
         # uppdate config object
         for key, value in request.config.items():
             if hasattr(brain.config, key):
+                if key == "skills" and isinstance(value, dict):
+                    # merge, so a partial post never drops the skills it omitted
+                    # (and a masked secret never overwrites the real one)
+                    _merge_skills(brain.config.skills, value)
+                    continue
                 setattr(brain.config, key, value)
-                
+
                 # check for critical changes
                 if key == "tts_provider" and value != current_tts:
                     restart_required = True
                 if key == "stt_provider" and value != current_stt:
                     restart_required = True
-        
+
         # save to file
         brain.config.save_to_file()
-        
+
         # hot reload
         brain.reload_configuration()
-        
+
         msg = "Configuration updated."
         if restart_required:
             msg += " RESTART REQUIRED to apply new provider settings."
-            
+
         return {
-            "status": "success", 
+            "status": "success",
             "message": msg,
             "restart_required": restart_required
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 @app.get("/history")
 def get_history():
@@ -117,7 +152,7 @@ async def save_memory():
     brain = get_brain()
     if not brain.memory_skill:
         raise HTTPException(status_code=400, detail="Memory skill not initialized")
-        
+
     if brain.memory_skill.save_current_session():
         return {"status": "success", "message": "Memory saving triggered."}
     else:
@@ -154,15 +189,15 @@ async def wake_bea():
 @app.post("/chat")
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
     brain = get_brain()
-    
+
     # 1. generate text
     mood, message = await brain.generate_response(request.message)
-    
+
     # 2. schedule output
     background_tasks.add_task(brain.perform_output_task, mood, message)
-    
+
     return {
-        "status": "success", 
+        "status": "success",
         "response": {
             "role": "assistant",
             "content": message,
@@ -180,28 +215,28 @@ async def interrupt_speech():
 @app.post("/audio")
 async def upload_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     brain = get_brain()
-    
+
     # save temp file
     temp_dir = Path("temp")
     temp_dir.mkdir(exist_ok=True)
     filename = file.filename or "audio_upload.wav"
     temp_file = temp_dir / filename
-    
+
     with open(temp_file, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    
+
     # process
     mood, message, transcript = await brain.generate_audio_response(str(temp_file))
-    
+
     # schedule output
     background_tasks.add_task(brain.perform_output_task, mood, message)
-    
+
     # cleanup
     if temp_file.exists():
         os.remove(temp_file)
-        
+
     return {
-        "status": "success", 
+        "status": "success",
         "response": {
             "role": "assistant",
             "content": message,
@@ -261,13 +296,13 @@ async def discord_audio_interaction(
     try:
         # process
         status, text_response, transcript, audio_bytes = await brain.process_discord_interaction(str(temp_file), username, user_id=user_id)
-        
+
         # convert audio to base64
         import base64
         audio_b64 = ""
         if audio_bytes:
              audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-        
+
         return {
             "status": status, # "success" or "resume"
             "text": text_response,
@@ -276,7 +311,7 @@ async def discord_audio_interaction(
         }
     except Exception as e:
         logger.error(f"Discord Audio Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
         # cleanup
         if temp_file.exists():
@@ -313,7 +348,7 @@ async def buffer_voice_transcript(
             if brain.surface_registry is not None:
                 voice = brain.surface_registry.get("voice:discord")
                 if voice is not None and hasattr(voice, "perceive"):
-                    getattr(voice, "perceive")(transcript, username, user_id=user_id)
+                    voice.perceive(transcript, username, user_id=user_id)
 
         return {"status": "perceived", "transcript": transcript}
     except Exception as e:
@@ -322,6 +357,40 @@ async def buffer_voice_transcript(
     finally:
         if temp_file.exists():
             os.remove(temp_file)
+
+class DonationRequest(BaseModel):
+    name: str = Field(default="someone", max_length=200)
+    amount: float = Field(..., ge=0)
+    currency: str = Field(default="EUR", max_length=16)
+    message: str = Field(default="", max_length=1000)
+    platform: str = Field(default="donation", max_length=64)
+    donorId: Optional[str] = None
+    eventId: Optional[str] = None
+
+
+@app.post("/webhook/donation")
+async def donation_webhook(request: DonationRequest, secret: Optional[str] = None):
+    """Receives a donation from StreamElements / Ko-fi / anything else.
+
+    Anyone who can reach this endpoint could fake a donation, so a shared secret
+    is checked when one is configured (`DONATION_SECRET`).
+    """
+    brain = get_brain()
+    skill = brain.donation_skill
+    if skill is None or not skill.active:
+        raise HTTPException(status_code=503, detail="Donations are not enabled")
+    if not skill.authorized(secret):
+        raise HTTPException(status_code=403, detail="Bad secret")
+
+    perception = skill.receive(
+        name=request.name, amount=request.amount, currency=request.currency,
+        message=request.message, platform=request.platform,
+        donor_id=request.donorId, event_id=request.eventId,
+    )
+    if perception is None:
+        return {"status": "duplicate"}
+    return {"status": "perceived"}
+
 
 @app.get("/skills")
 def list_skills():
@@ -362,6 +431,142 @@ def get_events(limit: int = 50):
     brain = get_brain()
     return brain.event_manager.get_events(limit=limit)
 
+@app.get("/events/stream")
+async def stream_events(request: Request, backlog: int = 50):
+    """Server-sent events: the dashboard stops polling every two seconds.
+
+    Polling three endpoints on a timer meant the UI was always slightly stale and
+    the brain paid for a request whether or not anything had happened. Here the
+    events arrive when they occur.
+    """
+    brain = get_brain()
+    queue = brain.event_manager.subscribe(backlog=backlog)
+
+    async def pump():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # a comment keeps proxies from closing an idle connection
+                    yield ": keep-alive\n\n"
+                    continue
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            brain.event_manager.unsubscribe(queue)
+
+    return StreamingResponse(pump(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",   # nginx would otherwise buffer the stream away
+    })
+
+
+# --- the stream plan --------------------------------------------------------
+
+class DirectiveRequest(BaseModel):
+    text: str = Field(default="", max_length=2000)
+
+
+class ObjectiveRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=500)
+    detail: str = Field(default="", max_length=1000)
+
+    @field_validator("text")
+    @classmethod
+    def strip_text(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("an objective needs some text")
+        return stripped
+
+
+class ObjectiveUpdate(BaseModel):
+    text: Optional[str] = Field(default=None, max_length=500)
+    detail: Optional[str] = Field(default=None, max_length=1000)
+    status: Optional[str] = None
+    outcome: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("status")
+    @classmethod
+    def known_status(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in STATUSES:
+            raise ValueError(f"status must be one of {', '.join(STATUSES)}")
+        return v
+
+
+class PlanOrder(BaseModel):
+    ids: list
+
+
+def _plan_payload(brain: AIVtuberBrain) -> Dict[str, Any]:
+    plan = brain.plan
+    return {
+        "directive": plan.directive,
+        "objectives": [o.as_dict() for o in plan.all()],
+    }
+
+
+@app.get("/plan")
+def get_plan():
+    return _plan_payload(get_brain())
+
+
+@app.post("/plan/directive")
+def set_directive(request: DirectiveRequest):
+    brain = get_brain()
+    brain.plan.set_directive(request.text)
+    brain.plan_changed()
+    return _plan_payload(brain)
+
+
+@app.post("/plan/objectives")
+def add_objective(request: ObjectiveRequest):
+    brain = get_brain()
+    if brain.plan.add(request.text, request.detail) is None:
+        raise HTTPException(status_code=400, detail="An objective needs some text")
+    brain.plan_changed()
+    return _plan_payload(brain)
+
+
+@app.patch("/plan/objectives/{objective_id}")
+def update_objective(objective_id: int, request: ObjectiveUpdate):
+    brain = get_brain()
+    updated = brain.plan.update(
+        objective_id, text=request.text, detail=request.detail,
+        status=request.status, outcome=request.outcome,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="No such objective")
+    return _plan_payload(brain)
+
+
+@app.delete("/plan/objectives/{objective_id}")
+def delete_objective(objective_id: int):
+    brain = get_brain()
+    if not brain.plan.remove(objective_id):
+        raise HTTPException(status_code=404, detail="No such objective")
+    brain.plan_changed()
+    return _plan_payload(brain)
+
+
+@app.post("/plan/order")
+def reorder_plan(request: PlanOrder):
+    brain = get_brain()
+    brain.plan.reorder([int(i) for i in request.ids])
+    return _plan_payload(brain)
+
+
+@app.post("/plan/reset")
+def reset_plan():
+    """A new stream: the old plan goes away entirely."""
+    brain = get_brain()
+    brain.plan.clear()
+    brain.plan_changed()
+    return _plan_payload(brain)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -374,7 +579,6 @@ else:
     logger.warning(f"Frontend build not found at {frontend_path}. Run 'npm run build' in src/web/frontend.")
 
 # --- SPA CATCH-ALL ROUTE ---
-from fastapi.responses import FileResponse
 
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):

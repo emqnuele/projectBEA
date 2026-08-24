@@ -1,14 +1,11 @@
 import asyncio
 import datetime
 import time
-from pathlib import Path
 from typing import List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.skills.base import Skill
-from src.core.skills.dream.selflore import SelfLore
-from src.core.skills.dream.recent import RecentStore
-from src.core.skills.dream.dreamer import Dreamer, DAY_SECONDS
+from src.core.skills.dream.dreamer import DAY_SECONDS, Dreamer
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.dream")
@@ -17,26 +14,24 @@ REGULAR_ABSENCE_DAYS = 10
 
 
 class DreamSkill(Skill):
-    """Sleep & dream: self-knowledge, 'right now' facts, and offline consolidation.
+    """Sleep and dream: self-knowledge, hot facts, offline consolidation.
 
-    While active, Bea's self-lore and a few hot 'right now' facts are always in
-    context. A morning pass refreshes the hot facts on start. Bea can choose to
-    `go_to_sleep`, which runs the dreamer (consolidating raw conversations into
-    durable memory) and then wakes her up — or it can be triggered from the UI.
+    While active her self-lore and a few "right now" facts are always in
+    context. `go_to_sleep` runs the dreamer and wakes her up again; the UI can
+    trigger the same pass.
     """
 
     name = "dream"
     skill_name = "dream"
 
     def initialize(self) -> None:
-        cfg = self.config.skills.get("dream", {})
-        self.selflore = SelfLore(
-            cfg.get("self_path", "data/memory/self.md"),
-            cfg.get("profile_path", "data/memory/self_profile.json"),
-        )
-        self.recent = RecentStore(cfg.get("recent_path", "data/memory/recent.json"))
+        memory = self.context.memory
+        self.selflore = memory.selflore
+        self.recent = memory.hot
+        self.sessions = memory.sessions
         self.dreamer: Optional[Dreamer] = None
         self._dreaming = False
+        self._night_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         await super().start()
@@ -48,6 +43,35 @@ class DreamSkill(Skill):
             self.morning_pass()
         except Exception as e:
             logger.error(f"DreamSkill: morning pass failed: {e}")
+        self._night_task = asyncio.create_task(self._nightly())
+
+    async def stop(self) -> None:
+        if self._night_task:
+            self._night_task.cancel()
+            self._night_task = None
+        await super().stop()
+
+    async def _nightly(self) -> None:
+        """Dreams once a night, on its own.
+
+        The hour is checked rather than a timer set, so a restart neither skips
+        a night nor doubles one.
+        """
+        hour = int(self.config.skills.get("dream", {}).get("hour", 4))
+        last_dreamed_on = None
+        while self.active:
+            await asyncio.sleep(300)
+            now = datetime.datetime.now()
+            if now.hour != hour or last_dreamed_on == now.date():
+                continue
+            last_dreamed_on = now.date()
+            logger.info("DreamSkill: nightly consolidation starting.")
+            try:
+                await self.run_dream()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"DreamSkill: nightly dream failed: {e}")
 
     def _social(self):
         reg = getattr(self.context, "skill_registry", None)
@@ -55,7 +79,10 @@ class DreamSkill(Skill):
 
     def _build_dreamer(self) -> None:
         social = self._social()
-        llm = getattr(self.context, "llm", None)
+        # the background pool: a dream pass is dozens of calls in a row and must
+        # never take the mind's model (or its rate limit) hostage
+        model_for = getattr(self.context, "model_for", None)
+        llm = model_for("background") if model_for else None
         hm = getattr(self.context, "history_manager", None)
         if not (social and llm and hm):
             logger.warning("DreamSkill: dreamer not fully wired (need social + llm + history).")
@@ -63,7 +90,7 @@ class DreamSkill(Skill):
         self.dreamer = Dreamer(
             llm=llm, history_manager=hm,
             roster=social.roster, people=social.people,
-            selflore=self.selflore, recent=self.recent,
+            selflore=self.selflore, recent=self.recent, sessions=self.sessions,
         )
 
     # --- always-in-context --------------------------------------------------
@@ -100,7 +127,12 @@ class DreamSkill(Skill):
         if gap is not None and gap >= 1:
             self.recent.add(f"you haven't streamed in {gap} day(s)", ttl, "morning_pass")
 
-        # 3. regulars who've gone missing
+        # 3. what happened the last time round, from the rolling summaries: she
+        # should be able to pick a conversation up, not restart it every day
+        for line in self._yesterday():
+            self.recent.add(line, ttl, "morning_pass")
+
+        # 4. regulars who've gone missing
         social = self._social()
         if social:
             now = time.time()
@@ -114,16 +146,28 @@ class DreamSkill(Skill):
                         ttl, "morning_pass",
                     )
 
+    def _yesterday(self, limit: int = 2) -> List[str]:
+        """One line per conversation that was going somewhere recently."""
+        memory = getattr(self.context, "memory", None)
+        if memory is None:
+            return []
+        try:
+            rows = memory.db.query(
+                "SELECT conversation_key, summary FROM summaries "
+                "WHERE summary != '' ORDER BY updated_at DESC LIMIT ?", (limit,),
+            )
+        except Exception as e:
+            logger.warning(f"DreamSkill: could not read the summaries: {e}")
+            return []
+        return [f"last time in {r['conversation_key']}: {_first_line(r['summary'])}"
+                for r in rows]
+
     def _days_since_last_session(self) -> Optional[int]:
-        d = Path("data/conversations")
-        if not d.exists():
-            return None
         active = getattr(getattr(self.context, "history_manager", None), "session_id", None)
-        files = [f for f in d.glob("session_*.json") if f.stem != active]
-        if not files:
+        last = self.sessions.last_ended_at(exclude=active)
+        if last is None:
             return None
-        newest = max(files, key=lambda f: f.stat().st_mtime)
-        return int((time.time() - newest.stat().st_mtime) / DAY_SECONDS)
+        return int((time.time() - last) / DAY_SECONDS)
 
     # --- sleep & dream ------------------------------------------------------
 
@@ -169,6 +213,11 @@ class DreamSkill(Skill):
             if consc:
                 consc.wake()
         return summary
+
+
+def _first_line(text: str, limit: int = 120) -> str:
+    line = (text or "").strip().splitlines()[0] if (text or "").strip() else ""
+    return line if len(line) <= limit else line[: limit - 1] + "…"
 
 
 def _days_until(mm_dd: str) -> Optional[int]:

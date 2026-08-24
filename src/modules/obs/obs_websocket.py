@@ -1,9 +1,10 @@
 import asyncio
-from typing import Dict, Optional, Union, Any
 from pathlib import Path
+from typing import Any, Dict, Optional, Union
+
 from obsws_python import ReqClient
+
 from src.interfaces.base_interfaces import OBSInterface
-from src.utils.text_utils import fit_text_for_box
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.obs")
@@ -16,7 +17,7 @@ class OBSController(OBSInterface):
         self.source_name = source_name
         self.client: Optional[ReqClient] = None
         self._font_cache: Dict[str, Dict[str, Any]] = {}
-    
+
     def reload_config(self, config) -> None:
         """Reconnects if critical connection details changed."""
         changed = False
@@ -29,16 +30,16 @@ class OBSController(OBSInterface):
         if config.obs_password != self.password:
             self.password = config.obs_password
             changed = True
-        
+
         # source name update is safe to do always
         if config.obs_avatar_source != self.source_name:
             self.source_name = config.obs_avatar_source
-        
+
         if changed and self.client:
              logger.info("Connection details changed. Reconnecting...")
              self.disconnect()
              self.connect()
-    
+
     def connect(self):
         try:
             self.client = ReqClient(host=self.host, port=self.port, password=self.password)
@@ -149,29 +150,29 @@ class OBSController(OBSInterface):
             min_font_size=min_font_size,
             font_step=font_step,
         )
-        
+
         logger.debug(f"Pagination result: {len(pages)} pages.")
         if len(pages) > 1:
              logger.debug(f"Page 1: {pages[0][:20]}...")
 
         safe_typing_delay = max(0.001, typing_delay)
-        
+
         for idx, page_text in enumerate(pages):
             logger.debug(f"Displaying Page {idx+1}/{len(pages)}")
-            
+
             # 1. Type out this page
-            
+
             # calculate duration for this page
             page_len = len(page_text)
             estimated_duration = page_len / max(1.0, speaking_rate)
-            
+
             # animation time (typing)
             typing_duration = page_len * safe_typing_delay
-            
+
             # we want the page to stay visible for `estimated_duration`.
-            
+
             wait_time = max(0.0, estimated_duration - typing_duration)
-            
+
             # ensure minimun display duration (especially for short pages)
             total_duration = typing_duration + wait_time
             if total_duration < min_page_duration:
@@ -184,16 +185,16 @@ class OBSController(OBSInterface):
                 self.set_text(current_displayed, source_name, font_size=font_size)
                 if safe_typing_delay > 0:
                     await asyncio.sleep(safe_typing_delay)
-            
+
             # ensure full text is set
             self.set_text(page_text, source_name, font_size=font_size)
-            
+
             # wait for reading/speaking
             if idx < len(pages) - 1:
                 logger.debug(f"Waiting {wait_time:.2f}s before next page...")
                 await asyncio.sleep(wait_time)
                 self.set_text("", source_name, font_size=font_size)
-        
+
         return font_size
 
     def clear_text(self, source_name: str, font_size: int) -> None:

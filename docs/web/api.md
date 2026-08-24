@@ -6,9 +6,15 @@
 
 ## Overview
 
-The FastAPI server (`src/web/app.py`) is started when `--web` is passed to `main.py`. It runs on `http://0.0.0.0:8000` and serves both the REST API and the compiled React frontend as static files.
+The FastAPI server (`src/web/app.py`) starts with `uv run bea --web`. It serves
+both the REST API and the compiled React frontend from the same origin.
 
 Base URL: `http://localhost:8000`
+
+**There is no authentication.** The server binds to `127.0.0.1` by default;
+`--host 0.0.0.0` is an explicit opt-in. CORS carries an allowlist (localhost on
+8000 and 5173, plus anything in `BEA_ALLOWED_ORIGINS`) rather than a wildcard,
+and `GET /config` drops or masks every secret.
 
 ---
 
@@ -65,7 +71,13 @@ Updates one or more config fields and hot-reloads the engine.
 ### Chat
 
 #### `POST /chat`
-Sends a text message to the brain and gets a response. Output (TTS + OBS) is triggered as a background task.
+Deposits a `CHAT` perception from the owner and waits for whatever she decides
+to say. She may decide to say nothing — the attention gate and her own
+`stay_silent` are both real outcomes — in which case `content` comes back empty
+after at most `consciousness.correlation_timeout` seconds.
+
+Speech is rendered by the consciousness itself, so the background output task is
+a no-op while the brain is alive.
 
 **Request:**
 ```json
@@ -121,66 +133,81 @@ Immediately stops current speech and typing.
 ### Discord Endpoints
 
 #### `POST /discord/chat`
-Receives a text message from the Discord bot and generates a text response (no TTS, no OBS animation).
+Receives a text message from the Discord bot and **returns immediately**.
 
-> **Implementation note:** The endpoint prepends the username as a prefix before calling the brain: the message stored in conversation history is `[username] message` (e.g. `[emanu] hello bea`). The `background_tasks` parameter is injected by FastAPI but is currently unused — unlike `POST /chat`, this endpoint does **not** schedule `perform_output_task()`, so no OBS avatar animation or text bubble is triggered for Discord text-chat messages.
+The message becomes a `CHAT` perception carrying
+`conversation_key = "discord:<channelId>"` and is routed to a scoped
+conversation turn that runs beside the live loop. Bea answers on her own,
+through the Discord tools, whenever she decides to. She may also decide not to.
 
 **Request:**
 ```json
 {
   "username": "emanu",
   "message": "hello bea",
-  "channelId": "123456789"
+  "channelId": "123456789",
+  "userId": "4711",
+  "messageId": "987654321",
+  "isDm": false
 }
 ```
 
-> **Validation:** `username` must be at least 1 character. `message` must be between 1 and 4000 characters and not empty/whitespace-only (stripped automatically). Returns `422` on failure.
+`userId` is the stable identity behind the roster and the person cards;
+`messageId` is what lets her reply to or react to that exact message.
+
+> **Validation:** `username` at least 1 character, `message` 1–4000 and not
+> whitespace-only. `422` on failure.
 
 **Response:**
 ```json
-{
-  "status": "success",
-  "response": "...",
-  "mood": "normal"
-}
+{ "status": "perceived" }
 ```
 
 ---
 
 #### `POST /discord/audio`
-Receives a voice audio chunk from the Discord bot's VoiceManager.
+Receives a voice chunk from the bot's VoiceManager. This one **does** wait: the
+caller is blocked on a correlation until Bea speaks, because the bot needs the
+audio back to play it in the call.
 
 **Request:** `multipart/form-data`
 - `file` — WAV audio file
-- `username` — Discord username  
-- `flush_buffer` — `"true"` if this is the final chunk for this user's utterance *(accepted by the endpoint but currently not acted upon — buffering is driven entirely by the 300 ms server-side aggregation window, not by this flag)*
+- `username` — Discord username
+- `user_id` — stable Discord user id (optional, but it is the identity)
+- `flush_buffer` — accepted for compatibility, not acted upon
 
 **Response:**
 ```json
 {
   "status": "success",
   "text": "Bea's text response",
-  "transcript": "combined transcript log (all speakers, pipe-delimited for multi-speaker scenarios)",
+  "transcript": "the transcription of this chunk",
   "audio_base64": "<base64-encoded WAV bytes>"
 }
 ```
 
-> `status` can be `"success"` or `"resume"` (when Bea resumes interrupted speech). In multi-speaker buffer flushes, only the **first** caller within the 300 ms aggregation window receives audio — all other callers in the same flush receive `status: "success"` with `text: "(Merged)"` and an empty `audio_base64` string.
+> `status` is `"success"` when she spoke and `"ignored"` when she did not — the
+> attention gate filtered the input, or she chose `stay_silent`. On `"ignored"`,
+> `text` and `audio_base64` are empty and the bot plays nothing.
 
-> **All-backchannel flush:** If every input in the aggregation window is a backchannel phrase, the buffer is short-circuited before the LLM is called. All callers receive `status: "resume"` with an empty `audio_base64` and their individual transcript as `transcript`. No TTS audio is generated in this case.
+The perception bus coalesces a burst of chunks into a single batch, so two
+people talking at once produce one turn and one answer.
 
 ---
 
 #### `POST /voice/transcript`
-Buffer-only endpoint used during barge-in: transcribes a short audio snippet and accumulates it without triggering an LLM response. The buffered text is included as context in Bea's next response.
+Overheard speech: transcribes a snippet and deposits a `VOICE` perception
+without waiting for anything. The attention gate decides whether it was worth
+reacting to — she may answer a moment later on her own, or ignore it.
 
 **Request:** `multipart/form-data`
 - `file` — WAV audio file (typically < 3 seconds)
 - `username` — Discord username
+- `user_id` — stable Discord user id (optional)
 
 **Response:**
 ```json
-{ "status": "buffered", "transcript": "ok continue" }
+{ "status": "perceived", "transcript": "ok continue" }
 ```
 
 ---
@@ -298,6 +325,49 @@ POST /skills/discord/toggle?enable=true
 ```json
 { "status": "success", "enabled": true }
 ```
+
+---
+
+### Stream Plan
+
+What the owner wants Bea to get done on this stream. Every endpoint returns the
+whole plan, so the dashboard never has to guess what the server now holds:
+
+```json
+{
+  "directive": "today you play minecraft on the survival server",
+  "objectives": [
+    { "id": 1, "text": "build a base", "detail": "", "status": "todo",
+      "outcome": "", "position": 1, "created_at": 0.0, "updated_at": 0.0 }
+  ]
+}
+```
+
+`status` is one of `todo`, `doing`, `done`, `dropped`. The `id` is also the
+number Bea passes to `objective_done`.
+
+#### `GET /plan`
+Returns the current plan.
+
+#### `POST /plan/directive`
+Sets the headline. Body: `{ "text": "..." }` (empty clears it).
+
+#### `POST /plan/objectives`
+Adds an objective. Body: `{ "text": "...", "detail": "..." }`. Blank text is a
+`422`.
+
+#### `PATCH /plan/objectives/{id}`
+Updates one objective. Body may carry any of `text`, `detail`, `status`,
+`outcome`. An unknown status is a `422`; an unknown id is a `404`.
+
+#### `DELETE /plan/objectives/{id}`
+Removes an objective. Unknown id is a `404`.
+
+#### `POST /plan/order`
+Reorders the list. Body: `{ "ids": [3, 1, 2] }`.
+
+#### `POST /plan/reset`
+Clears the headline and every objective — a new stream from nothing.
 
 ---
 

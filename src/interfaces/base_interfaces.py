@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Union, Dict, Any
 from pathlib import Path
-import asyncio
+from typing import Any, Dict, Optional, Tuple, Union
+
 
 class LLMInterface(ABC):
-    
+
     @abstractmethod
     def chat(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
         """
@@ -12,7 +12,7 @@ class LLMInterface(ABC):
         history: List of dictionaries [{"role": "user"|"assistant", "content": "..."}]
         """
         pass
-    
+
     @abstractmethod
     def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
         """
@@ -94,7 +94,7 @@ class OBSInterface(ABC):
         Returns the final font size used.
         """
         pass
-        
+
     @abstractmethod
     def set_text(self, text: str, source_name: str, font_size: Optional[int] = None) -> None:
         """

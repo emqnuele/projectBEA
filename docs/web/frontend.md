@@ -32,6 +32,7 @@ src/web/frontend/
     │   ├── ChatPage.jsx       Conversation interface
     │   ├── ConfigPage.jsx     Configuration editor
     │   ├── SkillsPage.jsx     Skill toggle panel
+    │   ├── StreamPlanPage.jsx Today's objectives for the stream
     │   └── BrainActivityPage.jsx  Real-time event feed
     ├── layouts/
     │   └── DashboardLayout.jsx    Sidebar + content area wrapper
@@ -62,6 +63,7 @@ The dashboard uses **view state** (not URL sub-routes) to switch between panels,
 | View State | Page | Description |
 |---|---|---|
 | `chat` | `ChatPage` | Conversation with session management |
+| `plan` | `StreamPlanPage` | The owner's objectives for this stream |
 | `activity` | `BrainActivityPage` | Brain event log |
 | `config` | `ConfigPage` | Settings editor |
 | `skills` | `SkillsPage` | Enable/disable skills at runtime |
@@ -85,35 +87,58 @@ The main chat interface:
 
 ---
 
-### `BrainActivityPage`
-A real-time event console that polls `GET /events` periodically. Events are color-coded by category:
+### `StreamPlanPage`
+Where the owner writes what Bea has to get done today: a headline directive and
+an ordered list of objectives. Reads and writes `/plan`, and re-reads it every
+five seconds — Bea closes objectives herself while the stream runs, so the page
+has to follow her.
 
-| Category | Color |
-|---|---|
-| `input` | Blue |
-| `output` | Green |
-| `thought` | Purple |
-| `skill` | Orange |
-| `error` | Red |
-| `system` | Gray |
+---
+
+### `BrainActivityPage`
+A live event console. It subscribes to `GET /events/stream` (server-sent events)
+through the `useEvents` hook, falling back to a one-off `GET /events` fetch when
+the stream cannot be opened. Events are colour-coded by category:
+
+Each line gets a four-letter tag:
+
+| Tag | When | Colour |
+|---|---|---|
+| `INPT` | category `input` | blue |
+| `OUTP` | category `output` | emerald |
+| `THGT` | category `thought` — what she thought without saying | purple |
+| `EXEC` | category `skill` | amber |
+| `ERR ` | category `error` | rose |
+| `COST` | source `cost` — calls, tokens and ms for that turn | amber |
+| `WAKE` / `NOTE` / `SKIP` | source `attention` — the gate's verdict, with its score and reason | indigo / grey |
+| `INFO` | anything else | zinc |
+
+`WAKE`/`NOTE`/`SKIP` and `COST` are the two things worth watching while tuning:
+one shows what got through the gate and why, the other what it cost.
+
+The page also carries the sleep/wake control (`POST /dream/run`,
+`POST /dream/wake`).
 
 ---
 
 ### `ConfigPage`
-A full configuration editor organized into categories (tabs):
-- **LLM** — provider selection, model, API keys
-- **TTS** — provider, voice, pitch, rate, volume
-- **OBS** — source names, connection settings
-- **Avatar** — avatar map file paths
-- **Text** — typing animation parameters
-- **Skills** — per-skill config fields
+A configuration editor split into the categories listed in the sidebar: Model,
+Speech to Text, Voice, Stream (OBS), Typing, Avatar, General, Minecraft and
+Discord.
 
-Changes are sent to `POST /config` and hot-reloaded without restart.
+Changes go to `POST /config` and are hot-reloaded. Secrets come back from
+`GET /config` masked as `********`; posting the mask back is ignored, so editing
+an unrelated field cannot overwrite a real token.
 
 ---
 
 ### `SkillsPage`
-A list of all registered skills with toggle switches. Calls `POST /skills/{name}/toggle?enable=true|false` to enable/disable. Shows each skill's `active` state (running) vs `enabled` (configured to run).
+Every toggleable skill with a switch, its per-skill config fields, and its live
+state: `enabled` (configured to run) against `active` (actually running). The
+toggle calls `POST /skills/{name}/toggle?enable=true|false`, which arms or
+disarms the capability in the running brain.
+
+It also hosts the Minecraft console, a direct WebSocket view of the mod.
 
 ---
 
@@ -146,7 +171,13 @@ npm install
 npm run dev      # Vite dev server at http://localhost:5173
 ```
 
-During development, the Vite dev server runs on port 5173 and connects directly to the FastAPI backend on port 8000. The frontend uses full `http://localhost:8000` URLs for API calls (no proxy configured in `vite.config.js`).
+The dev server runs on port 5173 and calls the backend directly — there is no
+proxy in `vite.config.js`. Every request goes through `API_BASE`
+(`src/web/frontend/src/api.js`), which resolves to `http://localhost:8000` in dev and to the
+page's own origin in a build. Set `VITE_API_BASE` to point it elsewhere.
+
+Port 5173 is already in the backend's CORS allowlist; any other origin needs
+`BEA_ALLOWED_ORIGINS` on the brain.
 
 ## Production Build
 

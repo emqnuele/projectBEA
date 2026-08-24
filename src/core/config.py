@@ -1,12 +1,24 @@
+import copy
 import json
 import os
-from dataclasses import dataclass, field, asdict
-from typing import Optional, Dict, Any
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.config")
 
 CONFIG_FILE = "config.json"
+
+# secrets nested inside the `skills` dict: (skill key, field). Top-level secrets
+# live in BrainConfig.SECRET_KEYS.
+SECRET_SKILL_FIELDS: List[Tuple[str, str]] = [
+    ("discord", "token"),
+    ("telegram", "token"),
+    ("twitch", "oauth_token"),
+]
+
+MASK = "********"
 
 @dataclass
 class BrainConfig:
@@ -35,13 +47,13 @@ class BrainConfig:
     obs_port: int = 4455
     obs_password: str = ""
     audio_device_id: int = 0
-    
+
     tts_provider: str = "edge" # edge or kokoro or orpheus
     tts_voice: str = "en-US-AvaNeural"
     tts_pitch: str = "+5Hz"
     tts_rate: str = "+10%"
     tts_volume: str = "+33%"
-    
+
 
 
     # orpheus
@@ -55,9 +67,9 @@ class BrainConfig:
     kokoro_voice: str = "af_bella"
     kokoro_speed: float = 1.0
     kokoro_lang: str = "en-us"
-    
 
-    
+
+
     # avatar
     avatar_map: Dict[str, Dict[str, str]] = field(default_factory=lambda: {
         "normal": {"idle": "", "talking": ""},
@@ -68,9 +80,9 @@ class BrainConfig:
         "love": {"idle": "", "talking": ""},
         "shock": {"idle": "", "talking": ""},
     })
-    
-    png_dir: str = "data/pngs" 
-    
+
+    png_dir: str = "data/pngs"
+
     # typing animation
     text_line_width: int = 40
     text_lines: Optional[int] = 4
@@ -82,40 +94,54 @@ class BrainConfig:
 
     # skills
     skills: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {
+        # the idle timer itself is consciousness.idle_after, not a key here
         "monologue": {
             "enabled": False,
-            "interval_seconds": 30,
-            "chunk_pause_seconds": 4.0,
             "prompt_path": "data/prompts/monologue.md"
         },
+        # everything Bea remembers now lives in one sqlite file; the embedding
+        # model is multilingual because her people write in italian
         "memory": {
             "enabled": True,
-            "chroma_path": "data/memory_db",
-            "openai_model": "gpt-4o-mini",
-            "embedding_model": "local"
+            "db_path": "data/bea.db",
+            "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            "embedding_cache_dir": "data/embeddings_cache",
+            "min_similarity": 0.35
         },
         "social_memory": {
-            "enabled": True,
-            "roster_path": "data/memory/roster.json",
-            "people_path": "data/memory/people.json"
+            "enabled": True
         },
         "dream": {
             "enabled": True,
-            "self_path": "data/memory/self.md",
-            "profile_path": "data/memory/self_profile.json",
-            "recent_path": "data/memory/recent.json"
+            "hour": 4          # she consolidates at night, without being asked
         },
         "minecraft": {
             "enabled": False,
-            "server_url": "ws://localhost:8080",
-            "auto_chat_thoughts": False,
-            "auto_speak_thoughts": False,
-            "system_prompt_path": "data/prompts/minecraft.md"
+            "server_url": "ws://127.0.0.1:8080",
+            "idle_nudge_seconds": 90,   # 0 = she only ever reacts, never starts
+            "system_prompt_path": "data/prompts/minecraft.md",
+            "body_prompt_path": "data/prompts/minecraft_body.md"
         },
+        # the oauth token is deliberately absent: read from TWITCH_OAUTH_TOKEN.
+        # reading chat needs no credentials at all (anonymous irc).
+        "twitch": {
+            "enabled": False,
+            "channel": "",
+            "nick": ""
+        },
+        # the shared secret is read from DONATION_SECRET
+        "donations": {
+            "enabled": False
+        },
+        # the token is deliberately absent: it is read from TELEGRAM_TOKEN
+        "telegram": {
+            "enabled": False,
+            "owner_id": "",
+            "allowed_chats": []   # empty = every chat she is added to
+        },
+        # the discord token is deliberately absent: it is read from DISCORD_TOKEN
         "discord": {
             "enabled": False,
-            "token": "",
-            "target_channel": "",
             "api_port": 3030,
             "brain_api_url": "http://127.0.0.1:8000",
             "admin_id": "",
@@ -131,6 +157,41 @@ class BrainConfig:
         "burst_steps": 6,          # max reasoning steps per perception batch
         "history_limit": 30,       # rolling context size
         "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
+        # scoped conversation turns (written channels, beside the live loop)
+        "conversation_history": 16,   # past messages of that channel in the turn
+        "conversation_steps": 3,      # a reply is not an expedition
+        "max_coalesced_runs": 3,      # cap on re-runs when messages keep arriving
+    })
+
+    # "provider:model" pools per role: round-robin spreads rate limits, the rest
+    # of the pool is the fallback. Empty falls back to llm_provider.
+    # every model in "mind" must support tool calling, or she never speaks
+    models: Dict[str, Any] = field(default_factory=lambda: {
+        "mind": [],
+        "background": [],
+    })
+
+    # a day, not an event loop: when she starts something on her own, and when
+    # she consolidates what happened
+    rhythm: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": True,
+        "tick_seconds": 900,             # how often the spontaneous check runs
+        "spontaneous_enabled": True,
+        "spontaneous_probability": 0.15, # even when eligible, usually she doesn't
+        "spontaneous_min_silence": 3600, # she spoke recently: more is noise, not presence
+        "spontaneous_min_activity": 3,   # a dead room means talking to nobody
+    })
+
+    # attention gate: what wakes the mind vs what she merely notices
+    attention: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": True,
+        "cooldown_seconds": 20,        # she just spoke: let the room breathe
+        "interject_threshold": 0.45,   # score needed to speak up unprompted
+        "quiet_hours": [3, 9],         # never interjects here (being addressed still does)
+        "trigger_words": ["bea", "beatrice"],
+        "hot_names": [],               # names that pull her into a conversation
+        "self_ids": [],                # her own platform ids, to spot replies to her
+        "digest_max_lines": 8,
     })
 
     # STT
@@ -149,7 +210,7 @@ class BrainConfig:
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                
+
                 # migration: image to avatar source
                 if "obs_image_source" in data and "obs_avatar_source" not in data:
                     data["obs_avatar_source"] = data.pop("obs_image_source")
@@ -157,9 +218,8 @@ class BrainConfig:
                 # update fields
                 for key, value in data.items():
                     if hasattr(self, key):
-                        # security: env vars always take priority over config.json for secret fields.
-                        # If the env var is already set (non-empty), skip the config.json value entirely.
-                        # If the env var is not set, allow a non-empty config.json value to fill it.
+                        # env always wins for secrets; config.json only fills a
+                        # var that is not set
                         if key in self.SECRET_KEYS:
                             current_val = getattr(self, key, None)
                             if current_val:
@@ -184,15 +244,42 @@ class BrainConfig:
     def save_to_file(self):
         """Saves current configuration to config.json, EXCLUDING secrets."""
         data = asdict(self)
-        
+
         # security: strip secrets
         for secret in self.SECRET_KEYS:
-            if secret in data:
-                del data[secret]
-        
+            data.pop(secret, None)
+
+        skills = data.get("skills", {})
+        for skill_key, field_name in SECRET_SKILL_FIELDS:
+            if skills.get(skill_key, {}).pop(field_name, None):
+                logger.warning(
+                    f"Not persisting skills.{skill_key}.{field_name} to {CONFIG_FILE}. "
+                    f"Set it via the environment instead."
+                )
+
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
             logger.info(f"Configuration saved to {CONFIG_FILE} (secrets excluded)")
         except Exception as e:
             logger.error(f"Error saving config.json: {e}")
+
+    def public_dict(self) -> Dict[str, Any]:
+        """The config as the UI may see it: every secret removed or masked.
+
+        `GET /config` is unauthenticated and reachable from any page the browser
+        has open, so it must never carry a usable key. Masked (rather than
+        removed) nested secrets so the UI can still show 'a token is set'.
+        """
+        data = copy.deepcopy(asdict(self))
+
+        for secret in self.SECRET_KEYS:
+            data.pop(secret, None)
+
+        skills = data.get("skills", {})
+        for skill_key, field_name in SECRET_SKILL_FIELDS:
+            block = skills.get(skill_key)
+            if isinstance(block, dict) and field_name in block:
+                block[field_name] = MASK if block[field_name] else ""
+
+        return data

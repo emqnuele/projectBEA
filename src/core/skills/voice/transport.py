@@ -128,6 +128,10 @@ class DiscordTransport:
         return await self._request("POST", "/reply",
                                    {"channelId": channel_id, "messageId": message_id, "content": content})
 
+    async def typing(self, channel_id: str) -> Dict[str, Any]:
+        """Shows the "is typing" indicator; cosmetic, so failures are not surfaced."""
+        return await self._request("POST", "/typing", {"channelId": channel_id})
+
     async def react_message(self, channel_id: str, message_id: str, emoji: str) -> Dict[str, Any]:
         return await self._request("POST", "/react",
                                    {"channelId": channel_id, "messageId": message_id, "emoji": emoji})

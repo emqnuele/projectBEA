@@ -1,8 +1,9 @@
 import json
 import time
-from pathlib import Path
-from typing import List, Dict, Optional, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.utils.history")
@@ -26,7 +27,7 @@ class HistoryManager:
         # reset memory
         self.history = []
         self.title = ""
-        
+
         # initialize empty session file
         self._save_to_disk()
 
@@ -37,7 +38,7 @@ class HistoryManager:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    
+
                 # create a summary
                 first_msg = ""
                 if data.get("messages"):
@@ -46,7 +47,7 @@ class HistoryManager:
                         if msg["role"] == "user":
                             first_msg = msg["content"]
                             break
-                            
+
                 sessions.append({
                     "id": data.get("session_id", file_path.stem),
                     "timestamp": data.get("start_time", ""),
@@ -56,7 +57,7 @@ class HistoryManager:
                 })
             except Exception as e:
                 logger.error(f"Error reading session file {file_path}: {e}")
-                
+
         # sort by timestamp descending
         sessions.sort(key=lambda x: x["timestamp"], reverse=True)
         return sessions
@@ -65,14 +66,14 @@ class HistoryManager:
         """Loads a specific session by ID. Returns True if successful."""
         filename = f"{session_id}.json"
         file_path = self.storage_dir / filename
-        
+
         if not file_path.exists():
             return False
-            
+
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                
+
             self.session_id = data.get("session_id", session_id)
             self.history = data.get("messages", [])
             self.title = data.get("title", "")
@@ -115,11 +116,11 @@ class HistoryManager:
         }
         if mood:
             message["mood"] = mood
-            
+
         # merge extra metadata
         if kwargs:
             message.update(kwargs)
-            
+
         self.history.append(message)
         self._save_to_disk()
 
@@ -133,7 +134,7 @@ class HistoryManager:
         """Saves current history to JSON file."""
         if not self.current_session_file:
             self.create_session()
-        
+
         assert self.current_session_file is not None
         data = {
             "session_id": self.session_id,
@@ -142,7 +143,7 @@ class HistoryManager:
             "title": self.title,
             "messages": self.history
         }
-        
+
         try:
             with open(self.current_session_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)

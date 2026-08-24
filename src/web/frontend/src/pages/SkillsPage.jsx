@@ -10,9 +10,11 @@ import { motion } from 'framer-motion';
 import { useDialog } from '../context/DialogContext';
 import MinecraftConsole from '../components/console/MinecraftConsole';
 
-const API_BASE = 'http://localhost:8000';
+import { API_BASE } from '../api';
+import { useEvents } from '../useEvents';
 
 export default function SkillsPage() {
+    const { events } = useEvents(100);
     const [skills, setSkills] = useState({});
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -29,25 +31,17 @@ export default function SkillsPage() {
         }
     };
 
-    // fetch logs
-    const fetchLogs = async () => {
-        try {
-            const res = await fetch(`${API_BASE}/skills/logs`);
-            const data = await res.json();
-            // sort logs by timestamp desc
-            data.sort((a, b) => b.timestamp - a.timestamp);
-            setLogs(data);
-        } catch (e) {
-            console.error(e);
-        }
-    };
+    // logs come off the live event stream; skills are a snapshot, so they stay
+    // on a (much slower) poll
+    useEffect(() => {
+        setLogs(events
+            .filter(e => ['skill', 'thought', 'error'].includes(e.category))
+            .map(e => ({ timestamp: e.timestamp, skill: e.source, message: e.message })));
+    }, [events]);
 
     useEffect(() => {
         fetchSkills();
-        const interval = setInterval(() => {
-            fetchSkills();
-            fetchLogs();
-        }, 2000); // poll every 2s
+        const interval = setInterval(fetchSkills, 5000);
         return () => clearInterval(interval);
     }, []);
 
@@ -255,15 +249,6 @@ export default function SkillsPage() {
                                                             value={skillConfig.token || ''}
                                                             onChange={(e) => updateSkillConfig(skillName, 'token', e.target.value)}
                                                             placeholder="Enter Discord Bot Token"
-                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-1.5">
-                                                        <Label className="text-xs text-zinc-500">Target Channel ID</Label>
-                                                        <Input
-                                                            value={skillConfig.target_channel || ''}
-                                                            onChange={(e) => updateSkillConfig(skillName, 'target_channel', e.target.value)}
-                                                            placeholder="123456789012345678"
                                                             className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
                                                         />
                                                     </div>
