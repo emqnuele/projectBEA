@@ -67,8 +67,6 @@
     "skills": {
         "monologue": {
             "enabled": false,
-            "interval_seconds": 30,
-            "chunk_pause_seconds": 4.0,
             "prompt_path": "data/prompts/monologue.md"
         },
         "memory": {
@@ -89,17 +87,11 @@
             "enabled": false,
             "server_url": "ws://127.0.0.1:8080",
             "idle_nudge_seconds": 90,
-            "max_history_events": 20,
-            "debug_mode": false,
-            "auto_chat_thoughts": false,
-            "auto_speak_thoughts": false,
-            "mc_openai_model": "gpt-4o-mini",
             "system_prompt_path": "data/prompts/minecraft.md",
             "body_prompt_path": "data/prompts/minecraft_body.md"
         },
         "discord": {
             "enabled": false,
-            "target_channel": "",
             "api_port": 3030,
             "brain_api_url": "http://127.0.0.1:8000",
             "admin_id": "",
@@ -127,7 +119,10 @@
         "window": 0.3,
         "burst_steps": 6,
         "history_limit": 30,
-        "correlation_timeout": 90.0
+        "correlation_timeout": 90.0,
+        "conversation_history": 16,
+        "conversation_steps": 3,
+        "max_coalesced_runs": 3
     },
     "models": {
         "mind": [

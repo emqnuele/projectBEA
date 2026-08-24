@@ -94,10 +94,9 @@ class BrainConfig:
 
     # skills
     skills: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {
+        # the idle timer itself is consciousness.idle_after, not a key here
         "monologue": {
             "enabled": False,
-            "interval_seconds": 30,
-            "chunk_pause_seconds": 4.0,
             "prompt_path": "data/prompts/monologue.md"
         },
         # everything Bea remembers now lives in one sqlite file; the embedding
@@ -119,8 +118,7 @@ class BrainConfig:
         "minecraft": {
             "enabled": False,
             "server_url": "ws://127.0.0.1:8080",
-            "auto_chat_thoughts": False,
-            "auto_speak_thoughts": False,
+            "idle_nudge_seconds": 90,   # 0 = she only ever reacts, never starts
             "system_prompt_path": "data/prompts/minecraft.md",
             "body_prompt_path": "data/prompts/minecraft_body.md"
         },
@@ -144,7 +142,6 @@ class BrainConfig:
         # the discord token is deliberately absent: it is read from DISCORD_TOKEN
         "discord": {
             "enabled": False,
-            "target_channel": "",
             "api_port": 3030,
             "brain_api_url": "http://127.0.0.1:8000",
             "admin_id": "",

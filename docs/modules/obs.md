@@ -71,7 +71,9 @@ obs.set_media("data/pngs/angry/talking.mp4")
 
 Returns the final font size used (stored by the brain to correctly clear the source afterward).
 
-The typing task and TTS playback task run in parallel — they are both launched as asyncio tasks and cancelled together if an interrupt arrives.
+The typing task and the playback task run in parallel — both are asyncio tasks,
+and `Expression.interrupt()` cancels them together on barge-in, keeping what was
+left unsaid in the resume buffer.
 
 ---
 
@@ -83,13 +85,16 @@ OBS text sources have their font settings stored in OBS. The controller reads th
 
 ## Avatar Swap Logic
 
-When a response is generated with a given `mood`:
+`Expression` (`src/core/expression/voice.py`) owns this — it is the single
+output sink, so nothing else touches OBS:
 
-1. Brain looks up `(idle_path, talking_path)` from `png_map` for that mood.
+1. `_resolve_paths(mood)` looks up `(idle_path, talking_path)` in `png_map`.
 2. Before speaking: `set_media(talking_path)` (or `set_image`).
 3. After speaking: `set_media(idle_path)`.
 
-If the mood is unknown, it falls back to `"normal"`.
+If the mood is unknown it falls back to `"normal"`. `set_mood_avatar()` is also
+used directly for states rather than speech — `sleeping` when she goes to
+sleep, `normal` when she wakes.
 
 ---
 
@@ -101,7 +106,9 @@ A convenience method on `OBSController` that sets the text source to an empty st
 obs.clear_text(source_name="AIText", font_size=75)
 ```
 
-It is equivalent to `set_text("", source_name, font_size=font_size)`. The brain calls `set_text("", ...)` directly in most places; `clear_text()` is provided as a helper and can be used interchangeably.
+It is equivalent to `set_text("", source_name, font_size=font_size)`.
+`Expression` calls `set_text("", ...)` directly in most places; `clear_text()`
+is a helper and the two are interchangeable.
 
 ---
 

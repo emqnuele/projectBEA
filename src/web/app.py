@@ -18,7 +18,7 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.web")
 
-app = FastAPI(title="AI Vtuber Brain API")
+app = FastAPI(title="ProjectBEA Brain API")
 
 # the dashboard is served from this same origin; a wildcard would let any page
 # the browser has open read the brain's state and drive it

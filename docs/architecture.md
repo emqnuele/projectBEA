@@ -221,13 +221,13 @@ Python side (`src/core/skills/minecraft/`):
 
 **Two audiences, on purpose.** `speak` is her voice — her stream hears it.
 `mc_chat` is what she types in game — the players read it. Using both in the same
-turn is usually right, and is much of what makes a VTuber playing multiplayer
+turn is usually right, and is much of what makes a persona playing multiplayer
 worth watching.
 
 **The idle nudge.** The heartbeat is marked `noise` so a quiet server costs
-nothing, which is also why she used to only ever react: nothing woke her up to
-*start* anything. When the body is idle and the stream plan still has an open
-objective, `surface.py` emits one perception carrying `meta["addressed"]`, at
+nothing. What makes her *start* something is the stream plan: when the body is
+idle and an objective is still open, `surface.py` emits one perception carrying
+`meta["addressed"]`, at
 most every `idle_nudge_seconds` (90 by default, 0 to disable). Declaring itself
 addressed is what makes it survive the gate: a nudge filed under "noticed" is a
 nudge that never happened.
@@ -258,9 +258,8 @@ she is doing on stage.
 ## Memory
 
 Everything lives in one transactional SQLite file, `data/bea.db`
-(`src/core/memory/`). It replaced five stores that could not stay in sync — a
-Chroma collection plus four JSON files, each rewritten whole on every write, with
-no atomicity across them.
+(`src/core/memory/`). One store means promoting someone touches two tables in a
+single transaction, and "who have I seen most" is a query rather than a scan.
 
 | Register | Table | Always in context | Written by |
 |---|---|---|---|
@@ -290,7 +289,7 @@ injection is explicitly capped so the prompt cannot bloat.
 Vector search uses `sqlite-vec` when available, purely as a coarse pre-filter;
 the ranking decision is always the same Python cosine, so both paths agree.
 
-Migration from the old stores: `uv run python tools/migrate_to_sqlite.py`
+Importing a Chroma-era store: `uv run python tools/migrate_to_sqlite.py`
 (idempotent, `--dry-run` supported).
 
 ---
@@ -319,7 +318,7 @@ without seeing *why* something was ignored, tuning the thresholds is guesswork.
 
 `src/core/agent/registry.py`. One pool per role, as `provider:model` specs.
 Round-robin spreads rate limits; the rest of the pool is the fallback, so a
-single 429 no longer makes her mute.
+single 429 does not make her mute.
 
 - **`mind`** — the consciousness. Every model in it **must support tool calling**:
   she speaks only through tools, so one that cannot would never say anything.
@@ -337,7 +336,7 @@ publishes what it cost (calls, tokens, ms) — the point of the attention gate i
 spending fewer of them, and that cannot be tuned unseen.
 
 `POST`/`PATCH`/`DELETE /plan/...` edit the stream plan and return the whole plan
-back, so the dashboard never has to guess what the server now holds.
+back, so the dashboard never has to guess what the server holds.
 
 **Security posture:** the API has no authentication. The server therefore binds
 to `127.0.0.1` by default (`--host` is an explicit opt-in), CORS carries an
@@ -410,7 +409,7 @@ make run            # CLI
 make web            # build the frontend + dashboard on :8000
 make test           # pytest
 make lint           # ruff
-make migrate        # one-shot: old json/chroma stores -> data/bea.db (dry run first)
+make migrate        # one-shot: import a chroma/json store into data/bea.db
 ```
 
 Discord bot: `cd src/core/skills/voice/bot && npm install` (once).

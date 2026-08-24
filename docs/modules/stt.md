@@ -6,19 +6,28 @@
 
 ## Overview
 
-The STT (Speech-to-Text) module transcribes audio files to text. It is used in two places:
+Transcribes an audio file to text. It is used in three places, all of them
+entrypoints where audio arrives already decoded as WAV:
 
-1. **Web API** — `POST /audio` accepts a WAV file upload from the web dashboard.
-2. **Discord Voice** — `POST /discord/audio` receives real-time Opus audio from the Discord bot.
+| Caller | Endpoint | What happens next |
+|---|---|---|
+| dashboard mic | `POST /audio` | a `VOICE` perception, and the caller waits for her reply |
+| Discord voice | `POST /discord/audio` | same, but the reply comes back as WAV bytes for the bot |
+| overheard speech | `POST /voice/transcript` | a perception, no waiting — the gate decides |
 
 ```
 src/modules/STT/
-└── groq_stt.py    Groq Whisper transcription
+├── groq_stt.py        Groq Whisper
+└── openrouter_stt.py  OpenRouter Whisper
 ```
+
+The provider is chosen by `stt_provider` in config and instantiated in
+`src/cli.py`. It is optional: with `stt_provider` set to anything else, `stt` is
+`None` and the audio paths degrade rather than crash.
 
 ---
 
-## Interface Contract
+## Interface
 
 ```python
 class STTInterface(ABC):
@@ -26,34 +35,54 @@ class STTInterface(ABC):
     def reload_config(config: BrainConfig) -> None
 ```
 
-Returns the transcribed text string, or an empty string on failure.
+Returns the transcript, or an empty string on failure. Both methods are
+`@abstractmethod` — omitting either raises `TypeError` at instantiation.
 
-> **Important:** `reload_config(config)` is an `@abstractmethod` — any custom STT implementation that omits it will raise `TypeError` at instantiation time.
-
----
-
-## Groq STT (`groq_stt.py`)
-
-**API:** Groq Audio Transcriptions (Whisper)  
-**Config keys:** `stt_provider`, `stt_model`  
-**Env var:** `GROQ_API_KEY`
-
-Uses Groq's ultra-fast Whisper inference endpoint. The default model `whisper-large-v3-turbo` offers near-realtime transcription with high accuracy.
-
-**Language:** Reads `config.language` (e.g. `"en"`, `"it"`) and passes it to the Whisper API for better accuracy on non-English speech.
-
-```python
-stt = GroqSTT(config)
-text = stt.transcribe("path/to/audio.wav")
-# → "Hello, how are you?"
-```
-
-**Key priority:** `GROQ_API_KEY` env var → `config.json` fallback → `None`.
+`language` falls back to `config.language`, which measurably improves accuracy
+on non-English speech.
 
 ---
 
-## Audio Flow (Discord)
+## Groq (`groq_stt.py`)
 
-The Discord bot’s `VoiceManager.js` streams live Discord Opus audio, decodes it with `prism-media` (all in Node.js), and sends chunked **WAV files** to `POST /discord/audio`. The Python side never handles raw Opus: it only ever receives a decoded WAV file. Python transcribes each chunk, aggregates transcript buffers across users in the same channel within a 300 ms collection window, and generates a single response after a configurable silence threshold.
+Groq's Whisper endpoint. Fast enough for near-realtime.
+
+- **Config:** `stt_provider: "groq"`, `stt_model` (default `whisper-large-v3-turbo`)
+- **Key:** `GROQ_API_KEY` env → `config.json` → `None`
+
+---
+
+## OpenRouter (`openrouter_stt.py`)
+
+The same Whisper models through OpenRouter, useful when you already have a key
+there and would rather not add a Groq account.
+
+- **Config:** `stt_provider: "openrouter"`, `stt_model`
+- **Key:** `OPENROUTER_API_KEY`
+
+Model ids are namespaced here, so a bare `whisper-large-v3-turbo` is rewritten
+to `openai/whisper-large-v3-turbo` on both load and hot reload — an id copied
+from the Groq config keeps working.
+
+---
+
+## The Discord path
+
+The bot decodes Opus to PCM in Node (`prism-media`) and posts **WAV files**.
+Python never handles raw Opus.
+
+Each chunk is transcribed and deposited on the perception bus as its own
+`VOICE` perception. The [bus](../architecture.md#the-consciousness-loop)
+coalesces a burst into a single batch, and the attention gate decides what
+deserves a reasoning cycle — so two people talking at once become one batch, one
+turn, one answer.
+
+---
+
+## Hot reload
+
+`reload_config()` updates the model and re-creates the client if the key
+changed. Switching `stt_provider` itself needs a restart — the object type
+changes.
 
 [Discord Skill →](../skills/discord.md)

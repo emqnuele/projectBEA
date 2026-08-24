@@ -24,7 +24,7 @@ logger = get_logger("bea")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="ProjectBEA - AI Vtuber Engine")
+    parser = argparse.ArgumentParser(description="ProjectBEA - AI Persona Engine")
 
     parser.add_argument("--web", action="store_true", help="Start Web Interface (FastAPI + React)")
     parser.add_argument("--host", default="127.0.0.1",

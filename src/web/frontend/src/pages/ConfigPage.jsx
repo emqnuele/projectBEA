@@ -687,16 +687,6 @@ export default function ConfigPage({ activeCategory }) {
                                         />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-medium text-zinc-500">Target Channel ID</label>
-                                        <input
-                                            type="text"
-                                            value={config.skills?.discord?.target_channel || ''}
-                                            onChange={(e) => updateSkillField('discord', 'target_channel', e.target.value)}
-                                            className="w-full border border-zinc-200 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 outline-none"
-                                            placeholder="Channel ID..."
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
                                         <label className="text-xs font-medium text-zinc-500">Bot API Port</label>
                                         <input
                                             type="number"

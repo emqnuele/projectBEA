@@ -354,7 +354,7 @@ export default function ChatPage() {
                     </button>
                 </div>
                 <div className="text-center mt-3 select-none">
-                    <span className="text-[10px] text-zinc-400 uppercase tracking-widest">Vtuber Engine</span>
+                    <span className="text-[10px] text-zinc-400 uppercase tracking-widest">Persona Engine</span>
                 </div>
             </div>
         </div>

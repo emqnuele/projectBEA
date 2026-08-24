@@ -252,15 +252,6 @@ export default function SkillsPage() {
                                                             className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
                                                         />
                                                     </div>
-                                                    <div className="space-y-1.5">
-                                                        <Label className="text-xs text-zinc-500">Target Channel ID</Label>
-                                                        <Input
-                                                            value={skillConfig.target_channel || ''}
-                                                            onChange={(e) => updateSkillConfig(skillName, 'target_channel', e.target.value)}
-                                                            placeholder="123456789012345678"
-                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
-                                                        />
-                                                    </div>
                                                     <p className="text-[11px] text-zinc-400 mt-1.5">
                                                         Enable the skill and restart the brain to start the bot process.
                                                     </p>

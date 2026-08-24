@@ -30,8 +30,9 @@ cd projectBEA
 Install all Python dependencies into a managed virtual environment (`.venv`):
 
 ```bash
-uv sync                  # core dependencies
-uv sync --extra minecraft  # also install the optional minecraft-agent deps
+uv sync                    # core dependencies
+uv sync --extra minecraft  # also the optional minecraft-agent deps
+uv sync --extra migrate    # only once, to lift an old chroma store into bea.db
 ```
 
 That's it — `uv` creates `.venv`, pins every dependency from `uv.lock`, and is fully
@@ -70,6 +71,15 @@ ORPHEUS_ENDPOINT=https://model-xxxxxxxx.api.baseten.co/environments/production/p
 
 # Discord — only if using the Discord skill
 DISCORD_TOKEN=...
+
+# Telegram — only if using the Telegram skill
+TELEGRAM_TOKEN=...
+
+# Twitch — only needed to WRITE in chat; reading works anonymously
+TWITCH_OAUTH_TOKEN=oauth:...
+
+# Donations — shared secret checked on the webhook. Set this before exposing the server
+DONATION_SECRET=...
 
 # Logging — optional, defaults to INFO
 LOG_LEVEL=DEBUG   # set to DEBUG to see verbose output (OBS, TTS, audio playback details)
@@ -142,17 +152,31 @@ Find the ID of your virtual cable (e.g. *CABLE Input* on Windows) and set `audio
 Install Node.js dependencies for the bot:
 
 ```bash
-cd src/modules/skills/discord/bot
+cd src/core/skills/voice/bot
 npm install
 ```
 
 Set your Discord token in `.env` or in `config.json` under `skills.discord.token`.
 
-In `config.json`, also set:
-- `skills.discord.enabled: true`
-- `skills.discord.target_channel`: the voice channel name where Bea should listen/speak
+Then toggle the skill on from the dashboard's Skills page, or set
+`skills.discord.enabled: true` before starting.
 
 [Discord Skill Details →](skills/discord.md)
+
+---
+
+## 6b. Telegram & Twitch (optional)
+
+Neither needs a subprocess — both run in-process.
+
+**Telegram:** create a bot with [@BotFather](https://t.me/botfather), put the
+token in `.env` as `TELEGRAM_TOKEN`, set `skills.telegram.owner_id` to your own
+user id, and leave `allowed_chats` empty to let her read every chat she is added
+to. [Details →](skills/telegram.md)
+
+**Twitch:** set `skills.twitch.channel` and toggle it on — reading needs no
+credentials at all. Only add `TWITCH_OAUTH_TOKEN` and `skills.twitch.nick` if
+you want her to type in chat. [Details →](skills/twitch.md)
 
 ---
 
@@ -225,7 +249,13 @@ Type messages at the `You >` prompt. Type `exit` to quit.
 uv run bea --web    # or: make web  (also builds the frontend)
 ```
 
-Opens the FastAPI server at `http://localhost:8000`. The React frontend (built in step 8) is served from the same port at `/`.
+Opens the FastAPI server at `http://localhost:8000`. The React frontend (built
+in step 8) is served from the same port at `/`.
+
+> The API has **no authentication**, so the server binds to `127.0.0.1` by
+> default. Exposing it on the network is an explicit opt-in:
+> `uv run bea --web --host 0.0.0.0`. Do that only behind something that
+> authenticates, and set `DONATION_SECRET` first.
 
 ### CLI argument overrides
 
@@ -262,7 +292,15 @@ npm install
 npm run dev
 ```
 
-The Vite dev server starts at `http://localhost:5173`. The frontend makes **direct** API calls to `http://localhost:8000` — **no proxy is configured** in `vite.config.js`. If you change the backend port, update the API base URL in the frontend source accordingly.
+The Vite dev server starts at `http://localhost:5173`. There is no proxy in
+`vite.config.js`: the frontend calls the backend directly through `API_BASE`
+(`src/web/frontend/src/api.js`), which is `http://localhost:8000` in dev and the
+page's own origin in a build. To point the dev server somewhere else, set
+`VITE_API_BASE` rather than editing the source.
+
+`http://localhost:5173` is already in the backend's CORS allowlist. For any
+other origin, set `BEA_ALLOWED_ORIGINS` (comma-separated) before starting the
+brain.
 
 > **Note:** For normal use you do **not** need the dev server — just build once with `npm run build` (step 8) and use `uv run bea --web`.
 
@@ -274,8 +312,9 @@ The Vite dev server starts at `http://localhost:5173`. The frontend makes **dire
 |---|---|
 | `OBS not connected` warning on start | OBS is not running or WebSocket creds are wrong — the engine continues without it |
 | `No audio device` error | Run the sounddevice query above and update `audio_device_id` |
-| Discord bot fails with `node_modules not found` | Run `npm install` in `src/modules/skills/discord/bot/` |
-| Memory skill disabled on start | `OPENAI_API_KEY` not set — ChromaDB embedding requires it |
-| `openrouter_key is missing` | Set `OPENROUTER_API_KEY` in `.env` or pass `--openrouter-key` at launch |
-| Skills silently start disabled despite `"enabled": true` in `config.json` | Expected — all non-memory skills are force-disabled at every cold start. Enable them at runtime via the web dashboard or `POST /skills/{name}/toggle`. |
+| Discord bot fails with `node_modules not found` | Run `npm install` in `src/core/skills/voice/bot/` |
+| `Embedder unavailable` on start | The embedding model could not be downloaded. Everything else keeps working — only long-term recall is lost until it can |
+| `No usable model for role 'mind'` | The `models.mind` pool is empty or none of its keys are set. Check `models` in `config.json` and the matching `*_API_KEY` |
+| A model in `mind` "does not support tool calling" | Remove it from the pool. Bea speaks only through tools, so a model without them never says anything |
+| She never starts anything in Minecraft | Give her objectives on the dashboard's Stream Plan page — with an empty plan she only ever reacts |
 | OBS avatar source not updating after config migration | If your `config.json` still contains the old key `obs_image_source`, it is silently renamed to `obs_avatar_source` by `load_from_file()`. Delete the old key from your `config.json` and re-save to avoid ambiguity. |
