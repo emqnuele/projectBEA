@@ -11,8 +11,6 @@ reaches a single mind that acts through tools. Every capability is a swappable
 plugin.
 
 
-> Built for fun by a 19-year-old CS student learning Python. Open-source, self-hostable, and designed to be easily extended.
-
 ![The control room — the overview screen, with her state, the attention gate, today's plan and the live feed](docs/images/dashboard-overview.jpg)
 
 <p align="center"><em>The control room: everything she is perceiving, thinking and doing, on one screen.</em></p>
