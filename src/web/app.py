@@ -1,9 +1,12 @@
 import asyncio
+import inspect
 import json
 import os
 import shutil
+import time
+import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,10 +61,21 @@ class ChatRequest(BaseModel):
 class ConfigUpdateRequest(BaseModel):
     config: Dict[str, Any]
 
+STARTED_AT = time.time()
+
+
 def get_brain() -> AIVtuberBrain:
     if not brain_instance:
         raise HTTPException(status_code=503, detail="Brain not initialized")
     return brain_instance
+
+
+def _safe_session_id(session_id: str) -> str:
+    """Session ids address files on disk, so a path separator must never survive."""
+    clean = Path(session_id).name
+    if not clean or clean != session_id:
+        raise HTTPException(status_code=400, detail="Invalid session id")
+    return clean
 
 
 def _merge_skills(current: Dict[str, Any], incoming: Dict[str, Any]) -> None:
@@ -132,7 +146,8 @@ def get_history():
 @app.get("/sessions")
 def list_sessions():
     brain = get_brain()
-    return brain.list_sessions()
+    active = brain.history_manager.session_id
+    return [{**s, "active": s.get("id") == active} for s in brain.list_sessions()]
 
 @app.post("/sessions")
 async def create_session():
@@ -143,9 +158,31 @@ async def create_session():
 @app.post("/sessions/{session_id}/activate")
 async def activate_session(session_id: str):
     brain = get_brain()
-    if brain.load_session(session_id):
+    if brain.load_session(_safe_session_id(session_id)):
         return {"status": "success", "message": f"Session {session_id} activated"}
     raise HTTPException(status_code=404, detail="Session not found")
+
+
+class SessionRename(BaseModel):
+    title: str = Field(..., min_length=1, max_length=120)
+
+
+@app.patch("/sessions/{session_id}")
+def rename_session(session_id: str, request: SessionRename):
+    brain = get_brain()
+    if brain.history_manager.set_session_title(_safe_session_id(session_id), request.title.strip()):
+        return {"status": "success"}
+    raise HTTPException(status_code=404, detail="Session not found")
+
+
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str):
+    brain = get_brain()
+    if brain.history_manager.delete_session(_safe_session_id(session_id)):
+        return {"status": "success"}
+    raise HTTPException(
+        status_code=409, detail="Session not found, or it is the one currently open"
+    )
 
 @app.post("/memory/save")
 async def save_memory():
@@ -170,7 +207,9 @@ def get_status():
     return {
         "is_speaking": brain.is_speaking,
         "is_sleeping": brain.is_sleeping,
-        "active_skills": active_skills
+        "active_skills": active_skills,
+        "session_id": brain.history_manager.session_id,
+        "uptime": time.time() - STARTED_AT,
     }
 
 @app.post("/dream/run")
@@ -219,8 +258,9 @@ async def upload_audio(background_tasks: BackgroundTasks, file: UploadFile = Fil
     # save temp file
     temp_dir = Path("temp")
     temp_dir.mkdir(exist_ok=True)
-    filename = file.filename or "audio_upload.wav"
-    temp_file = temp_dir / filename
+    # the client names this file: anything with a path in it would escape `temp/`
+    suffix = Path(file.filename or "").suffix[:8] or ".wav"
+    temp_file = temp_dir / f"upload_{uuid.uuid4().hex}{suffix}"
 
     with open(temp_file, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -567,9 +607,251 @@ def reset_plan():
     return _plan_payload(brain)
 
 
+# --- the overview: everything the home screen needs, in one request ---------
+
+
+def _plan_summary(brain: AIVtuberBrain) -> Dict[str, Any]:
+    objectives = brain.plan.all()
+    counts = {status: 0 for status in STATUSES}
+    for objective in objectives:
+        counts[objective.status] = counts.get(objective.status, 0) + 1
+    return {
+        "directive": brain.plan.directive,
+        "total": len(objectives),
+        "counts": counts,
+        "closed": counts.get("done", 0) + counts.get("dropped", 0),
+        "objectives": [o.as_dict() for o in objectives[:6]],
+    }
+
+
+def _memory_counts(brain: AIVtuberBrain) -> Dict[str, Any]:
+    memory = brain.memory
+    try:
+        return {
+            "people": len(memory.people.all()),
+            "roster": len(memory.roster.all()),
+            "memories": memory.rag.count() if memory.rag else 0,
+            "hot_facts": len(memory.hot.active()),
+            "self_facts": len(memory.selflore.facts()),
+            "rag_ready": memory.rag is not None,
+        }
+    except Exception as e:
+        logger.warning(f"Memory counts unavailable: {e}")
+        return {"people": 0, "roster": 0, "memories": 0, "hot_facts": 0,
+                "self_facts": 0, "rag_ready": False}
+
+
+def _engine_summary(brain: AIVtuberBrain) -> Dict[str, Any]:
+    config = brain.config
+    model = {
+        "openrouter": config.openrouter_model,
+        "openai": config.openai_model,
+        "groq": config.groq_model,
+    }.get(config.llm_provider, "")
+    return {
+        "llm_provider": config.llm_provider,
+        "model": model,
+        "tts_provider": config.tts_provider,
+        "stt_provider": config.stt_provider,
+        "language": config.language,
+        "obs_connected": bool(getattr(brain.obs, "client", None)),
+    }
+
+
+@app.get("/overview")
+def overview():
+    """One call for the home screen: status, plan, skills, memory and engine."""
+    brain = get_brain()
+    skills = []
+    if brain.skill_registry is not None:
+        for skill in brain.skill_registry.toggleable():
+            if skill.skill_name is None:
+                continue
+            skills.append({
+                "name": skill.skill_name,
+                "enabled": skill.enabled,
+                "active": skill.active,
+            })
+
+    history = brain.history_manager
+    return {
+        "status": get_status(),
+        "session": {
+            "id": history.session_id,
+            "title": history.title,
+            "message_count": len(history.history),
+        },
+        "plan": _plan_summary(brain),
+        "skills": skills,
+        "memory": _memory_counts(brain),
+        "engine": _engine_summary(brain),
+    }
+
+
+# --- what she remembers -----------------------------------------------------
+
+
+@app.get("/memory/overview")
+def memory_overview():
+    return _memory_counts(get_brain())
+
+
+@app.get("/memory/people")
+def memory_people():
+    brain = get_brain()
+    return [
+        {
+            "person_id": card.person_id,
+            "name": card.primary_name,
+            "names": card.display_names,
+            "identities": card.identities,
+            "facts": card.facts,
+            "attitude": card.bea_attitude,
+            "reason": card.promoted_reason,
+            "created_at": card.created_at,
+            "last_updated": card.last_updated,
+        }
+        for card in brain.memory.people.all()
+    ]
+
+
+@app.get("/memory/roster")
+def memory_roster(limit: int = 60):
+    brain = get_brain()
+    entries = brain.memory.roster.all()[: max(1, min(limit, 500))]
+    return [
+        {
+            "identity": e.identity,
+            "name": e.display_name,
+            "platform": e.platform,
+            "first_seen": e.first_seen,
+            "last_seen": e.last_seen,
+            "message_count": e.message_count,
+            "session_count": e.session_count,
+            "donation_total": e.donation_total,
+            "promoted": e.promoted,
+            "marked": e.marked_by_bea,
+            "person_id": e.person_id,
+        }
+        for e in entries
+    ]
+
+
+@app.get("/memory/self")
+def memory_self():
+    brain = get_brain()
+    return {
+        "facts": brain.memory.selflore.facts(),
+        "profile": brain.memory.selflore.profile(),
+        "hot_facts": [
+            {"text": f.text, "source": f.source, "expires_at": f.expires_at}
+            for f in brain.memory.hot.active()
+        ],
+    }
+
+
+@app.get("/memory/search")
+def memory_search(q: str, k: int = 8):
+    """Semantic recall, split the way she reads it: facts apart from her own lines."""
+    brain = get_brain()
+    if brain.memory.rag is None:
+        raise HTTPException(status_code=400, detail="Recall needs the memory skill enabled")
+    query = (q or "").strip()
+    if not query:
+        return {"facts": [], "hers": []}
+
+    def shape(recollections) -> List[Dict[str, Any]]:
+        return [
+            {
+                "text": r.text, "who": r.who, "source": r.source,
+                "similarity": round(r.similarity, 4),
+                "created_at": r.created_at, "scope_key": r.scope_key,
+            }
+            for r in recollections
+        ]
+
+    facts, hers = brain.memory.rag.recall_split(query, k=max(1, min(k, 30)))
+    return {"facts": shape(facts), "hers": shape(hers)}
+
+
+# --- does this actually work? -----------------------------------------------
+
+
+class TestResult(BaseModel):
+    ok: bool
+    message: str
+    detail: str = ""
+
+
+@app.post("/test/llm", response_model=TestResult)
+async def test_llm():
+    brain = get_brain()
+    try:
+        started = time.perf_counter()
+        result = brain.llm.chat("Reply with the single word: ok.", system_prompt="You are a test probe.")
+        if inspect.isawaitable(result):
+            result = await result
+        elapsed = int((time.perf_counter() - started) * 1000)
+        return TestResult(ok=True, message=f"{brain.config.llm_provider} answered in {elapsed} ms",
+                          detail=str(result[1] if isinstance(result, tuple) and len(result) > 1 else result)[:200])
+    except Exception as e:
+        return TestResult(ok=False, message="The model did not answer", detail=str(e)[:300])
+
+
+@app.post("/test/tts", response_model=TestResult)
+async def test_tts():
+    brain = get_brain()
+    if brain.tts is None:
+        return TestResult(ok=False, message="No voice engine is loaded")
+    try:
+        started = time.perf_counter()
+        audio, rate = await brain.tts.generate_audio("Voice check.")
+        elapsed = int((time.perf_counter() - started) * 1000)
+        samples = len(audio) if audio is not None else 0
+        return TestResult(ok=samples > 0,
+                          message=f"{brain.config.tts_provider} rendered {samples / max(rate, 1):.1f}s in {elapsed} ms",
+                          detail=f"{samples} samples at {rate} Hz")
+    except Exception as e:
+        return TestResult(ok=False, message="The voice engine failed", detail=str(e)[:300])
+
+
+@app.post("/test/obs", response_model=TestResult)
+def test_obs():
+    brain = get_brain()
+    if brain.obs is None:
+        return TestResult(ok=False, message="OBS is not configured")
+    try:
+        brain.obs.connect()
+        connected = bool(getattr(brain.obs, "client", None))
+        return TestResult(
+            ok=connected,
+            message="Connected to OBS" if connected else "OBS refused the connection",
+            detail=f"{brain.config.obs_host}:{brain.config.obs_port}",
+        )
+    except Exception as e:
+        return TestResult(ok=False, message="Could not reach OBS", detail=str(e)[:300])
+
+
+@app.get("/audio/devices")
+def audio_devices():
+    """Output devices, so picking one is not guesswork about an integer."""
+    try:
+        import sounddevice as sd
+
+        return [
+            {"id": index, "name": device.get("name", f"Device {index}"),
+             "channels": device.get("max_output_channels", 0)}
+            for index, device in enumerate(sd.query_devices())
+            if device.get("max_output_channels", 0) > 0
+        ]
+    except Exception as e:
+        logger.warning(f"Could not enumerate audio devices: {e}")
+        return []
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "brain": brain_instance is not None}
 
 # mount static files
 frontend_path = Path(__file__).parent / "frontend" / "dist"

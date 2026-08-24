@@ -149,3 +149,17 @@ class HistoryManager:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Error saving conversation history: {e}")
+
+    def delete_session(self, session_id: str) -> bool:
+        """Removes a session file. The active session is never deletable."""
+        if session_id == self.session_id:
+            return False
+        file_path = self.storage_dir / f"{session_id}.json"
+        if not file_path.exists():
+            return False
+        try:
+            file_path.unlink()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting session {session_id}: {e}")
+            return False
