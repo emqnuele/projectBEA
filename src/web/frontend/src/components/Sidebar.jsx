@@ -148,7 +148,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                                 title={collapsed ? item.label : undefined}
                                 className={({ isActive }) => cn(
                                     'group relative flex items-center gap-3 rounded-b2 px-2.5 py-2 text-[13px] font-medium transition-colors',
-                                    isActive ? 'text-text' : 'text-dim hover:bg-white/5 hover:text-text',
+                                    isActive ? 'text-text' : 'text-dim hover:bg-fill-2 hover:text-text',
                                 )}
                             >
                                 {({ isActive }) => (
@@ -157,7 +157,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                                             <motion.span
                                                 layoutId="nav-active"
                                                 transition={{ type: 'spring', stiffness: 520, damping: 40 }}
-                                                className="absolute inset-0 rounded-b2 border border-line bg-white/[0.08]"
+                                                className="absolute inset-0 rounded-b2 border border-line bg-fill-3"
                                             />
                                         )}
                                         <span className="relative shrink-0"><item.icon size={17} /></span>
@@ -210,7 +210,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                                                     if (e.key === 'Enter') saveTitle(session.id);
                                                     if (e.key === 'Escape') setRenaming(null);
                                                 }}
-                                                className="min-w-0 flex-1 rounded-b1 border border-line-strong bg-white/5 px-2 py-1 text-xs text-text outline-none"
+                                                className="min-w-0 flex-1 rounded-b1 border border-line-strong bg-fill-2 px-2 py-1 text-xs text-text outline-none"
                                             />
                                             <IconButton label="Save name" size="sm" onClick={() => saveTitle(session.id)}>
                                                 <Check size={13} />
@@ -223,7 +223,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                                         key={session.id}
                                         className={cn(
                                             'group flex items-center gap-1 rounded-b2 px-1 transition-colors',
-                                            isActive ? 'border border-line bg-white/[0.07]' : 'border border-transparent hover:bg-white/[0.04]',
+                                            isActive ? 'border border-line bg-fill-3' : 'border border-transparent hover:bg-fill-2',
                                         )}
                                     >
                                         <button
@@ -265,7 +265,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                         title={collapsed ? 'Settings' : undefined}
                         className={({ isActive }) => cn(
                             'flex items-center gap-3 rounded-b2 px-2.5 py-2 text-[13px] font-medium transition-colors',
-                            isActive ? 'bg-white/[0.08] text-text' : 'text-dim hover:bg-white/5 hover:text-text',
+                            isActive ? 'bg-fill-3 text-text' : 'text-dim hover:bg-fill-2 hover:text-text',
                         )}
                     >
                         <Settings size={17} className="shrink-0" />

@@ -27,7 +27,15 @@ export function ToastProvider({ children }) {
 
     const push = useCallback((toast) => {
         const id = nextId.current++;
-        setToasts((prev) => [...prev.slice(-3), { id, tone: 'info', ...toast }]);
+        setToasts((prev) => {
+            // when the brain goes down every page reports the same failure at once;
+            // the second identical card says nothing the first did not
+            const duplicate = prev.find((t) => t.title === toast.title && t.detail === toast.detail);
+            if (duplicate) {
+                return prev.map((t) => (t.id === duplicate.id ? { ...t, repeats: (t.repeats || 1) + 1 } : t));
+            }
+            return [...prev.slice(-3), { id, tone: 'info', ...toast }];
+        });
         if (toast.tone !== 'error') {
             setTimeout(() => dismiss(id), toast.duration ?? 3800);
         }
@@ -46,7 +54,7 @@ export function ToastProvider({ children }) {
         <ToastContext.Provider value={value}>
             {children}
             <div
-                className="pointer-events-none fixed bottom-4 right-4 z-[200] flex w-[min(92vw,22rem)] flex-col gap-2"
+                className="pointer-events-none fixed bottom-24 right-4 z-[200] flex w-[min(92vw,22rem)] flex-col gap-2 sm:bottom-4"
                 role="status"
                 aria-live="polite"
             >
@@ -71,7 +79,14 @@ export function ToastProvider({ children }) {
                                     <Icon size={12} strokeWidth={2.6} />
                                 </span>
                                 <div className="min-w-0 flex-1">
-                                    <p className="text-[13px] font-semibold leading-tight text-text">{toast.title}</p>
+                                    <p className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight text-text">
+                                        {toast.title}
+                                        {toast.repeats > 1 && (
+                                            <span className="rounded-full border border-line px-1.5 font-mono text-[10px] font-normal text-faint">
+                                                ×{toast.repeats}
+                                            </span>
+                                        )}
+                                    </p>
                                     {toast.detail && (
                                         <p className="mt-1 break-words text-xs leading-snug text-dim">{toast.detail}</p>
                                     )}

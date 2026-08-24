@@ -42,7 +42,7 @@ export function AttentionFlux({ count = 56, size = 'md', className }) {
     return (
         <div className={cn('flex flex-col gap-3', className)}>
             <div
-                className="relative flex items-end gap-[3px] overflow-hidden rounded-b2 border border-line bg-black/20 px-3"
+                className="relative flex items-end gap-[3px] overflow-hidden rounded-b2 border border-line bg-sunk px-3"
                 style={{ height: barHeight + 20 }}
             >
                 {ticks.length === 0 && (

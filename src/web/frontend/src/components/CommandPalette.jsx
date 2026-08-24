@@ -180,7 +180,7 @@ export function CommandPalette({ open, onClose }) {
                                     onClick={() => runAt(index)}
                                     className={cn(
                                         'flex w-full items-center gap-3 rounded-b2 px-3 py-2 text-left transition-colors',
-                                        active ? 'bg-white/[0.08] text-text' : 'text-dim hover:text-text',
+                                        active ? 'bg-fill-3 text-text' : 'text-dim hover:text-text',
                                     )}
                                 >
                                     {Icon ? <Icon size={15} className="shrink-0 text-faint" /> : <span className="w-[15px]" />}

@@ -340,7 +340,7 @@ function Message({ message }) {
                     'max-w-[86%] rounded-b3 px-4 py-2.5 text-[13px] leading-relaxed sm:max-w-[74%]',
                     isUser
                         ? 'rounded-br-md bg-text text-bg'
-                        : 'rounded-bl-md border border-line bg-white/[0.04] text-text',
+                        : 'rounded-bl-md border border-line bg-fill-2 text-text',
                     message.pending && 'opacity-60',
                 )}
                 style={failed ? {
@@ -387,7 +387,7 @@ function Message({ message }) {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="w-full max-w-[74%] overflow-hidden rounded-b2 border border-line bg-black/20 p-3"
+                        className="w-full max-w-[74%] overflow-hidden rounded-b2 border border-line bg-sunk p-3"
                     >
                         {extras.map(([key, value]) => (
                             <div key={key} className="border-b border-line py-1.5 last:border-0">
@@ -410,7 +410,7 @@ function ThinkingBubble({ label = 'Thinking' }) {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="flex items-center gap-2.5 self-start rounded-b3 rounded-bl-md border border-line bg-white/[0.04] px-4 py-3"
+            className="flex items-center gap-2.5 self-start rounded-b3 rounded-bl-md border border-line bg-fill-2 px-4 py-3"
         >
             <span className="flex items-end gap-[3px]">
                 {[0, 1, 2].map((index) => (
@@ -435,10 +435,10 @@ function VoiceMeter({ volume, userSpeaking, beaSpeaking }) {
     const color = beaSpeaking ? 'var(--vital)' : userSpeaking ? 'var(--flux-act)' : 'var(--flux-mute)';
 
     return (
-        <div className="mb-2.5 flex items-center gap-3 rounded-b2 border border-line bg-black/20 px-3 py-2">
+        <div className="mb-2.5 flex items-center gap-3 rounded-b2 border border-line bg-sunk px-3 py-2">
             <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
             <span className="shrink-0 text-[11px] font-medium text-dim">{state}</span>
-            <span className="h-1 flex-1 overflow-hidden rounded-full bg-white/5">
+            <span className="h-1 flex-1 overflow-hidden rounded-full bg-fill-2">
                 <motion.span
                     className="block h-full rounded-full"
                     style={{ background: color }}

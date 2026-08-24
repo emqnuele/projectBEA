@@ -20,7 +20,7 @@ export const Glass = forwardRef(function Glass(
     return (
         <Tag
             ref={ref}
-            className={cn(refracting ? 'glass' : 'glass-quiet', 'relative', className)}
+            className={cn(refracting ? 'glass' : 'glass-quiet', className)}
             style={style}
             {...props}
         >

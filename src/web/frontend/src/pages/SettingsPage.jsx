@@ -112,7 +112,7 @@ export default function SettingsPage() {
                         to={`/dashboard/settings/${item.id}`}
                         className={({ isActive }) => cn(
                             'rounded-b2 px-3 py-2 transition-colors',
-                            isActive ? 'bg-white/[0.08] text-text' : 'text-dim hover:bg-white/5 hover:text-text',
+                            isActive ? 'bg-fill-3 text-text' : 'text-dim hover:bg-fill-2 hover:text-text',
                         )}
                     >
                         <span className="block text-[13px] font-medium">{item.label}</span>
@@ -130,7 +130,7 @@ export default function SettingsPage() {
                                 to={`/dashboard/settings/${item.id}`}
                                 className={({ isActive }) => cn(
                                     'shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                                    isActive ? 'border-line-strong bg-white/[0.08] text-text' : 'border-line text-dim',
+                                    isActive ? 'border-line-strong bg-fill-3 text-text' : 'border-line text-dim',
                                 )}
                             >
                                 {item.label}

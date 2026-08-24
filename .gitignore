@@ -65,3 +65,6 @@ PLAN.md
 
 # personal planning notes, not part of the repo
 docs/roadmap.md
+
+# local editor/agent tooling
+.claude/

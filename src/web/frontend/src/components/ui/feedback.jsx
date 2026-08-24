@@ -26,7 +26,7 @@ export function EmptyState({ icon: Icon, title, children, action, className }) {
     return (
         <div className={cn('flex flex-col items-center justify-center px-6 py-14 text-center', className)}>
             {Icon && (
-                <span className="mb-4 grid h-11 w-11 place-items-center rounded-b2 border border-line bg-white/[0.03] text-faint">
+                <span className="mb-4 grid h-11 w-11 place-items-center rounded-b2 border border-line bg-fill text-faint">
                     <Icon size={19} />
                 </span>
             )}
@@ -38,7 +38,7 @@ export function EmptyState({ icon: Icon, title, children, action, className }) {
 }
 
 export function Skeleton({ className }) {
-    return <div className={cn('shimmer rounded-b2 border border-line bg-white/[0.03]', className)} />;
+    return <div className={cn('shimmer rounded-b2 border border-line bg-fill', className)} />;
 }
 
 export function Spinner({ size = 16, className }) {

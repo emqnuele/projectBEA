@@ -242,7 +242,7 @@ export default function MinecraftConsole({ serverUrl, onClose }) {
                                         value={inputs.bridgeDir}
                                         onChange={(e) => setInput('bridgeDir', e.target.value)}
                                         aria-label="Bridge direction"
-                                        className="rounded-b1 border border-line bg-white/[0.03] px-1.5 text-[11px] text-text outline-none"
+                                        className="rounded-b1 border border-line bg-fill px-1.5 text-[11px] text-text outline-none"
                                     >
                                         {DIRECTIONS.map(([value, label]) => (
                                             <option key={value} value={value}>{label}</option>
@@ -311,7 +311,7 @@ export default function MinecraftConsole({ serverUrl, onClose }) {
                                         value={inputs.equipDest}
                                         onChange={(e) => setInput('equipDest', e.target.value)}
                                         aria-label="Where to equip it"
-                                        className="rounded-b1 border border-line bg-white/[0.03] px-1.5 text-[11px] text-text outline-none"
+                                        className="rounded-b1 border border-line bg-fill px-1.5 text-[11px] text-text outline-none"
                                     >
                                         {EQUIP_SLOTS.map(([value, label]) => (
                                             <option key={value} value={value}>{label}</option>
@@ -375,7 +375,7 @@ export default function MinecraftConsole({ serverUrl, onClose }) {
                                             <Eye size={12} /> Refresh
                                         </Button>
                                     </div>
-                                    <div className="grid min-h-0 flex-1 place-items-center overflow-hidden rounded-b2 border border-line bg-black/30">
+                                    <div className="grid min-h-0 flex-1 place-items-center overflow-hidden rounded-b2 border border-line bg-sunk">
                                         {data.screenshot ? (
                                             <img
                                                 alt="Her current view of the world"
@@ -390,7 +390,7 @@ export default function MinecraftConsole({ serverUrl, onClose }) {
 
                                 <div className="flex min-h-0 flex-col p-3 lg:w-[22rem]">
                                     <h3 className="mb-2 font-display text-[12px] font-semibold text-text">Log</h3>
-                                    <div className="min-h-0 flex-1 overflow-y-auto rounded-b2 border border-line bg-black/30 p-2">
+                                    <div className="min-h-0 flex-1 overflow-y-auto rounded-b2 border border-line bg-sunk p-2">
                                         {logs.length === 0 ? (
                                             <p className="py-4 text-center font-mono text-[11px] text-faint">nothing yet</p>
                                         ) : logs.map((line, index) => (
@@ -404,7 +404,7 @@ export default function MinecraftConsole({ serverUrl, onClose }) {
 
                             <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:flex-row">
                                 <div className="flex min-h-0 flex-col gap-3 lg:w-60">
-                                    <div className="space-y-2 rounded-b2 border border-line bg-white/[0.02] p-3">
+                                    <div className="space-y-2 rounded-b2 border border-line bg-fill p-3">
                                         <Stat
                                             icon={MapPin}
                                             label="Position"
@@ -426,7 +426,7 @@ export default function MinecraftConsole({ serverUrl, onClose }) {
                                         />
                                     </div>
 
-                                    <div className="min-h-0 flex-1 overflow-y-auto rounded-b2 border border-line bg-white/[0.02] p-2">
+                                    <div className="min-h-0 flex-1 overflow-y-auto rounded-b2 border border-line bg-fill p-2">
                                         <p className="sticky top-0 bg-transparent pb-1 font-mono text-[9px] uppercase tracking-wider text-faint">
                                             Around her — click to target
                                         </p>
@@ -437,7 +437,7 @@ export default function MinecraftConsole({ serverUrl, onClose }) {
                                                     setMoveTo({ x: block.x, y: block.y + 1, z: block.z });
                                                     setTarget({ x: block.x, y: block.y, z: block.z });
                                                 }}
-                                                className="block w-full truncate rounded px-1 text-left font-mono text-[10px] text-faint transition-colors hover:bg-white/5 hover:text-text"
+                                                className="block w-full truncate rounded px-1 text-left font-mono text-[10px] text-faint transition-colors hover:bg-fill-2 hover:text-text"
                                             >
                                                 [{block.x},{block.y},{block.z}] {block.name.replace('minecraft:', '')}
                                             </button>
@@ -446,7 +446,7 @@ export default function MinecraftConsole({ serverUrl, onClose }) {
                                 </div>
 
                                 <div className="flex min-h-0 flex-1 flex-col gap-3">
-                                    <div className="rounded-b2 border border-line bg-white/[0.02] p-3">
+                                    <div className="rounded-b2 border border-line bg-fill p-3">
                                         <p className="mb-2 font-mono text-[9px] uppercase tracking-wider text-faint">Hotbar</p>
                                         <div className="flex flex-wrap justify-center gap-1">
                                             {data.inventory?.hotbar?.map((slot, index) => (
@@ -459,7 +459,7 @@ export default function MinecraftConsole({ serverUrl, onClose }) {
                                             ))}
                                         </div>
                                     </div>
-                                    <div className="min-h-0 flex-1 overflow-y-auto rounded-b2 border border-line bg-white/[0.02] p-3">
+                                    <div className="min-h-0 flex-1 overflow-y-auto rounded-b2 border border-line bg-fill p-3">
                                         <p className="mb-2 font-mono text-[9px] uppercase tracking-wider text-faint">Inventory</p>
                                         <div className="mx-auto grid w-fit grid-cols-9 gap-1">
                                             {data.inventory?.main?.map((slot, index) => (
@@ -490,7 +490,7 @@ function Panel({ title, hint, children }) {
 }
 
 const FIELD =
-    'min-w-0 rounded-b1 border border-line bg-white/[0.03] px-2 py-1 text-[11px] text-text ' +
+    'min-w-0 rounded-b1 border border-line bg-fill px-2 py-1 text-[11px] text-text ' +
     'outline-none transition-colors placeholder:text-faint focus:border-line-strong';
 
 function Coord({ value, onChange, label }) {
@@ -546,7 +546,7 @@ function Stat({ icon: Icon, label, value, color }) {
 
 function Slot({ slot, selected, onClick }) {
     if (!slot) {
-        return <span className="h-9 w-9 rounded-b1 border border-line bg-black/20" />;
+        return <span className="h-9 w-9 rounded-b1 border border-line bg-sunk" />;
     }
     return (
         <button
@@ -554,7 +554,7 @@ function Slot({ slot, selected, onClick }) {
             title={slot.item}
             className={cn(
                 'relative grid h-9 w-9 place-items-center rounded-b1 border transition-colors',
-                selected ? 'border-transparent' : 'border-line bg-black/20 hover:border-line-strong',
+                selected ? 'border-transparent' : 'border-line bg-sunk hover:border-line-strong',
             )}
             style={selected ? {
                 background: 'var(--vital-soft)',

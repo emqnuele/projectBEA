@@ -64,7 +64,7 @@ export function AppearanceSection() {
                 title="Liquid glass"
                 description="Every surface in the room is one pane of glass over a moving ground. These are its optics."
             >
-                <div className="flex items-center justify-between gap-4 rounded-b2 border border-line bg-white/[0.02] p-3">
+                <div className="flex items-center justify-between gap-4 rounded-b2 border border-line bg-fill p-3">
                     <span>
                         <span className="block text-[13px] font-medium text-text">Refract the backdrop</span>
                         <span className="mt-0.5 block text-[11px] leading-snug text-faint">
@@ -101,7 +101,7 @@ export function AppearanceSection() {
             </Group>
 
             <Group title="Ground" description="Glass needs something behind it worth bending.">
-                <div className="flex items-center justify-between gap-4 rounded-b2 border border-line bg-white/[0.02] p-3">
+                <div className="flex items-center justify-between gap-4 rounded-b2 border border-line bg-fill p-3">
                     <span>
                         <span className="block text-[13px] font-medium text-text">Dithered backdrop</span>
                         <span className="mt-0.5 block text-[11px] leading-snug text-faint">
@@ -137,7 +137,7 @@ export function AppearanceSection() {
 /** A deliberately busy ground, so a change to any slider is actually visible. */
 function Preview() {
     return (
-        <div className="relative h-44 overflow-hidden rounded-b3 border border-line">
+        <div className="relative h-56 overflow-hidden rounded-b3 border border-line">
             <div
                 className="absolute inset-0"
                 style={{
@@ -149,14 +149,14 @@ function Preview() {
                 }}
             />
             <div
-                className="absolute inset-0 opacity-30"
+                className="absolute inset-0 opacity-45"
                 style={{
                     backgroundImage:
                         'repeating-linear-gradient(90deg, transparent 0 11px, rgb(255 255 255 / 22%) 11px 12px),' +
                         'repeating-linear-gradient(0deg, transparent 0 11px, rgb(255 255 255 / 22%) 11px 12px)',
                 }}
             />
-            <Glass className="absolute inset-6 grid place-items-center rounded-b3">
+            <Glass className="absolute inset-x-1/4 inset-y-12 grid place-items-center rounded-b3">
                 <p className="font-display text-sm font-semibold text-text">Liquid glass</p>
             </Glass>
         </div>

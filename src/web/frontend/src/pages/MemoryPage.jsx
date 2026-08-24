@@ -209,7 +209,7 @@ function RosterTable({ roster }) {
                     </thead>
                     <tbody>
                         {rows.map((entry) => (
-                            <tr key={entry.identity} className="border-b border-line last:border-0 hover:bg-white/[0.03]">
+                            <tr key={entry.identity} className="border-b border-line last:border-0 hover:bg-fill">
                                 <td className="px-3 py-2">
                                     <span className="flex items-center gap-2">
                                         <span className="truncate text-[12px] text-text">{entry.name || entry.identity}</span>
@@ -265,7 +265,7 @@ function RecallPanel() {
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="what does she know about minecraft?"
                         aria-label="Search her memory"
-                        className="min-w-0 flex-1 rounded-b2 border border-line bg-white/[0.03] px-3 py-2
+                        className="min-w-0 flex-1 rounded-b2 border border-line bg-fill px-3 py-2
                                    text-[13px] text-text outline-none transition-colors
                                    placeholder:text-faint focus:border-line-strong"
                     />
@@ -306,7 +306,7 @@ function RecallColumn({ title, tone, items, empty }) {
             ) : (
                 <ul className="space-y-2">
                     {items.map((item, index) => (
-                        <li key={index} className="rounded-b2 border border-line bg-white/[0.02] p-2.5">
+                        <li key={index} className="rounded-b2 border border-line bg-fill p-2.5">
                             <p className="text-[12px] leading-snug text-text">{item.text}</p>
                             <p className="mt-1.5 flex items-center gap-2 font-mono text-[10px] text-faint">
                                 {item.who && <span>{item.who}</span>}
@@ -363,7 +363,7 @@ function SelfPanel({ self }) {
                     ) : (
                         <ul className="space-y-2">
                             {self.hot_facts.map((fact, index) => (
-                                <li key={index} className="rounded-b2 border border-line bg-white/[0.02] px-2.5 py-2">
+                                <li key={index} className="rounded-b2 border border-line bg-fill px-2.5 py-2">
                                     <p className="text-[12px] leading-snug text-text">{fact.text}</p>
                                     <p className="mt-1 font-mono text-[10px] text-faint">
                                         from {fact.source} · fades {relativeTime(fact.expires_at)}

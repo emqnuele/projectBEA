@@ -130,7 +130,7 @@ export default function ActivityPage() {
                                 onChange={(e) => setQuery(e.target.value)}
                                 placeholder="Filter"
                                 aria-label="Filter the log"
-                                className="w-28 rounded-b1 border border-line bg-white/[0.03] py-1 pl-7 pr-6 text-[11px]
+                                className="w-28 rounded-b1 border border-line bg-fill py-1 pl-7 pr-6 text-[11px]
                                            text-text outline-none transition-all placeholder:text-faint
                                            focus:w-44 focus:border-line-strong"
                             />
@@ -160,14 +160,17 @@ export default function ActivityPage() {
 
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     {shown.length === 0 ? (
-                        <EmptyState icon={Terminal} title={query ? 'Nothing matches that' : 'Nothing yet'}>
-                            {query
-                                ? 'Try a different word, or turn a filter back on.'
-                                : 'Events land here the moment anything reaches her.'}
-                            {query && (
+                        <EmptyState
+                            icon={Terminal}
+                            title={events.length === 0 ? 'Nothing yet' : `${events.length} events, all filtered out`}
+                        >
+                            {events.length === 0
+                                ? 'Events land here the moment anything reaches her.'
+                                : 'Turn a filter back on, or clear the search, to see them.'}
+                            {events.length > 0 && (
                                 <span className="mt-4 block">
-                                    <Button size="sm" variant="outline" onClick={() => { setQuery(''); setOff(DEFAULT_OFF); }}>
-                                        Reset filters
+                                    <Button size="sm" variant="outline" onClick={() => { setQuery(''); setOff([]); }}>
+                                        Show everything
                                     </Button>
                                 </span>
                             )}
@@ -203,7 +206,7 @@ function EventRow({ event }) {
             <button
                 onClick={() => metadata.length && setOpen((v) => !v)}
                 className={cn(
-                    'flex w-full items-start gap-3 px-3 py-2 text-left transition-colors hover:bg-white/[0.03]',
+                    'flex w-full items-start gap-3 px-3 py-2 text-left transition-colors hover:bg-fill',
                     !metadata.length && 'cursor-default',
                 )}
             >
@@ -230,7 +233,7 @@ function EventRow({ event }) {
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden bg-black/25 px-3 pb-2.5 pl-[7.5rem]"
+                        className="overflow-hidden bg-sunk px-3 pb-2.5 pl-[7.5rem]"
                     >
                         {metadata.map(([key, value]) => (
                             <div key={key} className="flex gap-3 border-b border-line py-1 last:border-0">

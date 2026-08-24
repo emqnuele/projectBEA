@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Menu, Moon, Radio, Search, Square, Sun, Zap } from 'lucide-react';
+import { Menu, Moon, Radio, Search, Square, Sun, SunMoon, Zap } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { compact } from '../lib/format';
 import { useBrain } from '../state/BrainProvider';
@@ -125,10 +125,10 @@ export function TopBar({ onOpenMenu, onOpenPalette }) {
                 </IconButton>
 
                 <IconButton
-                    label={settings.theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
+                    label={settings.theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme'}
                     onClick={toggleTheme}
                 >
-                    {settings.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+                    <SunMoon size={16} />
                 </IconButton>
             </div>
         </Glass>

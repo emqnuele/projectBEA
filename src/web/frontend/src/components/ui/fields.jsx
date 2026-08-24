@@ -3,8 +3,8 @@ import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
 const BASE =
-    'w-full rounded-b2 border border-line bg-white/[0.03] px-3 py-2 text-[13px] text-text ' +
-    'placeholder:text-faint transition-colors outline-none focus:border-line-strong focus:bg-white/[0.05] ' +
+    'w-full rounded-b2 border border-line bg-fill px-3 py-2 text-[13px] text-text ' +
+    'placeholder:text-faint transition-colors outline-none focus:border-line-strong focus:bg-fill-2 ' +
     'disabled:opacity-40';
 
 /**
@@ -125,7 +125,7 @@ export function CheckRow({ checked, onChange, title, help }) {
     return (
         <label
             htmlFor={id}
-            className="flex cursor-pointer items-start gap-3 rounded-b2 border border-line bg-white/[0.02] p-3 transition-colors hover:border-line-strong"
+            className="flex cursor-pointer items-start gap-3 rounded-b2 border border-line bg-fill p-3 transition-colors hover:border-line-strong"
         >
             <input
                 id={id}

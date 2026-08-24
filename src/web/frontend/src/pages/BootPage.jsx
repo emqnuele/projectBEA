@@ -27,16 +27,21 @@ const CHECKS = [
 export default function BootPage() {
     const navigate = useNavigate();
     const [state, setState] = useState({ phase: 'checking', overview: null, error: null });
+    const [probing, setProbing] = useState(true);
     const entered = useRef(false);
 
+    // a background retry must not flip the screen back to 'checking': the buttons
+    // would vanish under the cursor and swallow the click
     const probe = useCallback(async () => {
-        setState((prev) => ({ ...prev, phase: 'checking', error: null }));
+        setProbing(true);
         try {
             await api.health();
             const overview = await api.overview();
             setState({ phase: 'ready', overview, error: null });
         } catch (e) {
             setState({ phase: 'down', overview: null, error: e.message });
+        } finally {
+            setProbing(false);
         }
     }, []);
 
@@ -137,11 +142,13 @@ export default function BootPage() {
                             <p className="mt-1.5 text-[12px] leading-relaxed text-dim">
                                 Start it and this screen lets you in on its own:
                             </p>
-                            <code className="mt-2.5 block rounded-b1 border border-line bg-black/30 px-2.5 py-2 font-mono text-[11px] text-text">
+                            <code className="mt-2.5 block rounded-b1 border border-line bg-sunk px-2.5 py-2 font-mono text-[11px] text-text">
                                 uv run bea --web
                             </code>
                             <div className="mt-3 flex items-center gap-2">
-                                <Button size="sm" variant="outline" onClick={probe}>Check again</Button>
+                                <Button size="sm" variant="outline" onClick={probe} loading={probing}>
+                                    Check again
+                                </Button>
                                 <Button size="sm" variant="ghost" onClick={enter}>Go in anyway</Button>
                             </div>
                         </div>
@@ -151,10 +158,10 @@ export default function BootPage() {
                                 variant="primary"
                                 size="lg"
                                 onClick={enter}
-                                loading={state.phase === 'checking'}
+                                loading={probing && state.phase === 'checking'}
                                 className="w-full"
                             >
-                                {state.phase === 'checking' ? 'Waking the room' : 'Enter the control room'}
+                                {probing && state.phase === 'checking' ? 'Waking the room' : 'Enter the control room'}
                                 {state.phase === 'ready' && <ArrowRight size={15} />}
                             </Button>
                         </Magnetic>

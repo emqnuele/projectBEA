@@ -199,7 +199,7 @@ export default function PlanPage() {
                             onKeyDown={(e) => e.key === 'Enter' && addObjective()}
                             placeholder="Build a base before dark"
                             aria-label="New objective"
-                            className="min-w-0 flex-1 rounded-b2 border border-line bg-white/[0.03] px-3 py-2
+                            className="min-w-0 flex-1 rounded-b2 border border-line bg-fill px-3 py-2
                                        text-[13px] text-text outline-none transition-colors
                                        placeholder:text-faint focus:border-line-strong"
                         />
@@ -236,7 +236,7 @@ function ObjectiveRow({ objective, onStatus, onEdit, onRemove }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, height: 0 }}
             className="group flex items-start gap-2.5 rounded-b2 border border-transparent px-2 py-2
-                       transition-colors hover:border-line hover:bg-white/[0.03]"
+                       transition-colors hover:border-line hover:bg-fill"
         >
             <button
                 onPointerDown={(e) => controls.start(e)}
@@ -266,7 +266,7 @@ function ObjectiveRow({ objective, onStatus, onEdit, onRemove }) {
                             if (e.key === 'Enter') commit();
                             if (e.key === 'Escape') { setDraft(objective.text); setEditing(false); }
                         }}
-                        className="w-full rounded-b1 border border-line-strong bg-white/5 px-2 py-1 text-[13px] text-text outline-none"
+                        className="w-full rounded-b1 border border-line-strong bg-fill-2 px-2 py-1 text-[13px] text-text outline-none"
                     />
                 ) : (
                     <button

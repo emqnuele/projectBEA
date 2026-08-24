@@ -6,8 +6,8 @@ import { cn } from '../../lib/cn';
 const VARIANTS = {
     primary: 'bg-text text-bg hover:opacity-90 border border-transparent',
     glass: 'glass-quiet text-text hover:border-line-strong',
-    ghost: 'text-dim hover:text-text hover:bg-white/5 border border-transparent',
-    outline: 'border border-line text-text hover:border-line-strong hover:bg-white/5',
+    ghost: 'text-dim hover:text-text hover:bg-fill-2 border border-transparent',
+    outline: 'border border-line text-text hover:border-line-strong hover:bg-fill-2',
     danger: 'border text-[color:var(--flux-err)] hover:brightness-110',
     // reserved: only for the controls that act on her being live
     vital: 'border text-[color:var(--vital)] hover:brightness-110',
@@ -81,7 +81,7 @@ export function Switch({ checked, onChange, label, disabled }) {
             className={cn(
                 'relative h-[22px] w-[38px] shrink-0 rounded-full border transition-colors duration-200',
                 'disabled:pointer-events-none disabled:opacity-40',
-                checked ? 'border-transparent' : 'border-line bg-white/5',
+                checked ? 'border-transparent' : 'border-line bg-fill-2',
             )}
             style={checked ? { background: 'var(--vital)' } : undefined}
         >
@@ -101,7 +101,7 @@ export function Switch({ checked, onChange, label, disabled }) {
 export function Segmented({ value, onChange, options, size = 'md', className }) {
     const pad = size === 'sm' ? 'px-2.5 py-1 text-[11px]' : 'px-3 py-1.5 text-xs';
     return (
-        <div className={cn('inline-flex rounded-b2 border border-line bg-white/[0.03] p-0.5', className)} role="tablist">
+        <div className={cn('inline-flex rounded-b2 border border-line bg-fill p-0.5', className)} role="tablist">
             {options.map((option) => {
                 const active = option.value === value;
                 return (
@@ -118,7 +118,7 @@ export function Segmented({ value, onChange, options, size = 'md', className }) 
                         {active && (
                             <motion.span
                                 layoutId={`segmented-${options.map((o) => o.value).join('-')}`}
-                                className="absolute inset-0 rounded-[calc(var(--r-2)-2px)] border border-line bg-white/[0.07]"
+                                className="absolute inset-0 rounded-[calc(var(--r-2)-2px)] border border-line bg-fill-3"
                                 transition={{ type: 'spring', stiffness: 520, damping: 40 }}
                             />
                         )}

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-    ArrowUpRight, Blocks, Brain, Coins, Cpu, ListChecks, Radio, Square, Users, Volume2,
+    ArrowUpRight, Blocks, Brain, Coins, Cpu, ListChecks, Radio, Square, Users, Volume2, WifiOff,
 } from 'lucide-react';
 import { cn, fluxOf } from '../lib/cn';
 import { clockTime, compact, duration, relativeTime, titleCase } from '../lib/format';
@@ -12,11 +12,11 @@ import { usePresence } from '../components/TopBar';
 import { AttentionFlux } from '../components/AttentionFlux';
 import { Glass } from '../components/glass/Glass';
 import { Button } from '../components/ui/controls';
-import { Badge, Skeleton } from '../components/ui/feedback';
+import { Badge, EmptyState, Skeleton } from '../components/ui/feedback';
 import { AnimatedIcon, CountUp, ProgressRing, Spotlight } from '../components/motion/effects';
 
 export default function HomePage() {
-    const { overview, events, isSpeaking, isSleeping, status, interrupt, toggleSleep } = useBrain();
+    const { overview, events, isSpeaking, isSleeping, status, connection, interrupt, toggleSleep, refreshOverview } = useBrain();
     const toast = useToast();
     const presence = usePresence();
 
@@ -24,7 +24,22 @@ export default function HomePage() {
     const lastCost = useMemo(() => events.find((e) => e.source === 'cost'), [events]);
     const feed = useMemo(() => events.filter((e) => e.source !== 'attention').slice(0, 9), [events]);
 
-    if (!overview) return <LoadingBento />;
+    if (!overview) {
+        // skeletons that pulse forever are a lie once we know the brain is gone
+        return connection === 'offline'
+            ? (
+                <Glass quiet className="grid h-full place-items-center rounded-b3">
+                    <EmptyState icon={WifiOff} title="Nothing to show — she is not running">
+                        Start the engine with <code className="font-mono text-text">uv run bea --web</code> and
+                        this fills itself in.
+                        <span className="mt-5 block">
+                            <Button variant="outline" size="sm" onClick={() => refreshOverview()}>Try again</Button>
+                        </span>
+                    </EmptyState>
+                </Glass>
+            )
+            : <LoadingBento />;
+    }
 
     const { plan, skills, memory, engine, session } = overview;
     const enabledSkills = skills.filter((s) => s.enabled);
@@ -92,7 +107,7 @@ export default function HomePage() {
                             </Button>
                             <Link
                                 to="/dashboard/chat"
-                                className="inline-flex h-8 items-center gap-1.5 rounded-b1 px-3 text-xs font-semibold text-dim transition-colors hover:bg-white/5 hover:text-text"
+                                className="inline-flex h-8 items-center gap-1.5 rounded-b1 px-3 text-xs font-semibold text-dim transition-colors hover:bg-fill-2 hover:text-text"
                             >
                                 Talk to her <ArrowUpRight size={13} />
                             </Link>
@@ -242,7 +257,7 @@ export default function HomePage() {
 
                 {/* --- abilities --- */}
                 <Tile
-                    className="md:col-span-6 xl:col-span-4"
+                    className="md:col-span-6 xl:col-span-12"
                     title="Abilities"
                     hint={`${enabledSkills.length} of ${skills.length} on`}
                     to="/dashboard/skills"
@@ -326,7 +341,7 @@ function Tile({ title, hint, to, icon: Icon, children, className, bodyClassName,
 
 function MiniStat({ label, value }) {
     return (
-        <div className="rounded-b2 border border-line bg-white/[0.02] px-2.5 py-2">
+        <div className="rounded-b2 border border-line bg-fill px-2.5 py-2">
             <p className="truncate font-mono text-[9px] uppercase tracking-wider text-faint">{label}</p>
             <p className="tnum mt-0.5 truncate font-display text-sm font-semibold text-text">{value}</p>
         </div>

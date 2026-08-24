@@ -359,7 +359,7 @@ function StreamSection({ config, update, setConfig }) {
                     <TextInput value={config.png_dir || ''} onChange={(e) => update('png_dir', e.target.value)} className="font-mono" />
                 </Field>
                 {Object.entries(config.avatar_map || {}).map(([mood, paths]) => (
-                    <div key={mood} className="rounded-b2 border border-line bg-white/[0.02] p-3">
+                    <div key={mood} className="rounded-b2 border border-line bg-fill p-3">
                         <p className="mb-2.5 font-mono text-[10px] uppercase tracking-wider text-dim">{mood}</p>
                         <div className="grid gap-2.5 sm:grid-cols-2">
                             <Field label="Idle">
@@ -530,7 +530,7 @@ function WorldSection({ config, updateSkill }) {
             </Group>
 
             <Group title="Instructions" description="How she behaves in the world. Uses the engine's main model.">
-                <div className="flex items-center justify-between gap-3 rounded-b2 border border-line bg-white/[0.02] p-3">
+                <div className="flex items-center justify-between gap-3 rounded-b2 border border-line bg-fill p-3">
                     <span className="text-[12px] text-dim">
                         {minecraft.system_prompt
                             ? `Custom instructions — ${minecraft.system_prompt.length} characters`

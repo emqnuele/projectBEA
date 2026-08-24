@@ -25,6 +25,13 @@
   --glass-tint-raised: rgb(255 255 255 / 8%);
   --glass-sheen: rgb(255 255 255 / 55%);
 
+  /* the three fills every small surface uses: rest, hover, selected.
+     They invert with the theme — a white wash is invisible on a light ground. */
+  --fill: rgb(255 255 255 / 3%);
+  --fill-2: rgb(255 255 255 / 6%);
+  --fill-3: rgb(255 255 255 / 10%);
+  --sunk: rgb(0 0 0 / 24%);
+
   /* she is awake, she is speaking — the only warm thing on screen */
   --vital: #ffb05c;
   --vital-soft: rgb(255 176 92 / 14%);
@@ -72,6 +79,11 @@
   --glass-tint-raised: rgb(255 255 255 / 66%);
   --glass-sheen: rgb(255 255 255 / 85%);
 
+  --fill: rgb(10 12 20 / 3.5%);
+  --fill-2: rgb(10 12 20 / 6%);
+  --fill-3: rgb(10 12 20 / 10%);
+  --sunk: rgb(10 12 20 / 5%);
+
   --vital: #b96400;
   --vital-soft: rgb(185 100 0 / 12%);
   --cognition: #4d4ecb;
@@ -94,6 +106,10 @@
   --color-sunken: var(--bg-sunken);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
+  --color-fill: var(--fill);
+  --color-fill-2: var(--fill-2);
+  --color-fill-3: var(--fill-3);
+  --color-sunk: var(--sunk);
   --color-text: var(--text);
   --color-dim: var(--text-dim);
   --color-faint: var(--text-faint);
@@ -190,111 +206,115 @@ h3,
   background-clip: content-box;
 }
 
-/* --- liquid glass -------------------------------------------------------- */
+@layer components {
+  /* --- liquid glass -------------------------------------------------------- */
 
-/*
-  Three stacked layers instead of one property: the frost is declared on its own
-  so that a browser without SVG-in-backdrop-filter drops only the refraction and
-  keeps a working surface, rather than invalidating the whole declaration.
-*/
+  /*
+    Three stacked layers instead of one property: the frost is declared on its own
+    so that a browser without SVG-in-backdrop-filter drops only the refraction and
+    keeps a working surface, rather than invalidating the whole declaration.
+  */
 
-.glass {
-  position: relative;
-  isolation: isolate;
-  border-radius: var(--r-3);
-  border: 1px solid var(--line);
-  background: var(--glass-tint);
-  box-shadow:
-    0 calc(2px * var(--lg-depth)) calc(10px * var(--lg-depth)) rgb(0 0 0 / calc(0.16 * var(--lg-depth))),
-    0 calc(12px * var(--lg-depth)) calc(40px * var(--lg-depth)) rgb(0 0 0 / calc(0.22 * var(--lg-depth))),
-    inset 0 1px 0 rgb(255 255 255 / calc(0.5 * var(--lg-light))),
-    inset 0 -1px 0 rgb(255 255 255 / calc(0.08 * var(--lg-light)));
-}
+  .glass {
+    position: relative;
+    isolation: isolate;
+    border-radius: var(--r-3);
+    border: 1px solid var(--line);
+    background: var(--glass-tint);
+    box-shadow:
+      0 calc(2px * var(--lg-depth)) calc(10px * var(--lg-depth)) rgb(0 0 0 / calc(0.16 * var(--lg-depth))),
+      0 calc(12px * var(--lg-depth)) calc(40px * var(--lg-depth)) rgb(0 0 0 / calc(0.22 * var(--lg-depth))),
+      inset 0 1px 0 rgb(255 255 255 / calc(0.5 * var(--lg-light))),
+      inset 0 -1px 0 rgb(255 255 255 / calc(0.08 * var(--lg-light)));
+  }
 
-.glass::before,
-.glass::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-}
+  .glass::before,
+  .glass::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
 
-/* frost — the plain, always-supported part */
-.glass::before {
-  z-index: -2;
-  backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
-  -webkit-backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
-}
+  /* frost — the plain, always-supported part */
+  .glass::before {
+    z-index: -2;
+    backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
+    -webkit-backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
+  }
 
-/* refraction — strongest at the rim, almost nothing in the middle (splay) */
-.glass::after {
-  z-index: -1;
-  backdrop-filter: url(#lg-refract);
-  -webkit-mask-image: radial-gradient(
-    ellipse at center,
-    transparent 0%,
-    transparent calc(var(--lg-splay) * 100%),
-    #000 100%
-  );
-  mask-image: radial-gradient(
-    ellipse at center,
-    transparent 0%,
-    transparent calc(var(--lg-splay) * 100%),
-    #000 100%
-  );
-}
-
-/* the rainbow fringe, kept to a hairline at the very edge */
-.glass-dispersion {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  backdrop-filter: url(#lg-disperse);
-  opacity: 0.85;
-  -webkit-mask-image: radial-gradient(
-    ellipse at center,
-    transparent 0%,
-    transparent calc(var(--lg-splay) * 100% + 6%),
-    #000 100%
-  );
-  mask-image: radial-gradient(
-    ellipse at center,
-    transparent 0%,
-    transparent calc(var(--lg-splay) * 100% + 6%),
-    #000 100%
-  );
-}
-
-/* the light that tells you it is a physical surface, not a rectangle */
-.glass-sheen {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    linear-gradient(
-      145deg,
-      rgb(255 255 255 / calc(0.14 * var(--lg-light))) 0%,
-      transparent 34%,
-      transparent 66%,
-      rgb(255 255 255 / calc(0.05 * var(--lg-light))) 100%
+  /* refraction — strongest at the rim, almost nothing in the middle (splay) */
+  .glass::after {
+    z-index: -1;
+    backdrop-filter: url(#lg-refract);
+    -webkit-mask-image: radial-gradient(
+      ellipse at center,
+      transparent 0%,
+      transparent calc(var(--lg-splay) * 100%),
+      #000 100%
     );
-}
+    mask-image: radial-gradient(
+      ellipse at center,
+      transparent 0%,
+      transparent calc(var(--lg-splay) * 100%),
+      #000 100%
+    );
+  }
 
-/* cheaper surface for the many small tiles: frost only, no SVG cost */
-.glass-quiet {
-  border-radius: var(--r-3);
-  border: 1px solid var(--line);
-  background: var(--glass-tint);
-  backdrop-filter: blur(calc(var(--lg-frost) * 0.6)) saturate(var(--lg-saturate));
-  -webkit-backdrop-filter: blur(calc(var(--lg-frost) * 0.6)) saturate(var(--lg-saturate));
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / calc(0.12 * var(--lg-depth))),
-    inset 0 1px 0 rgb(255 255 255 / calc(0.4 * var(--lg-light)));
+  /* the rainbow fringe, kept to a hairline at the very edge */
+  .glass-dispersion {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    backdrop-filter: url(#lg-disperse);
+    opacity: 0.85;
+    -webkit-mask-image: radial-gradient(
+      ellipse at center,
+      transparent 0%,
+      transparent calc(var(--lg-splay) * 100% + 6%),
+      #000 100%
+    );
+    mask-image: radial-gradient(
+      ellipse at center,
+      transparent 0%,
+      transparent calc(var(--lg-splay) * 100% + 6%),
+      #000 100%
+    );
+  }
+
+  /* the light that tells you it is a physical surface, not a rectangle */
+  .glass-sheen {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+      linear-gradient(
+        145deg,
+        rgb(255 255 255 / calc(0.14 * var(--lg-light))) 0%,
+        transparent 34%,
+        transparent 66%,
+        rgb(255 255 255 / calc(0.05 * var(--lg-light))) 100%
+      );
+  }
+
+  /* cheaper surface for the many small tiles: frost only, no SVG cost */
+  .glass-quiet {
+    position: relative;
+    border-radius: var(--r-3);
+    border: 1px solid var(--line);
+    background: var(--glass-tint);
+    backdrop-filter: blur(calc(var(--lg-frost) * 0.6)) saturate(var(--lg-saturate));
+    -webkit-backdrop-filter: blur(calc(var(--lg-frost) * 0.6)) saturate(var(--lg-saturate));
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / calc(0.12 * var(--lg-depth))),
+      inset 0 1px 0 rgb(255 255 255 / calc(0.4 * var(--lg-light)));
+  }
+
 }
 
 /* when the operator turns refraction off entirely */

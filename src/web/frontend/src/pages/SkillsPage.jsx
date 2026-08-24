@@ -157,7 +157,7 @@ export default function SkillsPage() {
                                         style={{
                                             background: runtime.active
                                                 ? 'color-mix(in srgb, var(--flux-act) 14%, transparent)'
-                                                : 'rgb(255 255 255 / 4%)',
+                                                : 'var(--fill-2)',
                                             color: runtime.active ? 'var(--flux-act)' : 'var(--text-faint)',
                                         }}
                                     >
@@ -188,7 +188,7 @@ export default function SkillsPage() {
                                         <Link
                                             to={`/dashboard/settings/${meta.settings}`}
                                             className="inline-flex h-8 items-center gap-1.5 rounded-b1 px-2.5 text-xs
-                                                       font-semibold text-dim transition-colors hover:bg-white/5 hover:text-text"
+                                                       font-semibold text-dim transition-colors hover:bg-fill-2 hover:text-text"
                                         >
                                             <Settings2 size={13} /> Configure
                                         </Link>
