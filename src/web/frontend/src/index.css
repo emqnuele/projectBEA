@@ -10,16 +10,16 @@
 :root {
   color-scheme: dark;
 
-  --bg: #07080c;
-  --bg-raised: #0b0d13;
-  --bg-sunken: #040508;
+  --bg: #08080a;
+  --bg-raised: #0e0e12;
+  --bg-sunken: #050506;
 
   --line: rgb(255 255 255 / 9%);
   --line-strong: rgb(255 255 255 / 18%);
 
-  --text: #edeef3;
-  --text-dim: #979cac;
-  --text-faint: #646979;
+  --text: #ededf0;
+  --text-dim: #9a9aa4;
+  --text-faint: #64646e;
 
   --glass-tint: rgb(255 255 255 / 4.5%);
   --glass-tint-raised: rgb(255 255 255 / 8%);
@@ -32,20 +32,28 @@
   --fill-3: rgb(255 255 255 / 10%);
   --sunk: rgb(0 0 0 / 24%);
 
-  /* she is awake, she is speaking — the only warm thing on screen */
-  --vital: #ffb05c;
-  --vital-soft: rgb(255 176 92 / 14%);
-  --cognition: #8b8cff;
-  --cognition-soft: rgb(139 140 255 / 14%);
+  /* The interface is black and white. Exactly one hue is allowed in, and the
+     operator picks it in Settings › Appearance — everything below is derived
+     from it, so changing it never breaks the relationships between states. */
+  --accent-raw: #3d7dff;
+  --accent: var(--accent-raw);
 
-  /* the flux: one colour per kind of event, used everywhere they appear */
-  --flux-in: #4fd1e8;
-  --flux-think: #8b8cff;
-  --flux-out: #ffb05c;
-  --flux-act: #5fd9a0;
-  --flux-err: #ff6b7a;
-  --flux-cost: #d8b45f;
-  --flux-mute: #565b6b;
+  /* she is awake, she is speaking: the only saturated thing on screen */
+  --vital: var(--accent);
+  --vital-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+  --cognition: color-mix(in oklab, var(--accent) 72%, var(--text-dim));
+  --cognition-soft: color-mix(in oklab, var(--accent) 12%, transparent);
+
+  /* the flux is a ladder, not a rainbow: saturation and lightness carry
+     importance, and the badge next to it carries the kind */
+  --flux-out: var(--accent);
+  --flux-think: color-mix(in oklab, var(--accent) 72%, var(--text-dim));
+  --flux-act: color-mix(in oklab, var(--accent) 52%, var(--text-dim));
+  --flux-in: color-mix(in oklab, var(--accent) 34%, var(--text-dim));
+  --flux-cost: var(--text-dim);
+  --flux-mute: var(--text-faint);
+  /* red is not a choice: it is the one colour that has to mean failure */
+  --flux-err: #ff5f6d;
 
   --r-1: 0.5rem;
   --r-2: 0.875rem;
@@ -64,16 +72,16 @@
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --bg: #eeeef2;
-  --bg-raised: #f7f7f9;
-  --bg-sunken: #e4e4ea;
+  --bg: #ededef;
+  --bg-raised: #f8f8f9;
+  --bg-sunken: #e3e3e6;
 
-  --line: rgb(10 12 20 / 10%);
-  --line-strong: rgb(10 12 20 / 20%);
+  --line: rgb(12 12 16 / 11%);
+  --line-strong: rgb(12 12 16 / 21%);
 
-  --text: #14151a;
-  --text-dim: #5c6070;
-  --text-faint: #8b8fa0;
+  --text: #131316;
+  --text-dim: #5c5c66;
+  --text-faint: #8b8b95;
 
   --glass-tint: rgb(255 255 255 / 46%);
   --glass-tint-raised: rgb(255 255 255 / 66%);
@@ -84,18 +92,9 @@
   --fill-3: rgb(10 12 20 / 10%);
   --sunk: rgb(10 12 20 / 5%);
 
-  --vital: #b96400;
-  --vital-soft: rgb(185 100 0 / 12%);
-  --cognition: #4d4ecb;
-  --cognition-soft: rgb(77 78 203 / 12%);
-
-  --flux-in: #0d8fa8;
-  --flux-think: #4d4ecb;
-  --flux-out: #b96400;
-  --flux-act: #17845b;
-  --flux-err: #c33045;
-  --flux-cost: #8a6a10;
-  --flux-mute: #9aa0b0;
+  /* the same hue, darkened until it holds up against a white ground */
+  --accent: color-mix(in oklab, var(--accent-raw) 74%, #000);
+  --flux-err: #c9243a;
 
   --lg-brightness: 1.02;
 }

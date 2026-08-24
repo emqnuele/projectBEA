@@ -4,6 +4,7 @@ const STORAGE_KEY = 'bea.appearance';
 
 export const DEFAULTS = {
     theme: 'dark',          // dark | light
+    accent: '#3d7dff',      // the one hue the interface is allowed
     glass: true,            // refraction on or off entirely
     frost: 18,              // blur behind the surface, px
     light: 0.5,             // specular highlight strength
@@ -39,6 +40,7 @@ export function AppearanceProvider({ children }) {
         const root = document.documentElement;
         root.dataset.theme = settings.theme;
         root.dataset.glass = settings.glass ? 'on' : 'off';
+        root.style.setProperty('--accent-raw', settings.accent);
         root.style.setProperty('--lg-frost', `${settings.frost}px`);
         root.style.setProperty('--lg-light', String(settings.light));
         root.style.setProperty('--lg-depth', String(settings.depth));

@@ -27,6 +27,11 @@ function parseHex(hex) {
     return [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)];
 }
 
+/** `amount` of `from` folded into `into`, per channel. */
+function mix(into, from, amount) {
+    return into.map((channel, index) => Math.round(channel + (from[index] - channel) * amount));
+}
+
 /**
  * The ground the glass sits on.
  *
@@ -52,9 +57,9 @@ export function DitherField() {
         let frame = 0;
         let last = 0;
 
-        let dark = readTone('--bg', [7, 8, 12]);
-        let light = readTone('--bg-raised', [11, 13, 19]);
-        let accent = parseHex('#141726') || [20, 23, 38];
+        let dark = readTone('--bg', [8, 8, 10]);
+        let light = readTone('--bg-raised', [14, 14, 18]);
+        let accent = dark;
 
         const resize = () => {
             width = Math.max(1, Math.ceil(window.innerWidth / SCALE));
@@ -67,9 +72,10 @@ export function DitherField() {
         const readTones = () => {
             dark = readTone('--bg', dark);
             light = readTone('--bg-raised', light);
-            accent = document.documentElement.dataset.theme === 'light'
-                ? (parseHex('#e2e2ea') || accent)
-                : (parseHex('#141726') || accent);
+            // the brightest tone carries a trace of the chosen accent, so the
+            // ground belongs to the same palette as everything sitting on it
+            const hue = readTone('--accent-raw', [61, 125, 255]);
+            accent = mix(light, hue, document.documentElement.dataset.theme === 'light' ? 0.1 : 0.16);
         };
 
         const draw = (time) => {
@@ -121,11 +127,24 @@ export function DitherField() {
         const onResize = () => { resize(); draw(performance.now()); };
         window.addEventListener('resize', onResize);
 
-        const themeWatcher = new MutationObserver(() => { readTones(); draw(performance.now()); });
-        themeWatcher.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+        // the accent is written onto the root's style attribute, and so are the
+        // glass sliders — coalesce, or dragging one repaints the whole field
+        let pending = 0;
+        const themeWatcher = new MutationObserver(() => {
+            if (pending) return;
+            pending = requestAnimationFrame(() => {
+                pending = 0;
+                readTones();
+                draw(performance.now());
+            });
+        });
+        themeWatcher.observe(document.documentElement, {
+            attributes: true, attributeFilter: ['data-theme', 'style'],
+        });
 
         return () => {
             cancelAnimationFrame(frame);
+            if (pending) cancelAnimationFrame(pending);
             window.removeEventListener('resize', onResize);
             themeWatcher.disconnect();
         };

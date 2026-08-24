@@ -15,9 +15,15 @@ Design decisions worth knowing before changing anything:
 
 - **Dark by default.** It runs at night, next to OBS. Light is a real second
   theme, not an afterthought.
-- **Warm means alive.** The amber accent (`--vital`) is reserved for one thing:
-  she is awake, speaking, or acting. Cold periwinkle (`--cognition`) means she
-  is computing. Nothing decorative is allowed to use the warm accent.
+- **Black and white, plus one hue.** Everything is neutral except a single
+  accent, chosen by the operator in Settings › Appearance (`--accent-raw`,
+  blue by default). It is reserved for one meaning: she is awake, speaking or
+  acting. Nothing decorative may use it.
+- **The event colours are a ladder, not a rainbow.** `--flux-out`, `--flux-think`,
+  `--flux-act` and `--flux-in` are all derived from the accent by mixing toward
+  the neutral text colour, so importance reads as saturation and the badge
+  beside them carries the kind. Red is the one exception, because failure has to
+  be unmistakable.
 - **One connection.** `BrainProvider` opens a single `EventSource` and polls the
   two snapshot endpoints in one place. Pages never fetch status themselves.
 - **Nothing fails quietly.** Every request goes through `api.js`, which turns a

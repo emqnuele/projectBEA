@@ -1,5 +1,5 @@
 import React from 'react';
-import { Moon, RotateCcw, Sun } from 'lucide-react';
+import { Check, Moon, RotateCcw, Sun } from 'lucide-react';
 import { DEFAULTS, useAppearance } from '../../state/AppearanceProvider';
 import { Glass } from '../../components/glass/Glass';
 import { Button, Segmented, Switch } from '../../components/ui/controls';
@@ -44,6 +44,88 @@ const CONTROLS = [
     },
 ];
 
+// no orange: the room reads as an instrument, not as a brand
+const PRESETS = [
+    ['#3d7dff', 'Blue'],
+    ['#39c2e6', 'Ice'],
+    ['#6f6bff', 'Indigo'],
+    ['#a56bff', 'Violet'],
+    ['#2fc98d', 'Emerald'],
+    ['#ff5c86', 'Rose'],
+    ['#c8c8d2', 'Graphite'],
+];
+
+const LADDER = [
+    ['Speech', 'var(--flux-out)'],
+    ['Thought', 'var(--flux-think)'],
+    ['Action', 'var(--flux-act)'],
+    ['Perception', 'var(--flux-in)'],
+    ['Ignored', 'var(--flux-mute)'],
+    ['Failure', 'var(--flux-err)'],
+];
+
+function AccentPicker({ value, onChange }) {
+    const custom = !PRESETS.some(([hex]) => hex.toLowerCase() === value.toLowerCase());
+
+    return (
+        <div className="flex flex-wrap items-center gap-2">
+            {PRESETS.map(([hex, name]) => {
+                const active = hex.toLowerCase() === value.toLowerCase();
+                return (
+                    <button
+                        key={hex}
+                        type="button"
+                        onClick={() => onChange(hex)}
+                        title={name}
+                        aria-label={name}
+                        aria-pressed={active}
+                        className="grid h-8 w-8 place-items-center rounded-full border transition-transform hover:scale-110"
+                        style={{
+                            background: hex,
+                            borderColor: active ? 'var(--text)' : 'transparent',
+                            boxShadow: active ? '0 0 0 2px var(--bg), 0 0 0 3px var(--text)' : 'none',
+                        }}
+                    >
+                        {active && <Check size={13} strokeWidth={3} style={{ color: '#0b0b0d' }} />}
+                    </button>
+                );
+            })}
+
+            <label
+                className="ml-1 flex cursor-pointer items-center gap-2 rounded-full border border-line px-3 py-1.5 text-[11px] font-medium text-dim transition-colors hover:border-line-strong hover:text-text"
+                title="Pick any colour"
+            >
+                <span
+                    className="h-3.5 w-3.5 rounded-full border border-line"
+                    style={{ background: custom ? value : 'transparent' }}
+                />
+                {custom ? value.toUpperCase() : 'Custom'}
+                <input
+                    type="color"
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    aria-label="Custom accent colour"
+                    className="h-0 w-0 opacity-0"
+                />
+            </label>
+        </div>
+    );
+}
+
+/** Everything else is derived from it, so the ladder always stays coherent. */
+function AccentLadder() {
+    return (
+        <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-b2 border border-line bg-fill p-3">
+            {LADDER.map(([label, color]) => (
+                <span key={label} className="flex items-center gap-1.5 text-[11px] text-dim">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+                    {label}
+                </span>
+            ))}
+        </div>
+    );
+}
+
 export function AppearanceSection() {
     const { settings, set, reset } = useAppearance();
 
@@ -58,6 +140,14 @@ export function AppearanceSection() {
                         { value: 'light', label: 'Light', icon: <Sun size={12} /> },
                     ]}
                 />
+            </Group>
+
+            <Group
+                title="Accent"
+                description="The room is black and white. This is the one hue allowed in, and it means one thing: she is awake and doing something."
+            >
+                <AccentPicker value={settings.accent} onChange={(value) => set('accent', value)} />
+                <AccentLadder />
             </Group>
 
             <Group
@@ -125,7 +215,8 @@ export function AppearanceSection() {
                     size="sm"
                     onClick={reset}
                     disabled={CONTROLS.every((c) => settings[c.key] === DEFAULTS[c.key])
-                        && settings.theme === DEFAULTS.theme}
+                        && settings.theme === DEFAULTS.theme
+                        && settings.accent === DEFAULTS.accent}
                 >
                     <RotateCcw size={13} /> Back to the defaults
                 </Button>
@@ -142,9 +233,9 @@ function Preview() {
                 className="absolute inset-0"
                 style={{
                     background:
-                        'radial-gradient(circle at 22% 30%, var(--vital) 0%, transparent 42%),' +
-                        'radial-gradient(circle at 78% 68%, var(--cognition) 0%, transparent 46%),' +
-                        'radial-gradient(circle at 55% 15%, var(--flux-in) 0%, transparent 38%),' +
+                        'radial-gradient(circle at 22% 30%, var(--accent) 0%, transparent 44%),' +
+                        'radial-gradient(circle at 78% 68%, var(--text) 0%, transparent 40%),' +
+                        'radial-gradient(circle at 55% 12%, var(--cognition) 0%, transparent 36%),' +
                         'var(--bg-sunken)',
                 }}
             />
