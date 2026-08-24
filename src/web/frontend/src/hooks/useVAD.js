@@ -28,6 +28,37 @@ export const useVAD = ({
     const speechFramesRef = useRef(0);
     const isSpeakingRef = useRef(false);
 
+    // --- recording, declared before the loop that drives it ---
+
+    const startRecordingInternal = useCallback((stream) => {
+        if (mediaRecorderRef.current?.state === 'recording') return;
+
+        // MediaRecorder does not produce WAV; ask for what the browser can make
+        const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
+        const mimeType = preferred.find((type) => MediaRecorder.isTypeSupported(type)) || '';
+
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        mediaRecorderRef.current = recorder;
+        audioChunksRef.current = [];
+
+        recorder.ondataavailable = (event) => {
+            if (event.data.size > 0) audioChunksRef.current.push(event.data);
+        };
+        recorder.start();
+    }, []);
+
+    const stopRecordingInternal = useCallback(() => {
+        const recorder = mediaRecorderRef.current;
+        if (!recorder || recorder.state === 'inactive') return;
+
+        // the handler has to be attached before stop(), or the event can be missed
+        recorder.onstop = () => {
+            const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+            if (blob.size > 1000 && onSpeechEnd) onSpeechEnd(blob);
+        };
+        recorder.stop();
+    }, [onSpeechEnd]);
+
     const startVAD = useCallback(async () => {
         if (isListening) return;
 
@@ -115,7 +146,7 @@ export const useVAD = ({
             console.error("VAD Setup Error:", err);
             setRecordingStatus('error');
         }
-    }, [isListening, onSpeechStart, onSpeechEnd, threshold, silenceDuration]);
+    }, [isListening, onSpeechStart, threshold, silenceDuration, startRecordingInternal, stopRecordingInternal]);
 
     const stopVAD = useCallback(() => {
         if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
@@ -132,41 +163,8 @@ export const useVAD = ({
         isSpeakingRef.current = false;
     }, []);
 
-    // internal recording helpers
-    const startRecordingInternal = (stream) => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') return;
-
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                audioChunksRef.current.push(event.data);
-            }
-        };
-
-        mediaRecorder.start();
-    };
-
-    const stopRecordingInternal = () => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            mediaRecorderRef.current.stop();
-            mediaRecorderRef.current.onstop = () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-                if (audioBlob.size > 1000) {
-                    if (onSpeechEnd) onSpeechEnd(audioBlob);
-                }
-            };
-        }
-    };
-
     // cleanup
-    useEffect(() => {
-        return () => {
-            stopVAD();
-        };
-    }, []);
+    useEffect(() => () => stopVAD(), [stopVAD]);
 
     return {
         startVAD,

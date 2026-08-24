@@ -1,11 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="Control room for Bea — one always-on consciousness across Discord, Telegram, Twitch and Minecraft." />
+  <meta name="theme-color" content="#07080c" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f4f4f6" media="(prefers-color-scheme: light)" />
+  <meta name="color-scheme" content="dark light" />
   <link rel="icon" type="image/x-icon" href="/bea.ico" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bea Engine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    rel="stylesheet" />
+  <title>Bea — Control Room</title>
+  <script>
+    // theme before first paint, so the shell never flashes the wrong ground
+    try {
+      const saved = JSON.parse(localStorage.getItem('bea.appearance') || '{}');
+      if (saved.theme) document.documentElement.dataset.theme = saved.theme;
+    } catch (e) { /* a corrupt preference is not worth a broken boot */ }
+  </script>
 </head>
 
 <body>

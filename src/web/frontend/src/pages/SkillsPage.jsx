@@ -1,283 +1,243 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '../components/ui/card';
-import { Switch } from '../components/ui/switch';
-import { Label } from '../components/ui/label';
-import { Input } from '../components/ui/input';
-import { Separator } from '../components/ui/separator';
-import { Button } from '../components/ui/button';
-import { Terminal, Settings, Save } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useDialog } from '../context/DialogContext';
+import {
+    Boxes, Coins, Gamepad2, HeartHandshake, MessageCircle, Moon, Radio, Send, Settings2, Terminal, Users,
+} from 'lucide-react';
+import { api } from '../api';
+import { cn, fluxOf } from '../lib/cn';
+import { clockTime, titleCase } from '../lib/format';
+import { useBrain } from '../state/BrainProvider';
+import { useToast } from '../state/ToastProvider';
 import MinecraftConsole from '../components/console/MinecraftConsole';
+import { Glass } from '../components/glass/Glass';
+import { Button, Switch } from '../components/ui/controls';
+import { Badge, Skeleton } from '../components/ui/feedback';
 
-import { API_BASE } from '../api';
-import { useEvents } from '../useEvents';
+// what each ability actually does, in the operator's words
+const CATALOGUE = {
+    monologue: {
+        icon: Radio, title: 'Idle thoughts',
+        blurb: 'She says something on her own when the room has gone quiet for a while.',
+        settings: null,
+    },
+    memory: {
+        icon: Users, title: 'Memory',
+        blurb: 'Person cards, the diary and semantic recall. Without this she forgets everyone between sessions.',
+        settings: 'mind',
+    },
+    social_memory: {
+        icon: HeartHandshake, title: 'Social memory',
+        blurb: 'Keeps track of who is who across platforms and how she feels about them.',
+        settings: 'mind',
+    },
+    dream: {
+        icon: Moon, title: 'Dreaming',
+        blurb: 'While asleep she rereads the day, writes people down and works out things about herself.',
+        settings: 'mind',
+    },
+    minecraft: {
+        icon: Gamepad2, title: 'Minecraft',
+        blurb: 'A body on a vanilla server. She plays toward the objectives you set and reads game chat.',
+        settings: 'world',
+    },
+    twitch: {
+        icon: MessageCircle, title: 'Twitch',
+        blurb: 'Reads the stream chat and answers the parts that concern her.',
+        settings: 'channels',
+    },
+    donations: {
+        icon: Coins, title: 'Donations',
+        blurb: 'Alerts reach her as perceptions, so she can react to them live.',
+        settings: 'channels',
+    },
+    telegram: {
+        icon: Send, title: 'Telegram',
+        blurb: 'Private conversations that run beside everything else.',
+        settings: 'channels',
+    },
+    discord: {
+        icon: MessageCircle, title: 'Discord',
+        blurb: 'Text channels and voice calls, each one its own conversation.',
+        settings: 'channels',
+    },
+};
 
 export default function SkillsPage() {
-    const { events } = useEvents(100);
-    const [skills, setSkills] = useState({});
-    const [logs, setLogs] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [skills, setSkills] = useState(null);
     const [config, setConfig] = useState(null);
-
-    // fetch skills
-    const fetchSkills = async () => {
-        try {
-            const res = await fetch(`${API_BASE}/skills`);
-            const data = await res.json();
-            setSkills(data);
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    // logs come off the live event stream; skills are a snapshot, so they stay
-    // on a (much slower) poll
-    useEffect(() => {
-        setLogs(events
-            .filter(e => ['skill', 'thought', 'error'].includes(e.category))
-            .map(e => ({ timestamp: e.timestamp, skill: e.source, message: e.message })));
-    }, [events]);
-
-    useEffect(() => {
-        fetchSkills();
-        const interval = setInterval(fetchSkills, 5000);
-        return () => clearInterval(interval);
-    }, []);
-
-    // fetch global config
-
-    useEffect(() => {
-        const fetchGlobalConfig = async () => {
-            try {
-                const res = await fetch(`${API_BASE}/config`);
-                const data = await res.json();
-                setConfig(data);
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchGlobalConfig();
-    }, []);
-
-    const toggleSkill = async (name, state) => {
-        try {
-            await fetch(`${API_BASE}/skills/${name}/toggle?enable=${state}`, { method: 'POST' });
-            fetchSkills();
-            setConfig(prev => ({
-                ...prev,
-                skills: {
-                    ...prev.skills,
-                    [name]: { ...prev.skills[name], enabled: state }
-                }
-            }));
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    const { alert } = useDialog();
-
-    const saveConfig = async () => {
-        if (!config) return;
-        try {
-            await fetch(`${API_BASE}/config`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ config })
-            });
-            await alert("Settings Saved!", "Success");
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    const updateSkillConfig = (skillName, key, value) => {
-        setConfig(prev => ({
-            ...prev,
-            skills: {
-                ...prev.skills,
-                [skillName]: { ...prev.skills[skillName], [key]: value }
-            }
-        }));
-    };
-
     const [consoleOpen, setConsoleOpen] = useState(false);
+    const [busy, setBusy] = useState(null);
 
-    if (loading) return <div className="p-10">Loading Skills...</div>;
+    const { events, refreshOverview } = useBrain();
+    const toast = useToast();
+
+    const load = useCallback(async () => {
+        try {
+            const [runtime, settings] = await Promise.all([api.skills(), api.config()]);
+            setSkills(runtime);
+            setConfig(settings);
+        } catch (e) {
+            setSkills({});
+            toast.error('Could not read her abilities', e.message);
+        }
+    }, [toast]);
+
+    useEffect(() => {
+        load();
+        const timer = setInterval(() => api.skills().then(setSkills).catch(() => { }), 5000);
+        return () => clearInterval(timer);
+    }, [load]);
+
+    const toggle = async (name, enable) => {
+        setBusy(name);
+        // optimistic: the switch must answer the finger, not the round trip
+        setSkills((prev) => ({ ...prev, [name]: { ...prev[name], enabled: enable } }));
+        try {
+            await api.toggleSkill(name, enable);
+            toast.success(`${CATALOGUE[name]?.title || titleCase(name)} ${enable ? 'on' : 'off'}`);
+            await refreshOverview();
+        } catch (e) {
+            setSkills((prev) => ({ ...prev, [name]: { ...prev[name], enabled: !enable } }));
+            toast.error('That switch did not take', e.message);
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const recent = useMemo(
+        () => events.filter((e) => ['skill', 'error'].includes(e.category)).slice(0, 12),
+        [events],
+    );
+
+    if (skills === null) {
+        return (
+            <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-36" />)}
+            </div>
+        );
+    }
+
+    const entries = Object.entries(skills);
 
     return (
-        <div className="flex h-screen bg-transparent text-zinc-900">
+        <div className="flex h-full flex-col gap-2.5 overflow-y-auto pr-0.5">
             {consoleOpen && (
                 <MinecraftConsole
-                    serverUrl={config?.skills?.minecraft?.server_url || "ws://localhost:8080"}
+                    serverUrl={config?.skills?.minecraft?.server_url || 'ws://localhost:8080'}
                     onClose={() => setConsoleOpen(false)}
                 />
             )}
-            {/* main content */}
-            <div className="w-full p-8 overflow-y-auto">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="max-w-6xl"
-                >
-                    <h1 className="text-2xl font-bold text-zinc-900 mb-8 tracking-tight">Skills & Behaviors</h1>
 
-                    <motion.div
-                        initial="hidden"
-                        animate="visible"
-                        variants={{
-                            visible: { transition: { staggerChildren: 0.1 } }
-                        }}
-                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-                    >
-                        {Object.entries(config?.skills || {}).map(([skillName, skillConfig]) => {
-                            const runtimeStatus = skills[skillName] || {};
+            <Glass quiet className="flex flex-wrap items-center gap-3 rounded-b3 px-4 py-3">
+                <Boxes size={15} className="text-faint" />
+                <div className="mr-auto">
+                    <h1 className="font-display text-[13px] font-semibold text-text">Abilities</h1>
+                    <p className="text-[11px] text-faint">
+                        A switch takes effect immediately. Everything each one needs to be configured lives in Settings.
+                    </p>
+                </div>
+            </Glass>
+
+            <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                {entries.map(([name, runtime], index) => {
+                    const meta = CATALOGUE[name] || { icon: Boxes, title: titleCase(name), blurb: '', settings: null };
+                    const Icon = meta.icon;
+                    return (
+                        <motion.div
+                            key={name}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: Math.min(index * 0.04, 0.32) }}
+                        >
+                            <Glass quiet className="flex h-full flex-col rounded-b3 p-4">
+                                <div className="flex items-start gap-3">
+                                    <span
+                                        className="grid h-9 w-9 shrink-0 place-items-center rounded-b2"
+                                        style={{
+                                            background: runtime.active
+                                                ? 'color-mix(in srgb, var(--flux-act) 14%, transparent)'
+                                                : 'rgb(255 255 255 / 4%)',
+                                            color: runtime.active ? 'var(--flux-act)' : 'var(--text-faint)',
+                                        }}
+                                    >
+                                        <Icon size={17} />
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate font-display text-sm font-semibold text-text">{meta.title}</p>
+                                        <p className="mt-0.5">
+                                            {runtime.active
+                                                ? <Badge color="var(--flux-act)" dot>running</Badge>
+                                                : runtime.enabled
+                                                    ? <Badge dot>idle</Badge>
+                                                    : <Badge color="var(--flux-mute)">off</Badge>}
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        checked={runtime.enabled}
+                                        disabled={busy === name}
+                                        onChange={(value) => toggle(name, value)}
+                                        label={`Turn ${meta.title} ${runtime.enabled ? 'off' : 'on'}`}
+                                    />
+                                </div>
+
+                                <p className="mt-3 text-[12px] leading-relaxed text-dim">{meta.blurb}</p>
+
+                                <div className="mt-auto flex items-center gap-2 pt-3.5">
+                                    {meta.settings && (
+                                        <Link
+                                            to={`/dashboard/settings/${meta.settings}`}
+                                            className="inline-flex h-8 items-center gap-1.5 rounded-b1 px-2.5 text-xs
+                                                       font-semibold text-dim transition-colors hover:bg-white/5 hover:text-text"
+                                        >
+                                            <Settings2 size={13} /> Configure
+                                        </Link>
+                                    )}
+                                    {name === 'minecraft' && (
+                                        <Button size="sm" variant="outline" onClick={() => setConsoleOpen(true)}>
+                                            <Terminal size={13} /> Console
+                                        </Button>
+                                    )}
+                                </div>
+                            </Glass>
+                        </motion.div>
+                    );
+                })}
+            </div>
+
+            <Glass quiet className="rounded-b3 p-4">
+                <h2 className="mb-3 font-display text-[13px] font-semibold text-text">What they have been doing</h2>
+                {recent.length === 0 ? (
+                    <p className="py-6 text-center text-[12px] text-faint">
+                        No ability has done anything yet this run.
+                    </p>
+                ) : (
+                    <ul className="divide-y divide-[color:var(--line)]">
+                        {recent.map((event) => {
+                            const flux = fluxOf(event);
                             return (
-                                <motion.div
-                                    key={skillName}
-                                    variants={{
-                                        hidden: { opacity: 0, y: 20 },
-                                        visible: { opacity: 1, y: 0 }
-                                    }}
-                                >
-                                    <Card className="bg-white border-zinc-200/80 shadow-sm">
-                                        <CardHeader className="pb-3">
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <CardTitle className="capitalize text-lg text-zinc-900">{skillName}</CardTitle>
-                                                    <CardDescription className="text-zinc-400 text-xs mt-1">
-                                                        Status: {runtimeStatus.active ? <span className="text-emerald-600 font-semibold">Active</span> : <span className="text-zinc-400">Idle</span>}
-                                                    </CardDescription>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <Switch
-                                                        checked={skillConfig.enabled}
-                                                        onCheckedChange={(checked) => toggleSkill(skillName, checked)}
-                                                    />
-                                                    <span className={`text-xs font-medium ${skillConfig.enabled ? "text-zinc-900" : "text-zinc-400"}`}>{skillConfig.enabled ? "ON" : "OFF"}</span>
-                                                </div>
-                                            </div>
-                                        </CardHeader>
-                                        <CardContent className="space-y-4">
-                                            {/* specific fields for monologue */}
-                                            {skillName === 'monologue' && (
-                                                <>
-                                                    <div className="grid grid-cols-1 gap-2">
-                                                        <Label className="text-xs text-zinc-500">Trigger Interval (seconds)</Label>
-                                                        <Input
-                                                            type="number"
-                                                            value={skillConfig.interval_seconds}
-                                                            onChange={(e) => updateSkillConfig(skillName, 'interval_seconds', parseInt(e.target.value))}
-                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
-                                                        />
-                                                    </div>
-                                                    <div className="grid grid-cols-1 gap-2">
-                                                        <Label className="text-xs text-zinc-500">Instruction / System Prompt</Label>
-                                                        <Input
-                                                            value={skillConfig.prompt_instructions}
-                                                            onChange={(e) => updateSkillConfig(skillName, 'prompt_instructions', e.target.value)}
-                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
-                                                        />
-                                                    </div>
-                                                </>
-                                            )}
-                                            {skillName === 'memory' && (
-                                                <div className="space-y-4">
-                                                    <div className="space-y-1.5">
-                                                        <Label className="text-xs text-zinc-500">ChromaDB Path</Label>
-                                                        <Input
-                                                            value={skillConfig.chroma_path || 'data/memory_db'}
-                                                            onChange={(e) => updateSkillConfig(skillName, 'chroma_path', e.target.value)}
-                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
-                                                        />
-                                                    </div>
-
-                                                    <Button
-                                                        size="sm"
-                                                        className="w-full mt-2 bg-black text-white hover:bg-zinc-800 cursor-pointer text-xs font-semibold"
-                                                        onClick={async () => {
-                                                            const btn = document.getElementById("save-mem-btn");
-                                                            if (btn) btn.disabled = true;
-                                                            try {
-                                                                const res = await fetch(`${API_BASE}/memory/save`, { method: 'POST' });
-                                                                const data = await res.json();
-                                                                if (data.status === 'success') alert("Memory Saved", "Session saved to long-term memory.");
-                                                                else alert("Error", data.message);
-                                                            } catch (e) {
-                                                                console.error(e);
-                                                                alert("Error", "Failed to contact server.");
-                                                            } finally {
-                                                                if (btn) btn.disabled = false;
-                                                            }
-                                                        }}
-                                                        id="save-mem-btn"
-                                                    >
-                                                        <Save className="w-3.5 h-3.5 mr-2" />
-                                                        Save Memory Now
-                                                    </Button>
-                                                </div>
-                                            )}
-                                            {skillName === 'minecraft' && (
-                                                <div className="space-y-4">
-                                                    <div className="space-y-1.5">
-                                                        <Label className="text-xs text-zinc-500">Server URL</Label>
-                                                        <Input
-                                                            value={skillConfig.server_url || ''}
-                                                            onChange={(e) => updateSkillConfig(skillName, 'server_url', e.target.value)}
-                                                            placeholder="ws://localhost:8080"
-                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
-                                                        />
-                                                    </div>
-                                                    <div className="flex items-center justify-between border border-zinc-150 rounded-md p-2 bg-zinc-50/50">
-                                                        <Label className="text-xs text-zinc-500">Auto Speak Thoughts</Label>
-                                                        <Switch
-                                                            checked={skillConfig.auto_speak_thoughts || false}
-                                                            onCheckedChange={(checked) => updateSkillConfig(skillName, 'auto_speak_thoughts', checked)}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {skillName === 'discord' && (
-                                                <div className="space-y-4">
-                                                    <div className="space-y-1.5">
-                                                        <Label className="text-xs text-zinc-500">Bot Token</Label>
-                                                        <Input
-                                                            type="password"
-                                                            value={skillConfig.token || ''}
-                                                            onChange={(e) => updateSkillConfig(skillName, 'token', e.target.value)}
-                                                            placeholder="Enter Discord Bot Token"
-                                                            className="bg-white border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-100"
-                                                        />
-                                                    </div>
-                                                    <p className="text-[11px] text-zinc-400 mt-1.5">
-                                                        Enable the skill and restart the brain to start the bot process.
-                                                    </p>
-                                                </div>
-                                            )}
-                                            <div className="pt-2 flex justify-end gap-2">
-                                                {skillName === 'minecraft' && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 cursor-pointer"
-                                                        onClick={() => setConsoleOpen(true)}
-                                                    >
-                                                        <Settings className="w-4 h-4 mr-2" /> Console
-                                                    </Button>
-                                                )}
-                                                <Button size="sm" variant="outline" className="cursor-pointer border-zinc-200 hover:bg-zinc-50" onClick={saveConfig}>Save Settings</Button>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                </motion.div>
+                                <li key={event.id} className="flex items-start gap-3 py-2">
+                                    <span className="tnum shrink-0 pt-px font-mono text-[10px] text-faint">
+                                        {clockTime(event.timestamp)}
+                                    </span>
+                                    <span
+                                        className="w-16 shrink-0 truncate font-mono text-[10px]"
+                                        style={{ color: flux.color }}
+                                    >
+                                        {event.source}
+                                    </span>
+                                    <span className={cn(
+                                        'min-w-0 flex-1 break-words font-mono text-[11px]',
+                                        event.category === 'error' ? 'text-[color:var(--flux-err)]' : 'text-dim',
+                                    )}>
+                                        {event.message}
+                                    </span>
+                                </li>
                             );
                         })}
-                    </motion.div>
-                </motion.div>
-            </div>
+                    </ul>
+                )}
+            </Glass>
         </div>
     );
 }

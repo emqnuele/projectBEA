@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from src.core.brain import AIVtuberBrain
-from src.core.config import MASK
+from src.core.config import MASK, SECRET_SKILL_FIELDS
 from src.core.memory.plan import STATUSES
 from src.utils.logger import get_logger
 
@@ -830,6 +830,20 @@ def test_obs():
         )
     except Exception as e:
         return TestResult(ok=False, message="Could not reach OBS", detail=str(e)[:300])
+
+
+@app.get("/secrets")
+def secrets_state():
+    """Which secrets are set — never their values.
+
+    `public_dict()` strips them entirely, so the UI could not tell a missing key
+    from a stored one and every field looked empty.
+    """
+    config = get_brain().config
+    state = {key: bool(getattr(config, key, None)) for key in config.SECRET_KEYS}
+    for skill_key, field_name in SECRET_SKILL_FIELDS:
+        state[f"{skill_key}.{field_name}"] = bool(config.skills.get(skill_key, {}).get(field_name))
+    return state
 
 
 @app.get("/audio/devices")

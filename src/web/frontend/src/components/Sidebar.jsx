@@ -1,242 +1,306 @@
-import React, { useState, useEffect } from 'react';
-import { MessageSquare, Settings, ChevronDown, ChevronRight, Server, Mic, Volume2, Video, Type, User, Plus, BrainCircuit, Activity, Box, ListChecks } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { useDialog } from '../context/DialogContext';
-import { API_BASE } from '../api';
+import React, { useCallback, useEffect, useState } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+    Check, ChevronLeft, MessageSquarePlus, PanelLeft, Pencil, Settings, Trash2, X,
+} from 'lucide-react';
+import { api } from '../api';
+import { cn } from '../lib/cn';
+import { NAV, VERSION } from '../lib/nav';
+import { relativeTime } from '../lib/format';
+import { useToast } from '../state/ToastProvider';
+import { useDialog } from '../state/DialogProvider';
+import { useBrain } from '../state/BrainProvider';
+import { Glass } from './glass/Glass';
+import { IconButton } from './ui/controls';
+import { Spinner } from './ui/feedback';
 
-export default function Sidebar({ view, setView, configCategory, setConfigCategory, onSessionChange }) {
-    const [isConfigOpen, setIsConfigOpen] = useState(true);
+const COLLAPSE_KEY = 'bea.sidebar.collapsed';
+
+export function Sidebar({ mobileOpen, onCloseMobile }) {
+    const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1');
+    const [sessions, setSessions] = useState(null);
+    const [renaming, setRenaming] = useState(null);
+    const [draftTitle, setDraftTitle] = useState('');
+
+    const navigate = useNavigate();
+    const toast = useToast();
     const dialog = useDialog();
+    const { status, refreshOverview } = useBrain();
+    const activeSession = status?.session_id;
 
-    const configItems = [
-        { id: 'LLM', label: 'Model', icon: Server },
-        { id: 'STT', label: 'Speech to Text', icon: Mic },
-        { id: 'TTS', label: 'Voice', icon: Volume2 },
-        { id: 'OBS', label: 'Stream', icon: Video },
-        { id: 'Typing', label: 'Typing', icon: Type },
-        { id: 'Avatar', label: 'Avatar', icon: User },
-        { id: 'General', label: 'General', icon: BrainCircuit },
-        { id: 'Minecraft', label: 'Minecraft', icon: Box },
-        { id: 'Discord', label: 'Discord', icon: BrainCircuit },
-    ];
+    useEffect(() => { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); }, [collapsed]);
 
-    const [sessions, setSessions] = useState([]);
-    const [loadingSessions, setLoadingSessions] = useState(false);
-
-    useEffect(() => {
-        fetchSessions();
+    const loadSessions = useCallback(async () => {
+        try {
+            setSessions(await api.sessions());
+        } catch {
+            setSessions([]);
+        }
     }, []);
 
-    const fetchSessions = async () => {
-        setLoadingSessions(true);
+    useEffect(() => { loadSessions(); }, [loadSessions, activeSession]);
+
+    const startNewChat = async () => {
+        const ok = await dialog.confirm({
+            title: 'Start a new conversation?',
+            message: 'The current one is saved and closed. She keeps what she learned from it.',
+            confirmLabel: 'Start new',
+        });
+        if (!ok) return;
         try {
-            const res = await fetch(`${API_BASE}/sessions`);
-            if (res.ok) {
-                const data = await res.json();
-                setSessions(data);
-            }
+            await api.createSession();
+            await loadSessions();
+            await refreshOverview();
+            navigate('/dashboard/chat');
+            toast.success('New conversation started');
         } catch (e) {
-            console.error("Failed to fetch sessions", e);
-        } finally {
-            setLoadingSessions(false);
+            toast.error('Could not start a conversation', e.message);
         }
     };
 
-    const handleNewChat = async () => {
-        const confirmed = await dialog.confirm("Start a new chat? Current context will be cleared.", "Start New Chat");
-        if (!confirmed) return;
-
+    const openSession = async (id) => {
         try {
-            const res = await fetch(`${API_BASE}/sessions`, { method: 'POST' });
-            if (res.ok) {
-                const data = await res.json();
-                fetchSessions();
-                if (setView) setView('chat');
-                if (onSessionChange) onSessionChange();
-            }
+            await api.activateSession(id);
+            await loadSessions();
+            navigate('/dashboard/chat');
         } catch (e) {
-            console.error("Failed to create session", e);
+            toast.error('Could not open that conversation', e.message);
         }
     };
 
-    const handleSessionClick = async (sessionId) => {
+    const saveTitle = async (id) => {
+        const title = draftTitle.trim();
+        setRenaming(null);
+        if (!title) return;
         try {
-            const res = await fetch(`${API_BASE}/sessions/${sessionId}/activate`, { method: 'POST' });
-            if (res.ok) {
-                if (setView) setView('chat');
-                if (onSessionChange) onSessionChange();
-            }
+            await api.renameSession(id, title);
+            await loadSessions();
         } catch (e) {
-            console.error("Failed to activate session", e);
+            toast.error('Could not rename it', e.message);
         }
     };
 
-    const handleConfigClick = () => {
-        if (view !== 'config') {
-            setView('config');
-            setIsConfigOpen(true);
-        } else {
-            setIsConfigOpen(!isConfigOpen);
+    const removeSession = async (session) => {
+        const ok = await dialog.confirm({
+            title: `Delete "${sessionLabel(session)}"?`,
+            message: 'The transcript is removed from disk. What she already remembers from it stays.',
+            confirmLabel: 'Delete',
+            danger: true,
+        });
+        if (!ok) return;
+        try {
+            await api.deleteSession(session.id);
+            await loadSessions();
+            toast.success('Conversation deleted');
+        } catch (e) {
+            toast.error('Could not delete it', e.message);
         }
     };
+
+    const width = collapsed ? 'lg:w-[74px]' : 'lg:w-[248px]';
 
     return (
-        <div className="w-[240px] h-screen bg-zinc-50/80 backdrop-blur-md border-r border-zinc-200/50 flex flex-col py-6 transition-all duration-300 select-none">
-            {/* logo */}
-            <div className="flex items-center px-6 mb-8 mt-2">
-                <div className="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                    PB
+        <>
+            <AnimatePresence>
+                {mobileOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={onCloseMobile}
+                        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px] lg:hidden"
+                    />
+                )}
+            </AnimatePresence>
+
+            <Glass
+                as="nav"
+                aria-label="Sections"
+                className={cn(
+                    'fixed inset-y-0 left-0 z-50 flex w-[264px] flex-col rounded-none border-y-0 border-l-0 p-3',
+                    'transition-transform duration-300 lg:static lg:z-auto lg:h-full lg:rounded-b4 lg:border',
+                    'lg:translate-x-0 lg:transition-[width] lg:duration-300',
+                    width,
+                    mobileOpen ? 'translate-x-0' : '-translate-x-full',
+                )}
+            >
+                <div className="mb-4 flex items-center gap-2 px-1.5 pt-1">
+                    <BrandMark collapsed={collapsed} />
+                    <IconButton
+                        label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                        size="sm"
+                        onClick={() => setCollapsed((v) => !v)}
+                        className="ml-auto hidden lg:inline-grid"
+                    >
+                        {collapsed ? <PanelLeft size={14} /> : <ChevronLeft size={14} />}
+                    </IconButton>
+                    <IconButton label="Close menu" size="sm" onClick={onCloseMobile} className="ml-auto lg:hidden">
+                        <X size={15} />
+                    </IconButton>
                 </div>
-                <div className="ml-3 flex flex-col">
-                    <span className="font-bold text-sm tracking-tight text-zinc-900 leading-none">
-                        Project<span className="text-zinc-500 font-medium">Bea</span>
-                    </span>
-                    <span className="text-[10px] font-medium text-zinc-400 mt-1 uppercase tracking-widest">
-                        Neural Engine
-                    </span>
-                </div>
-            </div>
 
-            <div className="flex-1 min-h-0 flex flex-col px-3 overflow-hidden">
-                {/* new chat button */}
-                <motion.button
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.99 }}
-                    onClick={handleNewChat}
-                    className="w-full flex items-center px-4 py-2.5 rounded-xl bg-black text-white hover:bg-zinc-800 transition-colors shadow-sm mb-6 cursor-pointer"
-                >
-                    <Plus size={18} />
-                    <span className="ml-3 text-sm font-semibold">Initialize Chat</span>
-                </motion.button>
+                <ul className="space-y-0.5">
+                    {NAV.map((item) => (
+                        <li key={item.to}>
+                            <NavLink
+                                to={item.to}
+                                end={item.end}
+                                onClick={onCloseMobile}
+                                title={collapsed ? item.label : undefined}
+                                className={({ isActive }) => cn(
+                                    'group relative flex items-center gap-3 rounded-b2 px-2.5 py-2 text-[13px] font-medium transition-colors',
+                                    isActive ? 'text-text' : 'text-dim hover:bg-white/5 hover:text-text',
+                                )}
+                            >
+                                {({ isActive }) => (
+                                    <>
+                                        {isActive && (
+                                            <motion.span
+                                                layoutId="nav-active"
+                                                transition={{ type: 'spring', stiffness: 520, damping: 40 }}
+                                                className="absolute inset-0 rounded-b2 border border-line bg-white/[0.08]"
+                                            />
+                                        )}
+                                        <span className="relative shrink-0"><item.icon size={17} /></span>
+                                        {!collapsed && <span className="relative truncate">{item.label}</span>}
+                                        {isActive && !collapsed && (
+                                            <span
+                                                className="relative ml-auto h-1.5 w-1.5 rounded-full"
+                                                style={{ background: 'var(--vital)' }}
+                                            />
+                                        )}
+                                    </>
+                                )}
+                            </NavLink>
+                        </li>
+                    ))}
+                </ul>
 
-                {/* nav items */}
-                <div className="space-y-1">
-                    <button
-                        onClick={() => setView('chat')}
-                        className={`w-full flex items-center px-3 py-2 rounded-md transition-colors group cursor-pointer
-                            ${view === 'chat'
-                                ? 'bg-zinc-150 text-zinc-900 border border-zinc-200/50 shadow-sm'
-                                : 'text-zinc-500 hover:bg-zinc-100/50 hover:text-zinc-900 border border-transparent'
-                            }`}
-                    >
-                        <MessageSquare size={18} className={view === 'chat' ? 'text-zinc-900' : 'text-zinc-400'} />
-                        <span className="ml-3 text-sm font-medium">Chat</span>
-                    </button>
+                <div className="mt-4 min-h-0 flex-1 overflow-hidden">
+                    <div className="mb-2 flex items-center gap-2 px-2.5">
+                        {!collapsed && (
+                            <span className="text-[10px] font-semibold uppercase tracking-widest text-faint">
+                                Conversations
+                            </span>
+                        )}
+                        <IconButton label="New conversation" size="sm" onClick={startNewChat} className="ml-auto">
+                            <MessageSquarePlus size={15} />
+                        </IconButton>
+                    </div>
 
-                    <button
-                        onClick={() => setView('plan')}
-                        className={`w-full flex items-center px-3 py-2 rounded-md transition-colors group cursor-pointer
-                            ${view === 'plan'
-                                ? 'bg-zinc-150 text-zinc-900 border border-zinc-200/50 shadow-sm'
-                                : 'text-zinc-500 hover:bg-zinc-100/50 hover:text-zinc-900 border border-transparent'
-                            }`}
-                    >
-                        <ListChecks size={18} className={view === 'plan' ? 'text-zinc-900' : 'text-zinc-400'} />
-                        <span className="ml-3 text-sm font-medium">Stream Plan</span>
-                    </button>
-
-                    <button
-                        onClick={() => setView('activity')}
-                        className={`w-full flex items-center px-3 py-2 rounded-md transition-colors group cursor-pointer
-                            ${view === 'activity'
-                                ? 'bg-zinc-150 text-zinc-900 border border-zinc-200/50 shadow-sm'
-                                : 'text-zinc-500 hover:bg-zinc-100/50 hover:text-zinc-900 border border-transparent'
-                            }`}
-                    >
-                        <Activity size={18} className={view === 'activity' ? 'text-zinc-900' : 'text-zinc-400'} />
-                        <span className="ml-3 text-sm font-medium">Activity</span>
-                    </button>
-
-                    <button
-                        onClick={() => setView('skills')}
-                        className={`w-full flex items-center px-3 py-2 rounded-md transition-colors group cursor-pointer
-                            ${view === 'skills'
-                                ? 'bg-zinc-150 text-zinc-900 border border-zinc-200/50 shadow-sm'
-                                : 'text-zinc-500 hover:bg-zinc-100/50 hover:text-zinc-900 border border-transparent'
-                            }`}
-                    >
-                        <BrainCircuit size={18} className={view === 'skills' ? 'text-zinc-900' : 'text-zinc-400'} />
-                        <span className="ml-3 text-sm font-medium">Skills</span>
-                    </button>
-
-                    {/* config group */}
-                    <div className="pt-1">
-                        <button
-                            onClick={handleConfigClick}
-                            className={`w-full flex items-center justify-between px-3 py-2 rounded-md transition-colors group cursor-pointer
-                                ${view === 'config' && !isConfigOpen
-                                    ? 'bg-zinc-150 text-zinc-900 border border-zinc-200/50 shadow-sm'
-                                    : 'text-zinc-500 hover:bg-zinc-100/50 hover:text-zinc-900 border border-transparent'
-                                }`}
-                        >
-                            <div className="flex items-center">
-                                <Settings size={18} className={view === 'config' ? 'text-zinc-900' : 'text-zinc-400'} />
-                                <span className="ml-3 text-sm font-medium">Settings</span>
-                            </div>
-                            {isConfigOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        </button>
-
-                        {/* submenu */}
-                        {isConfigOpen && (
-                            <div className="mt-1 ml-4 pl-3 border-l border-zinc-250 space-y-0.5 max-h-[200px] overflow-y-auto">
-                                {configItems.map(item => {
-                                    const isActive = view === 'config' && configCategory === item.id;
+                    {!collapsed && (
+                        <div className="h-full space-y-0.5 overflow-y-auto pb-2 pr-0.5">
+                            {sessions === null && (
+                                <div className="flex justify-center py-4"><Spinner /></div>
+                            )}
+                            {sessions?.length === 0 && (
+                                <p className="px-2.5 py-2 text-[11px] leading-snug text-faint">
+                                    Nothing yet. Say something to her and it lands here.
+                                </p>
+                            )}
+                            {sessions?.map((session) => {
+                                const isActive = session.id === activeSession;
+                                if (renaming === session.id) {
                                     return (
-                                        <button
-                                            key={item.id}
-                                            onClick={() => {
-                                                if (view !== 'config') setView('config');
-                                                setConfigCategory(item.id);
-                                            }}
-                                            className={`w-full flex items-center px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer
-                                                ${isActive
-                                                    ? 'text-zinc-900 font-semibold bg-zinc-150 border border-zinc-200/30'
-                                                    : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/50 border border-transparent'
-                                                }`}
-                                        >
-                                            <item.icon size={12} className="mr-2 opacity-70" />
-                                            <span>{item.label}</span>
-                                        </button>
+                                        <div key={session.id} className="flex items-center gap-1 px-1 py-1">
+                                            <input
+                                                autoFocus
+                                                value={draftTitle}
+                                                onChange={(e) => setDraftTitle(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') saveTitle(session.id);
+                                                    if (e.key === 'Escape') setRenaming(null);
+                                                }}
+                                                className="min-w-0 flex-1 rounded-b1 border border-line-strong bg-white/5 px-2 py-1 text-xs text-text outline-none"
+                                            />
+                                            <IconButton label="Save name" size="sm" onClick={() => saveTitle(session.id)}>
+                                                <Check size={13} />
+                                            </IconButton>
+                                        </div>
                                     );
-                                })}
-                            </div>
-                        )}
-                    </div>
+                                }
+                                return (
+                                    <div
+                                        key={session.id}
+                                        className={cn(
+                                            'group flex items-center gap-1 rounded-b2 px-1 transition-colors',
+                                            isActive ? 'border border-line bg-white/[0.07]' : 'border border-transparent hover:bg-white/[0.04]',
+                                        )}
+                                    >
+                                        <button
+                                            onClick={() => openSession(session.id)}
+                                            className="min-w-0 flex-1 px-1.5 py-1.5 text-left"
+                                        >
+                                            <span className={cn('block truncate text-xs font-medium', isActive ? 'text-text' : 'text-dim')}>
+                                                {sessionLabel(session)}
+                                            </span>
+                                            <span className="block truncate text-[10px] text-faint">
+                                                {relativeTime(session.timestamp)} · {session.message_count} messages
+                                            </span>
+                                        </button>
+                                        <span className="flex shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                                            <IconButton
+                                                label="Rename"
+                                                size="sm"
+                                                onClick={() => { setRenaming(session.id); setDraftTitle(sessionLabel(session)); }}
+                                            >
+                                                <Pencil size={12} />
+                                            </IconButton>
+                                            {!isActive && (
+                                                <IconButton label="Delete" size="sm" onClick={() => removeSession(session)}>
+                                                    <Trash2 size={12} />
+                                                </IconButton>
+                                            )}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
 
-                {/* history section */}
-                <div className="pt-6 flex-1 min-h-0 flex flex-col overflow-hidden">
-                    <div className="px-3 text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-                        Recent Chats
-                    </div>
-                    <div className="space-y-1 overflow-y-auto pr-1 flex-1 min-h-0">
-                        {loadingSessions ? (
-                            <div className="px-3 text-xs text-zinc-400 italic">Loading...</div>
-                        ) : sessions.length === 0 ? (
-                            <div className="px-3 text-xs text-zinc-400 italic">No history yet</div>
-                        ) : (
-                            sessions.map(session => (
-                                <button
-                                    key={session.id}
-                                    onClick={() => handleSessionClick(session.id)}
-                                    className="w-full text-left px-3 py-2 rounded-md text-xs text-zinc-600 hover:bg-zinc-150/50 hover:text-zinc-900 border border-transparent hover:border-zinc-200/30 transition-colors truncate cursor-pointer"
-                                    title={session.preview}
-                                >
-                                    <div className="font-medium text-zinc-900 truncate">{new Date(session.timestamp).toLocaleDateString()}</div>
-                                    <div className="truncate opacity-75 text-zinc-500">{session.preview || "Empty session"}</div>
-                                </button>
-                            ))
+                <div className="mt-2 border-t border-line pt-2">
+                    <NavLink
+                        to="/dashboard/settings"
+                        onClick={onCloseMobile}
+                        title={collapsed ? 'Settings' : undefined}
+                        className={({ isActive }) => cn(
+                            'flex items-center gap-3 rounded-b2 px-2.5 py-2 text-[13px] font-medium transition-colors',
+                            isActive ? 'bg-white/[0.08] text-text' : 'text-dim hover:bg-white/5 hover:text-text',
                         )}
-                    </div>
+                    >
+                        <Settings size={17} className="shrink-0" />
+                        {!collapsed && <span>Settings</span>}
+                    </NavLink>
+                    {!collapsed && (
+                        <p className="px-2.5 pt-2 font-mono text-[10px] tracking-wider text-faint">
+                            Bea Control Room · {VERSION}
+                        </p>
+                    )}
                 </div>
-            </div>
-
-            {/* footer */}
-            <div className="px-6 pt-4 border-t border-zinc-200/40 text-[10px] text-zinc-400 tracking-wider">
-                v1.0.0
-            </div>
-        </div>
+            </Glass>
+        </>
     );
 }
 
+function sessionLabel(session) {
+    return session.title?.trim() || session.preview?.replace(/\.\.\.$/, '') || 'Untitled';
+}
 
+function BrandMark({ collapsed }) {
+    return (
+        <div className="flex min-w-0 items-center gap-2.5">
+            <span
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-b2 font-display text-[13px] font-extrabold"
+                style={{ background: 'var(--vital)', color: 'var(--bg)' }}
+            >
+                B
+            </span>
+            {!collapsed && (
+                <span className="min-w-0">
+                    <span className="block truncate font-display text-[13px] font-bold leading-none text-text">Bea</span>
+                    <span className="mt-1 block truncate text-[10px] uppercase tracking-widest text-faint">Control room</span>
+                </span>
+            )}
+        </div>
+    );
+}

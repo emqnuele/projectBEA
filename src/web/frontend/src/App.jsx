@@ -1,21 +1,30 @@
 import React from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
-import { AnimatePresence } from 'framer-motion';
-import LandingPage from './pages/LandingPage';
-import DashboardLayout from './layouts/DashboardLayout';
-import './index.css';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import AppShell from './layouts/AppShell';
+import BootPage from './pages/BootPage';
+import HomePage from './pages/HomePage';
+import ChatPage from './pages/ChatPage';
+import PlanPage from './pages/PlanPage';
+import ActivityPage from './pages/ActivityPage';
+import MemoryPage from './pages/MemoryPage';
+import SkillsPage from './pages/SkillsPage';
+import SettingsPage from './pages/SettingsPage';
 
-function App() {
-  const location = useLocation();
-
-  return (
-    <AnimatePresence mode="wait">
-      <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/dashboard/*" element={<DashboardLayout />} />
-      </Routes>
-    </AnimatePresence>
-  );
+export default function App() {
+    return (
+        <Routes>
+            <Route path="/" element={<BootPage />} />
+            <Route path="/dashboard" element={<AppShell />}>
+                <Route index element={<HomePage />} />
+                <Route path="chat" element={<ChatPage />} />
+                <Route path="plan" element={<PlanPage />} />
+                <Route path="activity" element={<ActivityPage />} />
+                <Route path="memory" element={<MemoryPage />} />
+                <Route path="skills" element={<SkillsPage />} />
+                <Route path="settings" element={<Navigate to="/dashboard/settings/mind" replace />} />
+                <Route path="settings/:section" element={<SettingsPage />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+    );
 }
-
-export default App;
