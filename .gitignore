@@ -4,18 +4,20 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+# anchored to the repo root: these are Python build outputs, and an unanchored
+# `lib/` or `dist/` also swallows source directories deeper in the tree
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
@@ -61,7 +63,10 @@ Thumbs.db
 # Large Models
 *.onnx
 *.bin
-PLAN.md
+
+# the author's own planning file at the root — anchored, or it also matches
+# docs/skills/plan.md, which is documentation the README links to
+/PLAN.md
 
 # personal planning notes, not part of the repo
 docs/roadmap.md
