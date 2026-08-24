@@ -28,7 +28,7 @@ plugin.
 | **Swappable LLMs** | OpenRouter, OpenAI, Groq — configured per role, pooled for rotation and fallback |
 | **Multiple TTS engines** | EdgeTTS (free), Kokoro (local ONNX), Orpheus (API) |
 | **OBS Integration** | Avatar swap and animated text bubble over WebSocket |
-| **Web Dashboard** | React + FastAPI: chat, stream plan, config, skill toggles, live brain activity |
+| **Control Room** | React + FastAPI: a bento overview, chat, stream plan, live attention gate, her memory, abilities and every setting |
 | **Hot Reload** | Change models, voices or settings at runtime, without a restart |
 | **Plugin Skills** | Every capability is a `Skill` — add your own in minutes |
 
@@ -219,15 +219,27 @@ runtime from the dashboard. Bea can never arm a capability herself.
 
 The `--web` flag starts a FastAPI backend (port 8000) and serves a React + Tailwind frontend.
 
-**Pages:**
-- **Chat** — text chat with Bea, session management
-- **Stream Plan** — what she has to get done today; she closes the objectives as she goes
-- **Brain Activity** — live event feed over SSE: what she perceived, what the attention gate did with it, what she thought, and what each turn cost
-- **Skills** — toggle capabilities on and off at runtime
-- **Config** — edit every setting live with hot reload
+It opens on a boot screen that checks the brain is actually answering before it
+lets you in, then on a bento overview of everything at once.
+
+**Screens:**
+- **Overview** — is she awake, what she last said, today's progress, the
+  attention gate, spend, abilities, and the live feed, all on one screen
+- **Talk** — the private line to her: streams voice in and out, and shows it
+  plainly when she hears you and chooses not to answer
+- **Today** — the orders she reads every turn, plus objectives you can reorder,
+  edit and close; she closes them herself as she goes
+- **Activity** — the attention gate drawn live, and a filterable, freezable
+  event stream underneath it
+- **Memory** — who she knows, everyone she has met, a search over what she
+  remembers, and the things she has worked out about herself
+- **Abilities** — every capability on or off at runtime, plus the Minecraft cockpit
+- **Settings** — eight sections with connection tests, and one save for all of them
+
+`⌘K` opens the command palette from anywhere.
 
 The API has no authentication, so the server binds to `127.0.0.1` unless
-`--host` says otherwise.
+`--host` says otherwise. Do not put it on a public address as it stands.
 
 **[API Reference →](docs/web/api.md)** · **[Frontend →](docs/web/frontend.md)**
 

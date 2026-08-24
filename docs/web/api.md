@@ -29,16 +29,26 @@ Returns the current brain state.
 ```json
 {
   "is_speaking": false,
-  "active_skills": ["memory", "discord"]
+  "is_sleeping": false,
+  "active_skills": ["memory", "discord"],
+  "session_id": "session_1750000000",
+  "uptime": 1832.4
 }
 ```
+
+`uptime` is seconds since the web process started, not since she was created.
 
 ---
 
 #### `GET /config`
 Returns the full current config as a JSON object (all `BrainConfig` fields).
 
-> **Security note:** The response includes **all** `BrainConfig` fields, including secret API key fields (`openrouter_key`, `openai_key`, `groq_key`, `orpheus_key`, `orpheus_endpoint`, etc.). No secret-stripping is applied to this endpoint (unlike `save_to_file()`). Do not expose this endpoint over a public network without authentication.
+> **Secrets:** the response is `BrainConfig.public_dict()`. Top-level secret
+> fields (`openrouter_key`, `openai_key`, `groq_key`, `orpheus_key`,
+> `orpheus_endpoint`) are removed outright, and nested skill secrets
+> (`discord.token`, `telegram.token`, `twitch.oauth_token`) come back masked as
+> `********` so the UI can show that one is stored. Use `GET /secrets` to learn
+> *which* are set. Posting a masked value back is ignored rather than applied.
 
 ---
 
@@ -236,8 +246,10 @@ Lists all saved conversation sessions.
   {
     "id": "session_1700000000",
     "timestamp": "2025-01-01T12:00:00",
+    "title": "",
     "preview": "hi bea...",
-    "message_count": 42
+    "message_count": 42,
+    "active": true
   }
 ]
 ```
@@ -253,6 +265,13 @@ Creates a new session (and triggers memory processing for the previous one).
 ```
 
 ---
+
+#### `PATCH /sessions/{session_id}`
+Renames a conversation. Body `{ "title": "…" }`. `404` if it does not exist.
+
+#### `DELETE /sessions/{session_id}`
+Deletes the transcript from disk. `409` if it is the conversation currently open —
+what she already remembers from it is untouched either way.
 
 #### `POST /sessions/{session_id}/activate`
 Loads a past session, restoring its history as the current context.
@@ -368,6 +387,83 @@ Reorders the list. Body: `{ "ids": [3, 1, 2] }`.
 
 #### `POST /plan/reset`
 Clears the headline and every objective — a new stream from nothing.
+
+---
+
+### Overview
+
+#### `GET /overview`
+
+Everything the home screen needs in one request, so the dashboard does not fan
+out to six endpoints on load.
+
+```json
+{
+  "status": { "is_speaking": false, "is_sleeping": false, "active_skills": [],
+              "session_id": "session_1750000000", "uptime": 1832.4 },
+  "session": { "id": "session_1750000000", "title": "", "message_count": 12 },
+  "plan": { "directive": "…", "total": 4, "closed": 1,
+            "counts": { "todo": 2, "doing": 1, "done": 1, "dropped": 0 },
+            "objectives": [ … ] },
+  "skills": [ { "name": "memory", "enabled": true, "active": true } ],
+  "memory": { "people": 3, "roster": 41, "memories": 512,
+              "hot_facts": 2, "self_facts": 9, "rag_ready": true },
+  "engine": { "llm_provider": "openrouter", "model": "…", "tts_provider": "kokoro",
+              "stt_provider": "groq", "language": "en", "obs_connected": false }
+}
+```
+
+---
+
+### What she remembers
+
+#### `GET /memory/overview`
+The `memory` block above, on its own.
+
+#### `GET /memory/people`
+Every person card: names, identities, the facts she keeps, her attitude toward
+them, and why they were promoted.
+
+#### `GET /memory/roster?limit=60`
+Every identity she has ever seen, newest first, with message and session tallies.
+Most of these will never earn a card.
+
+#### `GET /memory/self`
+Her self-lore (`facts`), her `profile`, and the `hot_facts` that are true right
+now and decay on their own.
+
+#### `GET /memory/search?q=…&k=8`
+The same semantic recall she runs on herself, returned split:
+
+```json
+{ "facts": [ { "text": "…", "who": "emanu", "source": "person",
+               "similarity": 0.82, "created_at": 1750000000, "scope_key": "…" } ],
+  "hers":  [ … ] }
+```
+
+`facts` is what people told her; `hers` is what she said herself. They are kept
+apart deliberately — her persona invents on purpose, and her own output must
+never come back as though it were true. `400` when the memory skill is off.
+
+---
+
+### Secrets and probes
+
+#### `GET /secrets`
+Which secrets are set, never their values:
+
+```json
+{ "openrouter_key": true, "openai_key": false, "discord.token": true }
+```
+
+#### `POST /test/llm` · `POST /test/tts` · `POST /test/obs`
+Each returns `{ "ok": bool, "message": str, "detail": str }`. The LLM probe asks
+for one word and reports the round trip, the TTS probe renders a line without
+playing it, and the OBS probe reconnects.
+
+#### `GET /audio/devices`
+Output devices as `{ id, name, channels }`, so picking one is not guesswork about
+an integer. Returns `[]` if `sounddevice` cannot enumerate them.
 
 ---
 
