@@ -1,5 +1,7 @@
 # ProjectBEA — AI Persona Engine
 
+[![CI](https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml/badge.svg)](https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml)
+
 **ProjectBEA** is a modular AI persona engine. It runs **Bea**: one always-on
 consciousness that talks out loud, plays Minecraft on a vanilla server with
 other people, holds conversations on Discord, Telegram and Twitch, remembers who
