@@ -11,9 +11,33 @@ reaches a single mind that acts through tools. Every capability is a swappable
 plugin.
 
 
-![The control room — the overview screen, with her state, the attention gate, today's plan and the live feed](docs/images/dashboard-overview.jpg)
+https://github.com/user-attachments/assets/00991f61-5eed-48cc-aefb-f2f6460120d7
 
 <p align="center"><em>The control room: everything she is perceiving, thinking and doing, on one screen.</em></p>
+
+---
+
+## Try it in five minutes
+
+One command. It installs `uv` if you don't have it, pulls the dependencies,
+builds the dashboard and then asks you five questions.
+
+**macOS / Linux**
+```bash
+curl -LsSf https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.sh | bash
+```
+
+**Windows (PowerShell)**
+```powershell
+irm https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.ps1 | iex
+```
+
+The default profile is **Solo chat**: the dashboard and her voice, one API key,
+nothing else. No OBS, no Discord bot, no Minecraft server, no virtual audio
+cable — those are three separate profiles you can pick later, or turn on one at
+a time from the Abilities screen.
+
+Already cloned the repo? `make setup` does the same thing.
 
 ---
 
@@ -81,14 +105,15 @@ thought. One mind reasons over it and acts through tools.
 ProjectBEA/
 ├── main.py                 # thin wrapper; the entrypoint is src/cli.py
 ├── config.example.json     # copy to config.json and edit
-├── Makefile                # install · run · web · test · lint · migrate
+├── install.sh / .ps1       # one-command bootstrap for a fresh machine
+├── Makefile                # setup · install · run · web · test · lint · migrate
 ├── data/
 │   ├── bea.db              # everything she remembers (gitignored)
 │   ├── conversations/      # session transcripts
 │   ├── pngs/               # avatars per mood (idle/talking)
 │   └── prompts/            # soul · operating · monologue · minecraft
 ├── docs/
-├── tests/                  # 593 tests, no network
+├── tests/                  # 611 tests, no network
 └── src/
     ├── cli.py              # argument parsing and composition
     ├── core/
@@ -113,7 +138,9 @@ ProjectBEA/
 
 ---
 
-## Quick Start
+## Manual setup
+
+`make setup` covers everything below. This is the same thing, by hand.
 
 ### 1. Prerequisites
 
@@ -130,7 +157,13 @@ uv sync          # or: make install
 
 ### 3. Configure
 
-Copy `.env.example` to `.env` (or set environment variables directly):
+Run the wizard — it writes both files for you, and re-running it is safe:
+
+```bash
+uv run bea --setup   # or: make setup
+```
+
+Or do it by hand. Copy `.env.example` to `.env` (or set environment variables directly):
 
 ```env
 OPENROUTER_API_KEY=sk-or-...
@@ -223,6 +256,8 @@ The `--web` flag starts a FastAPI backend (port 8000) and serves a React + Tailw
 
 It opens on a boot screen that checks the brain is actually answering before it
 lets you in, then on a bento overview of everything at once.
+
+![The overview screen: her state, the attention gate, today's plan and the live feed](docs/images/dashboard-overview.jpg)
 
 **Screens:**
 - **Overview** — is she awake, what she last said, today's progress, the

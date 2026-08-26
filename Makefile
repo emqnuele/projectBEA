@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install install-all run web frontend lock clean test lint migrate
+.PHONY: help install install-all setup run web frontend lock clean test lint migrate
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -9,6 +9,9 @@ install: ## create the venv and install python deps
 
 install-all: ## install python deps including the optional minecraft skill
 	uv sync --extra minecraft
+
+setup: install ## interactive first-run setup: writes .env and config.json
+	uv run bea --setup
 
 migrate: ## one-shot: move the old json/chroma stores into data/bea.db
 	uv sync --extra migrate

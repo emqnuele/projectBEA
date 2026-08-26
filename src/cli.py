@@ -26,6 +26,8 @@ logger = get_logger("bea")
 def parse_args():
     parser = argparse.ArgumentParser(description="ProjectBEA - AI Persona Engine")
 
+    parser.add_argument("--setup", action="store_true",
+                        help="Interactive first-run setup: writes .env and config.json")
     parser.add_argument("--web", action="store_true", help="Start Web Interface (FastAPI + React)")
     parser.add_argument("--host", default="127.0.0.1",
                         help="Bind address for the web interface (default: loopback only)")
@@ -82,8 +84,8 @@ def parse_args():
     return parser.parse_args()
 
 
-async def main():
-    args = parse_args()
+async def main(args=None):
+    args = args or parse_args()
 
     # 1. config — priority: CLI arg > config.json > dataclass default
     #
@@ -213,7 +215,13 @@ async def main():
 
 
 def run():
-    asyncio.run(main())
+    args = parse_args()
+    # the wizard runs before anything heavy is imported: it exists precisely
+    # for the case where config.json and .env do not exist yet
+    if args.setup:
+        from src.setup import run_setup
+        raise SystemExit(run_setup())
+    asyncio.run(main(args))
 
 
 if __name__ == "__main__":
