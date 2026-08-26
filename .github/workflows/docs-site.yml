@@ -1,0 +1,33 @@
+name: Rebuild the docs site
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "README.md"
+
+# the site is rebuilt, not patched, so one run covers any number of pushes and
+# the older one is cancelled rather than left to finish
+concurrency:
+  group: docs-site
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  rebuild:
+    name: trigger a deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request a rebuild
+        env:
+          HOOK: ${{ secrets.DOCS_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "No deploy hook configured — skipping." >&2
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" -o /dev/null
+          echo "rebuild requested"
