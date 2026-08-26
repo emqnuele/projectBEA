@@ -4,8 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
   pull_request:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
 
 # a second push supersedes the first: the older run is cancelled rather than
 # left to finish against code nobody is looking at any more
