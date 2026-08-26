@@ -1,7 +1,6 @@
 # ProjectBEA — AI Persona Engine
 
 [![CI](https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml/badge.svg)](https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Docker](https://img.shields.io/badge/docker-compose%20up-2496ED?logo=docker&logoColor=white)](#run-it-in-docker)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](pyproject.toml)
 [![Release](https://img.shields.io/github/v/release/emqnuele/projectBEA)](https://github.com/emqnuele/projectBEA/releases)
