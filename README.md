@@ -1,6 +1,11 @@
 # ProjectBEA — AI Persona Engine
 
 [![CI](https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml/badge.svg)](https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Docker](https://img.shields.io/badge/docker-compose%20up-2496ED?logo=docker&logoColor=white)](#run-it-in-docker)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](pyproject.toml)
+[![Release](https://img.shields.io/github/v/release/emqnuele/projectBEA)](https://github.com/emqnuele/projectBEA/releases)
+[![License](https://img.shields.io/github/license/emqnuele/projectBEA)](LICENSE)
 
 **ProjectBEA** is a modular AI persona engine. It runs **Bea**: one always-on
 consciousness that talks out loud, plays Minecraft on a vanilla server with
@@ -40,6 +45,35 @@ cable — those are three separate profiles you can pick later, or turn on one a
 a time from the Abilities screen.
 
 Already cloned the repo? `make setup` does the same thing.
+
+---
+
+## Run it in Docker
+
+One image carries the engine, the dashboard and the Discord bot.
+
+```bash
+make docker      # builds the image, then asks you the same five questions
+make docker-up   # http://127.0.0.1:8000
+```
+
+Or without the Makefile:
+
+```bash
+cp config.example.json config.json && touch .env && docker compose run --rm setup && docker compose up
+```
+
+**What runs in a container:** the dashboard, her memory, Discord (voice
+included — it travels over the network), Telegram, Twitch and Minecraft.
+
+**What does not:** her speaking out of your computer's speakers. That needs a
+real audio device. On Linux, uncomment the `devices:` block in
+`docker-compose.yml`. On macOS and Windows, Docker Desktop cannot pass an audio
+device through at all — so if you are streaming with OBS, run her natively.
+
+The compose file publishes the dashboard to `127.0.0.1:8000`, never to
+`0.0.0.0`: the API has no authentication and must not be reachable from your
+network. OBS lives on the host, so point `obs_host` at `host.docker.internal`.
 
 ---
 
@@ -108,7 +142,9 @@ ProjectBEA/
 ├── main.py                 # thin wrapper; the entrypoint is src/cli.py
 ├── config.example.json     # copy to config.json and edit
 ├── install.sh / .ps1       # one-command bootstrap for a fresh machine
-├── Makefile                # setup · install · run · web · test · lint · migrate
+├── Dockerfile              # engine + dashboard + discord bot in one image
+├── docker-compose.yml      # `setup` runs the wizard, `bea` runs the engine
+├── Makefile                # setup · docker · run · web · test · lint · migrate
 ├── data/
 │   ├── bea.db              # everything she remembers (gitignored)
 │   ├── conversations/      # session transcripts

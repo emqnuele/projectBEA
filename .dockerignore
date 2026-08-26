@@ -1,0 +1,33 @@
+# the build installs its own dependencies: host trees would poison the image
+# with the wrong platform's binaries
+.venv/
+**/node_modules/
+src/web/frontend/dist/
+
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+
+# secrets and personal state: the container reads these from mounts at run time,
+# never from a layer that could be pushed to a registry
+.env
+config.json
+data/bea.db
+data/bea.db-wal
+data/bea.db-shm
+data/conversations/
+data/embeddings_cache/
+
+.git/
+.github/
+.claude/
+tests/
+docs/
+temp/
+*.log
+.DS_Store
+
+install.sh
+install.ps1
+PLAN.md

@@ -1,0 +1,41 @@
+services:
+  bea:
+    build: .
+    image: projectbea:latest
+    container_name: bea
+    restart: unless-stopped
+
+    # the API has no authentication: publish it to the loopback address only.
+    # "8000:8000" would expose her control room to your whole network.
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    env_file:
+      - .env
+
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json
+
+    # OBS runs on the host, not in here: point obs_host at this name
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # Linux only — lets her speak through the host's speakers. Docker Desktop on
+    # macOS and Windows cannot pass an audio device through; run natively there.
+    # devices:
+    #   - "/dev/snd:/dev/snd"
+
+  # one-shot: `docker compose run --rm setup`
+  setup:
+    build: .
+    image: projectbea:latest
+    profiles: ["setup"]
+    entrypoint: ["uv", "run", "bea", "--setup"]
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json
+    stdin_open: true
+    tty: true
