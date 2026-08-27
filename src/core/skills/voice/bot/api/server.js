@@ -1,15 +1,19 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const cors = require('cors');
 const { ChannelType } = require('discord.js');
+const { requireToken, inviteOptions } = require('./guard');
 
 // the command API: brain -> bot. Bea's tools hit these endpoints to act on
 // discord (speak in text, react, dm, join voice, etc.). Replies are plain text
 // (no embeds) so Bea sounds like a person, not a system notification.
-function createServer({ client, voiceManager }) {
+//
+// Only the python transport ever calls this, so there is no browser to please:
+// no CORS, and a shared secret on every route.
+function createServer({ client, voiceManager, token, env = process.env }) {
     const app = express();
-    app.use(cors());
-    app.use(bodyParser.json());
+    app.use(bodyParser.json({ limit: '256kb' }));
+    app.use(requireToken(token));
+    const invite = inviteOptions(env);
 
     const ok = (res, extra = {}) => res.json({ success: true, ...extra });
     const fail = (res, code, error) => res.status(code).json({ error });
@@ -82,8 +86,10 @@ function createServer({ client, voiceManager }) {
         if (!userId || !content) return fail(res, 400, 'Missing userId or content');
         try {
             const user = await client.users.fetch(userId);
-            await user.send(content);
-            return ok(res);
+            // the channel id is what lets the engine file her opening line in
+            // the same thread the answer will arrive on
+            const sent = await user.send(content);
+            return ok(res, { channelId: sent.channelId, messageId: sent.id });
         } catch (e) {
             return fail(res, 500, e.message);
         }
@@ -100,8 +106,10 @@ function createServer({ client, voiceManager }) {
 
             let link = `https://discord.com/channels/${channel.guild ? channel.guild.id : '@me'}/${channelId}`;
             try {
-                const invite = await channel.createInvite({ maxAge: 0, maxUses: 0 });
-                link = invite.url;
+                // bounded on purpose: a permanent unlimited invite is a door
+                // into the server that outlives whatever she was calling about
+                const created = await channel.createInvite(invite);
+                link = created.url;
             } catch (e) {
                 // fall back to the deep link if invites are not permitted
             }

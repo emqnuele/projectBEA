@@ -57,6 +57,20 @@ export const api = {
     config: () => request('/config'),
     saveConfig: (config) => request('/config', { method: 'POST', body: { config } }),
 
+    // who she is: the structured bits plus the one file that holds the prose
+    persona: () => request('/persona'),
+    savePersona: (patch) => request('/persona', { method: 'PUT', body: patch }),
+
+    onboarding: () => request('/onboarding'),
+    draftPersona: (answers) => request('/onboarding/draft', { method: 'POST', body: answers }),
+    skipOnboarding: () => request('/onboarding/skip', { method: 'POST' }),
+
+    // the schema the settings screens render themselves from
+    settings: () => request('/settings'),
+    settingsSection: (key) => request(`/settings/${encodeURIComponent(key)}`),
+    saveSettings: (key, values) =>
+        request(`/settings/${encodeURIComponent(key)}`, { method: 'POST', body: values }),
+
     history: () => request('/history'),
     chat: (message) => request('/chat', { method: 'POST', body: { message } }),
     audio: (blob, filename) => {

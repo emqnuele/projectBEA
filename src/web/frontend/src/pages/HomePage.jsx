@@ -1,9 +1,11 @@
-import React, { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-    ArrowUpRight, Blocks, Brain, Coins, Cpu, ListChecks, Radio, Square, Users, Volume2, WifiOff,
+    ArrowUpRight, Blocks, Brain, Coins, Cpu, ListChecks, Radio, Sparkles, Square, Users,
+    Volume2, WifiOff,
 } from 'lucide-react';
+import { api } from '../api';
 import { cn, fluxOf } from '../lib/cn';
 import { clockTime, compact, duration, relativeTime, titleCase } from '../lib/format';
 import { useBrain } from '../state/BrainProvider';
@@ -51,6 +53,7 @@ export default function HomePage() {
 
     return (
         <div className="h-full overflow-y-auto pb-2 pr-0.5">
+            <MeetHerBanner />
             <div className="grid auto-rows-min grid-cols-1 gap-2.5 md:grid-cols-6 xl:grid-cols-12">
 
                 {/* --- the hero: is she alive, and what is she doing --- */}
@@ -375,5 +378,52 @@ function LoadingBento() {
             <Skeleton className="h-56 md:col-span-6 xl:col-span-8" />
             <Skeleton className="h-40 md:col-span-3 xl:col-span-4" />
         </div>
+    );
+}
+
+
+/**
+ * The one thing a fresh install is missing.
+ *
+ * The setup script arms the plumbing and never asks who she is, so without
+ * this almost everyone runs the shipped character forever. It shows once,
+ * closes for good, and never blocks the dashboard behind it.
+ */
+function MeetHerBanner() {
+    const [needed, setNeeded] = useState(false);
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        let alive = true;
+        api.onboarding()
+            .then((data) => { if (alive) setNeeded(Boolean(data.needed)); })
+            .catch(() => { /* a missing banner is not worth an error */ });
+        return () => { alive = false; };
+    }, []);
+
+    const dismiss = async () => {
+        setNeeded(false);
+        try { await api.skipOnboarding(); } catch { /* nothing to recover */ }
+    };
+
+    if (!needed) return null;
+
+    return (
+        <Glass quiet className="mb-2.5 flex flex-wrap items-center justify-between gap-3 rounded-b3 p-4">
+            <div className="min-w-0">
+                <h2 className="font-display text-[13px] font-semibold text-text">
+                    She does not have a character yet
+                </h2>
+                <p className="mt-1 text-[11px] leading-snug text-faint">
+                    She is running the one we ship. Six questions and she is someone of yours.
+                </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={dismiss}>Not now</Button>
+                <Button variant="primary" size="sm" onClick={() => navigate('/dashboard/onboarding')}>
+                    <Sparkles size={13} /> Set her up
+                </Button>
+            </div>
+        </Glass>
     );
 }

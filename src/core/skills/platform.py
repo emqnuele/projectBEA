@@ -29,8 +29,14 @@ class PlatformSkill(Skill):
     # asynchronous exchange; a twitch chat is the room her voice is already in
     scoped_conversations: bool = True
 
+    # per-message ceiling of this platform, in characters
+    message_limit: int = 2000
+
+    # can she open a private conversation with someone here?
+    supports_dm: bool = True
+
     def initialize(self) -> None:
-        self.humanizer = TextHumanizer()
+        self.humanizer = TextHumanizer(hard_limit=self.message_limit)
 
     # --- identity -----------------------------------------------------------
 
@@ -93,6 +99,16 @@ class PlatformSkill(Skill):
 
     async def send_typing(self, channel_id: str) -> None:
         """Shows "is typing". Cosmetic: a failure here must never lose a message."""
+
+    async def send_dm(self, native_id: str, text: str) -> Optional[str]:
+        """Opens a private conversation and writes in it.
+
+        Returns the channel id the reply will arrive on, so the thread she
+        started and the thread she is answered in are the same one. On most
+        platforms a private channel *is* the account id; discord is the
+        exception and overrides this.
+        """
+        return native_id if await self.deliver(str(native_id), text) else None
 
     async def deliver(self, channel_id: str, text: str,
                       reply_to: Optional[str] = None) -> List[str]:

@@ -13,7 +13,8 @@ import random
 import re
 from typing import Awaitable, Callable, List, NamedTuple, Optional
 
-# discord's per-message ceiling; telegram's is 4096, so this is the safe one
+# discord's per-message ceiling. Telegram allows 4096 and twitch only 500, so
+# each platform overrides it — this is the safe default, not the truth
 HARD_LIMIT = 2000
 
 # past this, a single line gets broken by sentence — more human than one wall
@@ -49,9 +50,9 @@ def _hard_split(text: str, limit: int = HARD_LIMIT) -> List[str]:
     return chunks
 
 
-def _soft_split_long(line: str) -> List[str]:
+def _soft_split_long(line: str, limit: int = HARD_LIMIT) -> List[str]:
     """A long line, still under the limit: split by sentence to look human."""
-    if len(line) <= SOFT_SPLIT_THRESHOLD:
+    if len(line) <= min(SOFT_SPLIT_THRESHOLD, limit):
         return [line]
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", line) if s.strip()]
     return sentences if len(sentences) > 1 else [line]
@@ -65,10 +66,12 @@ class TextHumanizer:
         min_delay: float = 0.3,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         rng: Optional[random.Random] = None,
+        hard_limit: int = HARD_LIMIT,
     ) -> None:
         self.cps = max(1.0, chars_per_second)
         self.max_delay = max_typing_delay
         self.min_delay = min_delay
+        self.hard_limit = max(1, int(hard_limit))
         self._sleep = sleep
         self._rng = rng or random.Random()
 
@@ -83,8 +86,8 @@ class TextHumanizer:
             line = raw_line.strip()
             if not line:
                 continue
-            for soft in _soft_split_long(line):
-                chunks.extend(Chunk("text", h) for h in _hard_split(soft))
+            for soft in _soft_split_long(line, self.hard_limit):
+                chunks.extend(Chunk("text", h) for h in _hard_split(soft, self.hard_limit))
         return chunks
 
     def delay_for(self, text: str) -> float:

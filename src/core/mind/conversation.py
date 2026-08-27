@@ -8,7 +8,7 @@ live loop's context. Cross-awareness is one line each way.
 
 import asyncio
 import json
-import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool, ToolRegistry
@@ -16,6 +16,8 @@ from src.core.agent.types import AssistantMessage
 from src.core.events import EventCategory
 from src.core.mind.routing import channel_of, platform_of
 from src.core.perception.types import Perception
+from src.core.persona import persona_of
+from src.core.timeline import now_block, resolve_timezone
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
 
@@ -96,17 +98,21 @@ class ConversationMind:
         task.add_done_callback(self._tasks.discard)
 
     async def turn_now(self, key: str, perceptions: List[Perception], *,
-                       first: bool = True, initiative: bool = False) -> None:
+                       first: bool = True, initiative: bool = False,
+                       frame: str = "") -> None:
         """The awaitable twin of `dispatch`.
 
         With `initiative` she may open the conversation herself, with nothing
-        new to answer.
+        new to answer. `frame` is why: an intention she kept has a reason, and
+        without carrying it she opens the chat with nothing to say.
         """
         if perceptions:
             self._pending.setdefault(key, []).extend(perceptions)
             self._record_incoming(key, perceptions)
         await self.scheduler.submit(
-            key, lambda first_run: self.turn(key, first=first_run, initiative=initiative)
+            key,
+            lambda first_run: self.turn(key, first=first_run, initiative=initiative,
+                                        frame=frame),
         )
 
     async def _run(self, key: str) -> None:
@@ -129,7 +135,8 @@ class ConversationMind:
 
     # --- the turn -----------------------------------------------------------
 
-    async def turn(self, key: str, *, first: bool = True, initiative: bool = False) -> None:
+    async def turn(self, key: str, *, first: bool = True, initiative: bool = False,
+                   frame: str = "") -> None:
         incoming = self._pending.pop(key, [])
         if not incoming and first and not initiative:
             return
@@ -144,11 +151,12 @@ class ConversationMind:
             logger.warning(f"No tools available for '{key}'; skipping the turn.")
             return
 
-        context = await asyncio.to_thread(self._build_context, key, incoming, first, initiative)
+        context = await asyncio.to_thread(
+            self._build_context, key, incoming, first, initiative, frame)
         sent = await self._reason(key, context, tools)
 
         if sent:
-            self._record_outgoing(key, sent)
+            self._record_outgoing(key, sent, incoming)
         self._schedule_background(key, incoming)
 
     async def _reason(self, key: str, context: List[Dict[str, Any]],
@@ -186,10 +194,11 @@ class ConversationMind:
     # --- context ------------------------------------------------------------
 
     def _build_context(self, key: str, incoming: List[Perception],
-                       first: bool, initiative: bool = False) -> List[Dict[str, Any]]:
+                       first: bool, initiative: bool = False,
+                       frame: str = "") -> List[Dict[str, Any]]:
         """The context for a scoped turn. Runs off the loop: it hits the db."""
         parts = [
-            f"CURRENT DATE: {time.strftime('%Y-%m-%d')}",
+            self._now_block(key),
             self._get_soul(),
             self._get_operating(),
             CONVERSATION_RULES,
@@ -234,8 +243,23 @@ class ConversationMind:
             lines = "\n".join(p.render() for p in incoming)
             messages.append({"role": "user", "content": f"{header}\n{lines}"})
         elif initiative:
-            messages.append({"role": "user", "content": INITIATIVE_FRAME})
+            messages.append({"role": "user", "content": frame or INITIATIVE_FRAME})
         return messages
+
+    def _now_block(self, key: str) -> str:
+        """The same `[RIGHT NOW]` the live loop gets, plus when she last wrote here."""
+        timezone = str(getattr(self.config, "timezone", "") or "")
+        try:
+            since = self.memory.conversations.seconds_since_bea_spoke(key)
+        except Exception as e:
+            logger.debug(f"Could not read when she last spoke in '{key}': {e}")
+            since = None
+        return now_block(
+            datetime.now(resolve_timezone(timezone)),
+            last_spoke_seconds=since,
+            in_conversation=True,
+            timezone=timezone,
+        )
 
     def _who(self, incoming: List[Perception]) -> str:
         cards = {}
@@ -262,7 +286,7 @@ class ConversationMind:
             return ""
         blocks = []
         if facts:
-            blocks.append("[LONG TERM MEMORY]\n" + "\n".join(f"- {r.render()}" for r in facts))
+            blocks.append("[LONG TERM MEMORY]\n" + _render_recollections(facts))
         if hers:
             blocks.append(
                 "[THINGS YOU SAID BEFORE — your own past lines, not established facts]\n"
@@ -319,12 +343,21 @@ class ConversationMind:
                 ts=p.ts,
             )
 
-    def _record_outgoing(self, key: str, sent: List[str]) -> None:
+    def _record_outgoing(self, key: str, sent: List[str],
+                         incoming: Optional[List[Perception]] = None) -> None:
+        # who she was answering: the follow-up gate needs it to tell "they are
+        # replying to me" from "they happened to speak next"
+        addressee = ""
+        for p in reversed(incoming or []):
+            if p.author is not None:
+                addressee = p.author.identity
+                break
         for text in sent:
             self.memory.conversations.add(
                 conversation_key=key, role="bea", content=text,
                 platform=platform_of(key), channel_id=channel_of(key) or "",
-                display_name="Bea",
+                display_name=persona_of(self.config).name,
+                addressee_identity=addressee,
             )
         if self.attention:
             self.attention.mark_spoke(key)
@@ -359,6 +392,19 @@ class ConversationMind:
         lines = self._recent[-max_lines:]
         self._recent = []
         return "[ELSEWHERE, JUST NOW]\n" + "\n".join(f"- {line}" for line in lines)
+
+
+def _render_recollections(facts) -> str:
+    """Dated, like the live loop already does.
+
+    Undated recollections were the reason a DM — the one place someone actually
+    says "how did yesterday go" — could not place anything in time.
+    """
+    lines = []
+    for r in facts:
+        when = datetime.fromtimestamp(getattr(r, "created_at", 0) or 0).strftime("%Y-%m-%d")
+        lines.append(f"- [{when}] {r.render()}")
+    return "\n".join(lines)
 
 
 def _assistant_message(msg: AssistantMessage) -> Dict[str, Any]:

@@ -1,18 +1,27 @@
-"""Telegram, in-process: text only, so no second runtime to babysit.
+"""Telegram, in-process: no second runtime to babysit.
 
 A whole platform is a transport plus an `Author` builder; everything above it
 (roster, person cards, attention, scoped turns) comes from `PlatformSkill`.
+
+She reads more than text: a photo, a sticker or a voice note all arrive as
+something she can answer, and a voice note is transcribed so she can answer
+what was actually said.
 """
 
 import asyncio
+import os
+import tempfile
 from typing import Any, List, Optional
 
 from src.core.perception.types import Author
+from src.core.persona import persona_of
 from src.core.skills.platform import PlatformSkill
 from src.core.skills.telegram.handlers import (
+    describe_message,
     display_name,
     is_bot_called,
     is_private,
+    media_kind,
     message_text,
 )
 from src.utils.logger import get_logger
@@ -26,25 +35,37 @@ class TelegramSkill(PlatformSkill):
     name = "chat:telegram"
     skill_name = "telegram"
     platform = "telegram"
-    # telegram reactions exist but are a restricted set; writing is the honest path
-    supports_reactions = False
+    message_limit = 4096
 
     def initialize(self) -> None:
         super().initialize()
         self.app = None
         self._task: Optional[asyncio.Task] = None
         self._me: Any = None
+        # set by the brain; a voice note without it is just "[voice note]"
+        self.stt = getattr(self.context, "stt", None)
+
+    @property
+    def supports_reactions(self) -> bool:
+        return bool(self.skill_config.get("reactions", True))
+
+    @property
+    def _read_media(self) -> bool:
+        return bool(self.skill_config.get("read_media", True))
+
+    @property
+    def _transcribe_voice(self) -> bool:
+        return bool(self.skill_config.get("transcribe_voice", True))
 
     @property
     def skill_config(self) -> dict:
         return self.config.skills.get("telegram", {})
 
     def _token(self) -> str:
-        import os
         return os.getenv("TELEGRAM_TOKEN", "") or self.skill_config.get("token", "")
 
     def _trigger_words(self) -> List[str]:
-        return list(getattr(self.config, "attention", {}).get("trigger_words", ["bea"]))
+        return persona_of(self.config).trigger_words
 
     def _owner_id(self) -> str:
         return str(self.skill_config.get("owner_id", "") or "")
@@ -75,8 +96,13 @@ class TelegramSkill(PlatformSkill):
             # concurrent updates: several chats are read at once, and the
             # per-conversation scheduler is what keeps each one serialized
             self.app = Application.builder().token(token).concurrent_updates(True).build()
+            # everything except commands: a photo, a sticker and a voice note
+            # are all things a person sends, and ignoring them looks broken
             self.app.add_handler(MessageHandler(
-                filters.TEXT & ~filters.COMMAND, self._on_message
+                (filters.TEXT | filters.PHOTO | filters.VOICE | filters.VIDEO
+                 | filters.VIDEO_NOTE | filters.ANIMATION | filters.AUDIO
+                 | filters.Document.ALL | filters.Sticker.ALL) & ~filters.COMMAND,
+                self._on_message,
             ))
             await self.app.initialize()
             await self.app.start()
@@ -116,7 +142,13 @@ class TelegramSkill(PlatformSkill):
             message = getattr(update, "message", None)
             if message is None:
                 return
-            text = message_text(message)
+
+            kind = media_kind(message)
+            if kind and not self._read_media:
+                return
+            text = describe_message(message)
+            if kind == "voice":
+                text = await self._transcribed(message) or text
             if not text:
                 return
 
@@ -149,11 +181,36 @@ class TelegramSkill(PlatformSkill):
                 is_dm=private,
                 mentions_self=called,
                 reply_to_self=bool(bot_id is not None and reply_user_id == bot_id),
-                meta={"chat_title": getattr(message.chat, "title", "") or ""},
+                meta={"chat_title": getattr(message.chat, "title", "") or "",
+                      "media": kind},
             )
         except Exception as e:
             # an handler must never take the bot down
             logger.error(f"Telegram message handling failed: {e}")
+
+    async def _transcribed(self, message) -> str:
+        """A voice note, in words. Empty when she cannot hear it."""
+        if not self._transcribe_voice or self.stt is None or self.app is None:
+            return ""
+        path = ""
+        try:
+            handle = await self.app.bot.get_file(message.voice.file_id)
+            fd, path = tempfile.mkstemp(suffix=".oga", prefix="tg_voice_")
+            os.close(fd)
+            await handle.download_to_drive(path)
+            transcript = (await asyncio.to_thread(self.stt.transcribe, path) or "").strip()
+        except Exception as e:
+            # a failed transcription must never swallow the message itself
+            logger.warning(f"Telegram voice transcription failed: {e}")
+            return ""
+        finally:
+            if path and os.path.exists(path):
+                os.remove(path)
+        if not transcript or transcript == "[Unintelligible]":
+            return ""
+        caption = message_text(message)
+        line = f"[voice note] {transcript}"
+        return f"{line} — {caption}" if caption else line
 
     def _author(self, user) -> Author:
         owner = self._owner_id()
@@ -186,6 +243,20 @@ class TelegramSkill(PlatformSkill):
             await self.app.bot.send_chat_action(chat_id=int(channel_id), action="typing")
         except Exception as e:
             logger.debug(f"Telegram typing failed: {e}")
+
+    async def react(self, channel_id: str, message_id: str, emoji: str) -> bool:
+        """Answer with a reaction instead of writing. Telegram only takes a
+        fixed set of emoji, so a refusal is normal and not an error."""
+        if self.app is None:
+            return False
+        try:
+            await self.app.bot.set_message_reaction(
+                chat_id=int(channel_id), message_id=int(message_id), reaction=emoji,
+            )
+            return True
+        except Exception as e:
+            logger.info(f"Telegram refused the reaction {emoji!r}: {e}")
+            return False
 
     # --- prompt context -----------------------------------------------------
 

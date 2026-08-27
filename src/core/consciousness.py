@@ -8,6 +8,8 @@ from src.core.agent.tools import Tool
 from src.core.agent.types import ToolCall, Usage
 from src.core.events import EventCategory
 from src.core.mind.correlation import CorrelationRegistry
+from src.core.mind.moods import normalize_mood
+from src.core.mind.recap import SessionRecap
 from src.core.mind.routing import route
 from src.core.mind.tools import MindTools
 from src.core.perception.types import Perception, PerceptionKind
@@ -43,6 +45,10 @@ class Consciousness:
         self.conversations = conversations
         self._get_soul = soul_getter
         self._get_operating = operating_getter
+        # what scrolled out of the rolling context, in one line she keeps
+        self.recap = SessionRecap()
+        self.background_llm = None
+        self._recap_task: Optional[asyncio.Task] = None
 
         cc = config.consciousness
         self.idle_after = cc.get("idle_after", 30.0)
@@ -290,6 +296,9 @@ class Consciousness:
             doing.append("you're in Minecraft")
         if self.expression.is_speaking:
             doing.append("you're talking out loud right now")
+        discord = self.surfaces.get("voice:discord")
+        if discord is not None and getattr(discord, "voice_channel", None):
+            doing.append("you're sitting in a voice call")
         return ", ".join(doing)
 
     # --- context building ---------------------------------------------------
@@ -319,6 +328,9 @@ class Consciousness:
         digest = self.attention.digest() if self.attention else ""
         elsewhere = self.conversations.recent_lines() if self.conversations else ""
         parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live, *dynamic]
+        recap = self.recap.render()
+        if recap:
+            parts.append(recap)
         if digest:
             parts.append(digest)
         if elsewhere:
@@ -329,7 +341,9 @@ class Consciousness:
     def _frame(self, perceptions: List[Perception], steering: bool = False) -> Dict[str, Any]:
         header = "[NEW INPUT — arrived while you were mid-action; decide if it's worth reacting to now]" \
             if steering else "[PERCEPTIONS]"
-        lines = [f"({p.kind.value.upper()}) {p.render()}" for p in perceptions]
+        # anything old enough says so; a batch that arrived at once stays clean
+        now = time.time()
+        lines = [f"({p.kind.value.upper()}) {p.render(now=now)}" for p in perceptions]
         return {"role": "user", "content": header + "\n" + "\n".join(lines)}
 
     # --- tools --------------------------------------------------------------
@@ -374,7 +388,9 @@ class Consciousness:
     # --- speaking (non-blocking) -------------------------------------------
 
     async def _speak(self, mood: str, message: str) -> str:
-        mood = mood or "normal"
+        # the model invents moods; an avatar that silently fails to change is
+        # worse than landing on the nearest one she actually has
+        mood = normalize_mood(mood)
         # redundant with the client-side clean: last gate before the audience
         message = clean_model_output(message)
         if not message:
@@ -417,4 +433,34 @@ class Consciousness:
         tail = self.context[-self.history_limit:]
         while tail and tail[0].get("role") == "tool":
             tail.pop(0)
+        # what falls out here is what she would otherwise simply never have
+        # heard: hand it over before dropping it
+        kept = len(tail)
+        self.recap.drop(self.context[1:-kept] if kept else self.context[1:])
         self.context = [self.context[0]] + tail
+        if self.recap.due:
+            self._schedule_recap()
+
+    def _schedule_recap(self) -> None:
+        """Condenses in the background: the mind never waits on its own memory.
+
+        `_trim` is synchronous and can be reached from outside the loop, so a
+        missing loop means "not now" rather than an error — the turns are kept
+        and the next trim schedules it.
+        """
+        if self._recap_task and not self._recap_task.done():
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # not now; the turns are kept and the next trim tries again
+
+        async def work():
+            try:
+                await self.recap.condense(self.background_llm or self.llm)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Session recap failed: {e}")
+
+        self._recap_task = asyncio.create_task(work())

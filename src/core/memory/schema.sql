@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS messages (
     author_identity  TEXT,
     display_name     TEXT NOT NULL DEFAULT '',
     role             TEXT NOT NULL,               -- 'user' | 'bea'
+    -- who she was answering, so "is this person replying to me" is a fact and
+    -- not a guess. Empty when she spoke to the room rather than to a person.
+    addressee_identity TEXT NOT NULL DEFAULT '',
     content          TEXT NOT NULL,
     ts               REAL NOT NULL
 );
@@ -180,3 +183,16 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Things she means to do later. Thin on purpose: a note and a time, so what to
+-- actually say is decided with the conversation in front of her.
+CREATE TABLE IF NOT EXISTS agenda (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    note             TEXT NOT NULL,
+    person_id        TEXT NOT NULL DEFAULT '',
+    conversation_key TEXT NOT NULL DEFAULT '',
+    due_ts           REAL NOT NULL,
+    created_at       REAL NOT NULL,
+    done             INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_agenda_due ON agenda(done, due_ts);

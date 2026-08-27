@@ -2,6 +2,7 @@ from typing import Optional
 
 from src.core.agent.llm_client import LLMClient
 from src.interfaces.base_interfaces import STTInterface
+from src.modules.llm.reasoning import DEFAULT_LEVEL, style_for
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.llm.factory")
@@ -34,15 +35,21 @@ def build_client(provider: str, model: str, config,
     if not api_key:
         raise LLMConfigError(f"{key_field} is missing (set it via env, config.json, or CLI).")
 
+    level = (getattr(config, "models", None) or {}).get("reasoning", DEFAULT_LEVEL)
+    reasoning = style_for(provider, level)
+
     if provider == "openai":
         from src.modules.llm.openai_llm import OpenAILLM
-        return OpenAILLM(api_key=api_key, model_name=model, stt_interface=stt)
+        return OpenAILLM(api_key=api_key, model_name=model, stt_interface=stt,
+                         reasoning=reasoning)
     if provider == "groq":
         from src.modules.llm.groq_llm import GroqLLM
-        return GroqLLM(api_key=api_key, model_name=model, stt_interface=stt)
+        return GroqLLM(api_key=api_key, model_name=model, stt_interface=stt,
+                       reasoning=reasoning)
     if provider == "openrouter":
         from src.modules.llm.openrouter_llm import OpenRouterLLM
-        return OpenRouterLLM(api_key=api_key, model_name=model, stt_interface=stt)
+        return OpenRouterLLM(api_key=api_key, model_name=model, stt_interface=stt,
+                             reasoning=reasoning)
 
     raise LLMConfigError(f"Provider {provider!r} has no builder.")  # unreachable
 

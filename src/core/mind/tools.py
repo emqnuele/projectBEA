@@ -8,6 +8,7 @@ invalidated then rather than rebuilt on every model step. `speak` and
 from typing import Callable, List, Optional
 
 from src.core.agent.tools import Tool, ToolRegistry
+from src.core.mind.moods import enum_schema
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.mind.tools")
@@ -38,8 +39,9 @@ class MindTools:
             "Say something out loud (with a facial expression). Non-blocking: you keep "
             "acting while it plays.",
             {"type": "object", "properties": {
-                "mood": {"type": "string",
-                         "description": "normal, shock, love, cry, angry, ew, bored"},
+                # an enum, not a description: the model is told what exists
+                # rather than asked to remember it
+                "mood": {"type": "string", "enum": enum_schema()},
                 "message": {"type": "string"},
             }, "required": ["mood", "message"]},
             self._speak,

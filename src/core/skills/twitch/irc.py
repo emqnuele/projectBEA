@@ -29,6 +29,23 @@ _LINE_RE = re.compile(
     r":(?P<message>.*)$"
 )
 
+# subs, resubs, gifts and raids all arrive here, not as PRIVMSG. The parser used
+# to see only PRIVMSG, which meant a raid — the biggest moment of a stream —
+# never reached her at all.
+_NOTICE_RE = re.compile(
+    r"^@(?P<tags>[^ ]*) :tmi\.twitch\.tv USERNOTICE #(?P<channel>[^ ]+)"
+    r"(?: :(?P<message>.*))?$"
+)
+
+# the msg-id values worth waking her for; everything else is chrome
+EVENT_KINDS = frozenset({
+    "sub", "resub", "subgift", "submysterygift", "raid", "announcement",
+})
+
+# what one sub is worth, so a gift lands on the same scale as a donation
+SUB_UNITS = {"1000": 5.0, "2000": 10.0, "3000": 25.0, "Prime": 5.0}
+DEFAULT_SUB_UNITS = 5.0
+
 
 @dataclass
 class ChatLine:
@@ -61,11 +78,11 @@ def parse_tags(raw: str) -> Dict[str, str]:
     return out
 
 
-def parse_line(line: str) -> Optional[ChatLine]:
-    """A PRIVMSG into a `ChatLine`, or None for anything else."""
+def parse_line(line: str):
+    """One raw line into a `ChatLine`, a `ChatEvent`, or None."""
     match = _LINE_RE.match(line.strip())
     if not match:
-        return None
+        return parse_notice(line)
     tags = parse_tags(match.group("tags") or "")
     try:
         bits = int(tags.get("bits", "0") or 0)
@@ -84,16 +101,95 @@ def parse_line(line: str) -> Optional[ChatLine]:
     )
 
 
+@dataclass
+class ChatEvent:
+    """Something that happened in the channel that is not someone talking."""
+
+    kind: str
+    channel: str
+    nick: str = ""
+    display_name: str = ""
+    user_id: str = ""
+    text: str = ""
+    viewers: int = 0
+    months: int = 0
+    gifts: int = 0
+    recipient: str = ""
+    plan: str = ""
+    tags: Dict[str, str] = field(default_factory=dict)
+
+    @property
+    def name(self) -> str:
+        return self.display_name or self.nick or "someone"
+
+    @property
+    def units(self) -> float:
+        """Roughly what it is worth, on the same scale as a donation."""
+        if self.kind == "raid":
+            return 0.0
+        each = SUB_UNITS.get(self.plan, DEFAULT_SUB_UNITS)
+        return each * max(1, self.gifts)
+
+    def render(self) -> str:
+        if self.kind == "raid":
+            return f"{self.name} raided with {self.viewers} people"
+        if self.kind == "sub":
+            line = f"{self.name} just subscribed"
+        elif self.kind == "resub":
+            line = f"{self.name} resubscribed — {self.months} months now"
+        elif self.kind == "subgift":
+            line = f"{self.name} gifted a sub to {self.recipient or 'someone'}"
+        elif self.kind == "submysterygift":
+            line = f"{self.name} gifted {self.gifts} subs to the channel"
+        else:
+            line = f"{self.name}: announcement"
+        return f"{line}: {self.text}" if self.text else line
+
+
+def _int(tags: Dict[str, str], key: str) -> int:
+    try:
+        return int(tags.get(key, "0") or 0)
+    except ValueError:
+        return 0
+
+
+def parse_notice(line: str) -> Optional[ChatEvent]:
+    """A USERNOTICE into a `ChatEvent`, or None for the kinds nobody cares about."""
+    match = _NOTICE_RE.match(line.strip())
+    if not match:
+        return None
+    tags = parse_tags(match.group("tags") or "")
+    kind = tags.get("msg-id", "")
+    if kind not in EVENT_KINDS:
+        return None
+    return ChatEvent(
+        kind=kind,
+        channel=match.group("channel"),
+        nick=tags.get("login", ""),
+        display_name=tags.get("display-name", ""),
+        user_id=tags.get("user-id", ""),
+        text=(match.group("message") or "").strip(),
+        viewers=_int(tags, "msg-param-viewerCount"),
+        months=_int(tags, "msg-param-cumulative-months"),
+        gifts=_int(tags, "msg-param-mass-gift-count"),
+        recipient=tags.get("msg-param-recipient-display-name", ""),
+        plan=tags.get("msg-param-sub-plan", ""),
+        tags=tags,
+    )
+
+
 class TwitchIRC:
     """Connects, joins a channel, and calls `on_message` for every line."""
 
     def __init__(self, channel: str, *, nick: str = "", token: str = "",
-                 on_message: Optional[Callable[[ChatLine], Awaitable[None]]] = None):
+                 on_message: Optional[Callable[[ChatLine], Awaitable[None]]] = None,
+                 on_event: Optional[Callable[["ChatEvent"], Awaitable[None]]] = None):
         self.channel = channel.lstrip("#").lower()
         self.token = token
         # anonymous read-only: no credentials needed to follow a chat
         self.nick = (nick or f"justinfan{random.randint(10000, 99999)}").lower()
         self.on_message = on_message
+        self.on_event = on_event
         self.connected = False
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
@@ -157,13 +253,16 @@ class TwitchIRC:
             # miss these and twitch drops the connection after a few minutes
             await self._send("PONG :tmi.twitch.tv")
             return
-        message = parse_line(line)
-        if message is None or self.on_message is None:
+        parsed = parse_line(line)
+        if parsed is None:
+            return
+        handler = self.on_event if isinstance(parsed, ChatEvent) else self.on_message
+        if handler is None:
             return
         try:
-            await self.on_message(message)
+            await handler(parsed)
         except Exception as e:
-            logger.error(f"Twitch message handler failed: {e}")
+            logger.error(f"Twitch handler failed: {e}")
 
     async def say(self, text: str) -> bool:
         if not self.connected or not self.token:

@@ -4,6 +4,8 @@ import os
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.core.mind.moods import default_avatar_map
+from src.core.persona import DEFAULT_NAME, DEFAULT_PRONOUNS
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.config")
@@ -19,6 +21,24 @@ SECRET_SKILL_FIELDS: List[Tuple[str, str]] = [
 ]
 
 MASK = "********"
+
+
+def deep_merge(base: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """`incoming` over `base`, recursing into dicts. Lists replace wholesale.
+
+    Every dict-valued setting is a block of named knobs, so a config.json
+    written before a knob existed must not delete it. A list, on the other
+    hand, is one value: merging trigger_words would make them impossible to
+    shorten.
+    """
+    merged = dict(base)
+    for key, value in incoming.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = deep_merge(current, value)
+        else:
+            merged[key] = value
+    return merged
 
 @dataclass
 class BrainConfig:
@@ -70,16 +90,8 @@ class BrainConfig:
 
 
 
-    # avatar
-    avatar_map: Dict[str, Dict[str, str]] = field(default_factory=lambda: {
-        "normal": {"idle": "", "talking": ""},
-        "angry": {"idle": "", "talking": ""},
-        "bored": {"idle": "", "talking": ""},
-        "cry": {"idle": "", "talking": ""},
-        "ew": {"idle": "", "talking": ""},
-        "love": {"idle": "", "talking": ""},
-        "shock": {"idle": "", "talking": ""},
-    })
+    # avatar: one slot per mood, derived so a new mood is never avatar-less
+    avatar_map: Dict[str, Dict[str, str]] = field(default_factory=default_avatar_map)
 
     png_dir: str = "data/pngs"
 
@@ -91,6 +103,14 @@ class BrainConfig:
     text_font_step: int = 2
     typing_delay: float = 0.03
     text_min_duration: float = 2.0
+
+    # who she is called. The prose lives in soul.md; this is the structured part
+    # every other path needs — the gate's trigger words, the prompt placeholders,
+    # the name her own messages are filed under, the dashboard chrome.
+    persona: Dict[str, Any] = field(default_factory=lambda: {
+        "name": DEFAULT_NAME,
+        "pronouns": DEFAULT_PRONOUNS,
+    })
 
     # skills
     skills: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {
@@ -166,9 +186,12 @@ class BrainConfig:
     # "provider:model" pools per role: round-robin spreads rate limits, the rest
     # of the pool is the fallback. Empty falls back to llm_provider.
     # every model in "mind" must support tool calling, or she never speaks
+    # "reasoning" is a latency setting, not a quality one: she answers in a
+    # voice call, and a thinking trace before the first token loses the moment
     models: Dict[str, Any] = field(default_factory=lambda: {
         "mind": [],
         "background": [],
+        "reasoning": "off",   # off | low | medium | high | auto
     })
 
     # a day, not an event loop: when she starts something on her own, and when
@@ -188,11 +211,15 @@ class BrainConfig:
         "cooldown_seconds": 20,        # she just spoke: let the room breathe
         "interject_threshold": 0.45,   # score needed to speak up unprompted
         "quiet_hours": [3, 9],         # never interjects here (being addressed still does)
-        "trigger_words": ["bea", "beatrice"],
+        "trigger_words": [],           # empty = worked out from persona.name
         "hot_names": [],               # names that pull her into a conversation
         "self_ids": [],                # her own platform ids, to spot replies to her
         "digest_max_lines": 8,
     })
+
+    # her clock. Empty follows the machine, which is fine on a laptop and wrong
+    # in a UTC container where the quiet hours would silently shift
+    timezone: str = ""
 
     # STT
     stt_provider: str = "openrouter"
@@ -228,13 +255,9 @@ class BrainConfig:
                                 continue  # env var not set and config.json empty → nothing to apply
                             # env var not set but config.json has a value → use it
 
-                        if key == "skills":
-                            current_skills = self.skills
-                            for skill_name, skill_val in value.items():
-                                if skill_name in current_skills:
-                                    current_skills[skill_name].update(skill_val)
-                                else:
-                                    current_skills[skill_name] = skill_val
+                        current = getattr(self, key, None)
+                        if isinstance(current, dict) and isinstance(value, dict):
+                            setattr(self, key, deep_merge(current, value))
                         else:
                             setattr(self, key, value)
 

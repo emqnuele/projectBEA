@@ -11,10 +11,12 @@ from collections import deque
 from datetime import datetime
 from typing import Callable, Deque, Dict, List, Optional, Sequence, Tuple
 
+from src.core.attention.followup import is_followup
 from src.core.attention.rules import in_quiet_hours, is_addressed, score
 from src.core.attention.types import Reaction, Verdict
 from src.core.mind.routing import conversation_key
 from src.core.perception.types import Perception, PerceptionKind
+from src.core.persona import persona_of
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.attention")
@@ -45,9 +47,11 @@ class Attention:
         rng: Optional[random.Random] = None,
         clock: Optional[Callable[[], float]] = None,
         on_verdict: Optional[OnVerdict] = None,
+        conversations=None,
     ) -> None:
         self.config = config
         self.roster = roster
+        self.conversations = conversations
         self._rng = rng or random.Random()
         self._clock = clock or time.time
         self._on_verdict = on_verdict
@@ -70,7 +74,8 @@ class Attention:
 
     @property
     def trigger_words(self) -> Sequence[str]:
-        return self._cfg.get("trigger_words", ["bea"])
+        # derived from her name unless someone set them explicitly
+        return persona_of(self.config).trigger_words
 
     @property
     def hot_names(self) -> Sequence[str]:
@@ -83,6 +88,10 @@ class Attention:
     @property
     def cooldown(self) -> float:
         return float(self._cfg.get("cooldown_seconds", 20.0))
+
+    @property
+    def followup_enabled(self) -> bool:
+        return bool(self._cfg.get("followup_enabled", True))
 
     @property
     def quiet_hours(self) -> Tuple[int, int]:
@@ -137,6 +146,8 @@ class Attention:
             return Verdict(Reaction.REACT, 1.0, reason)
 
         key = self._key(p)
+        if self._is_followup(p, key):
+            return Verdict(Reaction.REACT, 1.0, "addressed:follow-up")
         base = score(
             salience=p.salience,
             text=p.content,
@@ -158,6 +169,36 @@ class Attention:
         if effective >= self.threshold:
             return Verdict(Reaction.REACT, base, f"score:{base:.2f}")
         return Verdict(Reaction.NOTE, base, f"score:{base:.2f}")
+
+    def _is_followup(self, p: Perception, key: str) -> bool:
+        """Is this person answering something she said to them?
+
+        Deterministic and cooldown-free on purpose: see `followup.py`.
+        """
+        if not self.followup_enabled or self.conversations is None or p.author is None:
+            return False
+        conversation = conversation_key(p)
+        try:
+            history = self.conversations.turns(
+                conversation, limit=int(self._cfg.get("followup_lookback", 30))
+            )
+            since = self.conversations.seconds_since_bea_spoke(conversation)
+            activity = self.conversations.recent_activity(conversation)
+        except Exception as e:
+            logger.debug(f"follow-up lookup failed for '{conversation}': {e}")
+            return False
+
+        return is_followup(
+            history,
+            identity=p.author.identity,
+            seconds_since_bea=since,
+            recent_activity=activity,
+            window_seconds=float(self._cfg.get("followup_window_seconds", 180)),
+            max_turns=int(self._cfg.get("followup_max_turns", 3)),
+            max_interposed=int(self._cfg.get("followup_max_interposed", 3)),
+            active_bonus=int(self._cfg.get("followup_active_bonus", 5)),
+            trigger_words=self.trigger_words,
+        )
 
     def _zero_reason(self, key: str = ANYWHERE) -> str:
         since = self.seconds_since_spoke(key)

@@ -19,7 +19,9 @@ SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # (table, column, type) for columns added after a table already exists:
 # CREATE TABLE IF NOT EXISTS will not add them, so they need a guarded ALTER
-_MIGRATIONS: List[tuple] = []
+_MIGRATIONS: List[tuple] = [
+    ("messages", "addressee_identity", "TEXT NOT NULL DEFAULT ''"),
+]
 
 
 class Database:

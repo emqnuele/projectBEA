@@ -44,6 +44,7 @@ class Expression:
         self.playback_start_time = 0.0
         self.playback_sample_rate = 24000
         self.resume_buffer = None
+        self._playback_device_id = None
 
     def set_png_map(self, png_map) -> None:
         self.png_map = png_map
@@ -85,30 +86,76 @@ class Expression:
             raise
 
     def _safe_play(self, sd, audio_data, sample_rate, device_id):
-        """Plays on the configured device, falling back to the default on failure.
+        """Plays on the first device that actually accepts the audio.
 
-        Device 0 (or a misconfigured id) may not support the channel count of the
-        rendered audio, raising PaErrorCode -9998. Downmix to what the device can
-        take, and if it still fails drop to the system default device.
+        The configured id may not be an output at all (on CoreAudio the mic and the
+        speakers of one headset are separate devices), or may be an output that
+        portaudio still refuses to open — a bluetooth headset switched to headset
+        mode raises -9986. So walk the candidates instead of trusting the config.
         """
-        try:
-            channels = self._device_channels(sd, device_id)
-            data = self._fit_channels(audio_data, channels)
-            sd.play(data, samplerate=sample_rate, device=device_id, blocking=False)
-        except Exception as e:
-            logger.warning(f"Audio device {device_id} failed ({e}); using default device.")
+        for candidate in self._output_candidates(sd, device_id):
             try:
-                sd.play(audio_data, samplerate=sample_rate, blocking=False)
-            except Exception as e2:
-                logger.error(f"Default audio device also failed: {e2}")
+                data = self._fit_channels(audio_data, self._device_channels(sd, candidate))
+                sd.play(data, samplerate=sample_rate, device=candidate, blocking=False)
+                if candidate != device_id:
+                    logger.warning(
+                        f"audio device {device_id} unusable; playing on "
+                        f"{self._device_name(sd, candidate)} (id {candidate}) instead"
+                    )
+                self._playback_device_id = candidate
+                return
+            except Exception as e:
+                logger.debug(f"audio device {candidate} failed ({e})")
+
+        logger.error("no usable audio output device found; speech is silent")
+
+    def _output_candidates(self, sd, device_id) -> list:
+        """Configured device first, then the system default, then any real output."""
+        candidates = []
+
+        def add(index) -> None:
+            if index is None or index in candidates:
+                return
+            if self._device_channels(sd, index) > 0:
+                candidates.append(index)
+
+        add(device_id)
+
+        try:
+            default = sd.default.device
+            add(default[1] if isinstance(default, (list, tuple)) else default)
+        except Exception:
+            pass
+
+        try:
+            for index in range(len(sd.query_devices())):
+                add(index)
+        except Exception:
+            pass
+
+        # a cached working device beats the config order on later turns
+        cached = getattr(self, "_playback_device_id", None)
+        if cached in candidates:
+            candidates.remove(cached)
+            candidates.insert(0, cached)
+
+        return candidates
+
+    @staticmethod
+    def _device_name(sd, device_id) -> str:
+        try:
+            return sd.query_devices(device_id).get("name", str(device_id))
+        except Exception:
+            return str(device_id)
 
     @staticmethod
     def _device_channels(sd, device_id) -> int:
+        """Output channels of a device, or 0 when it cannot play anything."""
         try:
-            info = sd.query_devices(device_id, "output")
-            return max(1, int(info.get("max_output_channels", 1)))
+            info = sd.query_devices(device_id)
+            return max(0, int(info.get("max_output_channels", 0)))
         except Exception:
-            return 1
+            return 0
 
     @staticmethod
     def _fit_channels(audio_data, channels: int):

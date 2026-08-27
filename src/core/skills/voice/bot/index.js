@@ -13,6 +13,11 @@ if (!config.TOKEN) {
     process.exit(1);
 }
 
+if (!config.API_TOKEN) {
+    console.error('Error: API_TOKEN is not defined. The bot is started by the python transport, which mints it.');
+    process.exit(1);
+}
+
 whitelist.load();
 
 const client = new Client({
@@ -53,9 +58,14 @@ messageHandler.register(client);
 
 // --- start: login, then expose the command API ---
 client.login(config.TOKEN).then(() => {
-    const app = createServer({ client, voiceManager: client.voiceManager });
-    app.listen(config.PORT, () => {
-        console.log(`Bot API listening on port ${config.PORT}`);
+    const app = createServer({
+        client,
+        voiceManager: client.voiceManager,
+        token: config.API_TOKEN,
+    });
+    // BIND_HOST is loopback: the API has no business being on the network
+    app.listen(config.PORT, config.BIND_HOST, () => {
+        console.log(`Bot API listening on ${config.BIND_HOST}:${config.PORT}`);
     });
 }).catch((err) => {
     console.error('Failed to login to Discord:', err);

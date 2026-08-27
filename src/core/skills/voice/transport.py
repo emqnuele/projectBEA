@@ -1,4 +1,5 @@
 import os
+import secrets
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,10 @@ from src.core.config import BrainConfig
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.voice.transport")
+
+# the bot's command API can write messages, send DMs and create invites. It is
+# reachable over TCP, so it gets a credential and stays off the network.
+LOOPBACK = "127.0.0.1"
 
 
 class DiscordTransport:
@@ -24,7 +29,10 @@ class DiscordTransport:
         self.config = config
         self.bot_process: Optional[subprocess.Popen] = None
         self.bot_dir = Path(__file__).parent / "bot"
-        self.api_url = f"http://localhost:{self._port()}"
+        self.api_url = f"http://{LOOPBACK}:{self._port()}"
+        # minted per process and handed to the subprocess: never written to disk
+        self.api_token = secrets.token_urlsafe(32)
+        self._session: Optional[aiohttp.ClientSession] = None
 
     def _port(self) -> int:
         return self.config.skills.get("discord", {}).get("api_port", 3030)
@@ -36,6 +44,22 @@ class DiscordTransport:
     @property
     def running(self) -> bool:
         return self.bot_process is not None
+
+    def subprocess_env(self, token: str) -> Dict[str, str]:
+        """The environment the node bot is started with."""
+        dcfg = self.config.skills.get("discord", {})
+        env = os.environ.copy()
+        env["DISCORD_TOKEN"] = token
+        env["PORT"] = str(self._port())
+        env["BIND_HOST"] = LOOPBACK
+        env["API_TOKEN"] = self.api_token
+        env["BRAIN_API_URL"] = self._brain_api_url()
+        env["ADMIN_ID"] = str(dcfg.get("admin_id", "") or os.getenv("DISCORD_ADMIN_ID", ""))
+        env["ACCESS_MODE"] = str(dcfg.get("access_mode", "strict"))
+        env["INTERRUPT_THRESHOLD_MS"] = str(dcfg.get("interrupt_threshold_ms", 2000))
+        env["INVITE_MAX_AGE"] = str(dcfg.get("invite_max_age_seconds", 3600))
+        env["INVITE_MAX_USES"] = str(dcfg.get("invite_max_uses", 1))
+        return env
 
     def start(self) -> bool:
         if self.running:
@@ -50,18 +74,11 @@ class DiscordTransport:
             logger.error("node_modules not found. Run 'npm install' in the bot directory.")
             return False
 
-        self.api_url = f"http://localhost:{self._port()}"
-        dcfg = self.config.skills.get("discord", {})
-        env = os.environ.copy()
-        env["DISCORD_TOKEN"] = token
-        env["PORT"] = str(self._port())
-        env["BRAIN_API_URL"] = self._brain_api_url()
-        env["ADMIN_ID"] = str(dcfg.get("admin_id", "") or os.getenv("DISCORD_ADMIN_ID", ""))
-        env["INTERRUPT_THRESHOLD_MS"] = str(dcfg.get("interrupt_threshold_ms", 2000))
+        self.api_url = f"http://{LOOPBACK}:{self._port()}"
 
         try:
             self.bot_process = subprocess.Popen(
-                ["node", "index.js"], cwd=str(self.bot_dir), env=env,
+                ["node", "index.js"], cwd=str(self.bot_dir), env=self.subprocess_env(token),
                 stdout=sys.stdout, stderr=sys.stderr, shell=False,
             )
             logger.info(f"Discord bot started with PID {self.bot_process.pid}.")
@@ -77,14 +94,25 @@ class DiscordTransport:
         logger.info("Stopping Discord bot...")
         try:
             self.bot_process.kill()
-            # windows fallback to fully kill the tree
-            subprocess.run(f"taskkill /F /T /PID {self.bot_process.pid}", shell=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if sys.platform.startswith("win"):
+                # windows leaves the child tree behind after a kill
+                subprocess.run(f"taskkill /F /T /PID {self.bot_process.pid}", shell=True,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.bot_process.wait(timeout=2)
         except Exception as e:
             logger.error(f"Error stopping Discord bot: {e}")
         finally:
             self.bot_process = None
+
+    async def close(self) -> None:
+        """Releases the shared HTTP session."""
+        if self._session is not None:
+            try:
+                await self._session.close()
+            except Exception as e:
+                logger.debug(f"Closing the discord session failed: {e}")
+            finally:
+                self._session = None
 
     def poll_exit(self) -> Optional[int]:
         """Returns the exit code if the process died, else None (and clears it)."""
@@ -100,23 +128,32 @@ class DiscordTransport:
     # every method returns a dict {"ok": bool, ...} so the tool layer can turn it
     # into a clean observation for Bea instead of raising.
 
+    def _headers(self) -> Dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_token}"}
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
     async def _request(self, method: str, path: str,
                        payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not self.running:
             return {"ok": False, "error": "discord bot is offline"}
         url = f"{self.api_url}{path}"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.request(method, url, json=payload) as resp:
-                    try:
-                        data = await resp.json()
-                    except Exception:
-                        data = {"raw": await resp.text()}
-                    if resp.status == 200:
-                        return {"ok": True, **(data if isinstance(data, dict) else {"data": data})}
-                    logger.error(f"Discord API {path} -> {resp.status}: {data}")
-                    return {"ok": False, "error": data.get("error", f"http {resp.status}")
-                            if isinstance(data, dict) else f"http {resp.status}"}
+            session = await self._get_session()
+            async with session.request(method, url, json=payload,
+                                       headers=self._headers()) as resp:
+                try:
+                    data = await resp.json()
+                except Exception:
+                    data = {"raw": await resp.text()}
+                if resp.status == 200:
+                    return {"ok": True, **(data if isinstance(data, dict) else {"data": data})}
+                logger.error(f"Discord API {path} -> {resp.status}: {data}")
+                return {"ok": False, "error": data.get("error", f"http {resp.status}")
+                        if isinstance(data, dict) else f"http {resp.status}"}
         except Exception as e:
             logger.error(f"Discord API request {path} failed: {e}")
             return {"ok": False, "error": str(e)}

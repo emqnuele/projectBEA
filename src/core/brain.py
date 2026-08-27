@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
 from src.core.attention import Attention
@@ -10,27 +10,43 @@ from src.core.expression import Expression
 from src.core.memory.profiler import Profiler
 from src.core.memory.store import MemoryStore
 from src.core.mind import ConversationMind, ConversationScheduler
+from src.core.mind.operating import BUILTIN_OPERATING, missing_tools
 from src.core.mind.spontaneous import SpontaneousPresence
 from src.core.perception.bus import PerceptionBus
+from src.core.persona import Persona, persona_of
 from src.core.resources import load_avatar_resources
 from src.core.skills.base import SkillRegistry
 from src.core.skills.chat import ChatSurface
+from src.core.skills.clock import ClockSkill
 from src.core.skills.donation.surface import DonationSkill
 from src.core.skills.dream.surface import DreamSkill
 from src.core.skills.idle import IdleSurface
 from src.core.skills.memory.memory import MemorySkill
 from src.core.skills.minecraft.surface import MinecraftSurface
 from src.core.skills.plan.surface import StreamPlanSkill
+from src.core.skills.presence.surface import PresenceSkill
 from src.core.skills.social.social import SocialMemory
 from src.core.skills.telegram.surface import TelegramSkill
 from src.core.skills.twitch.surface import TwitchSkill
 from src.core.skills.voice.surface import VoiceSurface
+from src.core.social.agenda import AgendaRunner
+from src.core.social.reach import Reach
+from src.core.social.rhythm import RhythmTick
 from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
 from src.utils.history_manager import HistoryManager
 from src.utils.logger import get_logger
 from src.utils.prompts import compose, load_text
 
 logger = get_logger("bea.brain")
+
+
+# every capability the brain wires up. PresenceSkill is core: without it she can
+# only ever answer where she was spoken to.
+SKILL_CLASSES = (
+    ChatSurface, VoiceSurface, TelegramSkill, TwitchSkill, DonationSkill,
+    IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill,
+    StreamPlanSkill, PresenceSkill, ClockSkill,
+)
 
 
 class AIVtuberBrain:
@@ -79,6 +95,11 @@ class AIVtuberBrain:
         self.spontaneous: Optional[SpontaneousPresence] = None
         self._rhythm_task: Optional[asyncio.Task] = None
         self.consciousness: Optional[Consciousness] = None
+
+    @property
+    def persona(self) -> Persona:
+        """Her name and pronouns, read fresh so a rename applies on reload."""
+        return persona_of(self.config)
 
     @property
     def is_speaking(self) -> bool:
@@ -161,11 +182,33 @@ class AIVtuberBrain:
         return store
 
     def _load_operating_rules(self) -> str:
-        """The unified operating manual; falls back to the legacy chat rules."""
+        """The operating manual, with a floor under it.
+
+        The file is meant to be edited; it is not meant to be able to vanish.
+        Without the built-in copy a deleted file left her with no mood table, no
+        inner-monologue rule and no explanation of the digest.
+        """
         rules = load_text(self.config.operating_prompt_path)
         if not rules:
-            rules = load_text(self.config.system_prompt_path)
-        return rules
+            rules = load_text(self.config.system_prompt_path, fallback=BUILTIN_OPERATING)
+        return self.persona.fill(rules)
+
+    def check_prompt_integrity(self) -> List[str]:
+        """Does the prompt in force still name the tools the mind owns?
+
+        The manual is an editable file, so it can fall behind a rename or a bad
+        save. Reporting that on the dashboard is the difference between finding
+        out at startup and finding out mid-stream.
+        """
+        missing = missing_tools(self.system_prompt, sorted(Consciousness._TERMINAL_TOOLS))
+        if missing:
+            self.event_manager.publish(
+                EventCategory.ERROR, "prompt",
+                f"The operating manual never mentions: {', '.join(missing)}. "
+                f"She may not know how to use them.",
+                metadata={"missing": missing},
+            )
+        return missing
 
     def initialize(self):
         """Loads resources and connects to services."""
@@ -176,9 +219,10 @@ class AIVtuberBrain:
             logger.warning("No avatar resources loaded from avatar_map.")
         self.expression.set_png_map(self.png_map)
 
-        self.soul = load_text(self.config.soul_path)
+        self.soul = self.persona.fill(load_text(self.config.soul_path))
         self.system_prompt = compose(self.soul, self._load_operating_rules())
         logger.info(f"Loaded soul + operating manual ({len(self.system_prompt)} chars).")
+        self.check_prompt_integrity()
 
         self._obs_connect()
 
@@ -193,9 +237,7 @@ class AIVtuberBrain:
         self.perception_bus = PerceptionBus(window=self.config.consciousness.get("window", 0.3))
         self.skill_registry = SkillRegistry()
 
-        for skill_cls in (ChatSurface, VoiceSurface, TelegramSkill, TwitchSkill, DonationSkill,
-                          IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill,
-                          StreamPlanSkill):
+        for skill_cls in SKILL_CLASSES:
             skill = skill_cls(self.config, self.perception_bus, self.expression, self)
             skill.initialize()
             self.skill_registry.register(skill)
@@ -208,6 +250,7 @@ class AIVtuberBrain:
             self.config,
             roster=getattr(social, "roster", None),
             on_verdict=self._publish_verdict,
+            conversations=self.memory.conversations,
         )
 
         self.consciousness = Consciousness(
@@ -241,9 +284,20 @@ class AIVtuberBrain:
             now_line=self.consciousness.now_line,
         )
         self.consciousness.conversations = self.conversations
+        # the recap is background work: it must never compete with the mind
+        self.consciousness.background_llm = self.model_for(BACKGROUND)
 
+        self.reach = Reach(memory=self.memory, surfaces=self.skill_registry,
+                           persona=self.persona)
         self.spontaneous = SpontaneousPresence(
             config=self.config, memory=self.memory, conversations=self.conversations,
+        )
+        self.rhythm = RhythmTick(
+            agenda=AgendaRunner(
+                agenda=self.memory.agenda, conversations=self.conversations,
+                reach=self.reach,
+            ),
+            spontaneous=self.spontaneous,
         )
 
     def _publish_verdict(self, perception, verdict) -> None:
@@ -297,11 +351,12 @@ class AIVtuberBrain:
         """Hot-reloads configuration for all components after config.json changes."""
         logger.info("Hot Reloading Configuration")
 
-        self.soul = load_text(self.config.soul_path)
+        self.soul = self.persona.fill(load_text(self.config.soul_path))
         new_prompt = compose(self.soul, self._load_operating_rules())
         if new_prompt != self.system_prompt:
             self.system_prompt = new_prompt
             logger.info("Updated soul + operating manual.")
+            self.check_prompt_integrity()
 
         self.registry.reload_config(self.config)
         self.llm = self.registry.get(MIND)
@@ -442,7 +497,7 @@ class AIVtuberBrain:
 
     def perceive_discord_text(self, text: str, username: str, channel_id: str,
                               message_id: Optional[str] = None, user_id: Optional[str] = None,
-                              is_dm: bool = False) -> None:
+                              is_dm: bool = False, whitelisted: bool = True) -> None:
         """Discord text: deposit a CHAT perception on the bus and return immediately.
         Bea decides on her own whether/how to answer, using the discord tools
         (reply/send_message/react) with the ids carried in the perception. This is
@@ -450,7 +505,7 @@ class AIVtuberBrain:
         surface = self._surface("voice:discord")
         if surface:
             surface.perceive_text(text, username, channel_id, message_id=message_id,
-                                  user_id=user_id, is_dm=is_dm)
+                                  user_id=user_id, is_dm=is_dm, whitelisted=whitelisted)
 
     async def run_loop(self):
         logger.info("Starting interactive loop. Type 'exit' to quit.")
@@ -485,7 +540,7 @@ class AIVtuberBrain:
             if self.is_sleeping:
                 continue
             try:
-                started = await self.spontaneous.run_once()
+                started = await self.rhythm.run_once()
                 if started:
                     logger.info(f"Rhythm: opened {started} conversation(s) unprompted.")
             except asyncio.CancelledError:

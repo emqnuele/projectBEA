@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from src.core.agent.llm_client import LLMClient
 from src.core.agent.types import AssistantMessage, ToolCall, Usage
 from src.interfaces.base_interfaces import LLMInterface, STTInterface
+from src.modules.llm.reasoning import NO_STYLE, ReasoningStyle
 from src.utils.llm_utils import parse_llm_json
 from src.utils.logger import get_logger
 from src.utils.sanitize import clean_model_output
@@ -23,10 +24,34 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
     `reload_config`.
     """
 
-    def __init__(self, client, model_name: str, stt: Optional[STTInterface] = None):
+    def __init__(self, client, model_name: str, stt: Optional[STTInterface] = None,
+                 reasoning: Optional[ReasoningStyle] = None):
         self.client = client
         self.model_name = model_name
         self.stt = stt
+        self.reasoning = reasoning or NO_STYLE
+
+    # --- the sdk call, with the reasoning fields negotiated ------------------
+
+    def _call_sdk(self, **kwargs):
+        """One sdk call, retried without the reasoning fields if refused.
+
+        Some models force reasoning and answer 400 to anything that switches it
+        off. Losing the turn over a latency hint is the wrong trade.
+        """
+        extra = self.reasoning.extra_body
+        if extra:
+            kwargs["extra_body"] = {**extra, **(kwargs.get("extra_body") or {})}
+        try:
+            return self.client.chat.completions.create(**kwargs)
+        except Exception:
+            if not self.reasoning.negotiable:
+                raise
+            logger.info(
+                f"{self.model_name} refused the reasoning parameters; retrying without them."
+            )
+            kwargs["extra_body"] = self.reasoning.without_optional() or None
+            return self.client.chat.completions.create(**kwargs)
 
     # --- tool-aware primitive (agent harness) ---
 
@@ -44,9 +69,7 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
             kwargs["response_format"] = response_format
 
         # the sdk call is blocking; keep the event loop free
-        response = await asyncio.to_thread(
-            self.client.chat.completions.create, **kwargs
-        )
+        response = await asyncio.to_thread(self._call_sdk, **kwargs)
         message = response.choices[0].message
 
         tool_calls: List[ToolCall] = []
@@ -75,7 +98,7 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
         kwargs: Dict[str, Any] = {"model": self.model_name, "messages": messages}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        return self.client.chat.completions.create(**kwargs)
+        return self._call_sdk(**kwargs)
 
     def chat(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, dict]:
         messages = self._build_messages(user_input, system_prompt, history)

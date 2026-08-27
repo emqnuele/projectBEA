@@ -1,14 +1,19 @@
 import asyncio
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
+from src.core.events import EventCategory
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.platform import PlatformSkill
 from src.core.skills.voice.transport import DiscordTransport
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.voice")
+
+# how much quieter someone she has not been introduced to arrives
+STRANGER_DAMPING = 0.55
 
 
 class VoiceSurface(PlatformSkill):
@@ -24,10 +29,15 @@ class VoiceSurface(PlatformSkill):
     skill_name = "discord"
     platform = "discord"
 
+    # how long to wait before bringing a crashed bot back up
+    restart_backoff: float = 3.0
+
     def initialize(self) -> None:
         super().initialize()
         self.transport = DiscordTransport(self.config)
         self._monitor: Optional[asyncio.Task] = None
+        self.voice_channel: Optional[str] = None
+        self._alone_since: Optional[float] = None
 
     async def start(self) -> None:
         if not self.enabled:
@@ -40,18 +50,82 @@ class VoiceSurface(PlatformSkill):
 
     async def stop(self) -> None:
         self.active = False
-        if self._monitor:
+        if getattr(self, "_monitor", None):
             self._monitor.cancel()
             self._monitor = None
         self.transport.stop()
+        await self.transport.close()
         logger.info("VoiceSurface stopped.")
 
+    async def supervise_once(self) -> None:
+        """One supervision pass: bring the bot back if it died.
+
+        A node process that dies takes voice, DMs and every discord tool with
+        it. Going quietly inactive was the wrong answer — she simply vanished
+        from discord until someone noticed.
+        """
+        if self.transport.poll_exit() is None:
+            return
+        logger.warning("Discord bot died; restarting it.")
+        await asyncio.sleep(self.restart_backoff)
+        if self.transport.start():
+            logger.info("Discord bot is back up.")
+            return
+        logger.error("Discord bot could not be restarted; the capability is off.")
+        self.active = False
+
+    # --- being left alone ---------------------------------------------------
+
+    @property
+    def _auto_leave_seconds(self) -> float:
+        return float(self.config.skills.get("discord", {}).get("auto_leave_seconds", 120))
+
+    def _forget_call(self) -> None:
+        self.voice_channel = None
+        self._alone_since = None
+
+    async def check_solitude(self, now: Optional[float] = None) -> None:
+        """Leaves a call everyone else walked out of.
+
+        Sitting alone in an empty channel forever is the most obviously
+        non-human thing she can do.
+        """
+        if not self.voice_channel or self._auto_leave_seconds <= 0:
+            return
+        now = time.time() if now is None else now
+
+        result = await self.transport.list_voice_channels()
+        if not result.get("ok"):
+            return
+        channel = next((c for c in result.get("channels", [])
+                        if str(c.get("channelId")) == self.voice_channel), None)
+        if channel is None:
+            # she is not in it any more, whoever ended it
+            self._forget_call()
+            return
+
+        others = [m for m in channel.get("members", []) if str(m.get("id")) != "bot"]
+        if others:
+            self._alone_since = None
+            return
+
+        if self._alone_since is None:
+            self._alone_since = now
+            return
+        if now - self._alone_since >= self._auto_leave_seconds:
+            logger.info("Alone in the voice channel; leaving.")
+            await self.transport.leave_voice()
+            self._forget_call()
+
     async def _watch_transport(self) -> None:
-        """If the bot process dies, the capability goes inactive."""
         while self.active:
-            if self.transport.poll_exit() is not None:
-                self.active = False
-                break
+            try:
+                await self.supervise_once()
+                await self.check_solitude()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Discord supervision failed: {e}")
             await asyncio.sleep(2)
 
     # --- transport (what PlatformSkill calls) -------------------------------
@@ -70,6 +144,14 @@ class VoiceSurface(PlatformSkill):
 
     async def react(self, channel_id: str, message_id: str, emoji: str) -> bool:
         return bool((await self.transport.react_message(channel_id, message_id, emoji)).get("ok"))
+
+    async def send_dm(self, native_id: str, text: str) -> Optional[str]:
+        """A discord DM lives in its own channel, so the bot reports which one."""
+        result = await self.transport.send_dm(str(native_id), text)
+        if not result.get("ok"):
+            logger.warning(f"Discord DM to {native_id} failed: {result.get('error')}")
+            return None
+        return str(result.get("channelId") or native_id)
 
     # --- senses (bot -> bus) -----------------------------------------------
 
@@ -92,7 +174,8 @@ class VoiceSurface(PlatformSkill):
 
     def perceive_text(self, text: str, user: str, channel_id: str,
                       message_id: Optional[str] = None, meta: Optional[Dict[str, Any]] = None,
-                      user_id: Optional[str] = None, is_dm: bool = False) -> Perception:
+                      user_id: Optional[str] = None, is_dm: bool = False,
+                      whitelisted: bool = True) -> Perception:
         # text from discord flows through the same single consciousness as voice;
         # the ids are rendered inline so Bea can act on them (reply/react/send)
         kind = "dm" if is_dm else "text"
@@ -103,9 +186,13 @@ class VoiceSurface(PlatformSkill):
             kind=PerceptionKind.CHAT,
             surface=self.name,
             content=f"[{user}] (discord {kind}, {route}): {text}",
-            salience=0.9 if is_dm else 0.8,
+            # a stranger is heard, just not loudly: she notices them without
+            # them interrupting whatever she is doing. That is what lets the
+            # roster promote someone over time instead of never seeing them
+            salience=(0.9 if is_dm else 0.8) * (1.0 if whitelisted else STRANGER_DAMPING),
             meta={**(meta or {}), "user": user, "user_id": user_id,
                   "channel_id": channel_id, "message_id": message_id, "is_dm": is_dm,
+                  "whitelisted": whitelisted,
                   "conversation_key": self.conversation_key(channel_id)},
             author=self._author(user, user_id),
         )
@@ -129,7 +216,15 @@ class VoiceSurface(PlatformSkill):
             "a channel unprompted, `discord_send_dm` to message someone privately, "
             "`discord_list_voice_channels` to see where people are, `discord_join_voice` "
             "to go hang out, `discord_summon` to call someone in.\n"
-            "- When you write, every LINE becomes a separate message with a typing pause "
+            + (
+                "- You are in a voice call right now. `discord_leave_voice` walks out of "
+                "it, and that is yours to decide: you do not have to ask, and nobody has "
+                "to dismiss you. Leave when you are bored, when you have had enough, or "
+                "when you want to go do something else — say goodbye first if it would "
+                "be rude not to.\n"
+                if self.voice_channel else ""
+            )
+            + "- When you write, every LINE becomes a separate message with a typing pause "
             "in between. Two short lines beat one paragraph."
         )
 
@@ -138,7 +233,7 @@ class VoiceSurface(PlatformSkill):
     def tools(self) -> List[Tool]:
         if not self.active:
             return []
-        return [
+        tools = [
             Tool(
                 "discord_list_voice_channels",
                 "List the discord voice channels and who is currently in each. Use this to "
@@ -152,12 +247,6 @@ class VoiceSurface(PlatformSkill):
                 {"type": "object", "properties": {"channel_id": {"type": "string"}},
                  "required": ["channel_id"]},
                 self._tool_join_voice,
-            ),
-            Tool(
-                "discord_leave_voice",
-                "Leave the discord voice channel you are currently in.",
-                {"type": "object", "properties": {}, "required": []},
-                self._tool_leave_voice,
             ),
             Tool(
                 "discord_send_message",
@@ -208,6 +297,23 @@ class VoiceSurface(PlatformSkill):
             ),
         ]
 
+        # only while she is actually in one: an absent tool is a stronger
+        # guarantee than a rule in the prompt, and it also stops her being
+        # offered a door she is not standing at
+        if self.voice_channel:
+            tools.append(Tool(
+                "discord_leave_voice",
+                "Leave the voice call you are in. Yours to decide — you do not need "
+                "anyone's permission and you do not owe an explanation. Say goodbye "
+                "first if it would be rude not to.",
+                {"type": "object", "properties": {
+                    "reason": {"type": "string",
+                               "description": "optional: why, for your own record"}},
+                 "required": []},
+                self._tool_leave_voice,
+            ))
+        return tools
+
     @staticmethod
     def _fmt(result: Dict[str, Any], ok_msg: str) -> str:
         if result.get("ok"):
@@ -224,11 +330,35 @@ class VoiceSurface(PlatformSkill):
         return json.dumps(channels, ensure_ascii=False)
 
     async def _tool_join_voice(self, channel_id: str) -> str:
-        return self._fmt(await self.transport.join_voice(channel_id),
-                         f"Joined voice channel {channel_id}.")
+        result = await self.transport.join_voice(channel_id)
+        if result.get("ok"):
+            self.voice_channel = str(channel_id)
+            self._alone_since = None
+        return self._fmt(result, f"Joined voice channel {channel_id}.")
 
-    async def _tool_leave_voice(self) -> str:
-        return self._fmt(await self.transport.leave_voice(), "Left the voice channel.")
+    async def _tool_leave_voice(self, reason: str = "") -> str:
+        result = await self.transport.leave_voice()
+        if not result.get("ok"):
+            # she is still in it: forgetting the channel here would leave her
+            # sitting in a call she believes she walked out of
+            return self._fmt(result, "")
+        reason = (reason or "").strip()
+        self._announce_departure(reason)
+        self._forget_call()
+        return f"Left the call — {reason}." if reason else "Left the call."
+
+    def _announce_departure(self, reason: str) -> None:
+        events = getattr(self, "events", None) or getattr(self.context, "event_manager", None)
+        if events is None:
+            return
+        try:
+            events.publish(
+                EventCategory.SYSTEM, self.name,
+                f"left the voice call{f' — {reason}' if reason else ''}",
+                metadata={"reason": reason},
+            )
+        except Exception as e:
+            logger.debug(f"Could not publish the departure: {e}")
 
     async def _tool_send_message(self, channel_id: str, text: str) -> str:
         sent = await self.deliver(channel_id, text)
