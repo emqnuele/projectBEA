@@ -271,3 +271,33 @@ def test_the_draft_keeps_the_name_as_a_placeholder(client):
     body = api.post("/onboarding/draft", json={"name": "Luna"}).json()
     assert "{name}" in body["soul"]
     assert body["name"] == "Luna"
+
+
+# --- the dashboard and the engine agree on this too --------------------------
+
+
+def test_the_menu_has_a_personality_screen():
+    import re
+    from pathlib import Path
+
+    nav = Path(__file__).parents[1].joinpath("src/web/frontend/src/lib/nav.js").read_text()
+    assert "id: 'personality'" in nav
+    sections = Path(__file__).parents[1].joinpath(
+        "src/web/frontend/src/pages/settings/sections.jsx").read_text()
+    assert re.search(r"^\s+personality:", sections, re.M)
+
+
+def test_the_onboarding_route_exists():
+    from pathlib import Path
+
+    app = Path(__file__).parents[1].joinpath("src/web/frontend/src/App.jsx").read_text()
+    assert 'path="onboarding"' in app
+
+
+def test_the_dashboard_asks_for_every_endpoint_that_exists():
+    """A typo in the client is a 404 the user sees and nobody else does."""
+    from pathlib import Path
+
+    client = Path(__file__).parents[1].joinpath("src/web/frontend/src/api.js").read_text()
+    for path in ("/persona", "/onboarding", "/onboarding/draft", "/onboarding/skip"):
+        assert f"'{path}'" in client or f'`{path}' in client

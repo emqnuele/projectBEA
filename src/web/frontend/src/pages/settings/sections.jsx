@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/controls';
 import { Group, ProviderChoice, SecretState, TestButton } from './parts';
 import { PromptEditor } from './PromptEditor';
 import { createSchemaSection } from './SchemaSection';
+import { PersonalitySection } from './PersonalitySection';
 
 const LANGUAGES = [
     ['en', 'English'], ['it', 'Italian'], ['jp', 'Japanese'],
@@ -445,6 +446,7 @@ const SCHEMA_DRIVEN = [
 ];
 
 export const SECTIONS = {
+    personality: PersonalitySection,
     mind: MindSection,
     engine: EngineSection,
     voice: VoiceSection,

@@ -27,6 +27,9 @@ export function BrainProvider({ children }) {
     const [status, setStatus] = useState(null);
     const [overview, setOverview] = useState(null);
     const [connection, setConnection] = useState('connecting');
+    // her name is chrome on every screen, so it lives with the rest of the
+    // shared state rather than being fetched by each of them
+    const [persona, setPersona] = useState(null);
     // a clock that only moves when we hear from the brain, so anything derived
     // from 'how long ago' stays a pure function of state
     const [now, setNow] = useState(() => Date.now() / 1000);
@@ -124,6 +127,14 @@ export function BrainProvider({ children }) {
         await refreshOverview();
     }, [status?.is_sleeping, refreshStatus, refreshOverview]);
 
+    const refreshPersona = useCallback(async () => {
+        try {
+            setPersona(await api.persona());
+        } catch { /* the chrome falls back to the shipped name */ }
+    }, []);
+
+    useEffect(() => { refreshPersona(); }, [refreshPersona]);
+
     const value = useMemo(() => ({
         events,
         streaming,
@@ -131,6 +142,9 @@ export function BrainProvider({ children }) {
         now,
         overview,
         connection,
+        persona,
+        name: persona?.name || 'Bea',
+        refreshPersona,
         isSpeaking: Boolean(status?.is_speaking),
         isSleeping: Boolean(status?.is_sleeping),
         activeSkills: status?.active_skills || [],
@@ -138,7 +152,8 @@ export function BrainProvider({ children }) {
         refreshOverview,
         interrupt,
         toggleSleep,
-    }), [events, streaming, status, overview, connection, now, refreshStatus, refreshOverview, interrupt, toggleSleep]);
+    }), [events, streaming, status, overview, connection, persona, now, refreshStatus,
+        refreshOverview, refreshPersona, interrupt, toggleSleep]);
 
     return <BrainContext.Provider value={value}>{children}</BrainContext.Provider>;
 }

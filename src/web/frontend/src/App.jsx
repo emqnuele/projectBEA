@@ -9,6 +9,7 @@ import ActivityPage from './pages/ActivityPage';
 import MemoryPage from './pages/MemoryPage';
 import SkillsPage from './pages/SkillsPage';
 import SettingsPage from './pages/SettingsPage';
+import OnboardingPage from './pages/OnboardingPage';
 
 export default function App() {
     return (
@@ -21,6 +22,7 @@ export default function App() {
                 <Route path="activity" element={<ActivityPage />} />
                 <Route path="memory" element={<MemoryPage />} />
                 <Route path="skills" element={<SkillsPage />} />
+                <Route path="onboarding" element={<OnboardingPage />} />
                 <Route path="settings" element={<Navigate to="/dashboard/settings/mind" replace />} />
                 <Route path="settings/:section" element={<SettingsPage />} />
             </Route>

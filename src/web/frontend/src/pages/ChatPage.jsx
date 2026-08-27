@@ -44,7 +44,7 @@ export default function ChatPage() {
     const chunksRef = useRef([]);
 
     const toast = useToast();
-    const { isSpeaking, status, interrupt } = useBrain();
+    const { isSpeaking, status, interrupt, name } = useBrain();
     const sessionId = status?.session_id;
 
     const loadHistory = useCallback(async () => {
@@ -231,7 +231,7 @@ export default function ChatPage() {
             </Glass>
 
             <Glass className="rounded-b3 p-2.5">
-                {voiceMode && <VoiceMeter volume={volume} userSpeaking={userSpeaking} beaSpeaking={isSpeaking} />}
+                {voiceMode && <VoiceMeter volume={volume} userSpeaking={userSpeaking} beaSpeaking={isSpeaking} name={name} />}
 
                 <div className="flex items-end gap-2">
                     <IconButton
@@ -429,9 +429,9 @@ function ThinkingBubble({ label = 'Thinking' }) {
     );
 }
 
-function VoiceMeter({ volume, userSpeaking, beaSpeaking }) {
+function VoiceMeter({ volume, userSpeaking, beaSpeaking, name }) {
     const level = Math.min(1, volume || 0);
-    const state = beaSpeaking ? 'She is talking' : userSpeaking ? 'Hearing you' : 'Listening';
+    const state = beaSpeaking ? `${name} is talking` : userSpeaking ? 'Hearing you' : 'Listening';
     const color = beaSpeaking ? 'var(--vital)' : userSpeaking ? 'var(--flux-act)' : 'var(--flux-mute)';
 
     return (

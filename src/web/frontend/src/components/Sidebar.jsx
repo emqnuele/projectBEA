@@ -30,7 +30,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
     const toast = useToast();
     const dialog = useDialog();
     const isDesktop = useMediaQuery(DESKTOP);
-    const { status, refreshOverview } = useBrain();
+    const { status, refreshOverview, name } = useBrain();
     const activeSession = status?.session_id;
 
     // the rail only narrows on desktop: on a phone this is a drawer that slides
@@ -309,7 +309,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                     </NavLink>
                     {!rail && (
                         <p className="truncate px-2.5 pt-2 font-mono text-[10px] tracking-wider text-faint">
-                            Bea Control Room · {VERSION}
+                            {name} Control Room · {VERSION}
                         </p>
                     )}
                 </div>
@@ -334,7 +334,7 @@ function BrandMark({ rail }) {
             />
             {!rail && (
                 <span className="min-w-0">
-                    <span className="block truncate font-display text-[13px] font-bold leading-none text-text">Bea</span>
+                    <span className="block truncate font-display text-[13px] font-bold leading-none text-text">{name}</span>
                     <span className="mt-1 block truncate text-[10px] uppercase tracking-widest text-faint">Control room</span>
                 </span>
             )}

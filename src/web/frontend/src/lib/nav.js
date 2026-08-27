@@ -12,7 +12,8 @@ export const NAV = [
 ];
 
 export const SETTINGS_SECTIONS = [
-    { id: 'mind', label: 'Mind', hint: 'Persona, language and the files behind her' },
+    { id: 'personality', label: 'Personality', hint: 'Her name, her pronouns, who she is' },
+    { id: 'mind', label: 'Mind', hint: 'Language and the files behind her' },
     { id: 'engine', label: 'Provider', hint: 'Keys and the default model' },
     { id: 'models', label: 'Models', hint: 'Which models think for her, and how fast' },
     { id: 'attention', label: 'Attention', hint: 'What wakes her and what she lets pass' },
