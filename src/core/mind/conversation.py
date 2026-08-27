@@ -154,7 +154,7 @@ class ConversationMind:
         sent = await self._reason(key, context, tools)
 
         if sent:
-            self._record_outgoing(key, sent)
+            self._record_outgoing(key, sent, incoming)
         self._schedule_background(key, incoming)
 
     async def _reason(self, key: str, context: List[Dict[str, Any]],
@@ -326,12 +326,20 @@ class ConversationMind:
                 ts=p.ts,
             )
 
-    def _record_outgoing(self, key: str, sent: List[str]) -> None:
+    def _record_outgoing(self, key: str, sent: List[str],
+                         incoming: Optional[List[Perception]] = None) -> None:
+        # who she was answering: the follow-up gate needs it to tell "they are
+        # replying to me" from "they happened to speak next"
+        addressee = ""
+        for p in reversed(incoming or []):
+            if p.author is not None:
+                addressee = p.author.identity
+                break
         for text in sent:
             self.memory.conversations.add(
                 conversation_key=key, role="bea", content=text,
                 platform=platform_of(key), channel_id=channel_of(key) or "",
-                display_name="Bea",
+                display_name="Bea", addressee_identity=addressee,
             )
         if self.attention:
             self.attention.mark_spoke(key)

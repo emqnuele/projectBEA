@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS messages (
     author_identity  TEXT,
     display_name     TEXT NOT NULL DEFAULT '',
     role             TEXT NOT NULL,               -- 'user' | 'bea'
+    -- who she was answering, so "is this person replying to me" is a fact and
+    -- not a guess. Empty when she spoke to the room rather than to a person.
+    addressee_identity TEXT NOT NULL DEFAULT '',
     content          TEXT NOT NULL,
     ts               REAL NOT NULL
 );

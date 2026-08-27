@@ -219,6 +219,7 @@ class AIVtuberBrain:
             self.config,
             roster=getattr(social, "roster", None),
             on_verdict=self._publish_verdict,
+            conversations=self.memory.conversations,
         )
 
         self.consciousness = Consciousness(

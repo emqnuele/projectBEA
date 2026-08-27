@@ -277,6 +277,15 @@ ATTENTION = Section(
         Setting("digest_max_lines", "Peripheral lines", "int",
                 "How much of what she missed she is shown afterwards.",
                 8, minimum=0, maximum=40),
+        Setting("followup_enabled", "Always answer a reply", "bool",
+                "When someone replies to her, she replies back without needing her "
+                "name. Off, every message goes through the same judgement call.", True),
+        Setting("followup_window_seconds", "A reply still counts for", "int",
+                "How long after she spoke an answer is still an answer.",
+                180, minimum=10, maximum=3600),
+        Setting("followup_max_turns", "Turns in a row", "int",
+                "How long she keeps it up before waiting to be called again.",
+                3, minimum=1, maximum=10),
     ],
 )
 

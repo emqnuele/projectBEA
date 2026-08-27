@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.core.attention.followup import Turn
 from src.core.memory.db import Database
 from src.core.memory.plan import StreamPlan
 from src.core.social.agenda import Agenda
@@ -439,21 +440,32 @@ class Conversations:
 
     def add(self, *, conversation_key: str, role: str, content: str,
             platform: str = "", channel_id: str = "", author_identity: Optional[str] = None,
-            display_name: str = "", ts: Optional[float] = None) -> int:
+            display_name: str = "", ts: Optional[float] = None,
+            addressee_identity: str = "") -> int:
         return self.db.execute(
             "INSERT INTO messages (conversation_key, platform, channel_id, author_identity, "
-            "display_name, role, content, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "display_name, role, content, ts, addressee_identity) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (conversation_key, platform, channel_id, author_identity, display_name,
-             role, content, ts if ts is not None else time.time()),
+             role, content, ts if ts is not None else time.time(), addressee_identity or ""),
         )
 
     def history(self, conversation_key: str, limit: int = 20) -> List[Dict[str, Any]]:
         """The last `limit` messages, oldest first (reading order)."""
         rows = self.db.query(
-            "SELECT display_name, role, content, ts, author_identity FROM messages "
-            "WHERE conversation_key = ? ORDER BY id DESC LIMIT ?", (conversation_key, limit),
+            "SELECT display_name, role, content, ts, author_identity, addressee_identity "
+            "FROM messages WHERE conversation_key = ? ORDER BY id DESC LIMIT ?",
+            (conversation_key, limit),
         )
         return [dict(r) for r in reversed(rows)]
+
+    def turns(self, conversation_key: str, limit: int = 30) -> List[Turn]:
+        """The tail of the conversation, in the shape the follow-up gate reads."""
+        return [
+            Turn(role=row["role"], identity=row.get("author_identity") or "",
+                 addressee=row.get("addressee_identity") or "", content=row["content"])
+            for row in self.history(conversation_key, limit)
+        ]
 
     def count(self, conversation_key: str) -> int:
         return int(self.db.scalar(

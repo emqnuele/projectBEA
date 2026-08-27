@@ -239,3 +239,7 @@ def test_a_setting_can_describe_itself_to_a_human():
         for f in s.settings:
             assert isinstance(f, Setting)
             assert f.help, f"{s.key}.{f.key} has no help text"
+
+
+def test_the_follow_up_gate_is_tunable_from_the_dashboard():
+    assert {"followup_enabled", "followup_window_seconds", "followup_max_turns"} <= _keys("attention")
