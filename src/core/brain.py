@@ -17,6 +17,7 @@ from src.core.persona import Persona, persona_of
 from src.core.resources import load_avatar_resources
 from src.core.skills.base import SkillRegistry
 from src.core.skills.chat import ChatSurface
+from src.core.skills.clock import ClockSkill
 from src.core.skills.donation.surface import DonationSkill
 from src.core.skills.dream.surface import DreamSkill
 from src.core.skills.idle import IdleSurface
@@ -44,7 +45,7 @@ logger = get_logger("bea.brain")
 SKILL_CLASSES = (
     ChatSurface, VoiceSurface, TelegramSkill, TwitchSkill, DonationSkill,
     IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill,
-    StreamPlanSkill, PresenceSkill,
+    StreamPlanSkill, PresenceSkill, ClockSkill,
 )
 
 

@@ -8,7 +8,7 @@ live loop's context. Cross-awareness is one line each way.
 
 import asyncio
 import json
-import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool, ToolRegistry
@@ -17,6 +17,7 @@ from src.core.events import EventCategory
 from src.core.mind.routing import channel_of, platform_of
 from src.core.perception.types import Perception
 from src.core.persona import persona_of
+from src.core.timeline import now_block, resolve_timezone
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
 
@@ -197,7 +198,7 @@ class ConversationMind:
                        frame: str = "") -> List[Dict[str, Any]]:
         """The context for a scoped turn. Runs off the loop: it hits the db."""
         parts = [
-            f"CURRENT DATE: {time.strftime('%Y-%m-%d')}",
+            self._now_block(key),
             self._get_soul(),
             self._get_operating(),
             CONVERSATION_RULES,
@@ -245,6 +246,21 @@ class ConversationMind:
             messages.append({"role": "user", "content": frame or INITIATIVE_FRAME})
         return messages
 
+    def _now_block(self, key: str) -> str:
+        """The same `[RIGHT NOW]` the live loop gets, plus when she last wrote here."""
+        timezone = str(getattr(self.config, "timezone", "") or "")
+        try:
+            since = self.memory.conversations.seconds_since_bea_spoke(key)
+        except Exception as e:
+            logger.debug(f"Could not read when she last spoke in '{key}': {e}")
+            since = None
+        return now_block(
+            datetime.now(resolve_timezone(timezone)),
+            last_spoke_seconds=since,
+            in_conversation=True,
+            timezone=timezone,
+        )
+
     def _who(self, incoming: List[Perception]) -> str:
         cards = {}
         for p in incoming:
@@ -270,7 +286,7 @@ class ConversationMind:
             return ""
         blocks = []
         if facts:
-            blocks.append("[LONG TERM MEMORY]\n" + "\n".join(f"- {r.render()}" for r in facts))
+            blocks.append("[LONG TERM MEMORY]\n" + _render_recollections(facts))
         if hers:
             blocks.append(
                 "[THINGS YOU SAID BEFORE — your own past lines, not established facts]\n"
@@ -376,6 +392,19 @@ class ConversationMind:
         lines = self._recent[-max_lines:]
         self._recent = []
         return "[ELSEWHERE, JUST NOW]\n" + "\n".join(f"- {line}" for line in lines)
+
+
+def _render_recollections(facts) -> str:
+    """Dated, like the live loop already does.
+
+    Undated recollections were the reason a DM — the one place someone actually
+    says "how did yesterday go" — could not place anything in time.
+    """
+    lines = []
+    for r in facts:
+        when = datetime.fromtimestamp(getattr(r, "created_at", 0) or 0).strftime("%Y-%m-%d")
+        lines.append(f"- [{when}] {r.render()}")
+    return "\n".join(lines)
 
 
 def _assistant_message(msg: AssistantMessage) -> Dict[str, Any]:

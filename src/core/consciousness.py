@@ -330,7 +330,9 @@ class Consciousness:
     def _frame(self, perceptions: List[Perception], steering: bool = False) -> Dict[str, Any]:
         header = "[NEW INPUT — arrived while you were mid-action; decide if it's worth reacting to now]" \
             if steering else "[PERCEPTIONS]"
-        lines = [f"({p.kind.value.upper()}) {p.render()}" for p in perceptions]
+        # anything old enough says so; a batch that arrived at once stays clean
+        now = time.time()
+        lines = [f"({p.kind.value.upper()}) {p.render(now=now)}" for p in perceptions]
         return {"role": "user", "content": header + "\n" + "\n".join(lines)}
 
     # --- tools --------------------------------------------------------------

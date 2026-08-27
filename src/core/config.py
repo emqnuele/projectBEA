@@ -217,6 +217,10 @@ class BrainConfig:
         "digest_max_lines": 8,
     })
 
+    # her clock. Empty follows the machine, which is fine on a laptop and wrong
+    # in a UTC container where the quiet hours would silently shift
+    timezone: str = ""
+
     # STT
     stt_provider: str = "openrouter"
     stt_model: str = "whisper-large-v3-turbo"

@@ -56,6 +56,14 @@ class Perception:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     ts: float = field(default_factory=time.time)
 
-    def render(self) -> str:
-        """How this perception appears inside a perception frame."""
-        return self.content
+    def render(self, now: Optional[float] = None) -> str:
+        """How this perception appears inside a perception frame.
+
+        With `now`, anything old enough to matter says so. A batch that spans a
+        few seconds gets no stamps at all — they would be noise on every line.
+        """
+        if now is None:
+            return self.content
+        from src.core.timeline import stamp_for
+
+        return f"{stamp_for(now - self.ts)}{self.content}"

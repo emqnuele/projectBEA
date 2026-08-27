@@ -571,6 +571,12 @@ class Sessions:
     def __init__(self, db: Database):
         self.db = db
 
+    def started_at(self, session_id: str) -> Optional[float]:
+        value = self.db.scalar(
+            "SELECT started_at FROM sessions WHERE session_id = ?", (session_id,), default=None,
+        )
+        return None if value is None else float(value)
+
     def record(self, session_id: str, started_at: Optional[float] = None) -> None:
         self.db.execute(
             "INSERT OR IGNORE INTO sessions (session_id, started_at) VALUES (?, ?)",
