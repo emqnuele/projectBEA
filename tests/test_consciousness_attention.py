@@ -6,6 +6,7 @@ that names her must always get through.
 
 import asyncio
 import random
+from datetime import datetime
 
 import pytest
 
@@ -32,6 +33,11 @@ class Config:
         self.skills = {}
 
 
+# noon: quiet hours are wall-clock, so an unpinned clock made these tests fail
+# between 03:00 and 09:00 and pass the rest of the day
+NOON = datetime(2026, 6, 15, 12, 0).timestamp()
+
+
 def build(llm, **attention):
     config = Config(**attention)
     bus = PerceptionBus(window=0.0)
@@ -42,7 +48,7 @@ def build(llm, **attention):
         config=config, llm=llm, bus=bus, expression=FakeExpression(),
         surfaces=SkillRegistry(), history_manager=FakeHistory(), event_manager=events,
         soul_getter=lambda: "you are bea", operating_getter=lambda: "call speak to talk",
-        attention=Attention(config, rng=rng),
+        attention=Attention(config, rng=rng, clock=lambda: NOON),
     )
     mind.context = [mind._system_message([])]
     return mind, bus, events

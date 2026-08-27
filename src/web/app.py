@@ -17,6 +17,9 @@ from pydantic import BaseModel, Field, field_validator
 from src.core.brain import AIVtuberBrain
 from src.core.config import MASK, SECRET_SKILL_FIELDS
 from src.core.memory.plan import STATUSES
+from src.core.settings_schema import ValidationError, apply_section, describe
+from src.core.settings_schema import restart_needed as _restart_needed
+from src.core.settings_schema import section as _section
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.web")
@@ -137,6 +140,55 @@ def update_config(request: ConfigUpdateRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+# --- settings: one schema, rendered by the dashboard ------------------------
+
+
+@app.get("/settings")
+def get_settings():
+    return describe(get_brain().config)
+
+
+@app.get("/settings/{key}")
+def get_settings_section(key: str):
+    data = describe(get_brain().config)
+    for block in data["sections"]:
+        if block["key"] == key:
+            return block
+    raise HTTPException(status_code=404, detail=f"Unknown settings section: {key}")
+
+
+@app.post("/settings/{key}")
+async def update_settings_section(key: str, payload: Dict[str, Any]):
+    brain = get_brain()
+    try:
+        sec = _section(key)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"Unknown settings section: {key}") from e
+
+    try:
+        changed = apply_section(brain.config, key, payload)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    brain.config.save_to_file()
+
+    # a platform's on/off switch is the skill registry's business: it starts and
+    # stops a live connection, which a config reload does not do
+    if sec.toggleable and "enabled" in changed:
+        try:
+            await brain.set_skill_enabled(key, bool(changed["enabled"]))
+        except Exception as e:
+            logger.error(f"Toggling {key} failed: {e}")
+
+    brain.reload_configuration()
+
+    return {
+        "status": "success",
+        "changed": changed,
+        "restart_required": _restart_needed(key, changed),
+    }
+
 
 @app.get("/history")
 def get_history():
