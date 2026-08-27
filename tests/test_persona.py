@@ -82,9 +82,28 @@ def test_a_two_word_name_also_answers_to_the_first_part():
     assert persona_of(Config({"name": "Luna Rossi"})).trigger_words == ["luna rossi", "luna"]
 
 
-def test_words_you_set_yourself_win_over_the_derived_ones():
+def test_words_you_set_yourself_are_kept():
     config = Config({"name": "Luna"}, {"trigger_words": ["lu", "lulu"]})
-    assert persona_of(config).trigger_words == ["lu", "lulu"]
+    assert set(persona_of(config).trigger_words) >= {"lu", "lulu"}
+
+
+def test_her_own_name_always_reaches_her_anyway():
+    """Someone renaming her from the dashboard has an old trigger list in their
+    config. Without this she would not answer to the name they just gave her."""
+    config = Config({"name": "Luna"}, {"trigger_words": ["bea", "beatrice"]})
+    assert "luna" in persona_of(config).trigger_words
+    assert "bea" in persona_of(config).trigger_words
+
+
+def test_the_aliases_come_first_because_they_were_chosen():
+    config = Config({"name": "Luna"}, {"trigger_words": ["lu"]})
+    assert persona_of(config).trigger_words[0] == "lu"
+
+
+def test_nothing_is_listed_twice():
+    config = Config({"name": "Luna"}, {"trigger_words": ["luna", "lu"]})
+    words = persona_of(config).trigger_words
+    assert len(words) == len(set(words))
 
 
 def test_an_empty_list_means_derive_it_again():

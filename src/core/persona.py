@@ -61,20 +61,26 @@ class Persona:
     # --- what the gate listens for -------------------------------------------
 
     @property
-    def trigger_words(self) -> List[str]:
-        """What counts as calling her. Derived from the name unless set."""
-        if self.configured_triggers:
-            return [str(w).strip().lower() for w in self.configured_triggers if str(w).strip()]
-
+    def _derived(self) -> List[str]:
         full = self.name.strip().lower()
         if not full:
             return []
-        words = [full]
         # people call you by your first name, not your full name
         first = full.split()[0]
-        if first != full:
-            words.append(first)
-        return words
+        return [full] if first == full else [full, first]
+
+    @property
+    def trigger_words(self) -> List[str]:
+        """What counts as calling her: whatever was chosen, plus her own name.
+
+        The name is always in there. Anyone renaming her from the dashboard has
+        an older trigger list sitting in their config, and without this she
+        would not answer to the name they had just given her.
+        """
+        chosen = [str(w).strip().lower() for w in self.configured_triggers if str(w).strip()]
+        words = chosen + [w for w in self._derived if w not in chosen]
+        # dict.fromkeys keeps the order the words were chosen in
+        return list(dict.fromkeys(words))
 
     # --- filling a prompt ----------------------------------------------------
 

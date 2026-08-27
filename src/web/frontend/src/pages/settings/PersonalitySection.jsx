@@ -91,11 +91,11 @@ export function PersonalitySection() {
         );
     }
 
-    // what the gate will listen for once this is saved
-    const listening = draft.trigger_words.trim()
-        ? draft.trigger_words.split(',').map((w) => w.trim()).filter(Boolean)
-        : [draft.name.trim().toLowerCase(), draft.name.trim().toLowerCase().split(' ')[0]]
-            .filter((w, i, all) => w && all.indexOf(w) === i);
+    // what the gate will listen for once this is saved: what you chose, plus
+    // her own name, which always reaches her
+    const chosen = draft.trigger_words.split(',').map((w) => w.trim().toLowerCase()).filter(Boolean);
+    const named = draft.name.trim().toLowerCase();
+    const listening = [...new Set([...chosen, named, named.split(' ')[0]].filter(Boolean))];
 
     return (
         <>
@@ -149,7 +149,7 @@ export function PersonalitySection() {
                 <Field
                     label="Also answers to"
                     htmlFor="persona-triggers"
-                    help="Saying one of these always reaches her, cooldown or not. Leave it empty and it follows her name."
+                    help="Extra words that reach her, cooldown or not. Her own name is always one of them, whatever you put here."
                 >
                     <TextInput
                         id="persona-triggers"
