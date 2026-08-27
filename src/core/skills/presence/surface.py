@@ -32,7 +32,9 @@ class PresenceSkill(Skill):
     def initialize(self) -> None:
         memory = self.context.memory
         self.agenda = memory.agenda
-        self.reach = Reach(memory=memory, surfaces=self.context.surfaces)
+        # the registry itself, not a snapshot: skills register one after another
+        # and this one is built in the middle of that loop
+        self.reach = Reach(memory=memory, surfaces=self.context.surface_registry)
 
     @property
     def _cross_platform(self) -> bool:

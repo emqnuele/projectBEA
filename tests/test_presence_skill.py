@@ -46,9 +46,11 @@ async def _instant(seconds):
 
 
 class Context:
+    """Shaped like the brain, which is what a skill actually receives."""
+
     def __init__(self, memory, surfaces):
         self.memory = memory
-        self.surfaces = surfaces
+        self.surface_registry = surfaces
 
 
 @pytest.fixture
@@ -127,7 +129,7 @@ async def test_she_can_write_to_someone_on_another_platform(memory):
     _person(memory, "Ema", "telegram:2")
     s = skill(memory, "telegram")
     answer = await call(s, "message_person", who="Ema", text="ehi, tutto bene?")
-    telegram = s.context.surfaces.get("chat:telegram")
+    telegram = s.context.surface_registry.get("chat:telegram")
     assert telegram.dms == [("2", "ehi, tutto bene?")]
     assert "telegram" in answer.lower()
 
@@ -142,7 +144,7 @@ async def test_she_may_pick_the_platform_herself(memory):
     _person(memory, "Ema", "telegram:2", "discord:1")
     s = skill(memory, "telegram", "discord")
     await call(s, "message_person", who="Ema", text="ciao", platform="discord")
-    assert s.context.surfaces.get("chat:discord").dms == [("1", "ciao")]
+    assert s.context.surface_registry.get("chat:discord").dms == [("1", "ciao")]
 
 
 # --- deciding to come back to it ---------------------------------------------
@@ -199,3 +201,43 @@ def test_what_she_meant_to_do_reaches_her_context(memory):
 
 def test_an_empty_agenda_adds_nothing_to_her_context(memory):
     assert skill(memory, "telegram").live_state() is None
+
+
+# --- the shape the brain actually hands it -----------------------------------
+
+
+def test_it_initializes_against_what_the_brain_really_exposes(memory):
+    """The brain passes itself as context, and it calls its registry
+    `surface_registry`. Reaching for a name it does not have is an
+    AttributeError at startup, on a core skill."""
+    from src.core.brain import AIVtuberBrain
+
+    assert hasattr(AIVtuberBrain, "surface_registry")
+
+    class BrainShaped:
+        def __init__(self, mem):
+            self.memory = mem
+            self.surface_registry = SkillRegistry()
+
+    s = PresenceSkill(Config(), bus=None, expression=None, context=BrainShaped(memory))
+    s.initialize()
+    s.active = True
+    assert {t.name for t in s.tools()} >= {"remember_to", "message_person"}
+
+
+async def test_the_registry_it_holds_stays_live(memory):
+    """Skills register one after another, so it must hold the registry itself
+    and not a snapshot of who was in it at startup."""
+    class BrainShaped:
+        def __init__(self, mem):
+            self.memory = mem
+            self.surface_registry = SkillRegistry()
+
+    brain = BrainShaped(memory)
+    s = PresenceSkill(Config(), bus=None, expression=None, context=brain)
+    s.initialize()
+    s.active = True
+
+    _person(memory, "Ema", "telegram:2")
+    brain.surface_registry.register(Recorder("telegram"))
+    assert await call(s, "message_person", who="Ema", text="ciao") == "Written to Ema on telegram."
