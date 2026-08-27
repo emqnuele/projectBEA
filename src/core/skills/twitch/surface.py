@@ -13,8 +13,9 @@ from collections import Counter, deque
 from typing import Deque, List, Optional, Tuple
 
 from src.core.agent.tools import Tool
+from src.core.perception.types import Perception, PerceptionKind
 from src.core.skills.platform import PlatformSkill
-from src.core.skills.twitch.irc import ChatLine, TwitchIRC
+from src.core.skills.twitch.irc import ChatEvent, ChatLine, TwitchIRC
 from src.utils.logger import get_logger
 from src.utils.rate_limit import SlidingWindow
 
@@ -61,7 +62,10 @@ class TwitchSkill(PlatformSkill):
     def initialize(self) -> None:
         super().initialize()
         self.irc: Optional[TwitchIRC] = None
-        self.limiter = SlidingWindow(limit=SAY_LIMIT, per_seconds=SAY_WINDOW)
+        self.limiter = SlidingWindow(
+            limit=int(self.skill_config.get("say_rate_limit", SAY_LIMIT)),
+            per_seconds=SAY_WINDOW,
+        )
         # (timestamp, text) of everything seen recently, for the pulse line
         self._recent: Deque[Tuple[float, str]] = deque(maxlen=500)
 
@@ -92,6 +96,7 @@ class TwitchSkill(PlatformSkill):
             nick=str(self.skill_config.get("nick", "") or ""),
             token=self._token(),
             on_message=self._on_message,
+            on_event=self._on_event,
         )
         await self.irc.start()
         self.active = True
@@ -130,6 +135,41 @@ class TwitchSkill(PlatformSkill):
             salience=0.9 if line.bits else 0.4,
             meta={"tallied": True, "bits": line.bits},
         )
+
+    async def _on_event(self, event: ChatEvent) -> None:
+        """A sub, a gift or a raid. Not chatter — these always deserve an answer."""
+        if event is None or not self.active or not self._wants(event.kind):
+            return
+
+        author = self.build_author(
+            event.user_id or event.nick, event.name,
+            **({"amount": event.units, "currency": "sub"} if event.units else {}),
+        )
+        self._tally(author)
+
+        self.bus.put(Perception(
+            kind=PerceptionKind.CHAT,
+            surface=self.name,
+            content=f"[{event.kind}] {event.render()}",
+            # money and a room full of new people are the two things a streamer
+            # never scrolls past
+            salience=0.95,
+            meta={
+                "channel_id": event.channel,
+                "conversation_key": self.conversation_key(event.channel),
+                "tallied": True,
+                "event": event.kind,
+                # the gate reads this and skips the cooldown entirely
+                "addressed": event.kind,
+                "viewers": event.viewers,
+            },
+            author=author,
+        ))
+
+    def _wants(self, kind: str) -> bool:
+        if kind == "raid":
+            return bool(self.skill_config.get("announce_raids", True))
+        return bool(self.skill_config.get("announce_subs", True))
 
     def _tally(self, author) -> None:
         memory = getattr(self.context, "memory", None)
