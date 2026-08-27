@@ -8,6 +8,7 @@ from src.core.agent.tools import Tool
 from src.core.agent.types import ToolCall, Usage
 from src.core.events import EventCategory
 from src.core.mind.correlation import CorrelationRegistry
+from src.core.mind.moods import normalize_mood
 from src.core.mind.routing import route
 from src.core.mind.tools import MindTools
 from src.core.perception.types import Perception, PerceptionKind
@@ -374,7 +375,9 @@ class Consciousness:
     # --- speaking (non-blocking) -------------------------------------------
 
     async def _speak(self, mood: str, message: str) -> str:
-        mood = mood or "normal"
+        # the model invents moods; an avatar that silently fails to change is
+        # worse than landing on the nearest one she actually has
+        mood = normalize_mood(mood)
         # redundant with the client-side clean: last gate before the audience
         message = clean_model_output(message)
         if not message:

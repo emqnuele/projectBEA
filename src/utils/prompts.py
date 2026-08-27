@@ -6,12 +6,20 @@ logger = get_logger("bea.prompts")
 
 
 def load_text(path: str, fallback: str = "") -> str:
-    """Reads a prompt file, returning `fallback` if it is missing or unreadable."""
+    """Reads a prompt file, falling back when it is missing, unreadable or blank.
+
+    A file emptied by a bad save is the same failure as a deleted one, and both
+    used to leave an empty string in the middle of her prompt.
+    """
     try:
         p = Path(path)
         if p.exists():
-            return p.read_text(encoding="utf-8").strip()
-        logger.warning(f"Prompt file not found: {path}")
+            text = p.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+            logger.warning(f"Prompt file is empty: {path}")
+        else:
+            logger.warning(f"Prompt file not found: {path}")
     except Exception as e:
         logger.error(f"Error reading prompt '{path}': {e}")
     return fallback

@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
 from src.core.attention import Attention
@@ -10,6 +10,7 @@ from src.core.expression import Expression
 from src.core.memory.profiler import Profiler
 from src.core.memory.store import MemoryStore
 from src.core.mind import ConversationMind, ConversationScheduler
+from src.core.mind.operating import BUILTIN_OPERATING, missing_tools
 from src.core.mind.spontaneous import SpontaneousPresence
 from src.core.perception.bus import PerceptionBus
 from src.core.resources import load_avatar_resources
@@ -174,11 +175,33 @@ class AIVtuberBrain:
         return store
 
     def _load_operating_rules(self) -> str:
-        """The unified operating manual; falls back to the legacy chat rules."""
+        """The operating manual, with a floor under it.
+
+        The file is meant to be edited; it is not meant to be able to vanish.
+        Without the built-in copy a deleted file left her with no mood table, no
+        inner-monologue rule and no explanation of the digest.
+        """
         rules = load_text(self.config.operating_prompt_path)
         if not rules:
-            rules = load_text(self.config.system_prompt_path)
+            rules = load_text(self.config.system_prompt_path, fallback=BUILTIN_OPERATING)
         return rules
+
+    def check_prompt_integrity(self) -> List[str]:
+        """Does the prompt in force still name the tools the mind owns?
+
+        The manual is an editable file, so it can fall behind a rename or a bad
+        save. Reporting that on the dashboard is the difference between finding
+        out at startup and finding out mid-stream.
+        """
+        missing = missing_tools(self.system_prompt, sorted(Consciousness._TERMINAL_TOOLS))
+        if missing:
+            self.event_manager.publish(
+                EventCategory.ERROR, "prompt",
+                f"The operating manual never mentions: {', '.join(missing)}. "
+                f"She may not know how to use them.",
+                metadata={"missing": missing},
+            )
+        return missing
 
     def initialize(self):
         """Loads resources and connects to services."""
@@ -192,6 +215,7 @@ class AIVtuberBrain:
         self.soul = load_text(self.config.soul_path)
         self.system_prompt = compose(self.soul, self._load_operating_rules())
         logger.info(f"Loaded soul + operating manual ({len(self.system_prompt)} chars).")
+        self.check_prompt_integrity()
 
         self._obs_connect()
 
@@ -322,6 +346,7 @@ class AIVtuberBrain:
         if new_prompt != self.system_prompt:
             self.system_prompt = new_prompt
             logger.info("Updated soul + operating manual.")
+            self.check_prompt_integrity()
 
         self.registry.reload_config(self.config)
         self.llm = self.registry.get(MIND)

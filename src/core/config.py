@@ -4,6 +4,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.core.mind.moods import default_avatar_map
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.config")
@@ -88,16 +89,8 @@ class BrainConfig:
 
 
 
-    # avatar
-    avatar_map: Dict[str, Dict[str, str]] = field(default_factory=lambda: {
-        "normal": {"idle": "", "talking": ""},
-        "angry": {"idle": "", "talking": ""},
-        "bored": {"idle": "", "talking": ""},
-        "cry": {"idle": "", "talking": ""},
-        "ew": {"idle": "", "talking": ""},
-        "love": {"idle": "", "talking": ""},
-        "shock": {"idle": "", "talking": ""},
-    })
+    # avatar: one slot per mood, derived so a new mood is never avatar-less
+    avatar_map: Dict[str, Dict[str, str]] = field(default_factory=default_avatar_map)
 
     png_dir: str = "data/pngs"
 
