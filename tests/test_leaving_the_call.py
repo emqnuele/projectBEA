@@ -216,3 +216,92 @@ def test_the_new_discord_knobs_are_in_the_schema(key):
     from src.core.settings_schema import section
 
     assert key in {f.key for f in section("discord").settings}
+
+
+# --- leaving because she wants to --------------------------------------------
+
+
+def _tools(s):
+    return {t.name for t in s.tools()}
+
+
+def test_she_is_not_offered_a_door_she_is_not_standing_at():
+    """An absent tool is a stronger constraint than a rule in the prompt."""
+    s = surface(Transport())
+    assert "discord_leave_voice" not in _tools(s)
+
+
+async def test_once_in_a_call_she_can_walk_out_of_it():
+    s = surface(Transport())
+    await s._tool_join_voice("vc1")
+    assert "discord_leave_voice" in _tools(s)
+
+
+async def test_leaving_is_a_decision_she_can_explain():
+    transport = Transport()
+    s = surface(transport)
+    await s._tool_join_voice("vc1")
+    answer = await s._tool_leave_voice(reason="mi sono annoiata")
+    assert transport.left == 1
+    assert "mi sono annoiata" in answer
+
+
+async def test_she_can_leave_without_saying_why():
+    s = surface(Transport())
+    await s._tool_join_voice("vc1")
+    assert "FAILED" not in await s._tool_leave_voice()
+
+
+async def test_why_she_left_reaches_the_dashboard():
+    published = []
+
+    class Events:
+        def publish(self, category, source, message, metadata=None):
+            published.append((source, message, metadata or {}))
+
+    s = surface(Transport())
+    s.events = Events()
+    await s._tool_join_voice("vc1")
+    await s._tool_leave_voice(reason="vado a dormire")
+    assert published
+    assert "vado a dormire" in published[0][1]
+
+
+async def test_a_refused_leave_does_not_pretend_she_left():
+    class Stuck(Transport):
+        async def leave_voice(self):
+            return {"ok": False, "error": "not connected"}
+
+    s = surface(Stuck())
+    await s._tool_join_voice("vc1")
+    assert (await s._tool_leave_voice()).startswith("FAILED")
+    assert s.voice_channel == "vc1"
+
+
+async def test_leaving_on_her_own_still_forgets_the_call():
+    s = surface(Transport())
+    await s._tool_join_voice("vc1")
+    await s._tool_leave_voice(reason="basta")
+    assert s.voice_channel is None
+    assert "discord_leave_voice" not in _tools(s)
+
+
+# --- and being told she may ---------------------------------------------------
+
+
+def test_the_prompt_tells_her_she_can_leave():
+    s = surface(Transport())
+    s.voice_channel = "vc1"
+    assert "discord_leave_voice" in s.context_section
+
+
+def test_the_prompt_does_not_dangle_it_when_she_is_not_in_a_call():
+    assert "discord_leave_voice" not in surface(Transport()).context_section
+
+
+def test_the_prompt_says_leaving_is_hers_to_decide():
+    s = surface(Transport())
+    s.voice_channel = "vc1"
+    section = s.context_section.lower()
+    assert "leave" in section
+    assert "ask" in section or "permission" in section or "nobody" in section

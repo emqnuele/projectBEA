@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
+from src.core.events import EventCategory
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.platform import PlatformSkill
 from src.core.skills.voice.transport import DiscordTransport
@@ -215,7 +216,15 @@ class VoiceSurface(PlatformSkill):
             "a channel unprompted, `discord_send_dm` to message someone privately, "
             "`discord_list_voice_channels` to see where people are, `discord_join_voice` "
             "to go hang out, `discord_summon` to call someone in.\n"
-            "- When you write, every LINE becomes a separate message with a typing pause "
+            + (
+                "- You are in a voice call right now. `discord_leave_voice` walks out of "
+                "it, and that is yours to decide: you do not have to ask, and nobody has "
+                "to dismiss you. Leave when you are bored, when you have had enough, or "
+                "when you want to go do something else — say goodbye first if it would "
+                "be rude not to.\n"
+                if self.voice_channel else ""
+            )
+            + "- When you write, every LINE becomes a separate message with a typing pause "
             "in between. Two short lines beat one paragraph."
         )
 
@@ -224,7 +233,7 @@ class VoiceSurface(PlatformSkill):
     def tools(self) -> List[Tool]:
         if not self.active:
             return []
-        return [
+        tools = [
             Tool(
                 "discord_list_voice_channels",
                 "List the discord voice channels and who is currently in each. Use this to "
@@ -238,12 +247,6 @@ class VoiceSurface(PlatformSkill):
                 {"type": "object", "properties": {"channel_id": {"type": "string"}},
                  "required": ["channel_id"]},
                 self._tool_join_voice,
-            ),
-            Tool(
-                "discord_leave_voice",
-                "Leave the discord voice channel you are currently in.",
-                {"type": "object", "properties": {}, "required": []},
-                self._tool_leave_voice,
             ),
             Tool(
                 "discord_send_message",
@@ -294,6 +297,23 @@ class VoiceSurface(PlatformSkill):
             ),
         ]
 
+        # only while she is actually in one: an absent tool is a stronger
+        # guarantee than a rule in the prompt, and it also stops her being
+        # offered a door she is not standing at
+        if self.voice_channel:
+            tools.append(Tool(
+                "discord_leave_voice",
+                "Leave the voice call you are in. Yours to decide — you do not need "
+                "anyone's permission and you do not owe an explanation. Say goodbye "
+                "first if it would be rude not to.",
+                {"type": "object", "properties": {
+                    "reason": {"type": "string",
+                               "description": "optional: why, for your own record"}},
+                 "required": []},
+                self._tool_leave_voice,
+            ))
+        return tools
+
     @staticmethod
     def _fmt(result: Dict[str, Any], ok_msg: str) -> str:
         if result.get("ok"):
@@ -316,10 +336,29 @@ class VoiceSurface(PlatformSkill):
             self._alone_since = None
         return self._fmt(result, f"Joined voice channel {channel_id}.")
 
-    async def _tool_leave_voice(self) -> str:
+    async def _tool_leave_voice(self, reason: str = "") -> str:
         result = await self.transport.leave_voice()
+        if not result.get("ok"):
+            # she is still in it: forgetting the channel here would leave her
+            # sitting in a call she believes she walked out of
+            return self._fmt(result, "")
+        reason = (reason or "").strip()
+        self._announce_departure(reason)
         self._forget_call()
-        return self._fmt(result, "Left the voice channel.")
+        return f"Left the call — {reason}." if reason else "Left the call."
+
+    def _announce_departure(self, reason: str) -> None:
+        events = getattr(self, "events", None) or getattr(self.context, "event_manager", None)
+        if events is None:
+            return
+        try:
+            events.publish(
+                EventCategory.SYSTEM, self.name,
+                f"left the voice call{f' — {reason}' if reason else ''}",
+                metadata={"reason": reason},
+            )
+        except Exception as e:
+            logger.debug(f"Could not publish the departure: {e}")
 
     async def _tool_send_message(self, channel_id: str, text: str) -> str:
         sent = await self.deliver(channel_id, text)
