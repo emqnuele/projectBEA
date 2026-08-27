@@ -96,17 +96,21 @@ class ConversationMind:
         task.add_done_callback(self._tasks.discard)
 
     async def turn_now(self, key: str, perceptions: List[Perception], *,
-                       first: bool = True, initiative: bool = False) -> None:
+                       first: bool = True, initiative: bool = False,
+                       frame: str = "") -> None:
         """The awaitable twin of `dispatch`.
 
         With `initiative` she may open the conversation herself, with nothing
-        new to answer.
+        new to answer. `frame` is why: an intention she kept has a reason, and
+        without carrying it she opens the chat with nothing to say.
         """
         if perceptions:
             self._pending.setdefault(key, []).extend(perceptions)
             self._record_incoming(key, perceptions)
         await self.scheduler.submit(
-            key, lambda first_run: self.turn(key, first=first_run, initiative=initiative)
+            key,
+            lambda first_run: self.turn(key, first=first_run, initiative=initiative,
+                                        frame=frame),
         )
 
     async def _run(self, key: str) -> None:
@@ -129,7 +133,8 @@ class ConversationMind:
 
     # --- the turn -----------------------------------------------------------
 
-    async def turn(self, key: str, *, first: bool = True, initiative: bool = False) -> None:
+    async def turn(self, key: str, *, first: bool = True, initiative: bool = False,
+                   frame: str = "") -> None:
         incoming = self._pending.pop(key, [])
         if not incoming and first and not initiative:
             return
@@ -144,7 +149,8 @@ class ConversationMind:
             logger.warning(f"No tools available for '{key}'; skipping the turn.")
             return
 
-        context = await asyncio.to_thread(self._build_context, key, incoming, first, initiative)
+        context = await asyncio.to_thread(
+            self._build_context, key, incoming, first, initiative, frame)
         sent = await self._reason(key, context, tools)
 
         if sent:
@@ -186,7 +192,8 @@ class ConversationMind:
     # --- context ------------------------------------------------------------
 
     def _build_context(self, key: str, incoming: List[Perception],
-                       first: bool, initiative: bool = False) -> List[Dict[str, Any]]:
+                       first: bool, initiative: bool = False,
+                       frame: str = "") -> List[Dict[str, Any]]:
         """The context for a scoped turn. Runs off the loop: it hits the db."""
         parts = [
             f"CURRENT DATE: {time.strftime('%Y-%m-%d')}",
@@ -234,7 +241,7 @@ class ConversationMind:
             lines = "\n".join(p.render() for p in incoming)
             messages.append({"role": "user", "content": f"{header}\n{lines}"})
         elif initiative:
-            messages.append({"role": "user", "content": INITIATIVE_FRAME})
+            messages.append({"role": "user", "content": frame or INITIATIVE_FRAME})
         return messages
 
     def _who(self, incoming: List[Perception]) -> str:

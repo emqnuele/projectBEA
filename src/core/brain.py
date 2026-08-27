@@ -21,16 +21,29 @@ from src.core.skills.idle import IdleSurface
 from src.core.skills.memory.memory import MemorySkill
 from src.core.skills.minecraft.surface import MinecraftSurface
 from src.core.skills.plan.surface import StreamPlanSkill
+from src.core.skills.presence.surface import PresenceSkill
 from src.core.skills.social.social import SocialMemory
 from src.core.skills.telegram.surface import TelegramSkill
 from src.core.skills.twitch.surface import TwitchSkill
 from src.core.skills.voice.surface import VoiceSurface
+from src.core.social.agenda import AgendaRunner
+from src.core.social.reach import Reach
+from src.core.social.rhythm import RhythmTick
 from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
 from src.utils.history_manager import HistoryManager
 from src.utils.logger import get_logger
 from src.utils.prompts import compose, load_text
 
 logger = get_logger("bea.brain")
+
+
+# every capability the brain wires up. PresenceSkill is core: without it she can
+# only ever answer where she was spoken to.
+SKILL_CLASSES = (
+    ChatSurface, VoiceSurface, TelegramSkill, TwitchSkill, DonationSkill,
+    IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill,
+    StreamPlanSkill, PresenceSkill,
+)
 
 
 class AIVtuberBrain:
@@ -193,9 +206,7 @@ class AIVtuberBrain:
         self.perception_bus = PerceptionBus(window=self.config.consciousness.get("window", 0.3))
         self.skill_registry = SkillRegistry()
 
-        for skill_cls in (ChatSurface, VoiceSurface, TelegramSkill, TwitchSkill, DonationSkill,
-                          IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill,
-                          StreamPlanSkill):
+        for skill_cls in SKILL_CLASSES:
             skill = skill_cls(self.config, self.perception_bus, self.expression, self)
             skill.initialize()
             self.skill_registry.register(skill)
@@ -242,8 +253,16 @@ class AIVtuberBrain:
         )
         self.consciousness.conversations = self.conversations
 
+        self.reach = Reach(memory=self.memory, surfaces=self.skill_registry)
         self.spontaneous = SpontaneousPresence(
             config=self.config, memory=self.memory, conversations=self.conversations,
+        )
+        self.rhythm = RhythmTick(
+            agenda=AgendaRunner(
+                agenda=self.memory.agenda, conversations=self.conversations,
+                reach=self.reach,
+            ),
+            spontaneous=self.spontaneous,
         )
 
     def _publish_verdict(self, perception, verdict) -> None:
@@ -485,7 +504,7 @@ class AIVtuberBrain:
             if self.is_sleeping:
                 continue
             try:
-                started = await self.spontaneous.run_once()
+                started = await self.rhythm.run_once()
                 if started:
                     logger.info(f"Rhythm: opened {started} conversation(s) unprompted.")
             except asyncio.CancelledError:

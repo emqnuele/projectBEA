@@ -180,3 +180,16 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Things she means to do later. Thin on purpose: a note and a time, so what to
+-- actually say is decided with the conversation in front of her.
+CREATE TABLE IF NOT EXISTS agenda (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    note             TEXT NOT NULL,
+    person_id        TEXT NOT NULL DEFAULT '',
+    conversation_key TEXT NOT NULL DEFAULT '',
+    due_ts           REAL NOT NULL,
+    created_at       REAL NOT NULL,
+    done             INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_agenda_due ON agenda(done, due_ts);

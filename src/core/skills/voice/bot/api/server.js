@@ -86,8 +86,10 @@ function createServer({ client, voiceManager, token, env = process.env }) {
         if (!userId || !content) return fail(res, 400, 'Missing userId or content');
         try {
             const user = await client.users.fetch(userId);
-            await user.send(content);
-            return ok(res);
+            // the channel id is what lets the engine file her opening line in
+            // the same thread the answer will arrive on
+            const sent = await user.send(content);
+            return ok(res, { channelId: sent.channelId, messageId: sent.id });
         } catch (e) {
             return fail(res, 500, e.message);
         }

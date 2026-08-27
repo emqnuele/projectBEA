@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
@@ -31,6 +32,8 @@ class VoiceSurface(PlatformSkill):
         super().initialize()
         self.transport = DiscordTransport(self.config)
         self._monitor: Optional[asyncio.Task] = None
+        self.voice_channel: Optional[str] = None
+        self._alone_since: Optional[float] = None
 
     async def start(self) -> None:
         if not self.enabled:
@@ -67,10 +70,54 @@ class VoiceSurface(PlatformSkill):
         logger.error("Discord bot could not be restarted; the capability is off.")
         self.active = False
 
+    # --- being left alone ---------------------------------------------------
+
+    @property
+    def _auto_leave_seconds(self) -> float:
+        return float(self.config.skills.get("discord", {}).get("auto_leave_seconds", 120))
+
+    def _forget_call(self) -> None:
+        self.voice_channel = None
+        self._alone_since = None
+
+    async def check_solitude(self, now: Optional[float] = None) -> None:
+        """Leaves a call everyone else walked out of.
+
+        Sitting alone in an empty channel forever is the most obviously
+        non-human thing she can do.
+        """
+        if not self.voice_channel or self._auto_leave_seconds <= 0:
+            return
+        now = time.time() if now is None else now
+
+        result = await self.transport.list_voice_channels()
+        if not result.get("ok"):
+            return
+        channel = next((c for c in result.get("channels", [])
+                        if str(c.get("channelId")) == self.voice_channel), None)
+        if channel is None:
+            # she is not in it any more, whoever ended it
+            self._forget_call()
+            return
+
+        others = [m for m in channel.get("members", []) if str(m.get("id")) != "bot"]
+        if others:
+            self._alone_since = None
+            return
+
+        if self._alone_since is None:
+            self._alone_since = now
+            return
+        if now - self._alone_since >= self._auto_leave_seconds:
+            logger.info("Alone in the voice channel; leaving.")
+            await self.transport.leave_voice()
+            self._forget_call()
+
     async def _watch_transport(self) -> None:
         while self.active:
             try:
                 await self.supervise_once()
+                await self.check_solitude()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -93,6 +140,14 @@ class VoiceSurface(PlatformSkill):
 
     async def react(self, channel_id: str, message_id: str, emoji: str) -> bool:
         return bool((await self.transport.react_message(channel_id, message_id, emoji)).get("ok"))
+
+    async def send_dm(self, native_id: str, text: str) -> Optional[str]:
+        """A discord DM lives in its own channel, so the bot reports which one."""
+        result = await self.transport.send_dm(str(native_id), text)
+        if not result.get("ok"):
+            logger.warning(f"Discord DM to {native_id} failed: {result.get('error')}")
+            return None
+        return str(result.get("channelId") or native_id)
 
     # --- senses (bot -> bus) -----------------------------------------------
 
@@ -247,11 +302,16 @@ class VoiceSurface(PlatformSkill):
         return json.dumps(channels, ensure_ascii=False)
 
     async def _tool_join_voice(self, channel_id: str) -> str:
-        return self._fmt(await self.transport.join_voice(channel_id),
-                         f"Joined voice channel {channel_id}.")
+        result = await self.transport.join_voice(channel_id)
+        if result.get("ok"):
+            self.voice_channel = str(channel_id)
+            self._alone_since = None
+        return self._fmt(result, f"Joined voice channel {channel_id}.")
 
     async def _tool_leave_voice(self) -> str:
-        return self._fmt(await self.transport.leave_voice(), "Left the voice channel.")
+        result = await self.transport.leave_voice()
+        self._forget_call()
+        return self._fmt(result, "Left the voice channel.")
 
     async def _tool_send_message(self, channel_id: str, text: str) -> str:
         sent = await self.deliver(channel_id, text)

@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from src.core.memory.db import Database
 from src.core.memory.plan import StreamPlan
+from src.core.social.agenda import Agenda
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.memory.store")
@@ -605,6 +606,7 @@ class MemoryStore:
         self.conversations = Conversations(self.db)
         self.sessions = Sessions(self.db)
         self.plan = StreamPlan(self.db)
+        self.agenda = Agenda(self.db)
 
         self.rag = None
         if embedder is not None:
