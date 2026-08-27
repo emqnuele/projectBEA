@@ -20,6 +20,24 @@ SECRET_SKILL_FIELDS: List[Tuple[str, str]] = [
 
 MASK = "********"
 
+
+def deep_merge(base: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """`incoming` over `base`, recursing into dicts. Lists replace wholesale.
+
+    Every dict-valued setting is a block of named knobs, so a config.json
+    written before a knob existed must not delete it. A list, on the other
+    hand, is one value: merging trigger_words would make them impossible to
+    shorten.
+    """
+    merged = dict(base)
+    for key, value in incoming.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = deep_merge(current, value)
+        else:
+            merged[key] = value
+    return merged
+
 @dataclass
 class BrainConfig:
     language: str = "en" # default language
@@ -166,9 +184,12 @@ class BrainConfig:
     # "provider:model" pools per role: round-robin spreads rate limits, the rest
     # of the pool is the fallback. Empty falls back to llm_provider.
     # every model in "mind" must support tool calling, or she never speaks
+    # "reasoning" is a latency setting, not a quality one: she answers in a
+    # voice call, and a thinking trace before the first token loses the moment
     models: Dict[str, Any] = field(default_factory=lambda: {
         "mind": [],
         "background": [],
+        "reasoning": "off",   # off | low | medium | high | auto
     })
 
     # a day, not an event loop: when she starts something on her own, and when
@@ -228,13 +249,9 @@ class BrainConfig:
                                 continue  # env var not set and config.json empty → nothing to apply
                             # env var not set but config.json has a value → use it
 
-                        if key == "skills":
-                            current_skills = self.skills
-                            for skill_name, skill_val in value.items():
-                                if skill_name in current_skills:
-                                    current_skills[skill_name].update(skill_val)
-                                else:
-                                    current_skills[skill_name] = skill_val
+                        current = getattr(self, key, None)
+                        if isinstance(current, dict) and isinstance(value, dict):
+                            setattr(self, key, deep_merge(current, value))
                         else:
                             setattr(self, key, value)
 
