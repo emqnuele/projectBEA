@@ -36,6 +36,46 @@ def message_text(message: Any) -> str:
     return (getattr(message, "text", None) or getattr(message, "caption", None) or "").strip()
 
 
+# what a non-text message is, in the order telegram fills the fields
+MEDIA_KINDS = ("sticker", "photo", "voice", "video_note", "video", "animation",
+               "audio", "document")
+
+
+def media_kind(message: Any) -> str:
+    """Which kind of attachment this is, or "" for plain text."""
+    for kind in MEDIA_KINDS:
+        if getattr(message, kind, None):
+            return kind
+    return ""
+
+
+def _label(message: Any, kind: str) -> str:
+    if kind == "sticker":
+        emoji = (getattr(getattr(message, "sticker", None), "emoji", "") or "").strip()
+        return f"[sticker {emoji}]" if emoji else "[sticker]"
+    if kind == "document":
+        name = (getattr(getattr(message, "document", None), "file_name", "") or "").strip()
+        return f"[file: {name}]" if name else "[file]"
+    return {
+        "photo": "[photo]", "voice": "[voice note]", "video": "[video]",
+        "video_note": "[video message]", "animation": "[gif]", "audio": "[audio]",
+    }[kind]
+
+
+def describe_message(message: Any) -> str:
+    """What arrived, as one line she can read.
+
+    A photo she cannot see is still a photo someone sent her, and knowing that
+    beats not hearing the message at all.
+    """
+    kind = media_kind(message)
+    text = message_text(message)
+    if not kind:
+        return text
+    label = _label(message, kind)
+    return f"{label} {text}" if text else label
+
+
 def is_private(message: Any) -> bool:
     chat = getattr(message, "chat", None)
     return getattr(chat, "type", "") == "private"

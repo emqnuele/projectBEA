@@ -227,8 +227,14 @@ async def test_a_failed_send_is_not_reported_as_sent():
 async def test_the_scoped_tools_are_the_platform_ones_only():
     r = recorder()
     names = {t.name for t in r.conversation_tools("-100", reply_to="55")}
-    assert names == {"reply", "send_message"}
+    assert names == {"reply", "send_message", "react"}
     assert "speak" not in names
+
+
+async def test_without_reactions_she_only_has_words():
+    r = recorder(reactions=False)
+    names = {t.name for t in r.conversation_tools("-100", reply_to="55")}
+    assert names == {"reply", "send_message"}
 
 
 async def test_without_a_channel_there_are_no_tools():
