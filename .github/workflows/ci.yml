@@ -42,3 +42,23 @@ jobs:
 
       - name: Tests
         run: uv run pytest -q
+
+  bot:
+    name: discord bot tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # the bot's own tests need express and discord.js, nothing else
+      - name: Install dependencies
+        working-directory: src/core/skills/voice/bot
+        run: npm ci --omit=dev
+
+      - name: Tests
+        working-directory: src/core/skills/voice/bot
+        run: npm test

@@ -26,6 +26,7 @@ class TelegramSkill(PlatformSkill):
     name = "chat:telegram"
     skill_name = "telegram"
     platform = "telegram"
+    message_limit = 4096
     # telegram reactions exist but are a restricted set; writing is the honest path
     supports_reactions = False
 

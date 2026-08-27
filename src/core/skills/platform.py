@@ -29,8 +29,11 @@ class PlatformSkill(Skill):
     # asynchronous exchange; a twitch chat is the room her voice is already in
     scoped_conversations: bool = True
 
+    # per-message ceiling of this platform, in characters
+    message_limit: int = 2000
+
     def initialize(self) -> None:
-        self.humanizer = TextHumanizer()
+        self.humanizer = TextHumanizer(hard_limit=self.message_limit)
 
     # --- identity -----------------------------------------------------------
 

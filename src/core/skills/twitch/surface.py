@@ -16,11 +16,17 @@ from src.core.agent.tools import Tool
 from src.core.skills.platform import PlatformSkill
 from src.core.skills.twitch.irc import ChatLine, TwitchIRC
 from src.utils.logger import get_logger
+from src.utils.rate_limit import SlidingWindow
 
 logger = get_logger("bea.skills.twitch")
 
 # window over which "how busy is chat" is measured
 PULSE_WINDOW = 60.0
+
+# twitch throttles an ordinary account at 20 messages per 30 seconds, and
+# punishes the overflow with a 30 minute timeout. Stay a message under it.
+SAY_LIMIT = 19
+SAY_WINDOW = 30.0
 
 # words too common to say anything about what chat is on about
 STOPWORDS = frozenset({
@@ -48,10 +54,12 @@ class TwitchSkill(PlatformSkill):
     supports_reactions = False
     # chat is the audience in the room with her: she answers it out loud
     scoped_conversations = False
+    message_limit = 500
 
     def initialize(self) -> None:
         super().initialize()
         self.irc: Optional[TwitchIRC] = None
+        self.limiter = SlidingWindow(limit=SAY_LIMIT, per_seconds=SAY_WINDOW)
         # (timestamp, text) of everything seen recently, for the pulse line
         self._recent: Deque[Tuple[float, str]] = deque(maxlen=500)
 
@@ -173,6 +181,14 @@ class TwitchSkill(PlatformSkill):
     async def send_text(self, channel_id: str, text: str,
                         reply_to: Optional[str] = None) -> bool:
         if self.irc is None:
+            return False
+        # going over the limit costs a 30 minute timeout for the whole account:
+        # dropping the line is always cheaper than losing the chat
+        if not self.limiter.allow():
+            logger.warning(
+                f"Twitch rate limit reached; dropping a line "
+                f"(room again in {self.limiter.retry_after():.0f}s)."
+            )
             return False
         return await self.irc.say(text)
 

@@ -24,6 +24,9 @@ class VoiceSurface(PlatformSkill):
     skill_name = "discord"
     platform = "discord"
 
+    # how long to wait before bringing a crashed bot back up
+    restart_backoff: float = 3.0
+
     def initialize(self) -> None:
         super().initialize()
         self.transport = DiscordTransport(self.config)
@@ -40,18 +43,38 @@ class VoiceSurface(PlatformSkill):
 
     async def stop(self) -> None:
         self.active = False
-        if self._monitor:
+        if getattr(self, "_monitor", None):
             self._monitor.cancel()
             self._monitor = None
         self.transport.stop()
+        await self.transport.close()
         logger.info("VoiceSurface stopped.")
 
+    async def supervise_once(self) -> None:
+        """One supervision pass: bring the bot back if it died.
+
+        A node process that dies takes voice, DMs and every discord tool with
+        it. Going quietly inactive was the wrong answer — she simply vanished
+        from discord until someone noticed.
+        """
+        if self.transport.poll_exit() is None:
+            return
+        logger.warning("Discord bot died; restarting it.")
+        await asyncio.sleep(self.restart_backoff)
+        if self.transport.start():
+            logger.info("Discord bot is back up.")
+            return
+        logger.error("Discord bot could not be restarted; the capability is off.")
+        self.active = False
+
     async def _watch_transport(self) -> None:
-        """If the bot process dies, the capability goes inactive."""
         while self.active:
-            if self.transport.poll_exit() is not None:
-                self.active = False
-                break
+            try:
+                await self.supervise_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Discord supervision failed: {e}")
             await asyncio.sleep(2)
 
     # --- transport (what PlatformSkill calls) -------------------------------
