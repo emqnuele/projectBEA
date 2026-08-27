@@ -31,9 +31,20 @@ def client(tmp_path, monkeypatch):
 
     class BrainStub:
         def __init__(self):
+            from src.core.memory.store import MemoryStore
+            from tests.fakes import FakeLLMClient
+
             self.config = BrainConfig()
             self.config.soul_path = "data/prompts/soul.md"
             self.reloads = 0
+            self.memory = MemoryStore(":memory:")
+            self.llm = FakeLLMClient(json_script=[
+                {"identity": ["Sarcastica e curiosa."], "voice": ["Corta e secca."]},
+            ])
+
+        # the real brain has this; a stub without it hides a wiring break
+        def model_for(self, role="background"):
+            return self.llm
 
         @property
         def persona(self):
@@ -206,3 +217,57 @@ def test_an_edited_soul_counts_as_set_up(client):
     api, _, _ = client
     api.put("/persona", json={"soul": "# SOUL\n\nYou are a gremlin called {name}."})
     assert api.get("/persona").json()["customised"] is True
+
+
+# --- onboarding --------------------------------------------------------------
+
+
+def test_the_questions_are_served(client):
+    api, _, _ = client
+    body = api.get("/onboarding").json()
+    assert [q["key"] for q in body["questions"]][0] == "name"
+
+
+def test_a_fresh_install_is_told_it_needs_setting_up(client, tmp_path):
+    api, _, _ = client
+    from pathlib import Path
+
+    (tmp_path / "data/prompts/soul.md").write_text(
+        Path(__file__).parents[1].joinpath("data/prompts/soul.md").read_text()
+    )
+    assert api.get("/onboarding").json()["needed"] is True
+
+
+def test_once_the_soul_is_written_it_is_not_needed(client):
+    api, _, _ = client
+    api.put("/persona", json={"soul": "# SOUL\n\nYou are a gremlin."})
+    assert api.get("/onboarding").json()["needed"] is False
+
+
+def test_skipping_it_is_remembered(client):
+    api, _, _ = client
+    assert api.post("/onboarding/skip").status_code == 200
+    assert api.get("/onboarding").json()["needed"] is False
+
+
+def test_a_draft_is_generated_without_saving_anything(client, tmp_path):
+    api, _, _ = client
+    res = api.post("/onboarding/draft", json={
+        "name": "Luna", "adjectives": "sarcastica, curiosa",
+    })
+    assert res.status_code == 200
+    assert "Sarcastica e curiosa." in res.json()["soul"]
+    # nothing is committed until you press save
+    assert "Sarcastica" not in (tmp_path / "data/prompts/soul.md").read_text()
+
+
+def test_a_draft_needs_a_name(client):
+    api, _, _ = client
+    assert api.post("/onboarding/draft", json={"adjectives": "x"}).status_code == 422
+
+
+def test_the_draft_keeps_the_name_as_a_placeholder(client):
+    api, _, _ = client
+    body = api.post("/onboarding/draft", json={"name": "Luna"}).json()
+    assert "{name}" in body["soul"]
+    assert body["name"] == "Luna"
