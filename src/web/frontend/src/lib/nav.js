@@ -13,12 +13,18 @@ export const NAV = [
 
 export const SETTINGS_SECTIONS = [
     { id: 'mind', label: 'Mind', hint: 'Persona, language and the files behind her' },
-    { id: 'engine', label: 'Model', hint: 'Which model thinks for her' },
+    { id: 'engine', label: 'Provider', hint: 'Keys and the default model' },
+    { id: 'models', label: 'Models', hint: 'Which models think for her, and how fast' },
+    { id: 'attention', label: 'Attention', hint: 'What wakes her and what she lets pass' },
+    { id: 'rhythm', label: 'Initiative', hint: 'When she starts something herself' },
+    { id: 'discord', label: 'Discord', hint: 'Voice, DMs and who she listens to' },
+    { id: 'telegram', label: 'Telegram', hint: 'Groups, DMs, photos and voice notes' },
+    { id: 'twitch', label: 'Twitch', hint: 'Chat, raids and subs' },
     { id: 'voice', label: 'Voice', hint: 'How she sounds and where the audio goes' },
     { id: 'hearing', label: 'Hearing', hint: 'How speech becomes text' },
     { id: 'stream', label: 'Stream', hint: 'OBS, the avatar and the text bubble' },
-    { id: 'channels', label: 'Channels', hint: 'Discord, Telegram, Twitch, donations' },
     { id: 'world', label: 'Minecraft', hint: 'Her body on the server' },
+    { id: 'donations', label: 'Donations', hint: 'The webhook that tells her about money' },
     { id: 'appearance', label: 'Appearance', hint: 'Theme, glass and motion' },
 ];
 

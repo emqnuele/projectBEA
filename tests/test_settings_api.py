@@ -5,9 +5,13 @@ one section, saves, and hot-reloads. Anything that fails validation changes
 nothing and says which field was wrong.
 """
 
+import re
+from pathlib import Path
+
 import pytest
 
 from src.core.config import MASK, BrainConfig
+from src.core.settings_schema import SECTIONS
 
 
 @pytest.fixture
@@ -161,3 +165,44 @@ def test_a_root_section_has_no_switch_to_flip(client):
     api, stub = client
     api.post("/settings/attention", json={"enabled": True})
     assert stub.toggles == []
+
+
+# --- the dashboard and the engine must agree ---------------------------------
+
+ROOT = Path(__file__).resolve().parents[1]
+FRONTEND = ROOT / "src/web/frontend/src"
+
+
+def _block(path: Path, pattern: str) -> str:
+    found = re.search(pattern, path.read_text(), re.S)
+    assert found, f"could not find {pattern} in {path.name}"
+    return found.group(1)
+
+
+def test_every_schema_screen_in_the_dashboard_exists_on_the_engine():
+    """A menu entry pointing at a section the engine lacks is a 404 the user sees."""
+    wanted = set(re.findall(r"'([a-z_]+)'", _block(
+        FRONTEND / "pages/settings/sections.jsx", r"const SCHEMA_DRIVEN = \[(.*?)\]",
+    )))
+    assert wanted, "no schema-driven sections found in the dashboard"
+    assert wanted <= {s.key for s in SECTIONS}
+
+
+def test_every_screen_in_the_menu_has_something_to_render():
+    menu = set(re.findall(r"id: '([a-z_]+)'", _block(
+        FRONTEND / "lib/nav.js", r"SETTINGS_SECTIONS = \[(.*?)\];",
+    )))
+    hand_built = set(re.findall(r"^\s{4}([a-z_]+):", _block(
+        FRONTEND / "pages/settings/sections.jsx",
+        r"export const SECTIONS = \{(.*?)\.\.\.Object",
+    ), re.M))
+    # appearance is its own component, wired in the page rather than the registry
+    known = {s.key for s in SECTIONS} | hand_built | {"appearance"}
+    assert not (menu - known), f"menu entries with nothing behind them: {sorted(menu - known)}"
+
+
+def test_the_menu_offers_every_platform():
+    menu = set(re.findall(r"id: '([a-z_]+)'", _block(
+        FRONTEND / "lib/nav.js", r"SETTINGS_SECTIONS = \[(.*?)\];",
+    )))
+    assert {"discord", "telegram", "twitch"} <= menu

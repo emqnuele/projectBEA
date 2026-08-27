@@ -4,6 +4,7 @@ import { Field, SecretInput, Select, Slider, TextInput, CheckRow } from '../../c
 import { Button } from '../../components/ui/controls';
 import { Group, ProviderChoice, SecretState, TestButton } from './parts';
 import { PromptEditor } from './PromptEditor';
+import { createSchemaSection } from './SchemaSection';
 
 const LANGUAGES = [
     ['en', 'English'], ['it', 'Italian'], ['jp', 'Japanese'],
@@ -378,118 +379,6 @@ function StreamSection({ config, update, setConfig }) {
 
 // --- where she is -----------------------------------------------------------
 
-function ChannelsSection({ config, updateSkill, secrets }) {
-    const skills = config.skills || {};
-
-    return (
-        <>
-            <Group title="Discord" description="Text channels and voice calls, each its own conversation.">
-                <CheckRow
-                    checked={skills.discord?.enabled}
-                    onChange={(value) => updateSkill('discord', 'enabled', value)}
-                    title="Let her onto Discord"
-                    help="The bot process starts with the engine."
-                />
-                <Field label="Bot token" action={<SecretState configured={secrets['discord.token']} />}>
-                    <SecretInput
-                        value={skills.discord?.token || ''}
-                        onChange={(e) => updateSkill('discord', 'token', e.target.value)}
-                        placeholder="Paste a token to replace the stored one"
-                    />
-                </Field>
-                <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Bot API port" help="How the bot and the brain talk to each other.">
-                        <TextInput
-                            type="number"
-                            value={skills.discord?.api_port ?? 3030}
-                            onChange={(e) => updateSkill('discord', 'api_port', parseInt(e.target.value, 10) || 0)}
-                        />
-                    </Field>
-                    <Field label="Admin id" help="Whose messages count as her owner's.">
-                        <TextInput
-                            value={skills.discord?.admin_id || ''}
-                            onChange={(e) => updateSkill('discord', 'admin_id', e.target.value)}
-                            className="font-mono"
-                        />
-                    </Field>
-                </div>
-                <Slider
-                    label="Interrupt after"
-                    value={skills.discord?.interrupt_threshold_ms ?? 3000}
-                    onChange={(value) => updateSkill('discord', 'interrupt_threshold_ms', value)}
-                    min={1000} max={10000} step={250}
-                    format={(v) => `${(v / 1000).toFixed(2)}s`}
-                />
-                <p className="text-[11px] leading-snug text-faint">
-                    How long someone has to keep talking before she stops to listen. Short interjections are
-                    buffered instead of cutting her off.
-                </p>
-            </Group>
-
-            <Group title="Telegram" description="Private conversations that run beside everything else.">
-                <CheckRow
-                    checked={skills.telegram?.enabled}
-                    onChange={(value) => updateSkill('telegram', 'enabled', value)}
-                    title="Let her onto Telegram"
-                />
-                <Field label="Bot token" action={<SecretState configured={secrets['telegram.token']} />}>
-                    <SecretInput
-                        value={skills.telegram?.token || ''}
-                        onChange={(e) => updateSkill('telegram', 'token', e.target.value)}
-                    />
-                </Field>
-                <Field label="Owner id" help="The one chat she treats as her owner.">
-                    <TextInput
-                        value={skills.telegram?.owner_id || ''}
-                        onChange={(e) => updateSkill('telegram', 'owner_id', e.target.value)}
-                        className="font-mono"
-                    />
-                </Field>
-            </Group>
-
-            <Group title="Twitch" description="She reads the stream chat and answers what concerns her.">
-                <CheckRow
-                    checked={skills.twitch?.enabled}
-                    onChange={(value) => updateSkill('twitch', 'enabled', value)}
-                    title="Let her read the stream chat"
-                />
-                <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Channel">
-                        <TextInput
-                            value={skills.twitch?.channel || ''}
-                            onChange={(e) => updateSkill('twitch', 'channel', e.target.value)}
-                            className="font-mono"
-                        />
-                    </Field>
-                    <Field label="Bot nickname">
-                        <TextInput
-                            value={skills.twitch?.nick || ''}
-                            onChange={(e) => updateSkill('twitch', 'nick', e.target.value)}
-                            className="font-mono"
-                        />
-                    </Field>
-                </div>
-                <Field label="OAuth token" action={<SecretState configured={secrets['twitch.oauth_token']} />}>
-                    <SecretInput
-                        value={skills.twitch?.oauth_token || ''}
-                        onChange={(e) => updateSkill('twitch', 'oauth_token', e.target.value)}
-                        placeholder="oauth:…"
-                    />
-                </Field>
-            </Group>
-
-            <Group title="Donations" description="Alerts reach her as perceptions, so she reacts to them live.">
-                <CheckRow
-                    checked={skills.donations?.enabled}
-                    onChange={(value) => updateSkill('donations', 'enabled', value)}
-                    title="Let donations reach her"
-                    help="Point your alert service at POST /webhook/donation."
-                />
-            </Group>
-        </>
-    );
-}
-
 // --- her body ---------------------------------------------------------------
 
 function WorldSection({ config, updateSkill }) {
@@ -549,12 +438,18 @@ function WorldSection({ config, updateSkill }) {
     );
 }
 
+// Everything the engine declares renders itself; the rest is hand-built because
+// it does more than set a value (file pickers, provider trade-offs, live tests).
+const SCHEMA_DRIVEN = [
+    'models', 'attention', 'rhythm', 'discord', 'telegram', 'twitch', 'donations',
+];
+
 export const SECTIONS = {
     mind: MindSection,
     engine: EngineSection,
     voice: VoiceSection,
     hearing: HearingSection,
     stream: StreamSection,
-    channels: ChannelsSection,
     world: WorldSection,
+    ...Object.fromEntries(SCHEMA_DRIVEN.map((key) => [key, createSchemaSection(key)])),
 };
