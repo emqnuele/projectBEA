@@ -255,3 +255,47 @@ def test_twitch_has_no_private_messages():
     from src.core.skills.twitch.surface import TwitchSkill
 
     assert TwitchSkill.supports_dm is False
+
+
+# --- who she hears on discord ------------------------------------------------
+
+
+def _voice_surface():
+    from src.core.skills.voice.surface import VoiceSurface
+
+    class Cfg:
+        skills = {"discord": {"enabled": True}}
+        attention = {}
+
+    from src.core.perception.bus import PerceptionBus
+
+    s = VoiceSurface(Cfg(), bus=PerceptionBus(window=0.0), expression=None)
+    s.initialize()
+    s.active = True
+    return s
+
+
+def test_someone_on_the_whitelist_pulls_at_full_strength():
+    s = _voice_surface()
+    p = s.perceive_text("ciao", "Ema", "c1", user_id="1", whitelisted=True)
+    assert p.salience == 0.8
+
+
+def test_a_stranger_is_heard_but_more_faintly():
+    """Boost mode: she notices them, they just don't interrupt what she's doing."""
+    s = _voice_surface()
+    p = s.perceive_text("ciao", "Sconosciuto", "c1", user_id="9", whitelisted=False)
+    assert 0 < p.salience < 0.8
+
+
+def test_a_dm_from_a_stranger_still_counts_as_a_dm():
+    s = _voice_surface()
+    p = s.perceive_text("ciao", "Sconosciuto", "c1", user_id="9",
+                        is_dm=True, whitelisted=False)
+    assert p.meta["is_dm"] is True
+
+
+def test_whether_she_knows_them_is_on_the_perception():
+    s = _voice_surface()
+    p = s.perceive_text("ciao", "Sconosciuto", "c1", user_id="9", whitelisted=False)
+    assert p.meta["whitelisted"] is False

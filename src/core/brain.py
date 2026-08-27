@@ -462,7 +462,7 @@ class AIVtuberBrain:
 
     def perceive_discord_text(self, text: str, username: str, channel_id: str,
                               message_id: Optional[str] = None, user_id: Optional[str] = None,
-                              is_dm: bool = False) -> None:
+                              is_dm: bool = False, whitelisted: bool = True) -> None:
         """Discord text: deposit a CHAT perception on the bus and return immediately.
         Bea decides on her own whether/how to answer, using the discord tools
         (reply/send_message/react) with the ids carried in the perception. This is
@@ -470,7 +470,7 @@ class AIVtuberBrain:
         surface = self._surface("voice:discord")
         if surface:
             surface.perceive_text(text, username, channel_id, message_id=message_id,
-                                  user_id=user_id, is_dm=is_dm)
+                                  user_id=user_id, is_dm=is_dm, whitelisted=whitelisted)
 
     async def run_loop(self):
         logger.info("Starting interactive loop. Type 'exit' to quit.")

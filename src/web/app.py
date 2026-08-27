@@ -344,6 +344,7 @@ class DiscordChatRequest(BaseModel):
     userId: Optional[str] = None
     messageId: Optional[str] = None
     isDm: bool = False
+    whitelisted: bool = True
 
     @field_validator("message")
     @classmethod
@@ -364,6 +365,7 @@ async def discord_chat(request: DiscordChatRequest):
     brain.perceive_discord_text(
         request.message, request.username, request.channelId,
         message_id=request.messageId, user_id=request.userId, is_dm=request.isDm,
+        whitelisted=request.whitelisted,
     )
     return {"status": "perceived"}
 

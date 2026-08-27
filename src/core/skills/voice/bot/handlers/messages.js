@@ -3,6 +3,7 @@ const { Events } = require('discord.js');
 const { createErrorEmbed } = require('../utils/embed');
 const config = require('../config');
 const whitelist = require('../whitelist');
+const { mayReach, normalizeMode } = require('../access');
 
 // single messageCreate handler: routes `!commands` and forwards plain chat to
 // the brain as a perception (Bea answers autonomously via her discord tools).
@@ -49,7 +50,10 @@ async function handleCommand(client, message) {
 
 async function handleChat(client, message) {
     const userId = message.author.id;
-    if (!whitelist.has(userId)) return;
+    const whitelisted = whitelist.has(userId);
+    // strict keeps the old wall; boost/open let strangers reach her and let the
+    // roster decide over time who becomes someone she knows
+    if (!mayReach(normalizeMode(config.ACCESS_MODE), whitelisted)) return;
 
     const isMentioned = message.mentions.has(client.user.id);
     const isDM = !message.guild;
@@ -86,6 +90,7 @@ async function handleChat(client, message) {
             userId: userId,
             messageId: message.id,
             isDm: isDM,
+            whitelisted,
         });
     } catch (error) {
         console.error('Error talking to Brain:', error.message);

@@ -11,6 +11,9 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.voice")
 
+# how much quieter someone she has not been introduced to arrives
+STRANGER_DAMPING = 0.55
+
 
 class VoiceSurface(PlatformSkill):
     """Discord capability (voice + text). Owns the bot transport (node subprocess).
@@ -170,7 +173,8 @@ class VoiceSurface(PlatformSkill):
 
     def perceive_text(self, text: str, user: str, channel_id: str,
                       message_id: Optional[str] = None, meta: Optional[Dict[str, Any]] = None,
-                      user_id: Optional[str] = None, is_dm: bool = False) -> Perception:
+                      user_id: Optional[str] = None, is_dm: bool = False,
+                      whitelisted: bool = True) -> Perception:
         # text from discord flows through the same single consciousness as voice;
         # the ids are rendered inline so Bea can act on them (reply/react/send)
         kind = "dm" if is_dm else "text"
@@ -181,9 +185,13 @@ class VoiceSurface(PlatformSkill):
             kind=PerceptionKind.CHAT,
             surface=self.name,
             content=f"[{user}] (discord {kind}, {route}): {text}",
-            salience=0.9 if is_dm else 0.8,
+            # a stranger is heard, just not loudly: she notices them without
+            # them interrupting whatever she is doing. That is what lets the
+            # roster promote someone over time instead of never seeing them
+            salience=(0.9 if is_dm else 0.8) * (1.0 if whitelisted else STRANGER_DAMPING),
             meta={**(meta or {}), "user": user, "user_id": user_id,
                   "channel_id": channel_id, "message_id": message_id, "is_dm": is_dm,
+                  "whitelisted": whitelisted,
                   "conversation_key": self.conversation_key(channel_id)},
             author=self._author(user, user_id),
         )
