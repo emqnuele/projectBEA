@@ -450,6 +450,10 @@ class Consciousness:
         """
         if self._recap_task and not self._recap_task.done():
             return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # not now; the turns are kept and the next trim tries again
 
         async def work():
             try:
@@ -459,7 +463,4 @@ class Consciousness:
             except Exception as e:
                 logger.error(f"Session recap failed: {e}")
 
-        try:
-            self._recap_task = asyncio.create_task(work())
-        except RuntimeError:
-            pass
+        self._recap_task = asyncio.create_task(work())
