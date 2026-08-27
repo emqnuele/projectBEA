@@ -17,6 +17,9 @@ logger = get_logger("bea.skills.social")
 # never describe more than a handful of people at once
 MAX_CARDS_INJECTED = 5
 
+# names cost almost nothing each, but a busy twitch chat is a hundred of them
+MAX_NAMES_INJECTED = 10
+
 
 class SocialMemory(Skill):
     """Bea's memory of the people around her.
@@ -43,11 +46,15 @@ class SocialMemory(Skill):
 
         session_id = getattr(getattr(self.context, "history_manager", None), "session_id", None)
         present_cards: Dict[str, PersonCard] = {}
+        # everyone in the room, card or no card: a person she has not met yet
+        # used to be invisible in her context, which is how a regular gets made
+        present_names: Dict[str, str] = {}
 
         for p in batch:
             author = getattr(p, "author", None)
             if not author or author.is_owner:
                 continue
+            present_names.setdefault(author.identity, author.display_name)
 
             if p.meta.get("tallied"):
                 # a high-volume surface counts every message itself, including the
@@ -74,13 +81,27 @@ class SocialMemory(Skill):
             if card:
                 present_cards[card.person_id] = card
 
-        if not present_cards:
-            return None
+        blocks = []
 
-        # cap how many people we describe at once so the prompt stays lean
-        cards = list(present_cards.values())[:MAX_CARDS_INJECTED]
-        lines = "\n".join(c.render() for c in cards)
-        return f"[WHO YOU'RE TALKING TO]\n{lines}"
+        if present_cards:
+            # cap how many people we describe at once so the prompt stays lean
+            cards = list(present_cards.values())[:MAX_CARDS_INJECTED]
+            blocks.append(
+                "[WHO YOU'RE TALKING TO]\n" + "\n".join(c.render() for c in cards)
+            )
+
+        known = {i for c in present_cards.values() for i in c.identities}
+        strangers = [name for identity, name in present_names.items() if identity not in known]
+        if strangers:
+            shown = strangers[:MAX_NAMES_INJECTED]
+            line = ", ".join(shown)
+            if len(strangers) > len(shown):
+                line += f" and {len(strangers) - len(shown)} more"
+            blocks.append(
+                f"[WHO'S HERE]\n{line} — you don't have a card on any of them yet."
+            )
+
+        return "\n\n".join(blocks) or None
 
     def _maybe_promote(self, entry: RosterEntry) -> Optional[PersonCard]:
         if not should_promote(entry):

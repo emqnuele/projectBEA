@@ -284,6 +284,8 @@ class AIVtuberBrain:
             now_line=self.consciousness.now_line,
         )
         self.consciousness.conversations = self.conversations
+        # the recap is background work: it must never compete with the mind
+        self.consciousness.background_llm = self.model_for(BACKGROUND)
 
         self.reach = Reach(memory=self.memory, surfaces=self.skill_registry,
                            persona=self.persona)
