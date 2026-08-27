@@ -14,6 +14,7 @@ from typing import Deque, List, Optional, Tuple
 
 from src.core.agent.tools import Tool
 from src.core.perception.types import Perception, PerceptionKind
+from src.core.persona import persona_of
 from src.core.skills.platform import PlatformSkill
 from src.core.skills.twitch.irc import ChatEvent, ChatLine, TwitchIRC
 from src.utils.logger import get_logger
@@ -78,7 +79,7 @@ class TwitchSkill(PlatformSkill):
         return os.getenv("TWITCH_OAUTH_TOKEN", "") or self.skill_config.get("oauth_token", "")
 
     def _trigger_words(self) -> List[str]:
-        return list(getattr(self.config, "attention", {}).get("trigger_words", ["bea"]))
+        return persona_of(self.config).trigger_words
 
     # --- lifecycle ----------------------------------------------------------
 

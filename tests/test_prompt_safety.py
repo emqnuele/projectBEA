@@ -54,7 +54,10 @@ def test_the_brain_never_ends_up_with_no_manual(tmp_path, monkeypatch):
         operating_prompt_path = str(tmp_path / "gone.md")
         system_prompt_path = str(tmp_path / "also-gone.md")
 
-    rules = AIVtuberBrain._load_operating_rules(type("B", (), {"config": Config()})())
+    from src.core.persona import Persona
+
+    stub = type("B", (), {"config": Config(), "persona": Persona()})()
+    rules = AIVtuberBrain._load_operating_rules(stub)
     assert "speak" in rules
 
 

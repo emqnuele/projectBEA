@@ -10,6 +10,7 @@ import time
 from typing import List, Optional
 
 from src.core.agent.tools import Tool
+from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.social.reach import Reach
 from src.utils.logger import get_logger
@@ -34,7 +35,8 @@ class PresenceSkill(Skill):
         self.agenda = memory.agenda
         # the registry itself, not a snapshot: skills register one after another
         # and this one is built in the middle of that loop
-        self.reach = Reach(memory=memory, surfaces=self.context.surface_registry)
+        self.reach = Reach(memory=memory, surfaces=self.context.surface_registry,
+                           persona=persona_of(self.config))
 
     @property
     def _cross_platform(self) -> bool:

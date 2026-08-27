@@ -14,6 +14,7 @@ import tempfile
 from typing import Any, List, Optional
 
 from src.core.perception.types import Author
+from src.core.persona import persona_of
 from src.core.skills.platform import PlatformSkill
 from src.core.skills.telegram.handlers import (
     describe_message,
@@ -64,7 +65,7 @@ class TelegramSkill(PlatformSkill):
         return os.getenv("TELEGRAM_TOKEN", "") or self.skill_config.get("token", "")
 
     def _trigger_words(self) -> List[str]:
-        return list(getattr(self.config, "attention", {}).get("trigger_words", ["bea"]))
+        return persona_of(self.config).trigger_words
 
     def _owner_id(self) -> str:
         return str(self.skill_config.get("owner_id", "") or "")

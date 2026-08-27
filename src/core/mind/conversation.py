@@ -16,6 +16,7 @@ from src.core.agent.types import AssistantMessage
 from src.core.events import EventCategory
 from src.core.mind.routing import channel_of, platform_of
 from src.core.perception.types import Perception
+from src.core.persona import persona_of
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
 
@@ -339,7 +340,8 @@ class ConversationMind:
             self.memory.conversations.add(
                 conversation_key=key, role="bea", content=text,
                 platform=platform_of(key), channel_id=channel_of(key) or "",
-                display_name="Bea", addressee_identity=addressee,
+                display_name=persona_of(self.config).name,
+                addressee_identity=addressee,
             )
         if self.attention:
             self.attention.mark_spoke(key)

@@ -190,7 +190,7 @@ def test_the_same_holds_for_every_nested_block(tmp_path, monkeypatch):
 
     cfg = config_module.BrainConfig()
     assert cfg.attention["cooldown_seconds"] == 5
-    assert cfg.attention["trigger_words"] == ["bea", "beatrice"]
+    assert cfg.attention["interject_threshold"] == 0.45
     assert cfg.rhythm["tick_seconds"] == 60
     assert cfg.rhythm["spontaneous_enabled"] is True
     assert cfg.consciousness["window"] == 0.9

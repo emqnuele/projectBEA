@@ -17,6 +17,9 @@ from pydantic import BaseModel, Field, field_validator
 from src.core.brain import AIVtuberBrain
 from src.core.config import MASK, SECRET_SKILL_FIELDS
 from src.core.memory.plan import STATUSES
+from src.core.persona_store import PersonaRefused
+from src.core.persona_store import apply as persona_apply
+from src.core.persona_store import describe as persona_describe
 from src.core.settings_schema import ValidationError, apply_section, describe
 from src.core.settings_schema import restart_needed as _restart_needed
 from src.core.settings_schema import section as _section
@@ -140,6 +143,28 @@ def update_config(request: ConfigUpdateRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+# --- persona: who she is, and the one file that says so ---------------------
+
+
+@app.get("/persona")
+def get_persona():
+    return persona_describe(get_brain().config)
+
+
+@app.put("/persona")
+def update_persona(payload: Dict[str, Any]):
+    brain = get_brain()
+    try:
+        result = persona_apply(brain.config, payload)
+    except PersonaRefused as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
+
+    brain.config.save_to_file()
+    # the brain re-reads the soul on reload, so the change is live immediately
+    brain.reload_configuration()
+    return result
+
 
 # --- settings: one schema, rendered by the dashboard ------------------------
 

@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.mind.moods import default_avatar_map
+from src.core.persona import DEFAULT_NAME, DEFAULT_PRONOUNS
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.config")
@@ -102,6 +103,14 @@ class BrainConfig:
     text_font_step: int = 2
     typing_delay: float = 0.03
     text_min_duration: float = 2.0
+
+    # who she is called. The prose lives in soul.md; this is the structured part
+    # every other path needs — the gate's trigger words, the prompt placeholders,
+    # the name her own messages are filed under, the dashboard chrome.
+    persona: Dict[str, Any] = field(default_factory=lambda: {
+        "name": DEFAULT_NAME,
+        "pronouns": DEFAULT_PRONOUNS,
+    })
 
     # skills
     skills: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {
@@ -202,7 +211,7 @@ class BrainConfig:
         "cooldown_seconds": 20,        # she just spoke: let the room breathe
         "interject_threshold": 0.45,   # score needed to speak up unprompted
         "quiet_hours": [3, 9],         # never interjects here (being addressed still does)
-        "trigger_words": ["bea", "beatrice"],
+        "trigger_words": [],           # empty = worked out from persona.name
         "hot_names": [],               # names that pull her into a conversation
         "self_ids": [],                # her own platform ids, to spot replies to her
         "digest_max_lines": 8,

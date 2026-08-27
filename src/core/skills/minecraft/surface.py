@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.perception.types import Author, Perception, PerceptionKind
+from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.minecraft.agent import GameAgent
 from src.core.skills.minecraft.client import MinecraftClient
@@ -32,9 +33,12 @@ class MinecraftSurface(Skill):
 
     def initialize(self) -> None:
         cfg = self.skill_config
-        self._rules = load_text(cfg.get("system_prompt_path", "data/prompts/minecraft.md"))
+        persona = persona_of(self.config)
+        self._rules = persona.fill(
+            load_text(cfg.get("system_prompt_path", "data/prompts/minecraft.md")))
         # recipe trees belong to the body, not in her head
-        self._body_rules = load_text(cfg.get("body_prompt_path", "data/prompts/minecraft_body.md"))
+        self._body_rules = persona.fill(
+            load_text(cfg.get("body_prompt_path", "data/prompts/minecraft_body.md")))
         self.client: Optional[MinecraftClient] = None
         self.notebook = Notebook()
         self._registry = None

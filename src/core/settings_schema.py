@@ -269,9 +269,10 @@ ATTENTION = Section(
         Setting("interject_threshold", "Interjection threshold", "float",
                 "How much a message must concern her before she speaks up unasked.",
                 0.45, minimum=0.0, maximum=1.0),
-        Setting("trigger_words", "Her names", "list",
-                "Saying one of these always reaches her, cooldown or not.",
-                ["bea", "beatrice"]),
+        Setting("trigger_words", "What she answers to", "list",
+                "Saying one of these always reaches her, cooldown or not. Leave it "
+                "empty and it follows her name.",
+                []),
         Setting("hot_names", "Names she cares about", "list",
                 "People and things that pull her into a conversation.", []),
         Setting("digest_max_lines", "Peripheral lines", "int",

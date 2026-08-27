@@ -13,6 +13,7 @@ from src.core.mind import ConversationMind, ConversationScheduler
 from src.core.mind.operating import BUILTIN_OPERATING, missing_tools
 from src.core.mind.spontaneous import SpontaneousPresence
 from src.core.perception.bus import PerceptionBus
+from src.core.persona import Persona, persona_of
 from src.core.resources import load_avatar_resources
 from src.core.skills.base import SkillRegistry
 from src.core.skills.chat import ChatSurface
@@ -93,6 +94,11 @@ class AIVtuberBrain:
         self.spontaneous: Optional[SpontaneousPresence] = None
         self._rhythm_task: Optional[asyncio.Task] = None
         self.consciousness: Optional[Consciousness] = None
+
+    @property
+    def persona(self) -> Persona:
+        """Her name and pronouns, read fresh so a rename applies on reload."""
+        return persona_of(self.config)
 
     @property
     def is_speaking(self) -> bool:
@@ -184,7 +190,7 @@ class AIVtuberBrain:
         rules = load_text(self.config.operating_prompt_path)
         if not rules:
             rules = load_text(self.config.system_prompt_path, fallback=BUILTIN_OPERATING)
-        return rules
+        return self.persona.fill(rules)
 
     def check_prompt_integrity(self) -> List[str]:
         """Does the prompt in force still name the tools the mind owns?
@@ -212,7 +218,7 @@ class AIVtuberBrain:
             logger.warning("No avatar resources loaded from avatar_map.")
         self.expression.set_png_map(self.png_map)
 
-        self.soul = load_text(self.config.soul_path)
+        self.soul = self.persona.fill(load_text(self.config.soul_path))
         self.system_prompt = compose(self.soul, self._load_operating_rules())
         logger.info(f"Loaded soul + operating manual ({len(self.system_prompt)} chars).")
         self.check_prompt_integrity()
@@ -278,7 +284,8 @@ class AIVtuberBrain:
         )
         self.consciousness.conversations = self.conversations
 
-        self.reach = Reach(memory=self.memory, surfaces=self.skill_registry)
+        self.reach = Reach(memory=self.memory, surfaces=self.skill_registry,
+                           persona=self.persona)
         self.spontaneous = SpontaneousPresence(
             config=self.config, memory=self.memory, conversations=self.conversations,
         )
@@ -341,7 +348,7 @@ class AIVtuberBrain:
         """Hot-reloads configuration for all components after config.json changes."""
         logger.info("Hot Reloading Configuration")
 
-        self.soul = load_text(self.config.soul_path)
+        self.soul = self.persona.fill(load_text(self.config.soul_path))
         new_prompt = compose(self.soul, self._load_operating_rules())
         if new_prompt != self.system_prompt:
             self.system_prompt = new_prompt

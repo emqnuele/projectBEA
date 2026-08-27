@@ -10,6 +10,7 @@ rather than a thing that only happens when you write first.
 from dataclasses import dataclass
 from typing import List
 
+from src.core.persona import Persona
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.social.reach")
@@ -41,9 +42,10 @@ class Delivered:
 class Reach:
     """The address book, and the act of using it."""
 
-    def __init__(self, *, memory, surfaces=None):
+    def __init__(self, *, memory, surfaces=None, persona=None):
         self.memory = memory
         self.surfaces = surfaces
+        self.persona = persona or Persona()
 
     # --- finding --------------------------------------------------------
 
@@ -141,7 +143,7 @@ class Reach:
         self.memory.conversations.add(
             conversation_key=key, role="bea", content=text,
             platform=channel.platform, channel_id=str(conversation_id),
-            display_name="Bea",
+            display_name=self.persona.name,
         )
         logger.info(f"Bea reached {card.primary_name} on {channel.platform}.")
         return Delivered(True, "", channel.platform, key)

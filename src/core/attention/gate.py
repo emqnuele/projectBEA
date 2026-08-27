@@ -16,6 +16,7 @@ from src.core.attention.rules import in_quiet_hours, is_addressed, score
 from src.core.attention.types import Reaction, Verdict
 from src.core.mind.routing import conversation_key
 from src.core.perception.types import Perception, PerceptionKind
+from src.core.persona import persona_of
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.attention")
@@ -73,7 +74,8 @@ class Attention:
 
     @property
     def trigger_words(self) -> Sequence[str]:
-        return self._cfg.get("trigger_words", ["bea"])
+        # derived from her name unless someone set them explicitly
+        return persona_of(self.config).trigger_words
 
     @property
     def hot_names(self) -> Sequence[str]:

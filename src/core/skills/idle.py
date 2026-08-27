@@ -1,5 +1,6 @@
 from typing import Optional
 
+from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.utils.prompts import load_text
 
@@ -17,7 +18,7 @@ class IdleSurface(Skill):
 
     def initialize(self) -> None:
         path = self.config.skills.get("monologue", {}).get("prompt_path", "data/prompts/monologue.md")
-        self._rules = load_text(path)
+        self._rules = persona_of(self.config).fill(load_text(path))
 
     @property
     def context_section(self) -> Optional[str]:
