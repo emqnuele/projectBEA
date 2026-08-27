@@ -14,10 +14,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
+from src.core.agent.registry import BACKGROUND
 from src.core.brain import AIVtuberBrain
 from src.core.config import MASK, SECRET_SKILL_FIELDS
 from src.core.memory.plan import STATUSES
-from src.core.agent.registry import BACKGROUND
 from src.core.onboarding import QUESTIONS, draft_soul
 from src.core.onboarding import needed as onboarding_needed
 from src.core.persona_store import PersonaRefused, mark_onboarding_completed, onboarding_completed

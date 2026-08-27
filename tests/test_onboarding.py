@@ -142,9 +142,8 @@ def test_markdown_the_model_snuck_in_does_not_break_the_headings():
 
 
 async def test_the_model_is_asked_and_its_answer_is_used():
-    from tests.fakes import FakeLLMClient
-
     from src.core.onboarding import draft_soul
+    from tests.fakes import FakeLLMClient
 
     llm = FakeLLMClient(json_script=[{"identity": ["Sharp and rude."], "voice": ["Short."]}])
     soul = await draft_soul(llm, ANSWERS)
@@ -152,9 +151,8 @@ async def test_the_model_is_asked_and_its_answer_is_used():
 
 
 async def test_the_answers_reach_the_model():
-    from tests.fakes import FakeLLMClient
-
     from src.core.onboarding import draft_soul
+    from tests.fakes import FakeLLMClient
 
     llm = FakeLLMClient(json_script=[{"identity": ["x"]}])
     await draft_soul(llm, ANSWERS)
@@ -163,9 +161,8 @@ async def test_the_answers_reach_the_model():
 
 async def test_a_model_that_fails_still_gives_you_a_persona():
     """Onboarding must never dead-end: the answers alone are enough."""
-    from tests.fakes import FakeLLMClient
-
     from src.core.onboarding import draft_soul
+    from tests.fakes import FakeLLMClient
 
     class Broken(FakeLLMClient):
         async def complete_json(self, *a, **k):
