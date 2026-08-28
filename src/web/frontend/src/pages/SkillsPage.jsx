@@ -124,7 +124,7 @@ export default function SkillsPage() {
         <div className="flex h-full flex-col gap-2.5 overflow-y-auto pr-0.5">
             {consoleOpen && (
                 <MinecraftConsole
-                    serverUrl={config?.skills?.minecraft?.server_url || 'ws://localhost:8080'}
+                    serverUrl={config?.skills?.minecraft?.server_url || 'ws://127.0.0.1:8080'}
                     onClose={() => setConsoleOpen(false)}
                 />
             )}

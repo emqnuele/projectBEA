@@ -13,6 +13,9 @@ logger = get_logger("bea.skills.minecraft.client")
 # how long to wait for a mod completion event before giving up on an action
 ACTION_TIMEOUT = 60.0
 
+# the wire format this client speaks; the mod announces its own on connect
+PROTOCOL_VERSION = 1
+
 # statuses the mod sends when a long-running action finishes
 _COMPLETION = {"FINISHED", "IDLE"}
 
@@ -38,6 +41,10 @@ class MinecraftClient:
         self.is_connected = False
 
         self.latest_state: Dict[str, Any] = {}
+        # filled by the mod's handshake; empty until it has arrived
+        self.mod_version: str = "unknown"
+        self.mc_version: str = "unknown"
+        self.actions: set = set()
         self._pending: Optional[asyncio.Future] = None
         self._events: "asyncio.Queue[str]" = asyncio.Queue()
         self._connected = asyncio.Event()
@@ -73,6 +80,12 @@ class MinecraftClient:
         completion event, so we return immediately. Otherwise we await the
         next FINISHED/IDLE/INTERRUPTED event.
         """
+        # the mod told us what it can do: refuse here rather than wait out the
+        # sixty second timeout on a jar that has never heard of this action
+        if self.actions and action not in self.actions:
+            return (f"FAILED: your body cannot '{action}'. The installed mod "
+                    f"(beacraft {self.mod_version}) is older than the brain — update the jar.")
+
         payload = {"action": action, "parameters": params}
 
         if instant:
@@ -163,6 +176,10 @@ class MinecraftClient:
 
         status = data.get("status")
 
+        if status == "CONNECTED":
+            self._on_handshake(data)
+            return
+
         # game-state snapshot
         if "player" in data or kind == "game_state":
             self.latest_state = data
@@ -190,6 +207,36 @@ class MinecraftClient:
             observation = f"{result}" + (f": {message}" if message else "")
             if self._pending and not self._pending.done():
                 self._pending.set_result(observation)
+
+    def _on_handshake(self, data: Dict[str, Any]) -> None:
+        """What the mod says it is, checked before she tries to use it.
+
+        A jar built before this protocol existed announces nothing, connects
+        happily, and then silently ignores every action it does not have. That
+        is two months of "the console does nothing" with no error anywhere.
+        """
+        self.mod_version = str(data.get("mod_version", "unknown"))
+        self.mc_version = str(data.get("mc_version", "unknown"))
+        self.actions = set(data.get("actions") or [])
+        protocol = data.get("protocol")
+
+        if protocol is None:
+            logger.error(
+                "The mod did not announce a protocol version: the installed jar predates "
+                "the handshake and is missing actions this brain expects. Update it from "
+                "https://modrinth.com/mod/projectbea"
+            )
+            return
+
+        logger.info(
+            f"Mod handshake: beacraft {self.mod_version} on Minecraft {self.mc_version} "
+            f"(protocol {protocol}, {len(self.actions)} actions)."
+        )
+        if protocol != PROTOCOL_VERSION:
+            logger.error(
+                f"Protocol mismatch: the mod speaks {protocol}, this brain speaks "
+                f"{PROTOCOL_VERSION}. Update whichever is older before playing."
+            )
 
     def _emit(self, kind: str, data: Dict[str, Any]) -> None:
         if self.on_event is None:

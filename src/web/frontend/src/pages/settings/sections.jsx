@@ -398,7 +398,7 @@ function WorldSection({ config, updateSkill }) {
                     <TextInput
                         value={minecraft.server_url || ''}
                         onChange={(e) => updateSkill('minecraft', 'server_url', e.target.value)}
-                        placeholder="ws://localhost:8080"
+                        placeholder="ws://127.0.0.1:8080"
                         className="font-mono"
                     />
                 </Field>
