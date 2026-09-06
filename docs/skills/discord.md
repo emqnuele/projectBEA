@@ -127,13 +127,14 @@ src/core/skills/voice/bot/
 `POST /discord/audio` → transcription → the mind → rendered speech → base64 back
 → `AudioPlayer`.
 
-**Barge-in:** if a whitelisted user speaks for longer than
-`interrupt_threshold_ms` while Bea is playing audio, the player stops and the
-bot calls `POST /interrupt`.
+**Barge-in:** if someone speaks for longer than `interrupt_threshold_ms` while
+Bea is playing audio, the player stops and the bot calls `POST /interrupt`.
 
-**Whitelist:** only users in `whitelist.json` can trigger her. Admin commands
-(`!wl add|remove|list`) are restricted to `ADMIN_ID` and unauthorised calls are
-silently ignored.
+**Whitelist:** in text, `access_mode` decides whether an unlisted person reaches
+her at all. In voice she hears everyone in the channel — if you are in the room
+she can hear you — but an unlisted voice arrives with its salience damped, the
+same way an unlisted message does. Admin commands (`!wl add|remove|list`) are
+restricted to `ADMIN_ID` and unauthorised calls are silently ignored.
 
 ---
 

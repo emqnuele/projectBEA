@@ -28,6 +28,7 @@ from src.core.skills.presence.surface import PresenceSkill
 from src.core.skills.social.social import SocialMemory
 from src.core.skills.telegram.surface import TelegramSkill
 from src.core.skills.twitch.surface import TwitchSkill
+from src.core.skills.voice.latency import STT
 from src.core.skills.voice.surface import VoiceSurface
 from src.core.social.agenda import AgendaRunner
 from src.core.social.reach import Reach
@@ -470,20 +471,32 @@ class AIVtuberBrain:
         return mood, message
 
     async def process_discord_interaction(self, audio_path: str, username: str,
-                                          user_id: Optional[str] = None) -> Tuple[str, str, str, bytes]:
+                                          user_id: Optional[str] = None,
+                                          whitelisted: bool = True,
+                                          listeners: Optional[int] = None,
+                                          ) -> Tuple[str, str, str, bytes]:
         """Discord voice: transcribe, feed a voice perception, return Bea's spoken bytes."""
+        voice = self._surface("voice:discord")
+        latency = getattr(voice, "latency", None)
+        if latency is not None:
+            latency.open(username)
+
         transcript = ""
         if self.stt:
-            transcript = self.stt.transcribe(audio_path)
+            # blocking HTTP: on the loop it froze the whole brain for the length
+            # of every transcription, and worst exactly when several people talk
+            transcript = await asyncio.to_thread(self.stt.transcribe, audio_path)
             logger.info(f"Transcript from {username}: '{transcript}'")
+        if latency is not None:
+            latency.mark(STT)
 
         text = transcript or "[Unintelligible]"
-        voice = self._surface("voice:discord")
         if not voice or not self.consciousness:
             return "ignored", "", transcript, b""
         payload = await self._perceive_and_wait(
             lambda cid: voice.perceive(text, username, meta={"correlation_id": cid},
-                                       user_id=user_id),
+                                       user_id=user_id, whitelisted=whitelisted,
+                                       listeners=listeners),
             route="discord",
         )
         if not payload:

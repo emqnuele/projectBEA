@@ -437,8 +437,9 @@ async def discord_audio_interaction(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     username: str = Form(...),
-    flush_buffer: str = Form(default="false"),
     user_id: Optional[str] = Form(default=None),
+    whitelisted: bool = Form(default=True),
+    listeners: Optional[int] = Form(default=None),
 ):
     brain = get_brain()
 
@@ -451,20 +452,19 @@ async def discord_audio_interaction(
         shutil.copyfileobj(file.file, buffer)
 
     try:
-        # process
-        status, text_response, transcript, audio_bytes = await brain.process_discord_interaction(str(temp_file), username, user_id=user_id)
+        status, text_response, transcript, audio_bytes = await brain.process_discord_interaction(
+            str(temp_file), username, user_id=user_id,
+            whitelisted=whitelisted, listeners=listeners,
+        )
 
-        # convert audio to base64
         import base64
-        audio_b64 = ""
-        if audio_bytes:
-             audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8") if audio_bytes else ""
 
         return {
-            "status": status, # "success" or "resume"
+            "status": status,
             "text": text_response,
             "transcript": transcript,
-            "audio_base64": audio_b64
+            "audio_base64": audio_b64,
         }
     except Exception as e:
         logger.error(f"Discord Audio Error: {e}")
@@ -478,7 +478,9 @@ async def discord_audio_interaction(
 async def buffer_voice_transcript(
     file: UploadFile = File(...),
     username: str = Form(...),
-    user_id: Optional[str] = Form(default=None)
+    user_id: Optional[str] = Form(default=None),
+    whitelisted: bool = Form(default=True),
+    listeners: Optional[int] = Form(default=None),
 ):
     """
     Overheard speech: transcribes a short snippet and feeds it to the
@@ -498,14 +500,16 @@ async def buffer_voice_transcript(
     transcript = ""
     try:
         if brain.stt:
-            transcript = brain.stt.transcribe(str(temp_file))
+            # off the loop: a transcription here froze every other channel too
+            transcript = await asyncio.to_thread(brain.stt.transcribe, str(temp_file))
             logger.info(f"Overheard: [{username}] '{transcript}'")
 
         if transcript and transcript.strip() and transcript != "[Unintelligible]":
             if brain.surface_registry is not None:
                 voice = brain.surface_registry.get("voice:discord")
                 if voice is not None and hasattr(voice, "perceive"):
-                    voice.perceive(transcript, username, user_id=user_id)
+                    voice.perceive(transcript, username, user_id=user_id,
+                                   whitelisted=whitelisted, listeners=listeners)
 
         return {"status": "perceived", "transcript": transcript}
     except Exception as e:

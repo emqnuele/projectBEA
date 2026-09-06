@@ -7,6 +7,7 @@ from src.core.agent.tools import Tool
 from src.core.events import EventCategory
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.platform import PlatformSkill
+from src.core.skills.voice.latency import VoiceLatency
 from src.core.skills.voice.transport import DiscordTransport
 from src.utils.logger import get_logger
 
@@ -38,6 +39,7 @@ class VoiceSurface(PlatformSkill):
         self._monitor: Optional[asyncio.Task] = None
         self.voice_channel: Optional[str] = None
         self._alone_since: Optional[float] = None
+        self.latency = VoiceLatency(events=getattr(self.context, "event_manager", None))
 
     async def start(self) -> None:
         if not self.enabled:
@@ -160,13 +162,24 @@ class VoiceSurface(PlatformSkill):
         return self.build_author(user_id or user, user)
 
     def perceive(self, transcript: str, user: str, meta: Optional[Dict[str, Any]] = None,
-                 user_id: Optional[str] = None) -> Perception:
+                 user_id: Optional[str] = None, whitelisted: bool = True,
+                 listeners: Optional[int] = None) -> Perception:
+        # `listeners` is how many humans are in the call with her. At one, every
+        # word is said to her and the gate can stop rolling dice — the rule has
+        # always been in attention/rules.py, nobody was ever setting the flag
+        extra: Dict[str, Any] = {}
+        if listeners is not None:
+            extra["listeners"] = listeners
+            extra["alone_with_speaker"] = listeners <= 1
         p = Perception(
             kind=PerceptionKind.VOICE,
             surface=self.name,
             content=f"[{user}] (voice): {transcript}",
-            salience=0.85,
-            meta={**(meta or {}), "user": user, "user_id": user_id},
+            # same reasoning as the text path: a stranger in the room is heard,
+            # just not loudly enough to pull her out of what she is doing
+            salience=0.85 * (1.0 if whitelisted else STRANGER_DAMPING),
+            meta={**(meta or {}), "user": user, "user_id": user_id,
+                  "whitelisted": whitelisted, **extra},
             author=self._author(user, user_id),
         )
         self.bus.put(p)

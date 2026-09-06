@@ -176,7 +176,7 @@ DISCORD = Section(
                 "http://127.0.0.1:8000", restart=True),
         Setting("interrupt_threshold_ms", "Interrupt after", "int",
                 "How long someone must keep talking before she stops to listen.",
-                2000, minimum=200, maximum=10000),
+                3000, minimum=200, maximum=10000),
         Setting("invite_max_age_seconds", "Invite lifetime", "int",
                 "How long an invite she sends stays valid. Never unlimited.",
                 3600, minimum=60, maximum=604800),

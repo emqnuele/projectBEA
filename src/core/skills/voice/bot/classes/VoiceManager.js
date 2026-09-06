@@ -14,6 +14,7 @@ const fs = require('fs');
 const FormData = require('form-data');
 const { Readable } = require('stream');
 const config = require('../config');
+const whitelist = require('../whitelist');
 
 class VoiceManager {
     constructor(client) {
@@ -48,6 +49,7 @@ class VoiceManager {
             const connectionData = {
                 connection,
                 player,
+                channelId,
                 isSpeaking: false, // true when bea is actively playing audio
                 subscriptions: new Map() // userid -> opusstream
             };
@@ -190,11 +192,11 @@ class VoiceManager {
             if (!beaWasSpeaking && !data.isSpeaking) {
                 // bea is idle → process all valid speech immediately, no threshold needed
                 console.log(`[VoiceManager] Bea is idle → sending to full LLM pipeline`);
-                await this.processAudio(guildId, userId, totalBuffer, true);
+                await this.processAudio(guildId, userId, totalBuffer);
             } else if (speechDurationMs >= this.INTERRUPT_THRESHOLD_MS || didInterrupt) {
                 // bea was speaking but user talked long enough to interrupt
                 console.log(`[VoiceManager] Sustained speech interrupted Bea → full LLM pipeline`);
-                await this.processAudio(guildId, userId, totalBuffer, true);
+                await this.processAudio(guildId, userId, totalBuffer);
             } else {
                 // bea is speaking and user speech was short → buffer only
                 console.log(`[VoiceManager] Short speech while Bea talks → buffering transcript`);
@@ -225,92 +227,80 @@ class VoiceManager {
      * transcribes locally then sends to /voice/transcript for accumulation.
      */
     async bufferTranscript(guildId, userId, pcmBuffer) {
-        // 1. fetch display name (userId stays the stable identity)
-        let username = userId;
-        try {
-            const guild = await this.client.guilds.fetch(guildId);
-            const member = await guild.members.fetch(userId);
-            username = member.displayName;
-        } catch (e) {
-            console.error("Error fetching user:", e);
-        }
+        const username = await this.displayNameOf(guildId, userId);
 
-        // 2. downsample to mono 16khz and wrap as wav (smaller, enough for stt)
+        // downsample to mono 16khz and wrap as wav (smaller, enough for stt)
         const wavBuffer = this.pcmToWav(this.downsampleMono16k(pcmBuffer), 16000, 1);
 
-        // 3. send to /voice/transcript (buffer-only endpoint)
         try {
-            const form = new FormData();
-            form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
-            form.append('username', username);
-            form.append('user_id', userId);
-
-            const response = await axios.post(`${this.apiBaseUrl}/voice/transcript`, form, {
-                headers: { ...form.getHeaders() }
-            });
-
-            console.log(`[VoiceManager] Transcript buffered for ${username}: ${response.data.transcript || '(empty)'}`);
+            const form = this.speechForm(wavBuffer, guildId, userId, username);
+            const response = await axios.post(`${this.apiBaseUrl}/voice/transcript`, form,
+                { headers: form.getHeaders() });
+            console.log(`[VoiceManager] Overheard from ${username}: ${response.data.transcript || '(empty)'}`);
         } catch (error) {
-            console.error("[VoiceManager] Buffer transcript error:", error.message);
+            console.error("[VoiceManager] Overheard transcript error:", error.message);
         }
     }
 
-    async processAudio(guildId, userId, pcmBuffer, flushBuffer = false) {
-        const data = this.connections.get(guildId);
+    async processAudio(guildId, userId, pcmBuffer) {
+        const username = await this.displayNameOf(guildId, userId);
 
-        // 1. fetch user info
-        let username = userId;
+        console.log(`[VoiceManager] Processing audio from ${username} (${pcmBuffer.length} bytes)`);
+
+        // downsample to mono 16khz and wrap as wav
+        const wavBuffer = this.pcmToWav(this.downsampleMono16k(pcmBuffer), 16000, 1);
+
+        try {
+            const form = this.speechForm(wavBuffer, guildId, userId, username);
+            const response = await axios.post(`${this.apiBaseUrl}/discord/audio`, form,
+                { headers: form.getHeaders() });
+
+            const { status, text, audio_base64 } = response.data;
+            const data = this.connections.get(guildId);
+            if (status === 'success' && data && data.player) {
+                data.player.stop();
+                console.log(`[VoiceManager] Response: "${text}"`);
+                if (audio_base64) this.playAudio(guildId, audio_base64);
+            }
+        } catch (error) {
+            console.error("[VoiceManager] API Error:", error.message);
+        }
+    }
+
+    // what the brain needs to weigh a voice perception: who said it, whether it
+    // knows them, and how many people are in the room with her
+    speechForm(wavBuffer, guildId, userId, username) {
+        const form = new FormData();
+        form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
+        form.append('username', username);
+        form.append('user_id', userId);
+        form.append('whitelisted', String(whitelist.has(userId)));
+        form.append('listeners', String(this.listenerCount(guildId)));
+        return form;
+    }
+
+    // humans in the call, Bea excluded: at one, everything said is said to her
+    listenerCount(guildId) {
+        const data = this.connections.get(guildId);
+        const channelId = data && data.channelId;
+        if (!channelId) return 0;
+        try {
+            const channel = this.client.channels.cache.get(channelId);
+            if (!channel || !channel.members) return 0;
+            return [...channel.members.values()].filter((m) => m.id !== this.client.user.id).length;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    async displayNameOf(guildId, userId) {
         try {
             const guild = await this.client.guilds.fetch(guildId);
             const member = await guild.members.fetch(userId);
-            username = member.displayName;
+            return member.displayName;
         } catch (e) {
             console.error("Error fetching user:", e);
-        }
-
-        console.log(`[VoiceManager] Processing audio from ${username} (${pcmBuffer.length} bytes, flush=${flushBuffer})`);
-
-        // 2. downsample to mono 16khz and wrap as wav
-        const wavBuffer = this.pcmToWav(this.downsampleMono16k(pcmBuffer), 16000, 1);
-
-        // 3. send to backend
-        try {
-            const form = new FormData();
-            form.append('file', wavBuffer, { filename: 'audio.wav', contentType: 'audio/wav' });
-            form.append('username', username);
-            form.append('user_id', userId);
-            if (flushBuffer) {
-                form.append('flush_buffer', 'true');
-            }
-
-            const response = await axios.post(`${this.apiBaseUrl}/discord/audio`, form, {
-                headers: { ...form.getHeaders() }
-            });
-
-            const { status, text, audio_base64 } = response.data;
-
-            if (status === 'success') {
-                // new response -> stop old, play new
-                if (data && data.player) {
-                    data.player.stop(); // Stop potential paused content
-                    console.log(`[VoiceManager] Response: "${text}"`);
-                    if (audio_base64) {
-                        this.playAudio(guildId, audio_base64);
-                    }
-                }
-            } else if (status === 'resume') {
-                // backchannel -> resume old content
-                console.log(`[VoiceManager] Backchannel detected: "${text}". Resuming...`);
-                if (data && data.player && data.player.state.status === AudioPlayerStatus.Paused) {
-                    data.player.unpause();
-                }
-            }
-
-        } catch (error) {
-            console.error("[VoiceManager] API Error:", error.message);
-            if (data && data.player && data.player.state.status === AudioPlayerStatus.Paused) {
-                data.player.unpause();
-            }
+            return userId;
         }
     }
 

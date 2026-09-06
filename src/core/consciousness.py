@@ -13,6 +13,7 @@ from src.core.mind.recap import SessionRecap
 from src.core.mind.routing import route
 from src.core.mind.tools import MindTools
 from src.core.perception.types import Perception, PerceptionKind
+from src.core.skills.voice.latency import MIND, TTS
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
 from src.utils.sanitize import clean_model_output
@@ -402,9 +403,15 @@ class Consciousness:
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
 
         routes = self.correlations.routes
+        latency = self._voice_latency
 
         if "discord" in routes:
+            if latency:
+                latency.mark(MIND)
             audio = await self.expression.speak(mood, message, route="remote")
+            if latency:
+                latency.mark(TTS)
+                latency.close()
             self.correlations.resolve(lambda r: r == "discord",
                                       {"status": "success", "text": message, "audio": audio})
 
@@ -416,6 +423,11 @@ class Consciousness:
 
         return "Spoken."
 
+    @property
+    def _voice_latency(self):
+        """The stopwatch of the voice turn in flight, when there is a call."""
+        return getattr(self.surfaces.get("voice:discord"), "latency", None)
+
     async def _speak_local_safe(self, mood: str, message: str) -> None:
         """Local speech in a task: a playback error must not go unretrieved."""
         try:
@@ -424,6 +436,10 @@ class Consciousness:
             logger.error(f"Local speech failed: {e}")
 
     async def _stay_silent(self, reason: str = "") -> str:
+        # she said nothing: there is no time-to-first-sound to report
+        latency = self._voice_latency
+        if latency:
+            latency.abandon()
         self.correlations.resolve(lambda r: True, {"mood": "normal", "message": ""})
         return "Staying silent."
 

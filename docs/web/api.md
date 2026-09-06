@@ -184,7 +184,10 @@ audio back to play it in the call.
 - `file` — WAV audio file
 - `username` — Discord username
 - `user_id` — stable Discord user id (optional, but it is the identity)
-- `flush_buffer` — accepted for compatibility, not acted upon
+- `whitelisted` — whether the bot already knows this voice; a stranger arrives
+  quieter instead of not arriving at all
+- `listeners` — how many humans are in the call. At one, everything said is said
+  to her and the attention gate stops rolling dice
 
 **Response:**
 ```json
