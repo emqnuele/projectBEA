@@ -374,7 +374,6 @@ class Expression:
         her believing she said a whole sentence the room only half heard.
         """
         logger.info("Interruption Signal Received!")
-        import sounddevice as sd
 
         if self.call_is_live:
             self.interrupted = await self.call.stop(ramp_ms=ramp_ms)
@@ -399,9 +398,10 @@ class Expression:
                 self.resume_buffer = None
 
         try:
+            import sounddevice as sd
             sd.stop()
         except Exception as e:
-            logger.error(f"Error stopping sounddevice: {e}")
+            logger.debug(f"Error stopping sounddevice: {e}")
 
         if self.current_speech_task and not self.current_speech_task.done():
             self.current_speech_task.cancel()
