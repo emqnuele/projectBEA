@@ -7,6 +7,7 @@ from src.core.agent.messages import assistant_to_message, tool_result_message
 from src.core.agent.tools import Tool
 from src.core.agent.types import ToolCall, Usage
 from src.core.events import EventCategory
+from src.core.expression.chunking import spoken_prefix
 from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.moods import normalize_mood
 from src.core.mind.recap import SessionRecap
@@ -345,7 +346,32 @@ class Consciousness:
         # anything old enough says so; a batch that arrived at once stays clean
         now = time.time()
         lines = [f"({p.kind.value.upper()}) {p.render(now=now)}" for p in perceptions]
-        return {"role": "user", "content": header + "\n" + "\n".join(lines)}
+        body = "\n".join(lines)
+        cut_off = self._interruption_note()
+        if cut_off:
+            body = f"{cut_off}\n{body}"
+        return {"role": "user", "content": header + "\n" + body}
+
+    def _interruption_note(self) -> Optional[str]:
+        """Tells her where a barge-in actually cut her off, once.
+
+        Her history records the whole line she asked for, always. When someone
+        talks over her, the room heard the first half — and she goes on referring
+        to the second half as if it had been said. That, more than any latency,
+        is what breaks the illusion that there is a person there.
+        """
+        utterance = getattr(self.expression, "interrupted", None)
+        if utterance is None:
+            return None
+        self.expression.interrupted = None
+        if getattr(utterance, "complete", True):
+            return None
+
+        heard = spoken_prefix(utterance.text, utterance.played_ms, utterance.sent_ms)
+        if not heard:
+            return "[YOU WERE CUT OFF] You were talked over before a word of that landed. Nobody heard any of it."
+        return (f'[YOU WERE CUT OFF] You got as far as "{heard}" and stopped there. '
+                "Nobody heard the rest, so do not talk as if they did.")
 
     # --- tools --------------------------------------------------------------
 

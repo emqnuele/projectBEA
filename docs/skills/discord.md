@@ -136,9 +136,24 @@ src/core/skills/voice/bot/
 the first chunk, and the gain stage reports how many milliseconds actually
 reached the room.
 
-**Barge-in:** if someone speaks for longer than `interrupt_threshold_ms` while
-Bea is playing audio, she is faded out over 200ms rather than cut mid-word, and
-the bot calls `POST /interrupt`.
+**Barge-in, in two stages.** People do two different things with the same
+energy. After `duck_threshold_ms` of someone talking over her she drops to a
+quarter volume without giving up the floor; if they stop there — a "sì sì", a
+laugh — she comes back up and finishes the sentence. Only after
+`interrupt_threshold_ms` does she fade out over 200ms and the bot call
+`POST /interrupt`.
+
+The bot then reports `played_ms`, and the next perception frame tells her where
+she actually stopped:
+
+```
+[YOU WERE CUT OFF] You got as far as "allora la cosa che volevo" and stopped
+there. Nobody heard the rest, so do not talk as if they did.
+```
+
+Without that line her history holds the whole sentence and she goes on
+referring to a second half nobody heard — which reads as a bot far more than
+any amount of latency does.
 
 **Whitelist:** in text, `access_mode` decides whether an unlisted person reaches
 her at all. In voice she hears everyone in the channel — if you are in the room
@@ -157,6 +172,7 @@ restricted to `ADMIN_ID` and unauthorised calls are silently ignored.
   "api_port": 3030,
   "brain_api_url": "http://127.0.0.1:8000",
   "admin_id": "",
+  "duck_threshold_ms": 400,
   "interrupt_threshold_ms": 3000
 }
 ```
@@ -167,6 +183,7 @@ restricted to `ADMIN_ID` and unauthorised calls are silently ignored.
 | `api_port` | Port for the bot's Express API; passed to the subprocess as `PORT` |
 | `brain_api_url` | Where the bot calls back into the brain |
 | `admin_id` | Discord user id allowed to run `!wl` |
+| `duck_threshold_ms` | How long someone talks over her before she drops her volume |
 | `interrupt_threshold_ms` | How long someone must speak to interrupt her |
 
 ---

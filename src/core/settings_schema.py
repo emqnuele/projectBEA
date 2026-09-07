@@ -174,6 +174,10 @@ DISCORD = Section(
         Setting("brain_api_url", "Engine URL", "string",
                 "Where the bot calls back into the engine.",
                 "http://127.0.0.1:8000", restart=True),
+        Setting("duck_threshold_ms", "Lower her voice after", "int",
+                "How long someone talks over her before she drops her volume. "
+                "A short overlap is a 'yeah' — she keeps going and comes back up.",
+                400, minimum=100, maximum=5000),
         Setting("interrupt_threshold_ms", "Interrupt after", "int",
                 "How long someone must keep talking before she stops to listen.",
                 3000, minimum=200, maximum=10000),

@@ -41,7 +41,7 @@ class Expression:
 
         self.png_map = {}
 
-        self.is_speaking = False
+        self._is_speaking = False
         self.current_typing_task: Optional[asyncio.Task] = None
         self.current_speech_task: Optional[asyncio.Task] = None
         self.audio_lock = asyncio.Lock()
@@ -68,6 +68,23 @@ class Expression:
         self.config = config
 
     # --- VOICE actuator -----------------------------------------------------
+
+    @property
+    def is_speaking(self) -> bool:
+        """Sound of hers is coming out of something, somewhere, right now.
+
+        The call has the last word: the OBS animation used to stand in for this,
+        and it only ever knew the *estimated* length of the audio, not whether
+        the room was still hearing it.
+        """
+        call = getattr(self, "call", None)
+        if call is not None and call.current is not None:
+            return True
+        return self._is_speaking
+
+    @is_speaking.setter
+    def is_speaking(self, value: bool) -> None:
+        self._is_speaking = bool(value)
 
     def set_call(self, call) -> None:
         """Hands over the live voice call, or None when there is none."""

@@ -8,5 +8,6 @@ module.exports = {
     BRAIN_API_URL: process.env.BRAIN_API_URL || 'http://127.0.0.1:8000',
     ADMIN_ID: process.env.ADMIN_ID || '',
     ACCESS_MODE: process.env.ACCESS_MODE || 'strict',
+    DUCK_THRESHOLD_MS: parseInt(process.env.DUCK_THRESHOLD_MS || '400', 10),
     INTERRUPT_THRESHOLD_MS: parseInt(process.env.INTERRUPT_THRESHOLD_MS || '3000', 10),
 };

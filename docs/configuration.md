@@ -130,7 +130,9 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
             "api_port": 3030,
             "brain_api_url": "http://127.0.0.1:8000",
             "admin_id": "",
-            "interrupt_threshold_ms": 3000
+            "duck_threshold_ms": 400,
+            "duck_threshold_ms": 400,
+  "interrupt_threshold_ms": 3000
         },
         "telegram": {
             "enabled": false,
@@ -355,7 +357,7 @@ the single source of truth** — Bea can never arm a capability herself.
 | `dream` | `hour` | [dream](skills/dream.md) |
 | `monologue` | `prompt_path` — the timer is `consciousness.idle_after` | [monologue](skills/monologue.md) |
 | `minecraft` | `server_url`, `idle_nudge_seconds`, `system_prompt_path`, `body_prompt_path` | [minecraft](skills/minecraft.md) |
-| `discord` | `api_port`, `brain_api_url`, `admin_id`, `interrupt_threshold_ms`, `token` | [discord](skills/discord.md) |
+| `discord` | `api_port`, `brain_api_url`, `admin_id`, `duck_threshold_ms`, `interrupt_threshold_ms`, `token` | [discord](skills/discord.md) |
 | `telegram` | `owner_id`, `allowed_chats`, `token` | [telegram](skills/telegram.md) |
 | `twitch` | `channel`, `nick`, `oauth_token` | [twitch](skills/twitch.md) |
 | `donations` | `secret` | [donations](skills/donations.md) |

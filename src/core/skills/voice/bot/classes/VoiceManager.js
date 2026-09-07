@@ -23,7 +23,8 @@ class VoiceManager {
         this.connections = new Map(); // guildId -> connection data
         this.apiBaseUrl = config.BRAIN_API_URL;
 
-        // sustained-speech threshold: only interrupt bea if someone talks for this long
+        // two stages of being talked over: turn down, then stop
+        this.DUCK_THRESHOLD_MS = config.DUCK_THRESHOLD_MS;
         this.INTERRUPT_THRESHOLD_MS = config.INTERRUPT_THRESHOLD_MS;
 
         // her voice arrives here, whenever she decides to speak
@@ -164,9 +165,13 @@ class VoiceManager {
         const VAD_THRESHOLD = 800; // ignore typing clicks / background noise
         const MIN_SPEECH_FRAMES = 6; // require 120ms of sustained volume (6 * 20ms)
 
-        // sustained-speech interrupt detection
-        // each frame is ~20ms. we track if the user has been speaking long enough to interrupt bea.
+        // talking over her happens in two stages, because people do two
+        // different things with the same energy: a short "sì sì" is agreement
+        // and she should keep going, a long one is an interruption and she
+        // should stop. each frame is ~20ms.
+        const duckFrameThreshold = Math.floor(this.DUCK_THRESHOLD_MS / 20);
         const interruptFrameThreshold = Math.floor(this.INTERRUPT_THRESHOLD_MS / 20);
+        let didDuck = false;
         let didInterrupt = false;
 
         const beaWasSpeaking = data.isSpeaking;
@@ -178,11 +183,18 @@ class VoiceManager {
             const rms = this.calculateRMS(chunk);
             if (rms > VAD_THRESHOLD) {
                 speechFrameCount++;
+                if (!data.isSpeaking) return;
 
-                // live interrupt check: only if bea is currently playing audio
-                if (!didInterrupt && data.isSpeaking && speechFrameCount >= interruptFrameThreshold) {
+                // stage one: get out of their way without giving up the floor
+                if (!didDuck && speechFrameCount >= duckFrameThreshold) {
+                    console.log('[VoiceManager] Someone is talking over her — ducking');
+                    this.duck(0.25, 250);
+                    didDuck = true;
+                }
+
+                // stage two: they meant it. fade out and tell the brain
+                if (!didInterrupt && speechFrameCount >= interruptFrameThreshold) {
                     console.log(`[VoiceManager] Sustained speech (${(speechFrameCount * 20 / 1000).toFixed(1)}s) — INTERRUPTING Bea`);
-                    // a ramp, not a cut: the brain hears back how far she got
                     this.stopSpeaking(200);
                     axios.post(`${this.apiBaseUrl}/interrupt`).catch(e => { });
                     didInterrupt = true;
@@ -194,6 +206,12 @@ class VoiceManager {
             // clean up
             data.subscriptions.delete(userId);
             const speechDurationMs = speechFrameCount * 20;
+
+            // it was a "sì sì", not an interruption: come back up and carry on
+            if (didDuck && !didInterrupt) {
+                console.log('[VoiceManager] Short overlap — she picks the sentence back up');
+                this.duck(1, 200);
+            }
             console.log(`[VoiceManager] Stream ended. Speech: ${speechDurationMs}ms (${speechFrameCount} frames), beaWasSpeaking=${beaWasSpeaking}, isSpeaking=${data.isSpeaking}`);
 
             // 1. noise filter: if audio was too short or too quiet

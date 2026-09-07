@@ -58,6 +58,26 @@ def _merge_short(pieces: List[str], min_chars: int) -> List[str]:
     return out
 
 
+def spoken_prefix(text: str, played_ms: int, total_ms: int) -> str:
+    """The part of a line that actually reached the room before she was cut off.
+
+    Proportional on characters and then rounded back to a word: speech is not
+    uniform, so this is an approximation — but "roughly where she stopped" is
+    the whole difference between her knowing she was interrupted and her
+    carrying on as if the room had heard the end of the sentence.
+    """
+    text = (text or "").strip()
+    if not text or total_ms <= 0:
+        return ""
+    if played_ms >= total_ms:
+        return text
+
+    cut = max(0, min(len(text), round(len(text) * played_ms / total_ms)))
+    window = text[:cut]
+    space = window.rfind(" ")
+    return (window[:space] if space > 0 else window).strip()
+
+
 def _break_long(piece: str, max_chars: int) -> List[str]:
     """Cuts an over-long piece at the last comma before the limit, else at a space."""
     out: List[str] = []
