@@ -5,8 +5,11 @@ from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.events import EventCategory
+from src.core.floor import FloorController
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.platform import PlatformSkill
+from src.core.skills.voice.channel import VoiceChannel
+from src.core.skills.voice.latency import TRANSPORT, VoiceLatency
 from src.core.skills.voice.transport import DiscordTransport
 from src.utils.logger import get_logger
 
@@ -22,7 +25,8 @@ class VoiceSurface(PlatformSkill):
     Input: voice transcripts and text messages arrive via the HTTP endpoints the
     bot calls -> perceive() / perceive_text(), and land on the bus as perceptions.
     Output: Bea acts on discord through tools() (join/leave/send/reply/dm/...) and
-    her rendered voice (Expression route='remote') is handed back to the bot.
+    her voice reaches the call through the push channel (Expression route='call'),
+    whenever she decides to speak rather than only when asked.
     """
 
     name = "voice:discord"
@@ -38,6 +42,34 @@ class VoiceSurface(PlatformSkill):
         self._monitor: Optional[asyncio.Task] = None
         self.voice_channel: Optional[str] = None
         self._alone_since: Optional[float] = None
+        self.latency = VoiceLatency(events=getattr(self.context, "event_manager", None))
+
+        # the push channel is the audio out; Expression owns it as a sink so that
+        # nothing else in the codebase can put sound in a room
+        self.channel = VoiceChannel()
+        self.channel.on_call_change = self._on_call_change
+        self.channel.on_first_sound = self._on_first_sound
+        if self.expression is not None:
+            self.expression.set_call(self.channel)
+
+        # the reflex: it decides when the door opens, never what comes through it
+        self.floor = FloorController(
+            config=self.config, bus=self.bus, channel=self.channel,
+            expression=self.expression, surface_name=self.name,
+            events=getattr(self.context, "event_manager", None),
+        )
+        self._floor_task: Optional[asyncio.Task] = None
+
+    def _on_first_sound(self) -> None:
+        """Sound actually reached the room: that, and not the send, ends the clock."""
+        self.latency.mark(TRANSPORT)
+        self.latency.close()
+
+    def _on_call_change(self, channel_id: Optional[str], listeners: int) -> None:
+        """The bot is the authority: she can be dragged into a call, or out of one."""
+        self.voice_channel = channel_id
+        if channel_id is None:
+            self._alone_since = None
 
     async def start(self) -> None:
         if not self.enabled:
@@ -46,13 +78,23 @@ class VoiceSurface(PlatformSkill):
         if self.transport.start():
             self.active = True
             self._monitor = asyncio.create_task(self._watch_transport())
+            self._floor_task = asyncio.create_task(self._watch_floor())
             logger.info("VoiceSurface started.")
+
+    @property
+    def in_call(self) -> bool:
+        """Connected to the bot and sitting in a channel: she can be heard."""
+        return self.channel.live
 
     async def stop(self) -> None:
         self.active = False
+        self.channel.detach()
         if getattr(self, "_monitor", None):
             self._monitor.cancel()
             self._monitor = None
+        if getattr(self, "_floor_task", None):
+            self._floor_task.cancel()
+            self._floor_task = None
         self.transport.stop()
         await self.transport.close()
         logger.info("VoiceSurface stopped.")
@@ -117,6 +159,21 @@ class VoiceSurface(PlatformSkill):
             await self.transport.leave_voice()
             self._forget_call()
 
+    async def _watch_floor(self) -> None:
+        """Ticks on a clock of seconds, not of turns.
+
+        Its own task, and a fast one: the supervision loop polls the bot over
+        HTTP, and a silence measured in seconds cannot be watched at that price.
+        """
+        while self.active:
+            try:
+                self.floor.tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Floor tick failed: {e}")
+            await asyncio.sleep(0.5)
+
     async def _watch_transport(self) -> None:
         while self.active:
             try:
@@ -160,15 +217,27 @@ class VoiceSurface(PlatformSkill):
         return self.build_author(user_id or user, user)
 
     def perceive(self, transcript: str, user: str, meta: Optional[Dict[str, Any]] = None,
-                 user_id: Optional[str] = None) -> Perception:
+                 user_id: Optional[str] = None, whitelisted: bool = True,
+                 listeners: Optional[int] = None) -> Perception:
+        # `listeners` is how many humans are in the call with her. At one, every
+        # word is said to her and the gate can stop rolling dice — the rule has
+        # always been in attention/rules.py, nobody was ever setting the flag
+        extra: Dict[str, Any] = {}
+        if listeners is not None:
+            extra["listeners"] = listeners
+            extra["alone_with_speaker"] = listeners <= 1
         p = Perception(
             kind=PerceptionKind.VOICE,
             surface=self.name,
             content=f"[{user}] (voice): {transcript}",
-            salience=0.85,
-            meta={**(meta or {}), "user": user, "user_id": user_id},
+            # same reasoning as the text path: a stranger in the room is heard,
+            # just not loudly enough to pull her out of what she is doing
+            salience=0.85 * (1.0 if whitelisted else STRANGER_DAMPING),
+            meta={**(meta or {}), "user": user, "user_id": user_id,
+                  "whitelisted": whitelisted, **extra},
             author=self._author(user, user_id),
         )
+        self.floor.heard()
         self.bus.put(p)
         return p
 

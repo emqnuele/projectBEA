@@ -95,7 +95,13 @@
             "api_port": 3030,
             "brain_api_url": "http://127.0.0.1:8000",
             "admin_id": "",
-            "interrupt_threshold_ms": 3000
+            "duck_threshold_ms": 400,
+            "interrupt_threshold_ms": 3000,
+            "fill_silences": true,
+            "silence_seconds": 6.0,
+            "silence_jitter_seconds": 2.0,
+            "silence_min_gap_seconds": 25.0,
+            "unprompted_per_minute": 1
         },
         "telegram": {
             "enabled": false,
@@ -148,7 +154,8 @@
         ],
         "hot_names": [],
         "self_ids": [],
-        "digest_max_lines": 8
+        "digest_max_lines": 8,
+        "voice_cooldown_seconds": 5
     },
     "rhythm": {
         "enabled": true,

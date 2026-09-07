@@ -77,12 +77,20 @@ class FakeExpression:
         self.is_speaking = False
         self.interrupts = 0
         self.mood_avatar: Optional[str] = None
+        self.call = None
+
+    def set_call(self, call):
+        self.call = call
+
+    @property
+    def call_is_live(self) -> bool:
+        return bool(self.call is not None and self.call.live)
 
     async def speak(self, mood, message, *, route="local"):
         self.spoken.append((mood, message, route))
-        return b"" if route == "remote" else None
+        return None
 
-    async def interrupt(self):
+    async def interrupt(self, ramp_ms: int = 200):
         self.interrupts += 1
         return True
 

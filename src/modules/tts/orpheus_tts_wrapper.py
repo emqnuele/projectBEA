@@ -13,6 +13,12 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.tts.orpheus")
 
 class OrpheusTTSWrapper(TTSInterface):
+    # what the endpoint returns: raw 24 kHz 16-bit mono
+    SAMPLE_RATE = 24000
+    # ~150ms a block: small enough to start sounding fast, big enough not to
+    # spend the win on per-block overhead
+    STREAM_BLOCK_BYTES = 7200
+
     def __init__(self,
                  api_key: Optional[str],
                  endpoint_url: Optional[str],
@@ -110,6 +116,62 @@ class OrpheusTTSWrapper(TTSInterface):
 
         except Exception as e:
             logger.error(f"error playing audio: {e}")
+
+    def _stream_pcm_sync(self, text: str):
+        """Yields raw PCM blocks straight off the response, no file in between.
+
+        The endpoint already answers in chunks of 24 kHz 16-bit mono; the old
+        path wrote them to disk and read the whole file back, which threw away
+        the one thing that makes a voice start sooner.
+        """
+        if not self.api_key or not self.endpoint_url:
+            logger.error("API key or endpoint URL is missing.")
+            return
+
+        headers = {"Authorization": f"Api-Key {self.api_key}"}
+        payload = {"voice": self.voice, "prompt": text, "max_tokens": 10000, "stream": True}
+
+        pending = b""
+        with self.client.post(self.endpoint_url, headers=headers, json=payload, stream=True) as resp:
+            resp.raise_for_status()
+            for chunk in resp.iter_content(chunk_size=4096):
+                if not chunk:
+                    continue
+                pending += chunk
+                if len(pending) >= self.STREAM_BLOCK_BYTES:
+                    # never on an odd byte: half a sample is a click
+                    cut = len(pending) - (len(pending) % 2)
+                    yield pending[:cut]
+                    pending = pending[cut:]
+        if len(pending) >= 2:
+            yield pending[:len(pending) - (len(pending) % 2)]
+
+    async def generate_stream(self, text: str):
+        """The real thing: samples reach the caller while the rest is still coming."""
+        if not text:
+            return
+
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def pump():
+            try:
+                for block in self._stream_pcm_sync(text):
+                    loop.call_soon_threadsafe(queue.put_nowait, block)
+            except Exception as e:
+                logger.error(f"stream failed: {e}")
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        worker = asyncio.create_task(asyncio.to_thread(pump))
+        try:
+            while True:
+                block = await queue.get()
+                if block is None:
+                    break
+                yield np.frombuffer(block, dtype="<i2").astype(np.float32) / 32768.0, self.SAMPLE_RATE
+        finally:
+            await worker
 
     async def generate_audio(self, text: str) -> tuple[np.ndarray, int]:
         if not text:

@@ -90,6 +90,19 @@ class Attention:
         return float(self._cfg.get("cooldown_seconds", 20.0))
 
     @property
+    def voice_cooldown(self) -> float:
+        """The one for a live call, where 20 seconds is an eternity.
+
+        In chat a pause between her turns reads as restraint. In a call it reads
+        as absence: by the time the general cooldown lets her back in, the
+        conversation she could have joined is two topics further on.
+        """
+        return float(self._cfg.get("voice_cooldown_seconds", 5.0))
+
+    def cooldown_for(self, p: Perception) -> float:
+        return self.voice_cooldown if p.kind is PerceptionKind.VOICE else self.cooldown
+
+    @property
     def followup_enabled(self) -> bool:
         return bool(self._cfg.get("followup_enabled", True))
 
@@ -159,10 +172,10 @@ class Attention:
             recent_activity=self.activity(key),
             hour=self._hour(),
             quiet=self.quiet_hours,
-            cooldown_seconds=self.cooldown,
+            cooldown_seconds=self.cooldown_for(p),
         )
         if base <= 0.0:
-            return Verdict(Reaction.NOTE, 0.0, self._zero_reason(key))
+            return Verdict(Reaction.NOTE, 0.0, self._zero_reason(key, self.cooldown_for(p)))
 
         # human variance: ±0.1 before comparing, so she is not a step function
         effective = base + self._rng.uniform(-0.10, 0.10)
@@ -200,9 +213,9 @@ class Attention:
             trigger_words=self.trigger_words,
         )
 
-    def _zero_reason(self, key: str = ANYWHERE) -> str:
+    def _zero_reason(self, key: str = ANYWHERE, cooldown: Optional[float] = None) -> str:
         since = self.seconds_since_spoke(key)
-        if since is not None and since < self.cooldown:
+        if since is not None and since < (self.cooldown if cooldown is None else cooldown):
             return "cooldown"
         if in_quiet_hours(self._hour(), *self.quiet_hours):
             return "quiet-hours"

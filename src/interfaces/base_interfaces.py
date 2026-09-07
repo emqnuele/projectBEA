@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, AsyncIterator, Dict, Optional, Tuple, Union
 
 
 class LLMInterface(ABC):
@@ -49,6 +49,16 @@ class TTSInterface(ABC):
         audio_data: numpy array or valid sounddevice input.
         """
         pass
+
+    async def generate_stream(self, text: str) -> AsyncIterator[Tuple[Any, int]]:
+        """Yields (audio_data, sample_rate) as it becomes available.
+
+        Deliberately not abstract. The default is one chunk — the whole thing,
+        exactly as `generate_audio` produced it — so every existing engine keeps
+        working untouched, and an engine whose source is already chunked (a
+        streaming HTTP response) overrides this and starts sounding sooner.
+        """
+        yield await self.generate_audio(text)
 
     @abstractmethod
     def reload_config(self, config) -> None:

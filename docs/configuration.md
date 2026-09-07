@@ -130,7 +130,13 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
             "api_port": 3030,
             "brain_api_url": "http://127.0.0.1:8000",
             "admin_id": "",
-            "interrupt_threshold_ms": 3000
+            "duck_threshold_ms": 400,
+            "interrupt_threshold_ms": 3000,
+            "fill_silences": true,
+            "silence_seconds": 6.0,
+            "silence_jitter_seconds": 2.0,
+            "silence_min_gap_seconds": 25.0,
+            "unprompted_per_minute": 1
         },
         "telegram": {
             "enabled": false,
@@ -172,6 +178,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "attention": {
         "enabled": true,
         "cooldown_seconds": 20,
+        "voice_cooldown_seconds": 5,
         "interject_threshold": 0.45,
         "quiet_hours": [
             3,
@@ -260,6 +267,7 @@ What wakes the mind, and what she merely notices. [How it works →](architectur
 |---|---|---|
 | `enabled` | `true` | Off means every perception costs a full reasoning cycle |
 | `cooldown_seconds` | `20` | She just spoke: let the room breathe. Being addressed bypasses it |
+| `voice_cooldown_seconds` | `5` | The same, in a live call — where twenty seconds reads as absence, not restraint |
 | `interject_threshold` | `0.45` | Score needed to speak up unprompted. ±0.1 of noise is added before comparing |
 | `quiet_hours` | `[3, 9]` | She never interjects in this window. Being addressed still gets through |
 | `trigger_words` | `["bea", "beatrice"]` | Her names. Whole-word, one typo tolerated. Shared by every platform |
@@ -355,7 +363,7 @@ the single source of truth** — Bea can never arm a capability herself.
 | `dream` | `hour` | [dream](skills/dream.md) |
 | `monologue` | `prompt_path` — the timer is `consciousness.idle_after` | [monologue](skills/monologue.md) |
 | `minecraft` | `server_url`, `idle_nudge_seconds`, `system_prompt_path`, `body_prompt_path` | [minecraft](skills/minecraft.md) |
-| `discord` | `api_port`, `brain_api_url`, `admin_id`, `interrupt_threshold_ms`, `token` | [discord](skills/discord.md) |
+| `discord` | `api_port`, `brain_api_url`, `admin_id`, `duck_threshold_ms`, `interrupt_threshold_ms`, `fill_silences`, `silence_seconds`, `silence_jitter_seconds`, `silence_min_gap_seconds`, `unprompted_per_minute`, `token` | [discord](skills/discord.md) |
 | `telegram` | `owner_id`, `allowed_chats`, `token` | [telegram](skills/telegram.md) |
 | `twitch` | `channel`, `nick`, `oauth_token` | [twitch](skills/twitch.md) |
 | `donations` | `secret` | [donations](skills/donations.md) |

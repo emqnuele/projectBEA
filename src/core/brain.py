@@ -28,6 +28,7 @@ from src.core.skills.presence.surface import PresenceSkill
 from src.core.skills.social.social import SocialMemory
 from src.core.skills.telegram.surface import TelegramSkill
 from src.core.skills.twitch.surface import TwitchSkill
+from src.core.skills.voice.latency import STT
 from src.core.skills.voice.surface import VoiceSurface
 from src.core.social.agenda import AgendaRunner
 from src.core.social.reach import Reach
@@ -470,25 +471,33 @@ class AIVtuberBrain:
         return mood, message
 
     async def process_discord_interaction(self, audio_path: str, username: str,
-                                          user_id: Optional[str] = None) -> Tuple[str, str, str, bytes]:
-        """Discord voice: transcribe, feed a voice perception, return Bea's spoken bytes."""
+                                          user_id: Optional[str] = None,
+                                          whitelisted: bool = True,
+                                          listeners: Optional[int] = None) -> str:
+        """Discord voice: transcribe and hand the mind a perception; returns the transcript.
+
+        Nothing is awaited: her voice reaches the call over the push channel, when
+        she decides to open her mouth rather than only when she is asked something.
+        """
+        voice = self._surface("voice:discord")
+        latency = getattr(voice, "latency", None)
+        if latency is not None:
+            latency.open(username)
+
         transcript = ""
         if self.stt:
-            transcript = self.stt.transcribe(audio_path)
+            # blocking HTTP: on the loop it froze the whole brain for the length
+            # of every transcription, and worst exactly when several people talk
+            transcript = await asyncio.to_thread(self.stt.transcribe, audio_path)
             logger.info(f"Transcript from {username}: '{transcript}'")
+        if latency is not None:
+            latency.mark(STT)
 
-        text = transcript or "[Unintelligible]"
-        voice = self._surface("voice:discord")
         if not voice or not self.consciousness:
-            return "ignored", "", transcript, b""
-        payload = await self._perceive_and_wait(
-            lambda cid: voice.perceive(text, username, meta={"correlation_id": cid},
-                                       user_id=user_id),
-            route="discord",
-        )
-        if not payload:
-            return "ignored", "", transcript, b""
-        return payload.get("status", "success"), payload.get("text", ""), transcript, payload.get("audio", b"")
+            return transcript
+        voice.perceive(transcript or "[Unintelligible]", username, user_id=user_id,
+                       whitelisted=whitelisted, listeners=listeners)
+        return transcript
 
     @property
     def donation_skill(self) -> Optional[DonationSkill]:

@@ -47,9 +47,10 @@ Both directions are HTTP over localhost.
 │                                                          │
 │  FastAPI endpoints the bot calls back into:              │
 │      POST /discord/chat        text message              │
-│      POST /discord/audio       voice, expects audio back │
+│      POST /discord/audio       voice heard in the call   │
 │      POST /voice/transcript    overheard speech          │
 │      POST /interrupt           barge-in                  │
+│      WS   /voice/ws            her voice out, push       │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -66,8 +67,10 @@ marks the capability inactive.
 ## Text and voice take different paths
 
 **Voice** is the stage. A transcript arrives at `POST /discord/audio`, becomes a
-`VOICE` perception, and the caller waits on a **correlation** for Bea's rendered
-speech, which is handed straight back to the bot as base64 WAV.
+`VOICE` perception, and the request ends there. Her voice travels the other way,
+over the `WS /voice/ws` push channel, whenever she decides to speak — so she can
+answer, but she can also start, and every sentence of a turn reaches the room
+rather than only the first.
 
 **Text** is not the stage. A message arrives at `POST /discord/chat`, becomes a
 `CHAT` perception carrying `conversation_key = "discord:<channel_id>"`, and the
@@ -113,6 +116,8 @@ src/core/skills/voice/bot/
 ├── config.js              env-driven config
 ├── api/server.js          the Express API the brain calls
 ├── classes/VoiceManager.js voice connection, opus decode, playback, barge-in
+├── classes/BrainLink.js   the push channel: her voice in, reports out
+├── classes/PcmGain.js     volume ramps, and how much was really played
 ├── handlers/messages.js   mentions, replies, DMs -> POST /discord/chat
 ├── commands/              !hello, !join, !leave, !wl
 ├── whitelist.js           who may talk to her
@@ -123,17 +128,52 @@ src/core/skills/voice/bot/
 `POST /reply`, `POST /typing`, `POST /react`, `POST /dm`, `POST /summon`,
 `GET /voice/channels`, `POST /voice/join`, `POST /voice/leave`.
 
-**Voice pipeline:** per-user Opus stream → `prism-media` decoder → PCM → WAV →
-`POST /discord/audio` → transcription → the mind → rendered speech → base64 back
-→ `AudioPlayer`.
+**Voice in:** per-user Opus stream → `prism-media` decoder → PCM → WAV →
+`POST /discord/audio` → transcription → a perception. The request ends there.
 
-**Barge-in:** if a whitelisted user speaks for longer than
-`interrupt_threshold_ms` while Bea is playing audio, the player stops and the
-bot calls `POST /interrupt`.
+**Voice out:** the mind → TTS → 48 kHz stereo PCM → `play` frames on
+`WS /voice/ws` → `PassThrough` → `PcmGain` → `AudioPlayer`. Playback starts at
+the first chunk, and the gain stage reports how many milliseconds actually
+reached the room.
 
-**Whitelist:** only users in `whitelist.json` can trigger her. Admin commands
-(`!wl add|remove|list`) are restricted to `ADMIN_ID` and unauthorised calls are
-silently ignored.
+**Barge-in, in two stages.** People do two different things with the same
+energy. After `duck_threshold_ms` of someone talking over her she drops to a
+quarter volume without giving up the floor; if they stop there — a "sì sì", a
+laugh — she comes back up and finishes the sentence. Only after
+`interrupt_threshold_ms` does she fade out over 200ms and the bot call
+`POST /interrupt`.
+
+The bot then reports `played_ms`, and the next perception frame tells her where
+she actually stopped:
+
+```
+[YOU WERE CUT OFF] You got as far as "allora la cosa che volevo" and stopped
+there. Nobody heard the rest, so do not talk as if they did.
+```
+
+Without that line her history holds the whole sentence and she goes on
+referring to a second half nobody heard — which reads as a bot far more than
+any amount of latency does.
+
+**Filling a silence.** A call that goes quiet is not a call that has nothing
+left in it, and a bot that only ever answers is obviously a bot. The reflex
+(`src/core/floor/`) watches the room on a clock of seconds and, after
+`silence_seconds` (± `silence_jitter_seconds`, so it does not sound like the
+timer it is), puts one perception on the bus marked `addressed: silence`.
+
+It is a *door*, not a line: the mind decides whether there is anything worth
+saying, and `stay_silent` remains a perfectly good answer. The reflex has no
+memory, no persona and no words of its own — its output is an enum. Turn
+`fill_silences` off and Bea is the same person with worse timing.
+
+`unprompted_per_minute` is the number that sets her character: one is present
+and discreet, three is the loudest person in the room.
+
+**Whitelist:** in text, `access_mode` decides whether an unlisted person reaches
+her at all. In voice she hears everyone in the channel — if you are in the room
+she can hear you — but an unlisted voice arrives with its salience damped, the
+same way an unlisted message does. Admin commands (`!wl add|remove|list`) are
+restricted to `ADMIN_ID` and unauthorised calls are silently ignored.
 
 ---
 
@@ -146,6 +186,7 @@ silently ignored.
   "api_port": 3030,
   "brain_api_url": "http://127.0.0.1:8000",
   "admin_id": "",
+  "duck_threshold_ms": 400,
   "interrupt_threshold_ms": 3000
 }
 ```
@@ -156,6 +197,12 @@ silently ignored.
 | `api_port` | Port for the bot's Express API; passed to the subprocess as `PORT` |
 | `brain_api_url` | Where the bot calls back into the brain |
 | `admin_id` | Discord user id allowed to run `!wl` |
+| `duck_threshold_ms` | How long someone talks over her before she drops her volume |
+| `fill_silences` | Whether she may speak into a quiet call unasked |
+| `silence_seconds` | How long the call stays quiet before the door opens |
+| `silence_jitter_seconds` | Random spread on that wait |
+| `silence_min_gap_seconds` | How long before she may fill another silence |
+| `unprompted_per_minute` | Hard limit on speaking up unasked |
 | `interrupt_threshold_ms` | How long someone must speak to interrupt her |
 
 ---

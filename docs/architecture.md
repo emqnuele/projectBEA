@@ -168,7 +168,7 @@ truth**. Bea can never arm a capability by herself.
 
 ## Discord
 
-Two processes talking HTTP in both directions:
+Two processes, HTTP in both directions plus one socket that stays open:
 
 ```
   Python (brain)                        Node (src/core/skills/voice/bot/)
@@ -181,13 +181,25 @@ Two processes talking HTTP in both directions:
           ◀──POST /discord/audio─────── classes/VoiceManager.js
           ◀──POST /voice/transcript──── classes/VoiceManager.js
           ◀──POST /interrupt─────────── classes/VoiceManager.js
+
+  Expression ═══WS /voice/ws══════════▶ classes/BrainLink.js
+   (her voice out)  ◀══ played_ms ════  (what the room really heard)
 ```
+
+Everything the bot sends is a *sense*: it deposits a perception and the request
+ends. Her voice travels the other way, on the socket, whenever she decides to
+speak — which is what separates a bot that answers from someone who is in the
+call.
 
 - **Text** answers only when whitelisted *and* (mention | reply to Bea | DM).
   It deposits a perception and returns immediately: Bea decides on her own
   whether and how to answer, using the discord tools.
-- **Voice** decodes Opus → PCM 48k stereo → mono 16k WAV, with an RMS-threshold
-  VAD and a sustained-speech interrupt.
+- **Voice in** decodes Opus → PCM 48k stereo → mono 16k WAV, with an
+  RMS-threshold VAD and a two-stage barge-in: duck first, stop only if they
+  keep going.
+- **Voice out** is pushed over the socket as 48 kHz stereo PCM, sentence by
+  sentence, so the room hears the first one while the next is still being
+  synthesised.
 - The bot **dies silently** when the token is missing or `node_modules` is
   absent; `VoiceSurface._watch_transport` then marks the skill inactive.
 

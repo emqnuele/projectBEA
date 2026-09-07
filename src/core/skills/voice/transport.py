@@ -56,7 +56,8 @@ class DiscordTransport:
         env["BRAIN_API_URL"] = self._brain_api_url()
         env["ADMIN_ID"] = str(dcfg.get("admin_id", "") or os.getenv("DISCORD_ADMIN_ID", ""))
         env["ACCESS_MODE"] = str(dcfg.get("access_mode", "strict"))
-        env["INTERRUPT_THRESHOLD_MS"] = str(dcfg.get("interrupt_threshold_ms", 2000))
+        env["DUCK_THRESHOLD_MS"] = str(dcfg.get("duck_threshold_ms", 400))
+        env["INTERRUPT_THRESHOLD_MS"] = str(dcfg.get("interrupt_threshold_ms", 3000))
         env["INVITE_MAX_AGE"] = str(dcfg.get("invite_max_age_seconds", 3600))
         env["INVITE_MAX_USES"] = str(dcfg.get("invite_max_uses", 1))
         return env

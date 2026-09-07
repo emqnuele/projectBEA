@@ -176,32 +176,56 @@ through the Discord tools, whenever she decides to. She may also decide not to.
 ---
 
 #### `POST /discord/audio`
-Receives a voice chunk from the bot's VoiceManager. This one **does** wait: the
-caller is blocked on a correlation until Bea speaks, because the bot needs the
-audio back to play it in the call.
+Receives a voice chunk from the bot's VoiceManager, transcribes it and deposits
+a `VOICE` perception. It returns immediately: her voice reaches the call over
+`/voice/ws`, whenever she decides to speak, which is what lets her open her
+mouth without having been asked a question first.
 
 **Request:** `multipart/form-data`
 - `file` — WAV audio file
 - `username` — Discord username
 - `user_id` — stable Discord user id (optional, but it is the identity)
-- `flush_buffer` — accepted for compatibility, not acted upon
+- `whitelisted` — whether the bot already knows this voice; a stranger arrives
+  quieter instead of not arriving at all
+- `listeners` — how many humans are in the call. At one, everything said is said
+  to her and the attention gate stops rolling dice
 
-**Response:**
-```json
-{
-  "status": "success",
-  "text": "Bea's text response",
-  "transcript": "the transcription of this chunk",
-  "audio_base64": "<base64-encoded WAV bytes>"
-}
-```
-
-> `status` is `"success"` when she spoke and `"ignored"` when she did not — the
-> attention gate filtered the input, or she chose `stay_silent`. On `"ignored"`,
-> `text` and `audio_base64` are empty and the bot plays nothing.
+**Response:** `{"status": "perceived", "transcript": "..."}`
 
 The perception bus coalesces a burst of chunks into a single batch, so two
 people talking at once produce one turn and one answer.
+
+---
+
+#### `WS /voice/ws`
+The push channel: her voice out, playback reports back. The bot connects on
+start-up and reconnects on its own, so a brain restart does not leave her mute.
+It carries her actual voice over TCP, so it presents the same per-process
+`API_TOKEN` as the bot's command API, as an `Authorization: Bearer` header.
+
+**Brain → bot.** Audio is one self-contained binary frame,
+`[uint32 header length][header json][pcm]`, where the payload is 48 kHz stereo
+signed-16 little-endian — exactly what Discord plays, so the bot never has to
+decode or resample. Control messages are JSON text:
+
+| type | payload | effect |
+|---|---|---|
+| `play` | `utterance_id, seq, last` + pcm | queue and start playing at the first chunk |
+| `stop` | `utterance_id, ramp_ms` | fade out and stop; answers with `played_ms` |
+| `duck` | `utterance_id, gain, ramp_ms` | turn her down without stopping her |
+| `cancel` | `utterance_id` | stop accepting more; what is queued plays out |
+
+**Bot → brain**, JSON text:
+
+| type | payload | meaning |
+|---|---|---|
+| `joined` | `channel_id, listeners` | she is in a call — being dragged in counts |
+| `members` | `listeners` | someone came or went |
+| `left` | — | she is out of the call |
+| `playback` | `utterance_id, played_ms, state` | how much of it the room actually got |
+
+> `played_ms` is the point of the whole exchange. Without it she believes she
+> said a whole sentence the room only half heard, and refers to it later.
 
 ---
 

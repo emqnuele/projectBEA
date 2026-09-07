@@ -7,12 +7,14 @@ from src.core.agent.messages import assistant_to_message, tool_result_message
 from src.core.agent.tools import Tool
 from src.core.agent.types import ToolCall, Usage
 from src.core.events import EventCategory
+from src.core.expression.chunking import spoken_prefix
 from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.moods import normalize_mood
 from src.core.mind.recap import SessionRecap
 from src.core.mind.routing import route
 from src.core.mind.tools import MindTools
 from src.core.perception.types import Perception, PerceptionKind
+from src.core.skills.voice.latency import MIND, TTS
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
 from src.utils.sanitize import clean_model_output
@@ -344,7 +346,32 @@ class Consciousness:
         # anything old enough says so; a batch that arrived at once stays clean
         now = time.time()
         lines = [f"({p.kind.value.upper()}) {p.render(now=now)}" for p in perceptions]
-        return {"role": "user", "content": header + "\n" + "\n".join(lines)}
+        body = "\n".join(lines)
+        cut_off = self._interruption_note()
+        if cut_off:
+            body = f"{cut_off}\n{body}"
+        return {"role": "user", "content": header + "\n" + body}
+
+    def _interruption_note(self) -> Optional[str]:
+        """Tells her where a barge-in actually cut her off, once.
+
+        Her history records the whole line she asked for, always. When someone
+        talks over her, the room heard the first half — and she goes on referring
+        to the second half as if it had been said. That, more than any latency,
+        is what breaks the illusion that there is a person there.
+        """
+        utterance = getattr(self.expression, "interrupted", None)
+        if utterance is None:
+            return None
+        self.expression.interrupted = None
+        if getattr(utterance, "complete", True):
+            return None
+
+        heard = spoken_prefix(utterance.text, utterance.played_ms, utterance.sent_ms)
+        if not heard:
+            return "[YOU WERE CUT OFF] You were talked over before a word of that landed. Nobody heard any of it."
+        return (f'[YOU WERE CUT OFF] You got as far as "{heard}" and stopped there. '
+                "Nobody heard the rest, so do not talk as if they did.")
 
     # --- tools --------------------------------------------------------------
 
@@ -401,20 +428,29 @@ class Consciousness:
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
 
-        routes = self.correlations.routes
+        latency = self._voice_latency
 
-        if "discord" in routes:
-            audio = await self.expression.speak(mood, message, route="remote")
-            self.correlations.resolve(lambda r: r == "discord",
-                                      {"status": "success", "text": message, "audio": audio})
-
-        if "discord" not in routes or "local" in routes:
+        if self.expression.call_is_live:
+            # every sentence of a turn goes to the room, not just the first: the
+            # call is a sink she pushes into, not one reply she hands back
+            if latency:
+                latency.mark(MIND)
+            await self.expression.speak(mood, message, route="call")
+            if latency:
+                latency.mark(TTS)
+        else:
             # fire-and-forget so reasoning keeps going
             asyncio.create_task(self._speak_local_safe(mood, message))
-            self.correlations.resolve(lambda r: r != "discord",
-                                      {"mood": mood, "message": message})
+
+        # whoever is blocked on a written answer gets one either way
+        self.correlations.resolve(lambda r: True, {"mood": mood, "message": message})
 
         return "Spoken."
+
+    @property
+    def _voice_latency(self):
+        """The stopwatch of the voice turn in flight, when there is a call."""
+        return getattr(self.surfaces.get("voice:discord"), "latency", None)
 
     async def _speak_local_safe(self, mood: str, message: str) -> None:
         """Local speech in a task: a playback error must not go unretrieved."""
@@ -424,6 +460,10 @@ class Consciousness:
             logger.error(f"Local speech failed: {e}")
 
     async def _stay_silent(self, reason: str = "") -> str:
+        # she said nothing: there is no time-to-first-sound to report
+        latency = self._voice_latency
+        if latency:
+            latency.abandon()
         self.correlations.resolve(lambda r: True, {"mood": "normal", "message": ""})
         return "Staying silent."
 

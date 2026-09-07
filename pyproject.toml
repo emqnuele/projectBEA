@@ -17,6 +17,8 @@ dependencies = [
     "transformers<4.42",
     "fastapi",
     "uvicorn",
+    # the bot's voice push channel is a websocket; uvicorn needs this to serve it
+    "websockets",
     "python-multipart",
     "requests",
     "python-dotenv",

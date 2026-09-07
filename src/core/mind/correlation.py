@@ -62,8 +62,5 @@ class CorrelationRegistry:
             entry = self._waiting.pop(cid, None)
             if not entry or entry["future"].done():
                 continue
-            if entry["route"] == "discord":
-                entry["future"].set_result({"status": "ignored", "text": "", "audio": b""})
-            else:
-                entry["future"].set_result({"mood": "normal", "message": ""})
+            entry["future"].set_result({"mood": "normal", "message": ""})
         self._batch = []
