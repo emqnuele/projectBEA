@@ -55,10 +55,12 @@ class Skill:
     # --- output sinks (override the ones this skill supports) ---------------
 
     async def emit_text(self, text: str, meta: Optional[Dict[str, Any]] = None) -> None:
-        """Send a text message out on this skill (discord/twitch/telegram)."""
+        """Send a text message out on this skill (discord/twitch/telegram).
 
-    async def emit_voice(self, audio_bytes: bytes, meta: Optional[Dict[str, Any]] = None) -> None:
-        """Send rendered voice audio out on this skill (discord voice)."""
+        There is deliberately no `emit_voice` beside it: audio leaves the brain
+        in exactly one place, `Expression`, which is what lets ducking, stopping
+        and knowing how far a sentence got live together.
+        """
 
     # --- context contributed while this skill is active --------------------
 
