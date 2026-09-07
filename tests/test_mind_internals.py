@@ -33,22 +33,14 @@ async def test_a_caller_is_always_freed_even_when_ignored():
     assert future.result() == {"mood": "normal", "message": ""}
 
 
-async def test_a_discord_caller_gets_the_shape_it_expects():
-    registry = CorrelationRegistry()
-    cid, future = registry.register("discord")
-    registry.start_batch([waiting(cid)])
-    registry.release()
-    assert future.result() == {"status": "ignored", "text": "", "audio": b""}
-
-
 async def test_only_the_matching_route_is_answered():
     registry = CorrelationRegistry()
     local_cid, local = registry.register("local")
-    discord_cid, discord = registry.register("discord")
-    registry.start_batch([waiting(local_cid), waiting(discord_cid)])
+    other_cid, other = registry.register("cli")
+    registry.start_batch([waiting(local_cid), waiting(other_cid)])
 
-    registry.resolve(lambda r: r == "discord", {"status": "success"})
-    assert discord.done() and not local.done()
+    registry.resolve(lambda r: r == "cli", {"message": "eccomi"})
+    assert other.done() and not local.done()
 
 
 async def test_the_routes_of_the_batch_are_reported():

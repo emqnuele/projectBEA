@@ -473,9 +473,12 @@ class AIVtuberBrain:
     async def process_discord_interaction(self, audio_path: str, username: str,
                                           user_id: Optional[str] = None,
                                           whitelisted: bool = True,
-                                          listeners: Optional[int] = None,
-                                          ) -> Tuple[str, str, str, bytes]:
-        """Discord voice: transcribe, feed a voice perception, return Bea's spoken bytes."""
+                                          listeners: Optional[int] = None) -> str:
+        """Discord voice: transcribe and hand the mind a perception; returns the transcript.
+
+        Nothing is awaited: her voice reaches the call over the push channel, when
+        she decides to open her mouth rather than only when she is asked something.
+        """
         voice = self._surface("voice:discord")
         latency = getattr(voice, "latency", None)
         if latency is not None:
@@ -490,18 +493,11 @@ class AIVtuberBrain:
         if latency is not None:
             latency.mark(STT)
 
-        text = transcript or "[Unintelligible]"
         if not voice or not self.consciousness:
-            return "ignored", "", transcript, b""
-        payload = await self._perceive_and_wait(
-            lambda cid: voice.perceive(text, username, meta={"correlation_id": cid},
-                                       user_id=user_id, whitelisted=whitelisted,
-                                       listeners=listeners),
-            route="discord",
-        )
-        if not payload:
-            return "ignored", "", transcript, b""
-        return payload.get("status", "success"), payload.get("text", ""), transcript, payload.get("audio", b"")
+            return transcript
+        voice.perceive(transcript or "[Unintelligible]", username, user_id=user_id,
+                       whitelisted=whitelisted, listeners=listeners)
+        return transcript
 
     @property
     def donation_skill(self) -> Optional[DonationSkill]:

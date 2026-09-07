@@ -231,6 +231,7 @@ async def test_stopping_the_surface_releases_the_session():
             closed.append(True)
 
     surface = VoiceSurface(Config(), bus=None, expression=None)
+    surface.initialize()
     surface.transport = Watched()
     surface.active = True
     await surface.stop()

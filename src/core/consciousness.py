@@ -402,24 +402,22 @@ class Consciousness:
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
 
-        routes = self.correlations.routes
         latency = self._voice_latency
 
-        if "discord" in routes:
+        if self.expression.call_is_live:
+            # every sentence of a turn goes to the room, not just the first: the
+            # call is a sink she pushes into, not one reply she hands back
             if latency:
                 latency.mark(MIND)
-            audio = await self.expression.speak(mood, message, route="remote")
+            await self.expression.speak(mood, message, route="call")
             if latency:
                 latency.mark(TTS)
-                latency.close()
-            self.correlations.resolve(lambda r: r == "discord",
-                                      {"status": "success", "text": message, "audio": audio})
-
-        if "discord" not in routes or "local" in routes:
+        else:
             # fire-and-forget so reasoning keeps going
             asyncio.create_task(self._speak_local_safe(mood, message))
-            self.correlations.resolve(lambda r: r != "discord",
-                                      {"mood": mood, "message": message})
+
+        # whoever is blocked on a written answer gets one either way
+        self.correlations.resolve(lambda r: True, {"mood": mood, "message": message})
 
         return "Spoken."
 

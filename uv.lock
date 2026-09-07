@@ -1892,6 +1892,7 @@ dependencies = [
     { name = "transformers" },
     { name = "uvicorn" },
     { name = "websocket-client" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -1936,6 +1937,7 @@ requires-dist = [
     { name = "transformers", specifier = "<4.42" },
     { name = "uvicorn" },
     { name = "websocket-client" },
+    { name = "websockets" },
 ]
 provides-extras = ["minecraft", "migrate"]
 

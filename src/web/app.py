@@ -8,7 +8,17 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -366,6 +376,42 @@ async def interrupt_speech():
     await brain.interrupt()
     return {"status": "success", "message": "Interrupted"}
 
+@app.websocket("/voice/ws")
+async def voice_push_channel(ws: WebSocket):
+    """The bot's audio link: her voice out, playback reports back.
+
+    It carries her actual voice and can be reached over TCP, so it presents the
+    same per-process token as the bot's own command API. The loop here does no
+    thinking: it hands every report to the channel and keeps the socket alive.
+    """
+    voice = getattr(get_brain(), "surface_registry", None)
+    voice = voice.get("voice:discord") if voice is not None else None
+    channel = getattr(voice, "channel", None)
+    expected = getattr(getattr(voice, "transport", None), "api_token", None)
+
+    if channel is None or not expected:
+        await ws.close(code=1011)
+        return
+    if ws.headers.get("authorization") != f"Bearer {expected}":
+        logger.warning("Refused an unauthenticated connection to the voice channel")
+        await ws.close(code=1008)
+        return
+
+    await ws.accept()
+    channel.attach(ws)
+    try:
+        while True:
+            try:
+                channel.on_message(json.loads(await ws.receive_text()))
+            except json.JSONDecodeError:
+                logger.debug("ignoring a malformed frame on the voice channel")
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning(f"Voice channel closed: {e}")
+    finally:
+        channel.detach(ws)
+
 @app.post("/audio")
 async def upload_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     brain = get_brain()
@@ -441,6 +487,11 @@ async def discord_audio_interaction(
     whitelisted: bool = Form(default=True),
     listeners: Optional[int] = Form(default=None),
 ):
+    """Speech from the call: transcribe it and hand it to the mind.
+
+    The bot does not wait for audio here — whatever she decides to say is pushed
+    into the call over /voice/ws, whenever she decides to say it.
+    """
     brain = get_brain()
 
     # save temp file
@@ -452,20 +503,11 @@ async def discord_audio_interaction(
         shutil.copyfileobj(file.file, buffer)
 
     try:
-        status, text_response, transcript, audio_bytes = await brain.process_discord_interaction(
+        transcript = await brain.process_discord_interaction(
             str(temp_file), username, user_id=user_id,
             whitelisted=whitelisted, listeners=listeners,
         )
-
-        import base64
-        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8") if audio_bytes else ""
-
-        return {
-            "status": status,
-            "text": text_response,
-            "transcript": transcript,
-            "audio_base64": audio_b64,
-        }
+        return {"status": "perceived", "transcript": transcript}
     except Exception as e:
         logger.error(f"Discord Audio Error: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e

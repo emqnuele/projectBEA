@@ -7,7 +7,8 @@ from src.core.agent.tools import Tool
 from src.core.events import EventCategory
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.platform import PlatformSkill
-from src.core.skills.voice.latency import VoiceLatency
+from src.core.skills.voice.channel import VoiceChannel
+from src.core.skills.voice.latency import TRANSPORT, VoiceLatency
 from src.core.skills.voice.transport import DiscordTransport
 from src.utils.logger import get_logger
 
@@ -23,7 +24,8 @@ class VoiceSurface(PlatformSkill):
     Input: voice transcripts and text messages arrive via the HTTP endpoints the
     bot calls -> perceive() / perceive_text(), and land on the bus as perceptions.
     Output: Bea acts on discord through tools() (join/leave/send/reply/dm/...) and
-    her rendered voice (Expression route='remote') is handed back to the bot.
+    her voice reaches the call through the push channel (Expression route='call'),
+    whenever she decides to speak rather than only when asked.
     """
 
     name = "voice:discord"
@@ -41,6 +43,25 @@ class VoiceSurface(PlatformSkill):
         self._alone_since: Optional[float] = None
         self.latency = VoiceLatency(events=getattr(self.context, "event_manager", None))
 
+        # the push channel is the audio out; Expression owns it as a sink so that
+        # nothing else in the codebase can put sound in a room
+        self.channel = VoiceChannel()
+        self.channel.on_call_change = self._on_call_change
+        self.channel.on_first_sound = self._on_first_sound
+        if self.expression is not None:
+            self.expression.set_call(self.channel)
+
+    def _on_first_sound(self) -> None:
+        """Sound actually reached the room: that, and not the send, ends the clock."""
+        self.latency.mark(TRANSPORT)
+        self.latency.close()
+
+    def _on_call_change(self, channel_id: Optional[str], listeners: int) -> None:
+        """The bot is the authority: she can be dragged into a call, or out of one."""
+        self.voice_channel = channel_id
+        if channel_id is None:
+            self._alone_since = None
+
     async def start(self) -> None:
         if not self.enabled:
             logger.info("VoiceSurface inactive (discord skill disabled).")
@@ -50,8 +71,14 @@ class VoiceSurface(PlatformSkill):
             self._monitor = asyncio.create_task(self._watch_transport())
             logger.info("VoiceSurface started.")
 
+    @property
+    def in_call(self) -> bool:
+        """Connected to the bot and sitting in a channel: she can be heard."""
+        return self.channel.live
+
     async def stop(self) -> None:
         self.active = False
+        self.channel.detach()
         if getattr(self, "_monitor", None):
             self._monitor.cancel()
             self._monitor = None

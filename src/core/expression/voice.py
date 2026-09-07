@@ -1,11 +1,12 @@
 import asyncio
-import io
 import time
+import uuid
 from pathlib import Path
 from typing import Optional, Tuple
 
 from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
+from src.core.expression.pcm import duration_ms, to_call_pcm
 from src.core.resources import resolve_mood_paths
 from src.interfaces.base_interfaces import OBSInterface, TTSInterface
 from src.utils.logger import get_logger
@@ -22,9 +23,13 @@ class Expression:
     routes through here so the rendering logic lives in exactly one place.
 
     Routes:
-    - "local"   -> generate audio and play it on the configured device (stream/OBS).
-    - "remote"  -> generate audio, drive only the OBS visuals, and return the WAV
-                   bytes to the caller (Discord voice playback happens in the bot).
+    - "local"  -> generate audio and play it on the configured device (stream/OBS).
+    - "call"   -> generate audio, drive only the OBS visuals, and push the samples
+                  into the live voice call through the push channel.
+
+    The call is a sink she *owns*, not a reply she hands back: nothing outside
+    this class puts sound anywhere, which is the only reason ducking, stopping
+    and knowing how far a sentence got can live in one place.
     """
 
     def __init__(self, config: BrainConfig, tts: TTSInterface, obs: OBSInterface, event_manager: EventManager):
@@ -46,6 +51,11 @@ class Expression:
         self.resume_buffer = None
         self._playback_device_id = None
 
+        # the live call, when there is one; the voice skill hands it over
+        self.call = None
+        # the last utterance a barge-in cut short, for the mind to be told about
+        self.interrupted = None
+
     def set_png_map(self, png_map) -> None:
         self.png_map = png_map
 
@@ -58,10 +68,19 @@ class Expression:
 
     # --- VOICE actuator -----------------------------------------------------
 
-    async def speak(self, mood: str, message: str, *, route: str = "local") -> Optional[bytes]:
-        """Renders a spoken turn. Returns WAV bytes when route='remote'."""
-        if route == "remote":
-            return await self._speak_remote(mood, message)
+    def set_call(self, call) -> None:
+        """Hands over the live voice call, or None when there is none."""
+        self.call = call
+
+    @property
+    def call_is_live(self) -> bool:
+        """Whether sound she makes right now would be heard in a room."""
+        return bool(self.call is not None and self.call.live)
+
+    async def speak(self, mood: str, message: str, *, route: str = "local"):
+        """Renders a spoken turn. Returns the Utterance when route='call'."""
+        if route == "call":
+            return await self._speak_call(mood, message)
         await self._speak_local(mood, message)
         return None
 
@@ -229,19 +248,22 @@ class Expression:
         finally:
             self.is_speaking = False
 
-    async def _speak_remote(self, mood: str, message: str) -> bytes:
-        """Generates WAV bytes (for the Discord bot) and drives OBS visuals only."""
-        import soundfile as sf
-
+    async def _speak_call(self, mood: str, message: str):
+        """Synthesises and pushes the samples into the call; OBS visuals only locally."""
         audio_data, sample_rate = await self.tts.generate_audio(message)
+        pcm = to_call_pcm(audio_data, sample_rate)
+        if not pcm or self.call is None:
+            return None
 
-        byte_io = io.BytesIO()
-        sf.write(byte_io, audio_data, sample_rate, format="WAV")
-        audio_bytes = byte_io.getvalue()
+        utterance_id = uuid.uuid4().hex
+        self.event_manager.publish(
+            EventCategory.OUTPUT, "tts", f"Speaking in the call: {message[:50]}...",
+            metadata={"utterance_id": utterance_id},
+        )
+        await self.call.play(pcm, utterance_id=utterance_id, text=message)
 
-        duration = len(audio_data) / sample_rate if sample_rate else 0
-        asyncio.create_task(self._visual_only(mood, message, duration))
-        return audio_bytes
+        asyncio.create_task(self._visual_only(mood, message, duration_ms(pcm) / 1000.0))
+        return self.call.utterances.get(utterance_id)
 
     async def _visual_only(self, mood: str, message: str, duration: float):
         """Updates OBS visuals/text without playing local audio."""
@@ -298,10 +320,17 @@ class Expression:
 
     # --- barge-in / resume --------------------------------------------------
 
-    async def interrupt(self) -> str:
-        """Stops current speech/typing immediately, buffering the tail for resume."""
+    async def interrupt(self, ramp_ms: int = 200) -> str:
+        """Stops current speech/typing, in the call and on the local device alike.
+
+        The call answers with how far it actually got — that answer is what stops
+        her believing she said a whole sentence the room only half heard.
+        """
         logger.info("Interruption Signal Received!")
         import sounddevice as sd
+
+        if self.call_is_live:
+            self.interrupted = await self.call.stop(ramp_ms=ramp_ms)
 
         if self.is_speaking and self.current_audio_buffer is not None:
             try:

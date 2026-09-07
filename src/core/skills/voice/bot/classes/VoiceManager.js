@@ -10,11 +10,12 @@ const {
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 const axios = require('axios');
-const fs = require('fs');
 const FormData = require('form-data');
-const { Readable } = require('stream');
+const { PassThrough } = require('stream');
 const config = require('../config');
 const whitelist = require('../whitelist');
+const { BrainLink } = require('./BrainLink');
+const { PcmGain } = require('./PcmGain');
 
 class VoiceManager {
     constructor(client) {
@@ -24,6 +25,18 @@ class VoiceManager {
 
         // sustained-speech threshold: only interrupt bea if someone talks for this long
         this.INTERRUPT_THRESHOLD_MS = config.INTERRUPT_THRESHOLD_MS;
+
+        // her voice arrives here, whenever she decides to speak
+        this.link = new BrainLink(this);
+        this.link.start();
+
+        // people coming and going changes how she should read the room
+        client.on('voiceStateUpdate', () => this.announceCall());
+    }
+
+    // she is in at most one call at a time
+    currentGuild() {
+        return [...this.connections.keys()][0] || null;
     }
 
     // leave every voice channel we're connected to (the discord_leave_voice tool)
@@ -51,6 +64,7 @@ class VoiceManager {
                 player,
                 channelId,
                 isSpeaking: false, // true when bea is actively playing audio
+                speech: null,      // the utterance currently on the wire
                 subscriptions: new Map() // userid -> opusstream
             };
 
@@ -64,6 +78,7 @@ class VoiceManager {
             player.on(AudioPlayerStatus.Idle, () => {
                 connectionData.isSpeaking = false;
                 console.log('[VoiceManager] Bea: IDLE');
+                this.finishUtterance(guildId, 'done');
             });
             player.on(AudioPlayerStatus.Paused, () => {
                 connectionData.isSpeaking = false;
@@ -73,6 +88,7 @@ class VoiceManager {
             connection.on(VoiceConnectionStatus.Ready, () => {
                 console.log(`[VoiceManager] Connection ready in guild ${guildId}`);
                 this.listenToUsers(guildId);
+                this.announceCall();
             });
 
             connection.on(VoiceConnectionStatus.Disconnected, () => {
@@ -98,6 +114,7 @@ class VoiceManager {
     cleanup(guildId) {
         const data = this.connections.get(guildId);
         if (data) {
+            this.finishUtterance(guildId, 'stopped');
             if (data.player) data.player.stop();
             // stop all streams
             for (const [userId, stream] of data.subscriptions) {
@@ -105,6 +122,7 @@ class VoiceManager {
             }
             this.connections.delete(guildId);
         }
+        this.announceCall();
     }
 
     listenToUsers(guildId) {
@@ -164,7 +182,8 @@ class VoiceManager {
                 // live interrupt check: only if bea is currently playing audio
                 if (!didInterrupt && data.isSpeaking && speechFrameCount >= interruptFrameThreshold) {
                     console.log(`[VoiceManager] Sustained speech (${(speechFrameCount * 20 / 1000).toFixed(1)}s) — INTERRUPTING Bea`);
-                    data.player.stop();
+                    // a ramp, not a cut: the brain hears back how far she got
+                    this.stopSpeaking(200);
                     axios.post(`${this.apiBaseUrl}/interrupt`).catch(e => { });
                     didInterrupt = true;
                 }
@@ -250,18 +269,11 @@ class VoiceManager {
         // downsample to mono 16khz and wrap as wav
         const wavBuffer = this.pcmToWav(this.downsampleMono16k(pcmBuffer), 16000, 1);
 
+        // nothing comes back from here: whatever she decides to say arrives on
+        // the push channel, on her clock rather than on this request's
         try {
             const form = this.speechForm(wavBuffer, guildId, userId, username);
-            const response = await axios.post(`${this.apiBaseUrl}/discord/audio`, form,
-                { headers: form.getHeaders() });
-
-            const { status, text, audio_base64 } = response.data;
-            const data = this.connections.get(guildId);
-            if (status === 'success' && data && data.player) {
-                data.player.stop();
-                console.log(`[VoiceManager] Response: "${text}"`);
-                if (audio_base64) this.playAudio(guildId, audio_base64);
-            }
+            await axios.post(`${this.apiBaseUrl}/discord/audio`, form, { headers: form.getHeaders() });
         } catch (error) {
             console.error("[VoiceManager] API Error:", error.message);
         }
@@ -304,25 +316,100 @@ class VoiceManager {
         }
     }
 
-    playAudio(guildId, base64Audio) {
-        const data = this.connections.get(guildId);
+    // --- her voice, pushed from the brain ----------------------------------
+
+    // tells the brain where she is and how many people are in there with her.
+    // the brain never assumes: being dragged into a call is as real as joining one
+    announceCall() {
+        const guildId = this.currentGuild();
+        const data = guildId ? this.connections.get(guildId) : null;
+        if (!data) {
+            this.link.send({ type: 'left' });
+            return;
+        }
+        this.link.send({
+            type: 'joined',
+            channel_id: data.channelId,
+            listeners: this.listenerCount(guildId),
+        });
+    }
+
+    /**
+     * one chunk of an utterance. the first chunk starts the playback, so sound
+     * begins before the rest has even been synthesised.
+     */
+    playPushed(header, pcm) {
+        const guildId = this.currentGuild();
+        const data = guildId ? this.connections.get(guildId) : null;
         if (!data || !data.player) return;
 
-        try {
-            const buffer = Buffer.from(base64Audio, 'base64');
-
-            // create readable stream
-            const stream = Readable.from(buffer);
-
-            const resource = createAudioResource(stream, {
-                inputType: StreamType.Arbitrary
-            });
-
-            data.player.play(resource);
-
-        } catch (e) {
-            console.error("[VoiceManager] Playback Logic Error:", e);
+        let speech = data.speech;
+        if (!speech || speech.id !== header.utterance_id) {
+            speech = this.openUtterance(guildId, header.utterance_id);
         }
+        if (pcm && pcm.length) speech.source.write(pcm);
+        if (header.last) speech.source.end();
+    }
+
+    openUtterance(guildId, utteranceId) {
+        const data = this.connections.get(guildId);
+        this.finishUtterance(guildId, 'stopped');
+
+        const source = new PassThrough();
+        const gain = new PcmGain((playedMs) => this.report(utteranceId, playedMs, 'playing'));
+        source.pipe(gain);
+
+        // raw is 48khz stereo s16le — exactly what the brain already sends, so
+        // nothing here has to decode, resample or guess a format
+        const resource = createAudioResource(gain, { inputType: StreamType.Raw });
+        data.speech = { id: utteranceId, source, gain };
+        data.player.play(resource);
+        this.report(utteranceId, 0, 'playing');
+        return data.speech;
+    }
+
+    finishUtterance(guildId, state) {
+        const data = this.connections.get(guildId);
+        if (!data || !data.speech) return;
+        const { id, source, gain } = data.speech;
+        data.speech = null;
+        source.end();
+        this.report(id, gain.playedMs, state);
+    }
+
+    /** fades her out and stops. the ramp is the difference between trailing off
+     *  and being cut mid-word, and the report says how much the room actually got. */
+    stopSpeaking(rampMs = 200) {
+        const guildId = this.currentGuild();
+        const data = guildId ? this.connections.get(guildId) : null;
+        if (!data || !data.speech) return;
+
+        data.speech.gain.rampTo(0, rampMs);
+        setTimeout(() => {
+            const still = this.connections.get(guildId);
+            if (!still || !still.speech) return;
+            this.finishUtterance(guildId, 'stopped');
+            still.player.stop();
+        }, rampMs);
+    }
+
+    /** turns her down without stopping her: someone said "sì sì", not "no aspetta" */
+    duck(gain, rampMs = 250) {
+        const guildId = this.currentGuild();
+        const data = guildId ? this.connections.get(guildId) : null;
+        if (!data || !data.speech) return;
+        data.speech.gain.rampTo(gain, rampMs);
+    }
+
+    /** stops accepting more of this utterance; what is already queued plays out */
+    cancelPending() {
+        const guildId = this.currentGuild();
+        const data = guildId ? this.connections.get(guildId) : null;
+        if (data && data.speech) data.speech.source.end();
+    }
+
+    report(utteranceId, playedMs, state) {
+        this.link.send({ type: 'playback', utterance_id: utteranceId, played_ms: playedMs, state });
     }
 
     // stereo 48khz s16le -> mono 16khz s16le. simple average + 3x decimation:
