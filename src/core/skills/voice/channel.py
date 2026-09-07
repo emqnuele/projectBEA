@@ -134,6 +134,14 @@ class VoiceChannel:
             pcm,
         ))
 
+    async def end(self, utterance_id: str) -> bool:
+        """Closes an utterance: the last sentence has been sent, nothing follows."""
+        if utterance_id not in self.utterances:
+            return False
+        return await self._send(frame(
+            {"type": "play", "utterance_id": utterance_id, "seq": -1, "last": True}, b"",
+        ))
+
     async def stop(self, ramp_ms: int = 200, timeout: float = 1.0) -> Optional[Utterance]:
         """Fades out what is playing and waits to hear how far it got.
 

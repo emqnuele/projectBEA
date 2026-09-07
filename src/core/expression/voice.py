@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 
 from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
+from src.core.expression.chunking import split_for_speech
 from src.core.expression.pcm import duration_ms, to_call_pcm
 from src.core.resources import resolve_mood_paths
 from src.interfaces.base_interfaces import OBSInterface, TTSInterface
@@ -249,10 +250,14 @@ class Expression:
             self.is_speaking = False
 
     async def _speak_call(self, mood: str, message: str):
-        """Synthesises and pushes the samples into the call; OBS visuals only locally."""
-        audio_data, sample_rate = await self.tts.generate_audio(message)
-        pcm = to_call_pcm(audio_data, sample_rate)
-        if not pcm or self.call is None:
+        """Synthesises piece by piece and pushes each one as it is ready.
+
+        The room hears the first sentence while the second is still being
+        generated, so the time to first sound stops depending on how much she
+        had to say. The seams sit on sentence boundaries, where a person would
+        breathe anyway.
+        """
+        if self.call is None:
             return None
 
         utterance_id = uuid.uuid4().hex
@@ -260,10 +265,35 @@ class Expression:
             EventCategory.OUTPUT, "tts", f"Speaking in the call: {message[:50]}...",
             metadata={"utterance_id": utterance_id},
         )
-        await self.call.play(pcm, utterance_id=utterance_id, text=message)
 
-        asyncio.create_task(self._visual_only(mood, message, duration_ms(pcm) / 1000.0))
+        seq = 0
+        spoken_ms = 0
+        for sentence in split_for_speech(message):
+            async for audio_data, sample_rate in self.tts.generate_stream(sentence):
+                if self._call_moved_on(utterance_id, seq):
+                    return self.call.utterances.get(utterance_id)
+                pcm = to_call_pcm(audio_data, sample_rate)
+                if not pcm:
+                    continue
+                await self.call.play(pcm, utterance_id=utterance_id, text=message,
+                                     seq=seq, last=False)
+                spoken_ms += duration_ms(pcm)
+                seq += 1
+
+        await self.call.end(utterance_id)
+        asyncio.create_task(self._visual_only(mood, message, spoken_ms / 1000.0))
         return self.call.utterances.get(utterance_id)
+
+    def _call_moved_on(self, utterance_id: str, seq: int) -> bool:
+        """Whether it is still worth synthesising the rest of this line.
+
+        Barge-in lands while the later sentences are still being generated:
+        without this she keeps paying for words the room already stopped hearing.
+        """
+        if seq == 0:
+            return not self.call_is_live
+        current = self.call.current
+        return not self.call_is_live or current is None or current.id != utterance_id
 
     async def _visual_only(self, mood: str, message: str, duration: float):
         """Updates OBS visuals/text without playing local audio."""
