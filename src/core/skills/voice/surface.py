@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.events import EventCategory
+from src.core.floor import FloorController
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.platform import PlatformSkill
 from src.core.skills.voice.channel import VoiceChannel
@@ -51,6 +52,14 @@ class VoiceSurface(PlatformSkill):
         if self.expression is not None:
             self.expression.set_call(self.channel)
 
+        # the reflex: it decides when the door opens, never what comes through it
+        self.floor = FloorController(
+            config=self.config, bus=self.bus, channel=self.channel,
+            expression=self.expression, surface_name=self.name,
+            events=getattr(self.context, "event_manager", None),
+        )
+        self._floor_task: Optional[asyncio.Task] = None
+
     def _on_first_sound(self) -> None:
         """Sound actually reached the room: that, and not the send, ends the clock."""
         self.latency.mark(TRANSPORT)
@@ -69,6 +78,7 @@ class VoiceSurface(PlatformSkill):
         if self.transport.start():
             self.active = True
             self._monitor = asyncio.create_task(self._watch_transport())
+            self._floor_task = asyncio.create_task(self._watch_floor())
             logger.info("VoiceSurface started.")
 
     @property
@@ -82,6 +92,9 @@ class VoiceSurface(PlatformSkill):
         if getattr(self, "_monitor", None):
             self._monitor.cancel()
             self._monitor = None
+        if getattr(self, "_floor_task", None):
+            self._floor_task.cancel()
+            self._floor_task = None
         self.transport.stop()
         await self.transport.close()
         logger.info("VoiceSurface stopped.")
@@ -146,6 +159,21 @@ class VoiceSurface(PlatformSkill):
             await self.transport.leave_voice()
             self._forget_call()
 
+    async def _watch_floor(self) -> None:
+        """Ticks on a clock of seconds, not of turns.
+
+        Its own task, and a fast one: the supervision loop polls the bot over
+        HTTP, and a silence measured in seconds cannot be watched at that price.
+        """
+        while self.active:
+            try:
+                self.floor.tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Floor tick failed: {e}")
+            await asyncio.sleep(0.5)
+
     async def _watch_transport(self) -> None:
         while self.active:
             try:
@@ -209,6 +237,7 @@ class VoiceSurface(PlatformSkill):
                   "whitelisted": whitelisted, **extra},
             author=self._author(user, user_id),
         )
+        self.floor.heard()
         self.bus.put(p)
         return p
 

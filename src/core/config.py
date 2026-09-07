@@ -166,7 +166,13 @@ class BrainConfig:
             "brain_api_url": "http://127.0.0.1:8000",
             "admin_id": "",
             "duck_threshold_ms": 400,
-            "interrupt_threshold_ms": 3000
+            "interrupt_threshold_ms": 3000,
+            # the reflex: when she may open her mouth without being asked
+            "fill_silences": True,
+            "silence_seconds": 6.0,          # quiet for this long and the door opens
+            "silence_jitter_seconds": 2.0,   # a fixed threshold sounds like a timer
+            "silence_min_gap_seconds": 25.0,
+            "unprompted_per_minute": 1       # the number that sets her character
         }
     })
 
@@ -210,6 +216,7 @@ class BrainConfig:
     attention: Dict[str, Any] = field(default_factory=lambda: {
         "enabled": True,
         "cooldown_seconds": 20,        # she just spoke: let the room breathe
+        "voice_cooldown_seconds": 5,   # in a call 20s is not restraint, it is absence
         "interject_threshold": 0.45,   # score needed to speak up unprompted
         "quiet_hours": [3, 9],         # never interjects here (being addressed still does)
         "trigger_words": [],           # empty = worked out from persona.name

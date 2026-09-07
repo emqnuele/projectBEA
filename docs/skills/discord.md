@@ -155,6 +155,20 @@ Without that line her history holds the whole sentence and she goes on
 referring to a second half nobody heard — which reads as a bot far more than
 any amount of latency does.
 
+**Filling a silence.** A call that goes quiet is not a call that has nothing
+left in it, and a bot that only ever answers is obviously a bot. The reflex
+(`src/core/floor/`) watches the room on a clock of seconds and, after
+`silence_seconds` (± `silence_jitter_seconds`, so it does not sound like the
+timer it is), puts one perception on the bus marked `addressed: silence`.
+
+It is a *door*, not a line: the mind decides whether there is anything worth
+saying, and `stay_silent` remains a perfectly good answer. The reflex has no
+memory, no persona and no words of its own — its output is an enum. Turn
+`fill_silences` off and Bea is the same person with worse timing.
+
+`unprompted_per_minute` is the number that sets her character: one is present
+and discreet, three is the loudest person in the room.
+
 **Whitelist:** in text, `access_mode` decides whether an unlisted person reaches
 her at all. In voice she hears everyone in the channel — if you are in the room
 she can hear you — but an unlisted voice arrives with its salience damped, the
@@ -184,6 +198,11 @@ restricted to `ADMIN_ID` and unauthorised calls are silently ignored.
 | `brain_api_url` | Where the bot calls back into the brain |
 | `admin_id` | Discord user id allowed to run `!wl` |
 | `duck_threshold_ms` | How long someone talks over her before she drops her volume |
+| `fill_silences` | Whether she may speak into a quiet call unasked |
+| `silence_seconds` | How long the call stays quiet before the door opens |
+| `silence_jitter_seconds` | Random spread on that wait |
+| `silence_min_gap_seconds` | How long before she may fill another silence |
+| `unprompted_per_minute` | Hard limit on speaking up unasked |
 | `interrupt_threshold_ms` | How long someone must speak to interrupt her |
 
 ---
