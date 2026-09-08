@@ -272,3 +272,29 @@ def test_an_unchanged_mood_is_not_reannounced_every_turn(store):
     for _ in range(6):
         state.spoke("normal", [said("ciao")])
     assert [e for e in events.events if e[1] == "affect"] == []
+
+
+def test_the_people_page_is_given_the_words_and_never_the_number(store):
+    """A value nobody can read is a value nobody can tell is stuck."""
+    from fastapi.testclient import TestClient
+
+    from src.web import app as web
+
+    card = known(store)
+    state = affect(store)
+    state.spoke("angry", [said()])
+    state.spoke("angry", [said()])
+
+    class BrainStub:
+        memory = store
+
+    previous = web.brain_instance
+    web.brain_instance = BrainStub()
+    try:
+        person = TestClient(web.app).get("/memory/people").json()[0]
+    finally:
+        web.brain_instance = previous
+
+    assert person["person_id"] == card.person_id
+    assert "annoyed" in person["mood"]
+    assert "warmth" not in person
