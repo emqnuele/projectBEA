@@ -21,6 +21,8 @@ SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 # CREATE TABLE IF NOT EXISTS will not add them, so they need a guarded ALTER
 _MIGRATIONS: List[tuple] = [
     ("messages", "addressee_identity", "TEXT NOT NULL DEFAULT ''"),
+    ("people", "warmth", "REAL NOT NULL DEFAULT 0"),
+    ("people", "warmth_at", "REAL NOT NULL DEFAULT 0"),
 ]
 
 
