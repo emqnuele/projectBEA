@@ -35,7 +35,7 @@ class Consciousness:
 
     def __init__(self, *, config, llm, bus, expression, surfaces, history_manager,
                  event_manager, soul_getter, operating_getter, attention=None,
-                 conversations=None):
+                 conversations=None, affect=None):
         self.config = config
         self.llm = llm
         self.bus = bus
@@ -45,6 +45,7 @@ class Consciousness:
         self.events = event_manager
         self.attention = attention
         self.conversations = conversations
+        self.affect = affect
         self._get_soul = soul_getter
         self._get_operating = operating_getter
         # what scrolled out of the rolling context, in one line she keeps
@@ -60,6 +61,9 @@ class Consciousness:
         self.correlation_timeout = cc.get("correlation_timeout", 30.0)
 
         self.context: List[Dict[str, Any]] = []
+        # what provoked the turn in flight: `speak` needs it to know who to pin
+        # a strong reaction on, and a tool handler is not handed the batch
+        self._batch: List[Perception] = []
         self.total_tokens = 0
         self.total_calls = 0
         self.alive = False
@@ -186,6 +190,7 @@ class Consciousness:
                 if not is_idle:
                     logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
                 self.context.append(self._frame(batch))
+                self._batch = list(batch)
 
                 t_turn = time.perf_counter()
                 steps = 0
@@ -202,6 +207,7 @@ class Consciousness:
                         steer = self._route(steer)
                     if steer:
                         self.context.append(self._frame(steer, steering=True))
+                        self._batch.extend(steer)
 
                     steps += 1
                     t_llm = time.perf_counter()
@@ -329,7 +335,11 @@ class Consciousness:
             dynamic = self.surfaces.dynamic_context(batch) if batch else []
         digest = self.attention.digest() if self.attention else ""
         elsewhere = self.conversations.recent_lines() if self.conversations else ""
-        parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live, *dynamic]
+        feeling = self.affect.render() if self.affect else ""
+        parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live]
+        if feeling:
+            parts.append(feeling)
+        parts.extend(dynamic)
         recap = self.recap.render()
         if recap:
             parts.append(recap)
@@ -425,6 +435,8 @@ class Consciousness:
             return await self._stay_silent("nothing sayable")
         if self.attention:
             self.attention.mark_spoke()
+        if self.affect:
+            self.affect.spoke(mood, self._batch)
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
 
