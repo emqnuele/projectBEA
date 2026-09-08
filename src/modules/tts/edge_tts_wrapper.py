@@ -3,9 +3,9 @@ import os
 
 import edge_tts
 import numpy as np
-import sounddevice as sd
 import soundfile as sf
 
+from src.core.expression.prosody import combine_hz, combine_percent
 from src.interfaces.base_interfaces import TTSInterface
 from src.utils.logger import get_logger
 
@@ -30,13 +30,28 @@ class EdgeTTSWrapper(TTSInterface):
         if config.tts_volume != self.volume:
              self.volume = config.tts_volume
 
-    async def _generate_audio_file(self, text: str, filename: str) -> None:
+    def _voice_for(self, prosody) -> tuple[str, str, str]:
+        """The configured voice, moved by the mood. Neutral leaves it untouched."""
+        if prosody is None or prosody.neutral:
+            return self.pitch, self.rate, self.volume
+        return (
+            combine_hz(self.pitch, prosody.pitch_hz),
+            combine_percent(self.rate, prosody.rate),
+            combine_percent(self.volume, prosody.volume),
+        )
+
+    async def _generate_audio_file(self, text: str, filename: str, prosody=None) -> None:
         """Generates the audio file."""
-        communicate = edge_tts.Communicate(text, self.voice, pitch=self.pitch, rate=self.rate, volume=self.volume)
+        pitch, rate, volume = self._voice_for(prosody)
+        communicate = edge_tts.Communicate(text, self.voice, pitch=pitch, rate=rate, volume=volume)
         await communicate.save(filename)
 
     def _play_audio_sync(self, device_id: int, filename: str):
         """Synchronous audio playback using OutputStream for better thread safety."""
+        # imported where it is used, not at module scope: generating audio must not
+        # need PortAudio, and a headless box (CI, a server) has no such library
+        import sounddevice as sd
+
         if not os.path.exists(filename):
             logger.error(f"TTS file not found: {filename}")
             return
@@ -73,7 +88,7 @@ class EdgeTTSWrapper(TTSInterface):
         except Exception as e:
             logger.error(f"error playing audio: {e}")
 
-    async def generate_audio(self, text: str) -> tuple[np.ndarray, int]:
+    async def generate_audio(self, text: str, prosody=None) -> tuple[np.ndarray, int]:
         """Generates audio and returns numpy array + sample rate."""
         if not text:
              return np.zeros(0, dtype=np.float32), 24000
@@ -83,7 +98,8 @@ class EdgeTTSWrapper(TTSInterface):
 
         try:
             # generate to file
-            communicate = edge_tts.Communicate(text, self.voice, pitch=self.pitch, rate=self.rate, volume=self.volume)
+            pitch, rate, volume = self._voice_for(prosody)
+            communicate = edge_tts.Communicate(text, self.voice, pitch=pitch, rate=rate, volume=volume)
             await communicate.save(unique_filename)
 
             # read to numpy
@@ -102,6 +118,8 @@ class EdgeTTSWrapper(TTSInterface):
 
     async def speak(self, text: str, output_device_id: int) -> None:
         """Generates and plays audio."""
+        import sounddevice as sd
+
         # deprecated: brain should use generate_audio
         data, fs = await self.generate_audio(text)
         if len(data) == 0:

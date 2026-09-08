@@ -58,7 +58,7 @@ class ConversationMind:
 
     def __init__(self, *, config, llm, memory, surfaces, soul_getter, operating_getter,
                  scheduler, event_manager=None, profiler=None, now_line=None,
-                 attention=None):
+                 attention=None, affect=None):
         self.config = config
         self.llm = llm
         self.memory = memory
@@ -67,6 +67,9 @@ class ConversationMind:
         self.events = event_manager
         self.profiler = profiler
         self.attention = attention
+        # read, never written: a scoped reply has no mood to pick, so the mood
+        # forms on stage and merely colours what she types
+        self.affect = affect
         self._get_soul = soul_getter
         self._get_operating = operating_getter
         # one line describing what the live loop is up to, injected into a turn
@@ -203,6 +206,10 @@ class ConversationMind:
             self._get_operating(),
             CONVERSATION_RULES,
         ]
+
+        feeling = self.affect.render() if self.affect else ""
+        if feeling:
+            parts.append(feeling)
 
         who = self._who(incoming)
         if who:

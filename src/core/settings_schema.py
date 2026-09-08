@@ -344,6 +344,26 @@ RHYTHM = Section(
     ],
 )
 
+AFFECT = Section(
+    key="affect", label="Mood", scope="root",
+    blurb="Whether what happens to her sticks, and for how long.",
+    settings=[
+        Setting("enabled", "On", "bool",
+                "Off, every line starts from neutral and nothing carries over.", True),
+        Setting("half_life_minutes", "A mood lasts", "float",
+                "Minutes until a mood is half of what it was. Short and she is "
+                "unflappable; long and one bad exchange colours the evening.",
+                25.0, minimum=1.0, maximum=600.0),
+        Setting("person_half_life_hours", "She holds a grudge for", "float",
+                "Hours until how she stands with someone is half of what it was. "
+                "Days, not minutes: being cold with somebody outlasts a mood.",
+                60.0, minimum=1.0, maximum=720.0),
+        Setting("memory_ttl_hours", "Remembers what caused it for", "float",
+                "How long she can still say what put her in that mood.",
+                6.0, minimum=0.5, maximum=168.0),
+    ],
+)
+
 MODELS = Section(
     key="models", label="Models", scope="root",
     blurb="Which models she thinks with, and how fast they answer.",
@@ -385,7 +405,7 @@ CONSCIOUSNESS = Section(
 
 SECTIONS: List[Section] = [
     TELEGRAM, DISCORD, TWITCH, MINECRAFT, DONATIONS,
-    ATTENTION, RHYTHM, MODELS, CONSCIOUSNESS, MEMORY, DREAM,
+    ATTENTION, RHYTHM, AFFECT, MODELS, CONSCIOUSNESS, MEMORY, DREAM,
 ]
 
 _BY_KEY = {s.key: s for s in SECTIONS}

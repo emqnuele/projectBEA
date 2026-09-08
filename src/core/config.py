@@ -225,6 +225,15 @@ class BrainConfig:
         "digest_max_lines": 8,
     })
 
+    # how she feels, and how long it lasts. The mood colours her voice and her
+    # prompt; how she *acts* on it is the soul's business, not this block's.
+    affect: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": True,
+        "half_life_minutes": 25,       # long enough to survive a few exchanges
+        "person_half_life_hours": 60,  # a rancour outlives a mood
+        "memory_ttl_hours": 6,         # how long she remembers what caused it
+    })
+
     # her clock. Empty follows the machine, which is fine on a laptop and wrong
     # in a UTC container where the quiet hours would silently shift
     timezone: str = ""

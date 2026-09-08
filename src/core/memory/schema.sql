@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS people (
     promoted_reason TEXT NOT NULL DEFAULT '',
     -- their message count at the last profiling pass
     profiled_count  INTEGER NOT NULL DEFAULT 0,
+    -- how she stands with them right now, and when that was last true. Decays
+    -- toward neutral on read, so a grudge fades without anyone sweeping it.
+    warmth          REAL NOT NULL DEFAULT 0,
+    warmth_at       REAL NOT NULL DEFAULT 0,
     created_at      REAL NOT NULL,
     updated_at      REAL NOT NULL
 );

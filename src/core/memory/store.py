@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.core.affect.rules import PERSON_HALF_LIFE_SECONDS, clamp, faded, warmth_phrase
 from src.core.attention.followup import Turn
 from src.core.memory.db import Database
 from src.core.memory.plan import StreamPlan
@@ -57,6 +58,8 @@ class PersonCard:
     facts: List[str] = field(default_factory=list)
     bea_attitude: str = ""
     promoted_reason: str = ""
+    # how she stands with them right now, already decayed
+    warmth: float = 0.0
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
 
@@ -66,8 +69,11 @@ class PersonCard:
 
     def render(self) -> str:
         line = f"- **{self.primary_name}**"
-        if self.bea_attitude:
-            line += f" (you: {self.bea_attitude})"
+        # the settled attitude and the recent one, in that order: what she
+        # thinks of them, then how the last few days went
+        feelings = [f for f in (self.bea_attitude, warmth_phrase(self.warmth)) if f]
+        if feelings:
+            line += " (you: " + "; ".join(feelings) + ")"
         if self.facts:
             line += ": " + "; ".join(self.facts[-MAX_FACTS_SHOWN:])
         return line
@@ -281,6 +287,23 @@ class PeopleStore:
             )
             cur.execute("UPDATE people SET updated_at = ? WHERE person_id = ?", (now, person_id))
 
+    def nudge_warmth(self, person_id: str, delta: float, *,
+                     half_life: float = PERSON_HALF_LIFE_SECONDS,
+                     now: Optional[float] = None) -> float:
+        """Moves how she stands with someone, on top of whatever is left of before."""
+        row = self.db.query_one(
+            "SELECT warmth, warmth_at FROM people WHERE person_id = ?", (person_id,)
+        )
+        if row is None:
+            return 0.0
+        now = time.time() if now is None else now
+        value = clamp(self._warmth(row, half_life, now) + delta)
+        self.db.execute(
+            "UPDATE people SET warmth = ?, warmth_at = ?, updated_at = ? WHERE person_id = ?",
+            (value, now, now, person_id),
+        )
+        return value
+
     def set_attitude(self, person_id: str, attitude: str) -> None:
         self.db.execute("UPDATE people SET attitude = ?, updated_at = ? WHERE person_id = ?",
                         (attitude, time.time(), person_id))
@@ -333,9 +356,22 @@ class PeopleStore:
             facts=[f["text"] for f in facts],
             bea_attitude=row["attitude"] or "",
             promoted_reason=row["promoted_reason"] or "",
+            warmth=self._warmth(row),
             created_at=float(row["created_at"]),
             last_updated=float(row["updated_at"]),
         )
+
+    @staticmethod
+    def _warmth(row, half_life: float = PERSON_HALF_LIFE_SECONDS,
+                now: Optional[float] = None) -> float:
+        """Decayed on read, so a grudge fades with no sweeper to forget to run."""
+        try:
+            value, since = float(row["warmth"]), float(row["warmth_at"])
+        except (KeyError, IndexError, TypeError):
+            return 0.0
+        if not value or not since:
+            return 0.0
+        return faded(value, (now if now is not None else time.time()) - since, half_life)
 
 
 # --- hot facts --------------------------------------------------------------

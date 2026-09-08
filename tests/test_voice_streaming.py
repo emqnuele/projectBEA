@@ -81,7 +81,7 @@ class OneShotTTS(TTSInterface):
     def __init__(self):
         self.rendered = []
 
-    async def generate_audio(self, text):
+    async def generate_audio(self, text, prosody=None):
         self.rendered.append(text)
         return np.zeros(2400, dtype=np.float32), 24000
 
@@ -95,7 +95,7 @@ class OneShotTTS(TTSInterface):
 class ChunkedTTS(OneShotTTS):
     """An engine whose source is already chunked, the way Orpheus's really is."""
 
-    async def generate_stream(self, text):
+    async def generate_stream(self, text, prosody=None):
         self.rendered.append(text)
         for _ in range(3):
             yield np.zeros(800, dtype=np.float32), 24000
@@ -207,7 +207,7 @@ async def test_a_barge_in_stops_her_paying_for_words_nobody_will_hear():
             super().__init__()
             self.channel_getter = channel_getter
 
-        async def generate_audio(self, text):
+        async def generate_audio(self, text, prosody=None):
             self.rendered.append(text)
             channel = self.channel_getter()
             # the first piece is already playing when someone talks over her

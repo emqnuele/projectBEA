@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
+from src.core.affect.rules import warmth_phrase
 from src.core.agent.registry import BACKGROUND
 from src.core.brain import AIVtuberBrain
 from src.core.config import MASK, SECRET_SKILL_FIELDS
@@ -870,6 +871,7 @@ def memory_people():
             "identities": card.identities,
             "facts": card.facts,
             "attitude": card.bea_attitude,
+            "mood": warmth_phrase(card.warmth),
             "reason": card.promoted_reason,
             "created_at": card.created_at,
             "last_updated": card.last_updated,

@@ -164,5 +164,11 @@
         "spontaneous_probability": 0.15,
         "spontaneous_min_silence": 3600,
         "spontaneous_min_activity": 3
+    },
+    "affect": {
+        "enabled": true,
+        "half_life_minutes": 25,
+        "person_half_life_hours": 60,
+        "memory_ttl_hours": 6
     }
 }

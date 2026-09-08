@@ -3,7 +3,6 @@ import os
 
 import numpy as np
 import requests
-import sounddevice as sd
 from kokoro_onnx import Kokoro
 
 from src.interfaces.base_interfaces import TTSInterface
@@ -67,9 +66,12 @@ class KokoroTTSWrapper(TTSInterface):
              logger.info(f"language updated to {config.kokoro_lang}")
              self.lang = config.kokoro_lang
 
-    async def generate_audio(self, text: str) -> tuple[np.ndarray, int]:
+    async def generate_audio(self, text: str, prosody=None) -> tuple[np.ndarray, int]:
         if not text or not self.kokoro:
             return np.zeros(0, dtype=np.float32), 24000
+
+        # rate is the only knob kokoro has; pitch and volume are simply lost
+        speed = self.speed if prosody is None else self.speed * prosody.rate
 
         # run generation in thread to avoid blocking loop
         loop = asyncio.get_running_loop()
@@ -78,7 +80,7 @@ class KokoroTTSWrapper(TTSInterface):
             self.kokoro.create,
             text,
             self.voice,
-            self.speed,
+            speed,
             self.lang
         )
 
@@ -91,6 +93,10 @@ class KokoroTTSWrapper(TTSInterface):
         return samples, sample_rate
 
     async def speak(self, text: str, output_device_id: int) -> None:
+        # imported where it is used, not at module scope: generating audio must not
+        # need PortAudio, and a headless box (CI, a server) has no such library
+        import sounddevice as sd
+
         # deprecated: brain should use generate_audio and handle playback
         # kept for compatibility or direct usage
         samples, sample_rate = await self.generate_audio(text)

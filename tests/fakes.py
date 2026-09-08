@@ -74,6 +74,8 @@ class FakeExpression:
 
     def __init__(self):
         self.spoken: List[tuple] = []
+        # how she felt when each line was decided, for the prosody tests
+        self.felt: List[Any] = []
         self.is_speaking = False
         self.interrupts = 0
         self.mood_avatar: Optional[str] = None
@@ -86,8 +88,9 @@ class FakeExpression:
     def call_is_live(self) -> bool:
         return bool(self.call is not None and self.call.live)
 
-    async def speak(self, mood, message, *, route="local"):
+    async def speak(self, mood, message, *, route="local", feeling=None):
         self.spoken.append((mood, message, route))
+        self.felt.append(feeling)
         return None
 
     async def interrupt(self, ramp_ms: int = 200):

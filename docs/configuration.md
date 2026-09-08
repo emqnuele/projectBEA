@@ -199,6 +199,12 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         "spontaneous_probability": 0.15,
         "spontaneous_min_silence": 3600,
         "spontaneous_min_activity": 3
+    },
+    "affect": {
+        "enabled": true,
+        "half_life_minutes": 25,
+        "person_half_life_hours": 60,
+        "memory_ttl_hours": 6
     }
 }
 ```
@@ -289,6 +295,22 @@ A day rather than an event loop.
 | `spontaneous_probability` | `0.15` | Even when eligible, usually she does not |
 | `spontaneous_min_silence` | `3600` | She spoke there recently: more is noise, not presence |
 | `spontaneous_min_activity` | `3` | Below this the room is dead and she would be talking to nobody |
+
+---
+
+## affect
+
+Whether what happens to her sticks, and for how long. [How it works →](architecture.md#mood)
+
+| Key | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Off, every line starts from neutral and nothing carries over |
+| `half_life_minutes` | `25` | Minutes until a mood is half of what it was |
+| `person_half_life_hours` | `60` | Hours until how she stands with someone is half of what it was |
+| `memory_ttl_hours` | `6` | How long she can still say what put her in that mood |
+
+Nothing here tells her how to *behave* when she feels something — that is the
+soul's job, and the soul is a file you write.
 
 ---
 

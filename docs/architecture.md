@@ -35,6 +35,7 @@ reactive chat path — the consciousness is the only mind.
 | `Expression` | `src/core/expression/voice.py` | the **only** voice/visual output sink |
 | `TextHumanizer` | `src/core/expression/humanizer.py` | written output: one line = one message, with typing |
 | `Attention` | `src/core/attention/` | the gate: what wakes the mind vs what she merely notices |
+| `AffectState` | `src/core/affect/` | how she feels, and who put her there |
 | `MemoryStore` | `src/core/memory/` | everything she remembers, in one SQLite file |
 | `Consciousness` | `src/core/consciousness.py` | the mind: one context, one loop |
 | `EventManager` | `src/core/events.py` | 200-event ring buffer for the dashboard |
@@ -280,7 +281,9 @@ single transaction, and "who have I seen most" is a query rather than a scan.
 | Person cards | `people` + `facts` | only those present, max 5 | auto-promotion + `remember_person` + dreamer + profiler |
 | Conversations | `messages` + `summaries` | per conversation turn | the platform skills |
 | Self-lore | `self_facts` + `self_profile` | yes (last 15 facts) | the dreamer only |
-| Hot facts | `hot_facts` (TTL) | yes (max 6) | dreamer + morning pass |
+| Hot facts | `hot_facts` (TTL) | yes (max 6) | dreamer + morning pass + a strong reaction |
+| Standing mood | `settings` (`affect.state`) | only past a threshold | every line she speaks |
+| Standing with a person | `people.warmth` | with their card | a strong reaction |
 | Sessions | `sessions` | never | the brain + the dreamer |
 
 Re-ranking is `similarity*0.7 + recency*0.3` with `1/(1+days*0.1)` decay. Every
@@ -325,6 +328,62 @@ whether to answer someone who just spoke to you is what makes a bot feel broken.
 Every decision is published as a `system` event with `reaction`, `score` and
 `reason`, and shown in Brain Activity. That is not optional instrumentation:
 without seeing *why* something was ignored, tuning the thresholds is guesswork.
+
+## Mood
+
+`src/core/affect/`. Everything that happened to her either lasted under two
+minutes (a cooldown, an activity window) or became a fact in a prompt. Nothing
+lived on the scale of the last half hour, which is the scale on which people
+read someone's mood.
+
+There is **no new sense and no new tool**. She already picks a mood for every
+line she speaks, and until now that mood only ever reached a PNG. It is the
+signal, so this costs no extra model call and no extra prompt.
+
+- `rules.py` is **pure** — `Affect` is `(valence, arousal, updated_at)`, and
+  the two axes are two rather than one because angry and sad are both negative
+  and sound nothing alike.
+- `state.py` holds it, persists it in `settings` and decides who caused it.
+
+**It decays on read, not on a tick.** The value carries the moment it was
+written and is aged when someone asks for it — the same reason `hot_facts` has
+no sweeper. No background task, and a restart comes back correctly aged for
+free: crash while furious and she reboots furious, sleep on it and she does not.
+
+One strong line lands on three clocks:
+
+| | Where | Half-life |
+|---|---|---|
+| the mood itself | `settings` | ~25 min |
+| how she stands with whoever caused it | `people.warmth` | ~2.5 days |
+| what it was about | `hot_facts` (`source='live'`) | 6h TTL |
+
+**Attribution is one clear author or nothing.** In a busy room the mood is the
+room's, and picking a face out of it would be inventing a grudge. Someone who
+did get a real reaction out of her earns a card, through the promotion rule that
+already exists — `marked_by_bea` — rather than a new one.
+
+Two rules keep it honest:
+
+- **It never touches `is_addressed`.** That gate is deterministic so that
+  answering someone who just spoke to you is not a dice roll. A mood may colour
+  the probabilistic side; it may not make her ignore her own name.
+- **It describes, it never prescribes.** `[HOW YOU FEEL]` says how she feels and
+  stops. How a person like her *acts* on that is the soul's business, and the
+  soul is a file the owner writes — an instruction here would be the engine
+  overwriting somebody's character.
+
+Where it is audible: `expression/prosody.py` turns a mood into a deviation from
+the configured voice (rate, pitch, volume), which each TTS wrapper translates as
+far as it can — Edge does all three, Kokoro only rate, Orpheus none. `Prosody()`
+is neutral and byte-identical to no prosody at all, so switching the feature off
+really does leave her voice alone.
+
+Scoped conversation turns **read** the mood and never write it: a written reply
+has no mood to pick, so the mood forms on stage and merely colours what she
+types.
+
+---
 
 ## Models
 

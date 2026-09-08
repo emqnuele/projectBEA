@@ -1,6 +1,7 @@
 import asyncio
 from typing import List, Optional, Tuple
 
+from src.core.affect.state import AffectState
 from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
 from src.core.attention import Attention
 from src.core.config import BrainConfig
@@ -91,6 +92,7 @@ class AIVtuberBrain:
         self.perception_bus: Optional[PerceptionBus] = None
         self.skill_registry: Optional[SkillRegistry] = None
         self.attention: Optional[Attention] = None
+        self.affect: Optional[AffectState] = None
         self.profiler: Optional[Profiler] = None
         self.conversations: Optional[ConversationMind] = None
         self.spontaneous: Optional[SpontaneousPresence] = None
@@ -246,6 +248,10 @@ class AIVtuberBrain:
         # background passes that keep the cards and summaries fresh between dreams
         self.profiler = Profiler(self.model_for(BACKGROUND), self.memory)
 
+        # how she has been feeling, read by the prompt and by her voice alike
+        self.affect = AffectState(self.config, self.memory, events=self.event_manager)
+        self.expression.set_affect(self.affect)
+
         social = self.skill_registry.get("social")
         self.attention = Attention(
             self.config,
@@ -265,6 +271,7 @@ class AIVtuberBrain:
             soul_getter=lambda: self.soul,
             operating_getter=self._load_operating_rules,
             attention=self.attention,
+            affect=self.affect,
         )
 
         # written conversations run beside the live loop: one turn at a time per
@@ -282,6 +289,7 @@ class AIVtuberBrain:
             event_manager=self.event_manager,
             profiler=self.profiler,
             attention=self.attention,
+            affect=self.affect,
             now_line=self.consciousness.now_line,
         )
         self.consciousness.conversations = self.conversations

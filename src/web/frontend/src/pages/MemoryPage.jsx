@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Flame, Heart, Save, Search, Sparkles, User, Users } from 'lucide-react';
+import { Flame, Heart, Save, Search, Sparkles, Thermometer, User, Users } from 'lucide-react';
 import { api } from '../api';
 import { compact, dayAndTime, relativeTime, titleCase } from '../lib/format';
 import { useToast } from '../state/ToastProvider';
@@ -138,6 +138,16 @@ function PeopleGrid({ people }) {
                             >
                                 <Heart size={12} className="mt-0.5 shrink-0" style={{ color: 'var(--vital)' }} />
                                 {person.attitude}
+                            </p>
+                        )}
+
+                        {person.mood && (
+                            <p
+                                className="mt-2 flex items-start gap-2 rounded-b2 px-2.5 py-2 text-[12px] italic leading-snug"
+                                style={{ background: 'var(--cognition-soft)', color: 'var(--text)' }}
+                            >
+                                <Thermometer size={12} className="mt-0.5 shrink-0" style={{ color: 'var(--cognition)' }} />
+                                {person.mood}
                             </p>
                         )}
 

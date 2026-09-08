@@ -35,7 +35,7 @@ class Consciousness:
 
     def __init__(self, *, config, llm, bus, expression, surfaces, history_manager,
                  event_manager, soul_getter, operating_getter, attention=None,
-                 conversations=None):
+                 conversations=None, affect=None):
         self.config = config
         self.llm = llm
         self.bus = bus
@@ -45,6 +45,7 @@ class Consciousness:
         self.events = event_manager
         self.attention = attention
         self.conversations = conversations
+        self.affect = affect
         self._get_soul = soul_getter
         self._get_operating = operating_getter
         # what scrolled out of the rolling context, in one line she keeps
@@ -60,6 +61,9 @@ class Consciousness:
         self.correlation_timeout = cc.get("correlation_timeout", 30.0)
 
         self.context: List[Dict[str, Any]] = []
+        # what provoked the turn in flight: `speak` needs it to know who to pin
+        # a strong reaction on, and a tool handler is not handed the batch
+        self._batch: List[Perception] = []
         self.total_tokens = 0
         self.total_calls = 0
         self.alive = False
@@ -186,6 +190,7 @@ class Consciousness:
                 if not is_idle:
                     logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
                 self.context.append(self._frame(batch))
+                self._batch = list(batch)
 
                 t_turn = time.perf_counter()
                 steps = 0
@@ -202,6 +207,7 @@ class Consciousness:
                         steer = self._route(steer)
                     if steer:
                         self.context.append(self._frame(steer, steering=True))
+                        self._batch.extend(steer)
 
                     steps += 1
                     t_llm = time.perf_counter()
@@ -329,7 +335,11 @@ class Consciousness:
             dynamic = self.surfaces.dynamic_context(batch) if batch else []
         digest = self.attention.digest() if self.attention else ""
         elsewhere = self.conversations.recent_lines() if self.conversations else ""
-        parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live, *dynamic]
+        feeling = self.affect.render() if self.affect else ""
+        parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live]
+        if feeling:
+            parts.append(feeling)
+        parts.extend(dynamic)
         recap = self.recap.render()
         if recap:
             parts.append(recap)
@@ -429,21 +439,28 @@ class Consciousness:
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
 
         latency = self._voice_latency
+        # how she felt when she decided on this line, before it moves her
+        feeling = self.affect.current if self.affect else None
 
         if self.expression.call_is_live:
             # every sentence of a turn goes to the room, not just the first: the
             # call is a sink she pushes into, not one reply she hands back
             if latency:
                 latency.mark(MIND)
-            await self.expression.speak(mood, message, route="call")
+            await self.expression.speak(mood, message, route="call", feeling=feeling)
             if latency:
                 latency.mark(TTS)
         else:
             # fire-and-forget so reasoning keeps going
-            asyncio.create_task(self._speak_local_safe(mood, message))
+            asyncio.create_task(self._speak_local_safe(mood, message, feeling))
 
         # whoever is blocked on a written answer gets one either way
         self.correlations.resolve(lambda r: True, {"mood": mood, "message": message})
+
+        # after the voice, not before: this line is already coloured by its own
+        # mood, and counting it twice would make the first sharp remark shout
+        if self.affect:
+            self.affect.spoke(mood, self._batch)
 
         return "Spoken."
 
@@ -452,10 +469,10 @@ class Consciousness:
         """The stopwatch of the voice turn in flight, when there is a call."""
         return getattr(self.surfaces.get("voice:discord"), "latency", None)
 
-    async def _speak_local_safe(self, mood: str, message: str) -> None:
+    async def _speak_local_safe(self, mood: str, message: str, feeling=None) -> None:
         """Local speech in a task: a playback error must not go unretrieved."""
         try:
-            await self.expression.speak(mood, message, route="local")
+            await self.expression.speak(mood, message, route="local", feeling=feeling)
         except Exception as e:
             logger.error(f"Local speech failed: {e}")
 
