@@ -1,7 +1,7 @@
 import asyncio
 from typing import List, Optional, Tuple
 
-from src.core.affect import AffectState
+from src.core.affect.state import AffectState
 from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
 from src.core.attention import Attention
 from src.core.config import BrainConfig
