@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from src.core.affect.rules import Affect
-from src.core.expression.prosody import Prosody
+from src.core.expression.prosody import Prosody, for_mood
 from src.core.expression.voice import Expression
 from src.interfaces.base_interfaces import TTSInterface
 from src.modules.tts.edge_tts_wrapper import EdgeTTSWrapper
@@ -136,6 +136,17 @@ async def test_the_standing_mood_colours_the_same_words():
     await e.speak("angry", "ma dai")
 
     assert furious.moods[0].pitch_hz > calm.moods[0].pitch_hz
+
+
+@pytest.mark.asyncio
+async def test_the_mind_can_say_how_she_felt_when_she_decided():
+    """Local speech is rendered in a task started after the turn moved on."""
+    tts = RecordingTTS()
+    e = expression(tts)
+    e.set_affect(Affects(Affect(-0.9, 0.9, T0)))
+    await e.speak("angry", "ma dai", feeling=Affect())
+
+    assert tts.moods[0] == for_mood("angry")
 
 
 # --- the engine translation --------------------------------------------------

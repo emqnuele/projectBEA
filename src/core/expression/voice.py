@@ -97,22 +97,29 @@ class Expression:
         """Hands over what her standing mood is read from."""
         self.affect = affect
 
-    def _prosody(self, mood: str):
-        """How this line should sound, or None when nothing should colour it."""
+    def _prosody(self, mood: str, feeling=None):
+        """How this line should sound, or None when nothing should colour it.
+
+        `feeling` is how she felt when she decided to say it. The mind hands it
+        down because local speech is rendered in a task that starts after the
+        turn has already moved on — reading it here would colour the line with
+        its own mood and flatten the difference between a first sharp remark and
+        twenty minutes of being furious.
+        """
         if self.affect is None or not self.affect.enabled:
             return None
-        return for_mood(mood, self.affect.current)
+        return for_mood(mood, self.affect.current if feeling is None else feeling)
 
     @property
     def call_is_live(self) -> bool:
         """Whether sound she makes right now would be heard in a room."""
         return bool(self.call is not None and self.call.live)
 
-    async def speak(self, mood: str, message: str, *, route: str = "local"):
+    async def speak(self, mood: str, message: str, *, route: str = "local", feeling=None):
         """Renders a spoken turn. Returns the Utterance when route='call'."""
         if route == "call":
-            return await self._speak_call(mood, message)
-        await self._speak_local(mood, message)
+            return await self._speak_call(mood, message, feeling)
+        await self._speak_local(mood, message, feeling)
         return None
 
     async def _play_audio(self, audio_data, sample_rate, device_id):
@@ -220,7 +227,7 @@ class Expression:
             return audio_data.mean(axis=1)
         return audio_data[:, :channels]
 
-    async def _speak_local(self, mood: str, message: str):
+    async def _speak_local(self, mood: str, message: str, feeling=None):
         """Audio + visual output on the local device (stream/OBS)."""
         self.is_speaking = True
         font_used = self.config.text_font_size
@@ -257,7 +264,8 @@ class Expression:
                 )
 
                 if message:
-                    audio_data, fs = await self.tts.generate_audio(message, self._prosody(mood))
+                    audio_data, fs = await self.tts.generate_audio(
+                        message, self._prosody(mood, feeling))
                     self.current_speech_task = asyncio.create_task(
                         self._play_audio(audio_data, fs, self.config.audio_device_id)
                     )
@@ -279,7 +287,7 @@ class Expression:
         finally:
             self.is_speaking = False
 
-    async def _speak_call(self, mood: str, message: str):
+    async def _speak_call(self, mood: str, message: str, feeling=None):
         """Synthesises piece by piece and pushes each one as it is ready.
 
         The room hears the first sentence while the second is still being
@@ -300,7 +308,7 @@ class Expression:
         spoken_ms = 0
         # read once per turn: the second half of a sentence must not drift into
         # a different mood from the first
-        prosody = self._prosody(mood)
+        prosody = self._prosody(mood, feeling)
         for sentence in split_for_speech(message):
             async for audio_data, sample_rate in self.tts.generate_stream(sentence, prosody):
                 if self._call_moved_on(utterance_id, seq):

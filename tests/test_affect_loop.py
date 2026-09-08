@@ -175,3 +175,27 @@ async def test_a_mind_with_no_affect_at_all_still_speaks(store):
     await mind.hears(said())
 
     assert mind.consciousness.expression.spoken == [("normal", "ciao", "local")]
+
+
+async def test_a_line_is_never_amplified_by_its_own_mood(store):
+    """The voice is handed how she felt when she decided, not after.
+
+    Read after, the mood of the line would count twice — once as the line's own
+    colour, again as the standing mood amplifying it — and the first sharp
+    remark would sound nearly like twenty minutes of being furious.
+    """
+    mind = Mind(store, [speaks("ma sta zitto", mood="angry")])
+    await mind.hears(said())
+
+    assert [f.strength for f in mind.consciousness.expression.felt] == [0.0]
+    assert mind.consciousness.affect.current.strength > 0.0
+
+
+async def test_the_second_line_carries_what_the_first_one_did(store):
+    mind = Mind(store, [speaks("ma sta zitto", mood="angry")] * 2)
+    for _ in range(2):
+        await mind.hears(said())
+
+    first, second = mind.consciousness.expression.felt
+    assert first.strength == 0.0
+    assert second.strength > 0.0
