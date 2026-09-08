@@ -13,6 +13,8 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.tts.orpheus")
 
 class OrpheusTTSWrapper(TTSInterface):
+    # the endpoint takes a voice and a prompt and nothing else, so `prosody` is
+    # accepted and dropped: this engine cannot be told how to say something
     # what the endpoint returns: raw 24 kHz 16-bit mono
     SAMPLE_RATE = 24000
     # ~150ms a block: small enough to start sounding fast, big enough not to
@@ -146,7 +148,7 @@ class OrpheusTTSWrapper(TTSInterface):
         if len(pending) >= 2:
             yield pending[:len(pending) - (len(pending) % 2)]
 
-    async def generate_stream(self, text: str):
+    async def generate_stream(self, text: str, prosody=None):
         """The real thing: samples reach the caller while the rest is still coming."""
         if not text:
             return
@@ -173,7 +175,7 @@ class OrpheusTTSWrapper(TTSInterface):
         finally:
             await worker
 
-    async def generate_audio(self, text: str) -> tuple[np.ndarray, int]:
+    async def generate_audio(self, text: str, prosody=None) -> tuple[np.ndarray, int]:
         if not text:
              return np.zeros(0, dtype=np.float32), 24000
 

@@ -42,15 +42,17 @@ class TTSInterface(ABC):
         pass
 
     @abstractmethod
-    async def generate_audio(self, text: str) -> Tuple[Any, int]:
+    async def generate_audio(self, text: str, prosody=None) -> Tuple[Any, int]:
         """
         Generates audio from text.
         Returns (audio_data, sample_rate).
         audio_data: numpy array or valid sounddevice input.
+        `prosody` is a deviation from the configured voice; None is no change,
+        and an engine with no knobs for it may ignore it.
         """
         pass
 
-    async def generate_stream(self, text: str) -> AsyncIterator[Tuple[Any, int]]:
+    async def generate_stream(self, text: str, prosody=None) -> AsyncIterator[Tuple[Any, int]]:
         """Yields (audio_data, sample_rate) as it becomes available.
 
         Deliberately not abstract. The default is one chunk — the whole thing,
@@ -58,7 +60,7 @@ class TTSInterface(ABC):
         working untouched, and an engine whose source is already chunked (a
         streaming HTTP response) overrides this and starts sounding sooner.
         """
-        yield await self.generate_audio(text)
+        yield await self.generate_audio(text, prosody)
 
     @abstractmethod
     def reload_config(self, config) -> None:

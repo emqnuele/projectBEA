@@ -8,6 +8,7 @@ from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
 from src.core.expression.chunking import split_for_speech
 from src.core.expression.pcm import duration_ms, to_call_pcm
+from src.core.expression.prosody import for_mood
 from src.core.resources import resolve_mood_paths
 from src.interfaces.base_interfaces import OBSInterface, TTSInterface
 from src.utils.logger import get_logger
@@ -54,6 +55,8 @@ class Expression:
 
         # the live call, when there is one; the voice skill hands it over
         self.call = None
+        # how she has been feeling; the brain hands it over, None means neutral
+        self.affect = None
         # the last utterance a barge-in cut short, for the mind to be told about
         self.interrupted = None
 
@@ -89,6 +92,16 @@ class Expression:
     def set_call(self, call) -> None:
         """Hands over the live voice call, or None when there is none."""
         self.call = call
+
+    def set_affect(self, affect) -> None:
+        """Hands over what her standing mood is read from."""
+        self.affect = affect
+
+    def _prosody(self, mood: str):
+        """How this line should sound, or None when nothing should colour it."""
+        if self.affect is None or not self.affect.enabled:
+            return None
+        return for_mood(mood, self.affect.current)
 
     @property
     def call_is_live(self) -> bool:
@@ -244,7 +257,7 @@ class Expression:
                 )
 
                 if message:
-                    audio_data, fs = await self.tts.generate_audio(message)
+                    audio_data, fs = await self.tts.generate_audio(message, self._prosody(mood))
                     self.current_speech_task = asyncio.create_task(
                         self._play_audio(audio_data, fs, self.config.audio_device_id)
                     )
@@ -285,8 +298,11 @@ class Expression:
 
         seq = 0
         spoken_ms = 0
+        # read once per turn: the second half of a sentence must not drift into
+        # a different mood from the first
+        prosody = self._prosody(mood)
         for sentence in split_for_speech(message):
-            async for audio_data, sample_rate in self.tts.generate_stream(sentence):
+            async for audio_data, sample_rate in self.tts.generate_stream(sentence, prosody):
                 if self._call_moved_on(utterance_id, seq):
                     return self.call.utterances.get(utterance_id)
                 pcm = to_call_pcm(audio_data, sample_rate)

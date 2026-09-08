@@ -121,7 +121,7 @@ def test_she_is_told_once_and_not_every_turn_after():
 
 
 class SilentTTS(TTSInterface):
-    async def generate_audio(self, text):
+    async def generate_audio(self, text, prosody=None):
         return np.zeros(2400, dtype=np.float32), 24000
 
     async def speak(self, text, output_device_id):
