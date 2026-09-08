@@ -24,6 +24,24 @@ WHEN: Dict[str, str] = {
     "bored": "When someone writes too much, or the topic is uninteresting.",
 }
 
+# Where each mood sits on the two axes that matter: valence (how good it feels)
+# and arousal (how activated it is). Two axes rather than one because angry and
+# sad are both negative and sound nothing alike — separating them is the whole
+# reason prosody can tell them apart.
+VECTORS: Dict[str, Tuple[float, float]] = {
+    "normal": (0.0, 0.0),
+    "shock": (-0.15, 0.85),
+    "love": (0.90, 0.50),
+    "cry": (-0.70, -0.25),
+    "angry": (-0.80, 0.85),
+    "ew": (-0.50, 0.15),
+    "bored": (-0.30, -0.70),
+}
+
+# a mood without a vector would silently stop colouring her voice
+assert set(VECTORS) == set(MOODS), "every mood needs a valence/arousal vector"
+
+
 # a model asked for a mood will invent one. An avatar that silently fails to
 # change is worse than landing on the nearest thing she actually has.
 _NEAR_MISSES: Dict[str, str] = {
@@ -43,6 +61,11 @@ def normalize_mood(raw: Optional[str]) -> str:
     if mood in MOODS:
         return mood
     return _NEAR_MISSES.get(mood, DEFAULT_MOOD)
+
+
+def vector_for(raw: Optional[str]) -> Tuple[float, float]:
+    """The (valence, arousal) of a mood, normalising whatever the model said."""
+    return VECTORS[normalize_mood(raw)]
 
 
 def mood_table() -> str:
