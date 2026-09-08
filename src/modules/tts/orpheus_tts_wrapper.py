@@ -4,7 +4,6 @@ from typing import Optional
 
 import numpy as np
 import requests
-import sounddevice as sd
 import soundfile as sf
 
 from src.interfaces.base_interfaces import TTSInterface
@@ -81,6 +80,10 @@ class OrpheusTTSWrapper(TTSInterface):
             raise
 
     def _play_audio_sync(self, device_id: int, filename: str):
+        # imported where it is used, not at module scope: generating audio must
+        # not need PortAudio, and a headless box (CI, a server) has no such library
+        import sounddevice as sd
+
         """plays the downloaded audio file assuming Raw PCM 24kHz."""
         if not os.path.exists(filename):
             logger.error("audio file not found.")
@@ -218,6 +221,8 @@ class OrpheusTTSWrapper(TTSInterface):
                     pass
 
     async def speak(self, text: str, output_device_id: int) -> None:
+        import sounddevice as sd
+
         # deprecated: brain should use generate_audio
         data, fs = await self.generate_audio(text)
         if len(data) == 0:

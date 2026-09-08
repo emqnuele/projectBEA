@@ -3,7 +3,6 @@ import os
 
 import edge_tts
 import numpy as np
-import sounddevice as sd
 import soundfile as sf
 
 from src.core.expression.prosody import combine_hz, combine_percent
@@ -49,6 +48,10 @@ class EdgeTTSWrapper(TTSInterface):
 
     def _play_audio_sync(self, device_id: int, filename: str):
         """Synchronous audio playback using OutputStream for better thread safety."""
+        # imported where it is used, not at module scope: generating audio must not
+        # need PortAudio, and a headless box (CI, a server) has no such library
+        import sounddevice as sd
+
         if not os.path.exists(filename):
             logger.error(f"TTS file not found: {filename}")
             return
@@ -115,6 +118,8 @@ class EdgeTTSWrapper(TTSInterface):
 
     async def speak(self, text: str, output_device_id: int) -> None:
         """Generates and plays audio."""
+        import sounddevice as sd
+
         # deprecated: brain should use generate_audio
         data, fs = await self.generate_audio(text)
         if len(data) == 0:

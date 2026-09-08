@@ -124,10 +124,12 @@ class Expression:
 
     async def _play_audio(self, audio_data, sample_rate, device_id):
         """Plays audio via sounddevice while tracking playback for barge-in."""
-        import sounddevice as sd
-
+        # nothing to play needs no audio library: a failed synthesis hands back
+        # an empty array, and on a headless box importing this raises
         if len(audio_data) == 0:
             return
+
+        import sounddevice as sd
 
         self.current_audio_buffer = audio_data
         self.playback_sample_rate = sample_rate

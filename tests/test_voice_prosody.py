@@ -24,7 +24,9 @@ class RecordingTTS(TTSInterface):
 
     async def generate_audio(self, text, prosody=None):
         self.calls.append((text, prosody))
-        return np.zeros(2400, dtype=np.float32), 24000
+        # nothing to play: these tests are about what the engine was told, and
+        # the runner that decides it has no sound card
+        return np.zeros(0, dtype=np.float32), 24000
 
     async def speak(self, text, output_device_id):
         pass
