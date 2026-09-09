@@ -36,6 +36,21 @@ class _SilentDevice:
 
 
 @pytest.fixture(autouse=True)
+def isolated_config(monkeypatch, tmp_path):
+    """No test reads the config.json of whoever is running it.
+
+    `BrainConfig()` loads the file from the working directory, so a developer
+    who has configured their own stream would see tests fail on their machine
+    and pass in CI. Pointed at this test's own `tmp_path`, which starts empty —
+    so the defaults are the defaults, and a test that wants a config file can
+    still write one there.
+    """
+    from src.core import config as config_module
+
+    monkeypatch.setattr(config_module, "CONFIG_FILE", str(tmp_path / "config.json"))
+
+
+@pytest.fixture(autouse=True)
 def silent_audio(monkeypatch):
     """No test plays sound. Not quiet sound: none."""
     device = _SilentDevice()

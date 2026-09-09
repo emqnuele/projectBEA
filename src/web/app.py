@@ -37,6 +37,7 @@ from src.core.persona_store import describe as persona_describe
 from src.core.settings_schema import ValidationError, apply_section, describe
 from src.core.settings_schema import restart_needed as _restart_needed
 from src.core.settings_schema import section as _section
+from src.core.stage import public_config
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.web")
@@ -1059,25 +1060,8 @@ def audio_devices():
 
 @app.get("/stage/config")
 def stage_config():
-    """What the browser source needs to draw her, and nothing else.
-
-    Deliberately not the whole config: this endpoint is read by a page that
-    lives in OBS, and OBS is not a place to hand out API keys.
-    """
-    config = get_brain().config
-    stage = dict(getattr(config, "stage", {}) or {})
-    return {
-        "avatar_backend": stage.get("avatar_backend", "png"),
-        "caption_backend": stage.get("caption_backend", "obs"),
-        "shot": stage.get("shot", "bust"),
-        "background": stage.get("background", ""),
-        "lipsync_fps": stage.get("lipsync_fps", 30),
-        "has_model": bool(stage.get("model_path")),
-        "typing_delay": config.typing_delay,
-        "text_line_width": config.text_line_width,
-        "text_lines": config.text_lines,
-        "text_font_size": config.text_font_size,
-    }
+    """What the browser source needs to draw her. Never a secret."""
+    return public_config(get_brain().config)
 
 
 def _clips_dir(config) -> Path:

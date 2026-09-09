@@ -33,7 +33,7 @@ from src.core.skills.voice.surface import VoiceSurface
 from src.core.social.agenda import AgendaRunner
 from src.core.social.reach import Reach
 from src.core.social.rhythm import RhythmTick
-from src.core.stage import StageChannel
+from src.core.stage import StageChannel, public_config
 from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
 from src.modules.avatar import build_avatar
 from src.modules.avatar.factory import backend_name as avatar_backend
@@ -403,6 +403,9 @@ class AIVtuberBrain:
             self.expression.set_ports(self.avatar, self.caption)
             self._backends = wanted
         self.expression.reload_config(self.config)
+        # the browser source is told rather than left to be reloaded by hand,
+        # so a shot or a model changed mid-stream takes effect where it shows
+        self.stage.publish({"config": public_config(self.config)})
 
     def _obs_connect(self):
         if hasattr(self.obs, "source_name"):

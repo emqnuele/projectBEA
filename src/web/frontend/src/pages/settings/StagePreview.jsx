@@ -16,17 +16,24 @@ const STATES = [
     { value: 'talking', label: 'Talking' },
 ];
 
-// the alpha checkerboard, so a transparent avatar does not read as a white one
+// the alpha checkerboard: whatever is drawn over this is what OBS composites,
+// and everything else the panel is standing in for
 const CHECKS = {
-    backgroundImage:
-        'repeating-conic-gradient(color-mix(in srgb, var(--text) 8%, transparent) 0% 25%, transparent 0% 50%)',
+    backgroundColor: 'var(--bg-sunken)',
+    backgroundImage: [
+        'linear-gradient(45deg, var(--fill-3) 25%, transparent 25%)',
+        'linear-gradient(-45deg, var(--fill-3) 25%, transparent 25%)',
+        'linear-gradient(45deg, transparent 75%, var(--fill-3) 75%)',
+        'linear-gradient(-45deg, transparent 75%, var(--fill-3) 75%)',
+    ].join(', '),
     backgroundSize: '18px 18px',
+    backgroundPosition: '0 0, 0 9px, 9px -9px, -9px 0',
 };
 
 function Frame({ children, tall }) {
     return (
         <div
-            className="grid place-items-center overflow-hidden rounded-b2 border border-line bg-sunken"
+            className="grid place-items-center overflow-hidden rounded-b2 border border-line"
             style={{ ...CHECKS, minHeight: tall ? 420 : 260 }}
         >
             {children}
@@ -100,16 +107,23 @@ function ModelPreview({ hasModel }) {
         );
     }
     return (
-        <div
-            className="overflow-hidden rounded-b2 border border-line bg-sunken"
-            style={CHECKS}
-        >
-            <iframe
-                title="The browser source"
-                src="/stage?hud=0&bg=0"
-                className="block h-[420px] w-full border-0"
-            />
-        </div>
+        <>
+            {/* the page paints nothing but her, so the iframe must not lay its
+                own opaque white underneath it */}
+            <div className="overflow-hidden rounded-b2 border border-line" style={CHECKS}>
+                <iframe
+                    title="The browser source"
+                    src="/stage?hud=0"
+                    className="block h-[420px] w-full border-0"
+                    style={{ background: 'transparent', colorScheme: 'normal' }}
+                />
+            </div>
+            <p className="text-[11px] leading-snug text-faint">
+                This is the browser source itself, not a mock-up. The chequerboard is this
+                panel showing through — OBS composites her over your scene instead.
+                Saving a change here updates it live.
+            </p>
+        </>
     );
 }
 

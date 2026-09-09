@@ -9,6 +9,7 @@ connection gets one snapshot of how she looks *now*, and patches after that.
 
 import asyncio
 import contextlib
+from pathlib import Path
 from typing import Any, Dict, List
 
 from src.utils.logger import get_logger
@@ -21,6 +22,38 @@ QUEUE_LIMIT = 200
 # things that describe a moment rather than a state. Storing the envelope would
 # make a page that reconnects mouth a sentence nobody is saying any more.
 TRANSIENT = frozenset({"envelope", "perform"})
+
+
+def _model_id(raw: str) -> str:
+    """Changes whenever the model does, without telling the page a path."""
+    if not raw:
+        return ""
+    path = Path(raw)
+    try:
+        return f"{path.name}:{int(path.stat().st_mtime)}"
+    except OSError:
+        return path.name
+
+
+def public_config(config) -> Dict[str, Any]:
+    """What the browser source needs to draw her, and nothing else.
+
+    Read by a page running inside OBS, so it carries no key, token or password.
+    """
+    stage = dict(getattr(config, "stage", None) or {})
+    return {
+        "avatar_backend": stage.get("avatar_backend", "png"),
+        "caption_backend": stage.get("caption_backend", "obs"),
+        "shot": stage.get("shot", "bust"),
+        "background": stage.get("background", ""),
+        "lipsync_fps": stage.get("lipsync_fps", 30),
+        "has_model": bool(stage.get("model_path")),
+        "model_id": _model_id(stage.get("model_path") or ""),
+        "typing_delay": config.typing_delay,
+        "text_line_width": config.text_line_width,
+        "text_lines": config.text_lines,
+        "text_font_size": config.text_font_size,
+    }
 
 
 class StageChannel:

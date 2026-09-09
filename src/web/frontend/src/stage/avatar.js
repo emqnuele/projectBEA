@@ -25,12 +25,18 @@ const EASING = 8;
 // the shot, as a height in metres to fit in frame
 const SHOTS = { bust: 0.52, half: null, full: null };
 
+function setBackground(renderer, colour) {
+    if (colour) renderer.setClearColor(new THREE.Color(colour), 1);
+    else renderer.setClearColor(0x000000, 0);
+}
+
 export async function createAvatar(root, config = {}) {
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setClearAlpha(config.background ? 1 : 0);
-    if (config.background) renderer.setClearColor(new THREE.Color(config.background), 1);
+    // transparent unless a colour was asked for: OBS composites the page over
+    // the scene, so anything painted here that is not her is on the stream
+    setBackground(renderer, config.background);
     root.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
@@ -176,6 +182,12 @@ export async function createAvatar(root, config = {}) {
                 };
             }
             if (patch.perform) play(patch.perform);
+        },
+
+        /** Settings changed under a running page: shot and background apply live. */
+        setLook(next = {}) {
+            setBackground(renderer, next.background);
+            frame(next.shot || 'bust');
         },
 
         reframe: frame,

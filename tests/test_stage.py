@@ -307,3 +307,56 @@ def test_a_configured_model_that_is_not_on_disk_names_the_path(client, tmp_path)
     response = api.get("/stage/model")
     assert response.status_code == 404
     assert str(missing) in response.json()["detail"]
+
+
+# --- settings reaching a running page ----------------------------------------
+
+
+def test_the_public_config_is_the_same_whether_read_or_pushed(client):
+    """The endpoint and the live patch must not describe her differently."""
+    from src.core.stage import public_config
+
+    api, stub = client
+    assert api.get("/stage/config").json() == public_config(stub.config)
+
+
+def test_the_page_is_told_when_the_model_changes(tmp_path):
+    """A different file under the same path still has to reach the renderer."""
+    from src.core.config import BrainConfig
+    from src.core.stage import public_config
+
+    model = tmp_path / "bea.vrm"
+    model.write_bytes(b"glTF-ish")
+    config = BrainConfig()
+    config.stage = {**config.stage, "model_path": str(model)}
+
+    before = public_config(config)["model_id"]
+    import os
+    os.utime(model, (0, 0))
+    after = public_config(config)["model_id"]
+
+    assert before and after and before != after
+
+
+def test_a_model_that_is_not_there_still_has_an_id(tmp_path):
+    from src.core.config import BrainConfig
+    from src.core.stage import public_config
+
+    config = BrainConfig()
+    config.stage = {**config.stage, "model_path": str(tmp_path / "gone.vrm")}
+    assert public_config(config)["model_id"] == "gone.vrm"
+
+
+def test_no_model_configured_means_no_id():
+    from src.core.config import BrainConfig
+    from src.core.stage import public_config
+
+    assert public_config(BrainConfig())["model_id"] == ""
+
+
+def test_the_transparent_background_is_the_default():
+    """OBS composites the page, so anything painted is on the stream."""
+    from src.core.config import BrainConfig
+    from src.core.stage import public_config
+
+    assert public_config(BrainConfig())["background"] == ""
