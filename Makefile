@@ -1,14 +1,11 @@
 .DEFAULT_GOAL := help
-.PHONY: help install install-all setup docker docker-up docker-down run web frontend lock clean test lint migrate
+.PHONY: help install setup docker docker-up docker-down run web frontend lock clean test lint migrate
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 install: ## create the venv and install python deps
 	uv sync
-
-install-all: ## install python deps including the optional minecraft skill
-	uv sync --extra minecraft
 
 setup: install ## interactive first-run setup: writes .env and config.json
 	uv run bea --setup
@@ -28,8 +25,9 @@ docker-down: ## stop the container
 	docker compose down
 
 migrate: ## one-shot: move the old json/chroma stores into data/bea.db
-	uv sync --extra migrate
-	uv run python tools/migrate_to_sqlite.py --dry-run
+	# chromadb is only ever needed to read an old store, so it is fetched for
+	# this command instead of living in the lockfile with its 28 dependencies
+	uv run --with chromadb python tools/migrate_to_sqlite.py --dry-run
 	@echo "--- re-run without --dry-run to apply ---"
 
 run: ## start the engine in CLI mode

@@ -247,7 +247,8 @@ def migrate_diaries(store: MemoryStore, chroma_path: Path, report: Report) -> No
     try:
         import chromadb
     except ImportError:
-        report.problem("chromadb is not installed: diary entries were not migrated")
+        report.problem("chromadb is not installed: diary entries were not migrated. "
+                       "Re-run with: uv run --with chromadb python tools/migrate_to_sqlite.py")
         return
 
     try:

@@ -31,8 +31,7 @@ Install all Python dependencies into a managed virtual environment (`.venv`):
 
 ```bash
 uv sync                    # core dependencies
-uv sync --extra minecraft  # also the optional minecraft-agent deps
-uv sync --extra migrate    # only once, to lift an old chroma store into bea.db
+uv sync                    # everything the engine needs
 ```
 
 That's it — `uv` creates `.venv`, pins every dependency from `uv.lock`, and is fully
@@ -43,7 +42,6 @@ If you have `make` available, the same is wrapped in convenient targets:
 
 ```bash
 make install        # uv sync
-make install-all    # uv sync --extra minecraft
 make help           # list every target
 ```
 

@@ -6,7 +6,6 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "google-genai",
     "edge-tts",
     "sounddevice",
     "soundfile",
@@ -14,7 +13,6 @@ dependencies = [
     "obsws-python",
     "openai",
     "rich",
-    "transformers<4.42",
     "fastapi",
     "uvicorn",
     # the bot's voice push channel is a websocket; uvicorn needs this to serve it
@@ -23,24 +21,15 @@ dependencies = [
     "requests",
     "python-dotenv",
     "websocket-client",
-    "colorama",
-    "tenacity",
     "kokoro-onnx",
     "groq",
-    "pydantic-settings",
-    "fastembed>=0.3,<0.8",
+    "fastembed>=0.3,<0.9",
     "sqlite-vec>=0.1.1",
     "python-telegram-bot[job-queue]>=21",
 ]
 
 [project.scripts]
 bea = "src.cli:run"
-
-[project.optional-dependencies]
-# extra deps for the standalone minecraft agent skill
-minecraft = ["flask"]
-# only needed once, to lift the old diary out of chroma into bea.db
-migrate = ["chromadb>=0.4.0"]
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
