@@ -3,7 +3,7 @@
 <p align="center"><b>She talks, plays, and remembers you.</b></p>
 
 <p align="center">
-  An always-on AI persona across Discord, Telegram, Twitch and a vanilla<br>
+  An always-on AI persona across Discord, Telegram, Twitch and a vanilla<br />
   Minecraft server. The same mind in all of them, not a bot per platform.
 </p>
 
@@ -15,11 +15,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml"><img src="https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="#run-it-in-docker"><img src="https://img.shields.io/badge/docker-compose%20up-2496ED?logo=docker&logoColor=white" alt="Docker"></a>
-  <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue" alt="Python"></a>
-  <a href="https://github.com/emqnuele/projectBEA/releases"><img src="https://img.shields.io/github/v/release/emqnuele/projectBEA" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/emqnuele/projectBEA" alt="License"></a>
+  <a href="https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml"><img src="https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="#run-it-in-docker"><img src="https://img.shields.io/badge/docker-compose%20up-2496ED?logo=docker&logoColor=white" alt="Docker" /></a>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue" alt="Python" /></a>
+  <a href="https://github.com/emqnuele/projectBEA/releases"><img src="https://img.shields.io/github/v/release/emqnuele/projectBEA" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/emqnuele/projectBEA" alt="License" /></a>
 </p>
 
 https://github.com/user-attachments/assets/00991f61-5eed-48cc-aefb-f2f6460120d7
@@ -70,7 +70,7 @@ Already cloned the repo? `make setup` does the same thing.
 
 ## She remembers you
 
-<img src="assets/remembers.png" align="right" width="290" alt="Bea">
+<img src="assets/remembers.png" align="right" width="290" alt="Bea" />
 
 Tell her who you are on Monday. Come back on Sunday and she knows.
 
@@ -91,13 +91,13 @@ part you cannot fake with a longer prompt.
 
 **[How memory works →](docs/skills/memory.md)** · **[Social →](docs/skills/social.md)** · **[Dream →](docs/skills/dream.md)**
 
-<br clear="right">
+<br clear="right" />
 
 ---
 
 ## She has a body
 
-<img src="assets/minecraft.png" align="left" width="290" alt="Bea in Minecraft">
+<img src="assets/minecraft.png" align="left" width="290" alt="Bea in Minecraft" />
 
 Not "Minecraft integration". A body, on a vanilla server, that other people can
 walk up to.
@@ -121,7 +121,7 @@ server sees a normal player. Nothing is needed server-side.
 
 **[How the skill is built →](docs/skills/minecraft.md)**
 
-<br clear="left">
+<br clear="left" />
 
 ---
 
@@ -150,7 +150,7 @@ commit.
 
 ## She sleeps
 
-<img src="assets/dream.png" align="right" width="290" alt="Bea sleeping">
+<img src="assets/dream.png" align="right" width="290" alt="Bea sleeping" />
 
 At the end of the day she goes quiet, and a nightly pass consolidates what
 happened: the diary is compacted, the people who mattered get promoted, and she
@@ -162,7 +162,7 @@ most.
 
 **[Dream and self-lore →](docs/skills/dream.md)**
 
-<br clear="right">
+<br clear="right" />
 
 ---
 
