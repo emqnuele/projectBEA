@@ -129,7 +129,7 @@ Source**. The backend publishes to the stage channel; the page owns three.js.
 | `clips_dir` | `.vrma` files, listed by `GET /stage/clips` and offered in the dashboard. |
 | `shot` | `bust`, `half` or `full`. Computed from the `head` and `hips` bones, so it frames any model the same way regardless of its height. |
 | `mood_clips` | mood → clip name. A mood without one changes expression only. |
-| `background` | A CSS colour behind her. Empty means transparent. |
+| `background` | A CSS colour behind her. Empty is transparent, which is what OBS composites over your scene. |
 
 ### Why the format matters
 
@@ -281,11 +281,17 @@ There is no backlog. OBS reloads a browser source whenever it is toggled, and a
 subscriber that received a replay would act the last minute out again. A queue
 that fills is dropped rather than awaited.
 
+Saving settings publishes `{"config": public_config(...)}`, so a running page
+picks up a new shot or background without being reloaded by hand. The page
+reloads itself only when the change is structural — a different backend, or a
+different model, which `model_id` (the file name and its mtime) detects. That
+same push is what keeps the preview in the dashboard current.
+
 | Endpoint | Returns |
 |---|---|
 | `GET /stage` | the page for the Browser Source |
 | `GET /stage/stream` | SSE: one `snapshot`, then `patch` messages |
-| `GET /stage/config` | backends, shot, lip sync rate, caption typography |
+| `GET /stage/config` | backends, shot, lip sync rate, caption typography, `model_id` |
 | `GET /stage/model` | the configured `.vrm` |
 | `GET /stage/clips` | clip names in `clips_dir` |
 | `GET /stage/clips/{name}` | one `.vrma`; a name that escapes the folder is a 404 |
