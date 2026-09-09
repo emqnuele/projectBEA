@@ -10,12 +10,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
+    "@pixiv/three-vrm-animation": "^3.5.5",
     "@tailwindcss/postcss": "^4.1.18",
     "framer-motion": "^12.34.1",
     "lucide-react": "^0.562.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.13.0"
+    "react-router-dom": "^7.13.0",
+    "three": "^0.186.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

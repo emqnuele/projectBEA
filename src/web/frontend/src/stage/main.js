@@ -1,7 +1,9 @@
 /**
  * The browser source: one page that draws whatever the engine says she is.
  *
- * For now it renders the caption; the body arrives behind the same connection.
+ * It always renders the caption, and the 3D body only when that is the chosen
+ * backend — the renderer is imported dynamically so a PNG setup never downloads
+ * three.js at all.
  */
 
 import './stage.css';
@@ -33,15 +35,28 @@ function clearWarning() {
     offline = null;
 }
 
+let avatar = null;
+if (config.avatar_backend === 'model' && config.has_model) {
+    try {
+        const { createAvatar } = await import('./avatar.js');
+        avatar = await createAvatar(root, config);
+    } catch (error) {
+        console.error('[stage] the 3D renderer did not start', error);
+        warn(`3D renderer: ${error.message}`);
+    }
+}
+
 connect({
     onStatus: ({ connected }) => (connected ? clearWarning() : warn('Not connected to the engine')),
 
     // how she looks *now*: put it on screen without acting it out
     onSnapshot: (state) => {
         caption.restore(state.caption, state.caption_id);
+        avatar?.apply(state, { animate: false });
     },
 
     onPatch: (patch) => {
         if ('caption' in patch) caption.say(patch.caption, patch.caption_id);
+        avatar?.apply(patch, { animate: true });
     },
 });

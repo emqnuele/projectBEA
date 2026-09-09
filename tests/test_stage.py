@@ -258,3 +258,52 @@ async def test_the_engine_is_never_slowed_down_by_a_page(monkeypatch):
             channel.publish({"mood": f"m{i}"})
 
     await asyncio.wait_for(publish_many(), timeout=1.0)
+
+
+# --- the model and the behaviours it plays ----------------------------------
+
+
+def test_a_behaviour_name_cannot_walk_out_of_the_clips_folder(client, tmp_path):
+    """The name comes from a page, so it is untrusted input.
+
+    Driven through the route function rather than through the test client:
+    httpx normalises `..` out of a URL before it is ever sent, so going through
+    a client would test httpx and not the guard that has to hold when something
+    less polite asks.
+    """
+    from fastapi import HTTPException
+
+    from src.web import app as web
+
+    _api, stub = client
+    (tmp_path / "clips").mkdir()
+    (tmp_path / "secret.vrma").write_text("not a clip")
+    stub.config.stage = {**stub.config.stage, "clips_dir": str(tmp_path / "clips")}
+
+    for name in ("../secret", "../../etc/passwd", "/etc/passwd"):
+        with pytest.raises(HTTPException) as raised:
+            web.stage_clip(name)
+        assert raised.value.status_code == 404
+
+
+def test_the_clip_list_is_empty_rather_than_broken_without_a_folder(client):
+    api, stub = client
+    stub.config.stage = {**stub.config.stage, "clips_dir": "no/such/folder"}
+    assert api.get("/stage/clips").json() == []
+
+
+def test_asking_for_a_model_that_is_not_configured_says_so(client):
+    api, stub = client
+    stub.config.stage = {**stub.config.stage, "model_path": ""}
+    response = api.get("/stage/model")
+    assert response.status_code == 404
+    assert "configured" in response.json()["detail"].lower()
+
+
+def test_a_configured_model_that_is_not_on_disk_names_the_path(client, tmp_path):
+    api, stub = client
+    missing = tmp_path / "bea.vrm"
+    stub.config.stage = {**stub.config.stage, "model_path": str(missing)}
+    response = api.get("/stage/model")
+    assert response.status_code == 404
+    assert str(missing) in response.json()["detail"]

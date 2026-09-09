@@ -60,9 +60,11 @@ src/web/frontend/dist/
 .DS_Store
 Thumbs.db
 
-# Large Models
+# Large Models — fetched, never committed (see tools/fetch_model.py)
 *.onnx
 *.bin
+data/models/
+data/clips/
 
 # the author's own planning file at the root — anchored, or it also matches
 # docs/skills/plan.md, which is documentation the README links to

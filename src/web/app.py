@@ -1054,6 +1054,48 @@ def stage_config():
     }
 
 
+def _clips_dir(config) -> Path:
+    stage = getattr(config, "stage", {}) or {}
+    return Path(stage.get("clips_dir") or "data/clips")
+
+
+@app.get("/stage/model")
+def stage_model():
+    """The .vrm the browser source draws.
+
+    Served by the engine rather than by a path in the page, so the model can
+    live anywhere on the machine without the browser needing file access.
+    """
+    config = get_brain().config
+    raw = (getattr(config, "stage", {}) or {}).get("model_path")
+    if not raw:
+        raise HTTPException(status_code=404, detail="No model is configured")
+    path = Path(raw).resolve()
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"Configured, but not on disk: {path}")
+    return FileResponse(path, media_type="model/gltf-binary")
+
+
+@app.get("/stage/clips")
+def stage_clips():
+    """The behaviours installed, by name — what the dashboard offers you."""
+    folder = _clips_dir(get_brain().config)
+    if not folder.is_dir():
+        return []
+    return sorted(p.stem for p in folder.glob("*.vrma"))
+
+
+@app.get("/stage/clips/{name}")
+def stage_clip(name: str):
+    """One .vrma behaviour, by the name `/stage/clips` listed."""
+    folder = _clips_dir(get_brain().config).resolve()
+    path = (folder / f"{name}.vrma").resolve()
+    # the name comes from a page: it must not be able to walk out of the folder
+    if not path.is_relative_to(folder) or not path.is_file():
+        raise HTTPException(status_code=404, detail=f"No behaviour called {name!r}")
+    return FileResponse(path, media_type="model/gltf-binary")
+
+
 def _avatar_files(config) -> Dict[str, Path]:
     """Every image the avatar map names, keyed `mood/state`.
 

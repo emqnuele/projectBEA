@@ -20,11 +20,20 @@ def _png(config, obs, publisher):
     return PngAvatar(config, obs)
 
 
+def _model(config, obs, publisher):
+    from src.modules.avatar.model3d import Model3DAvatar
+    return Model3DAvatar(config, publisher)
+
+
 # name -> builder. Imports live inside the builders so that choosing the PNG
 # backend never pays for the ones it is not using.
 BUILDERS: Dict[str, Callable[..., AvatarInterface]] = {
     "png": _png,
+    "model": _model,
 }
+
+# backends that cannot work without somewhere to publish to
+NEEDS_PUBLISHER = frozenset({"model"})
 
 
 def backend_name(config) -> str:
@@ -47,6 +56,9 @@ def build_avatar(config, obs: OBSInterface, publisher=None) -> AvatarInterface:
     do not need one ignore it.
     """
     name = backend_name(config)
+    if name in NEEDS_PUBLISHER and publisher is None:
+        logger.warning(f"The {name!r} avatar needs a stage channel; using {DEFAULT_BACKEND!r}.")
+        name = DEFAULT_BACKEND
     avatar = BUILDERS[name](config, obs, publisher)
     logger.info(f"Avatar backend: {name}")
     return avatar

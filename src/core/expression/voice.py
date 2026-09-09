@@ -6,7 +6,7 @@ from typing import Optional
 from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
 from src.core.expression.chunking import split_for_speech
-from src.core.expression.pcm import duration_ms, to_call_pcm
+from src.core.expression.pcm import ENVELOPE_FPS, duration_ms, envelope, to_call_pcm
 from src.core.expression.prosody import for_mood
 from src.core.mind.moods import DEFAULT_MOOD
 from src.interfaces.base_interfaces import AvatarInterface, CaptionInterface, TTSInterface
@@ -278,6 +278,9 @@ class Expression:
                 if message:
                     audio_data, fs = await self.tts.generate_audio(
                         message, self._prosody(mood, feeling))
+                    # the mouth is told before playback starts, so the page has
+                    # the whole shape of the line and can run it off its own clock
+                    self._move_mouth(audio_data, fs)
                     self.current_speech_task = asyncio.create_task(
                         self._play_audio(audio_data, fs, self.config.audio_device_id)
                     )
@@ -311,6 +314,9 @@ class Expression:
 
         seq = 0
         spoken_ms = 0
+        # the shape of the whole line, gathered sentence by sentence as it is
+        # synthesised, so the mouth can run once the room starts hearing her
+        frames: list = []
         # read once per turn: the second half of a sentence must not drift into
         # a different mood from the first
         prosody = self._prosody(mood, feeling)
@@ -323,11 +329,12 @@ class Expression:
                     continue
                 await self.call.play(pcm, utterance_id=utterance_id, text=message,
                                      seq=seq, last=False)
+                frames.extend(envelope(audio_data, sample_rate, self._lipsync_fps))
                 spoken_ms += duration_ms(pcm)
                 seq += 1
 
         await self.call.end(utterance_id)
-        asyncio.create_task(self._visual_only(mood, message, spoken_ms / 1000.0))
+        asyncio.create_task(self._visual_only(mood, message, spoken_ms / 1000.0, frames))
         return self.call.utterances.get(utterance_id)
 
     def _call_moved_on(self, utterance_id: str, seq: int) -> bool:
@@ -341,12 +348,28 @@ class Expression:
         current = self.call.current
         return not self.call_is_live or current is None or current.id != utterance_id
 
-    async def _visual_only(self, mood: str, message: str, duration: float):
+    @property
+    def _lipsync_fps(self) -> int:
+        return int((getattr(self.config, "stage", None) or {}).get("lipsync_fps", ENVELOPE_FPS))
+
+    def _move_mouth(self, audio_data, sample_rate: int) -> None:
+        """Hands the avatar the loudness of the line she is about to say."""
+        fps = self._lipsync_fps
+        try:
+            self.avatar.mouth(envelope(audio_data, sample_rate, fps), fps)
+        except Exception as e:
+            # a mouth that fails must never stop her from speaking
+            logger.error(f"Lip sync failed: {e}")
+
+    async def _visual_only(self, mood: str, message: str, duration: float,
+                           frames=None):
         """Drives the visuals for a line the room hears, without playing it here."""
         self.is_speaking = True
         self._mood = mood
         try:
             self.avatar.show(mood, "talking")
+            if frames:
+                self.avatar.mouth(frames, self._lipsync_fps)
 
             typed = asyncio.create_task(self.caption.say(message))
             # a caption backend that shows nothing returns at once, and the
