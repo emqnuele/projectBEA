@@ -5,8 +5,6 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.resources")
 
-ALIASES = {"thankingA1": "thanking—"}
-
 def load_avatar_resources(avatar_map: Dict[str, Dict[str, str]]) -> Dict[str, Tuple[Path, Path]]:
     """
     Carica e valida le risorse avatar dalla mappa di configurazione.
@@ -36,23 +34,18 @@ def load_avatar_resources(avatar_map: Dict[str, Dict[str, str]]) -> Dict[str, Tu
     return processed_map
 
 def resolve_mood_paths(png_map: Dict[str, Tuple[Path, Path]], mood: str) -> Tuple[Path, Path]:
-    """Trova i PNG per il mood, applicando alias e fallback a normal."""
+    """Trova i PNG per il mood, con fallback a normal."""
     # 1. exact match
     if mood in png_map:
         return png_map[mood]
 
-    # 2. aliases
-    alias = ALIASES.get(mood)
-    if alias and alias in png_map:
-        return png_map[alias]
-
-    # 3. fallback normal
+    # 2. fallback normal
     if "normal" in png_map:
         return png_map["normal"]
 
-    # 4. fallback any
+    # 3. fallback any
     if png_map:
         return next(iter(png_map.values()))
 
-    # 5. last resort
+    # 4. last resort
     return (Path("placeholder_idle.png"), Path("placeholder_talking.png"))
