@@ -19,7 +19,14 @@ from src.core.perception.types import Perception, PerceptionKind
 from src.core.skills.base import SkillRegistry
 from src.core.skills.voice.channel import VoiceChannel
 from src.interfaces.base_interfaces import TTSInterface
-from tests.fakes import FakeExpression, FakeHistory, FakeLLMClient, RecordingEvents
+from tests.fakes import (
+    FakeAvatar,
+    FakeCaption,
+    FakeExpression,
+    FakeHistory,
+    FakeLLMClient,
+    RecordingEvents,
+)
 
 # --- how much of it landed ---------------------------------------------------
 
@@ -131,20 +138,6 @@ class SilentTTS(TTSInterface):
         pass
 
 
-class Obs:
-    def set_image(self, *a, **k):
-        pass
-
-    def set_media(self, *a, **k):
-        pass
-
-    def set_text(self, *a, **k):
-        pass
-
-    async def type_text(self, **kwargs):
-        return 0
-
-
 class Config:
     text_font_size = 40
     text_line_width = 30
@@ -173,7 +166,7 @@ class Socket:
 
 def test_the_call_has_the_last_word_on_whether_she_is_talking():
     """The OBS animation only ever knew the *estimated* length of the audio."""
-    e = Expression(Config(), SilentTTS(), Obs(), Events())
+    e = Expression(Config(), SilentTTS(), FakeAvatar(), FakeCaption(), Events())
     channel = VoiceChannel()
     channel.attach(Socket())
     channel.on_message({"type": "joined", "channel_id": "c1", "listeners": 1})
@@ -190,7 +183,7 @@ def test_the_call_has_the_last_word_on_whether_she_is_talking():
 
 
 async def test_an_interruption_reaches_the_call_and_not_only_the_speakers():
-    e = Expression(Config(), SilentTTS(), Obs(), Events())
+    e = Expression(Config(), SilentTTS(), FakeAvatar(), FakeCaption(), Events())
     channel = VoiceChannel()
     channel.attach(Socket())
     channel.on_message({"type": "joined", "channel_id": "c1", "listeners": 1})

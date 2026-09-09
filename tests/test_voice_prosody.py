@@ -12,6 +12,7 @@ from src.core.expression.prosody import Prosody, for_mood
 from src.core.expression.voice import Expression
 from src.interfaces.base_interfaces import TTSInterface
 from src.modules.tts.edge_tts_wrapper import EdgeTTSWrapper
+from tests.fakes import FakeAvatar, FakeCaption
 
 T0 = 1_000_000.0
 
@@ -47,20 +48,6 @@ class Affects:
         self.enabled = enabled
 
 
-class Obs:
-    def set_image(self, *a, **k):
-        pass
-
-    def set_media(self, *a, **k):
-        pass
-
-    def set_text(self, *a, **k):
-        pass
-
-    async def type_text(self, **kwargs):
-        return 0
-
-
 class Events:
     def publish(self, *a, **k):
         pass
@@ -80,8 +67,7 @@ class Config:
 
 
 def expression(tts) -> Expression:
-    e = Expression(Config(), tts, Obs(), Events())
-    e.set_png_map({})
+    e = Expression(Config(), tts, FakeAvatar(), FakeCaption(), Events())
     return e
 
 

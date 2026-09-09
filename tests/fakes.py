@@ -78,7 +78,7 @@ class FakeExpression:
         self.felt: List[Any] = []
         self.is_speaking = False
         self.interrupts = 0
-        self.mood_avatar: Optional[str] = None
+        self.state: Optional[tuple] = None
         self.call = None
 
     def set_call(self, call):
@@ -97,8 +97,54 @@ class FakeExpression:
         self.interrupts += 1
         return True
 
-    def set_mood_avatar(self, mood):
-        self.mood_avatar = mood
+    def set_state(self, state, mood=None):
+        self.state = (state, mood)
+
+
+class FakeAvatar:
+    """Records what she was made to look like; touches nothing."""
+
+    def __init__(self):
+        self.shown: List[tuple] = []
+        self.performed: List[str] = []
+        self.envelopes: List[tuple] = []
+        self.closed = False
+
+    def show(self, mood, state):
+        self.shown.append((mood, state))
+
+    def perform(self, clip):
+        self.performed.append(clip)
+
+    def mouth(self, envelope, fps):
+        self.envelopes.append((list(envelope), fps))
+
+    def reload_config(self, config):
+        pass
+
+    def close(self):
+        self.closed = True
+
+    @property
+    def states(self) -> List[str]:
+        return [state for _mood, state in self.shown]
+
+
+class FakeCaption:
+    """Records the lines put on screen, without animating them."""
+
+    def __init__(self):
+        self.said: List[str] = []
+        self.clears = 0
+
+    async def say(self, text):
+        self.said.append(text)
+
+    def clear(self):
+        self.clears += 1
+
+    def reload_config(self, config):
+        pass
 
 
 class FakeHistory:

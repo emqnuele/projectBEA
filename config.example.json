@@ -57,6 +57,21 @@
         }
     },
     "png_dir": "data/pngs",
+    "stage": {
+        "avatar_backend": "png",
+        "caption_backend": "obs",
+        "lipsync_fps": 30,
+        "model_path": "",
+        "clips_dir": "data/clips",
+        "shot": "bust",
+        "mood_clips": {},
+        "background": "",
+        "vts_host": "127.0.0.1",
+        "vts_port": 8001,
+        "vts_expressions": {},
+        "vts_clips": {},
+        "vts_mouth_param": "MouthOpen"
+    },
     "text_line_width": 40,
     "text_lines": 4,
     "text_font_size": 75,

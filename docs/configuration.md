@@ -355,6 +355,44 @@ continues. [OBS module →](modules/obs.md)
 
 ---
 
+## stage — how she appears
+
+Two independent choices, plus the settings each one needs.
+
+| Key | Default | What it does |
+|---|---|---|
+| `avatar_backend` | `"png"` | `png`, `model` or `vtube_studio`. An unknown name falls back to `png` with a warning. |
+| `caption_backend` | `"obs"` | `obs`, `stage` (the browser source) or `off`. |
+| `lipsync_fps` | `30` | How many times a second her mouth is told what to do. |
+
+**The `model` backend**
+
+| Key | Default | What it does |
+|---|---|---|
+| `model_path` | `""` | The `.vrm` on this machine. Nothing ships with the repo; `make model` fetches a free one. |
+| `clips_dir` | `"data/clips"` | Where `.vrma` behaviours live. They appear by name in the dashboard. |
+| `shot` | `"bust"` | `bust`, `half` or `full`. Framed off the head bone, so any model is framed alike. |
+| `mood_clips` | `{}` | mood → clip name. Optional; a mood without one just changes expression. |
+| `background` | `""` | A colour behind her, or empty for transparent. |
+
+**The `vtube_studio` backend** — nothing is bundled; it drives the VTube Studio you already run.
+
+| Key | Default | What it does |
+|---|---|---|
+| `vts_host` | `"127.0.0.1"` | Where VTube Studio is. |
+| `vts_port` | `8001` | Its plugin API port. |
+| `vts_expressions` | `{}` | mood → expression file in **your** model. The dashboard reads the list from the connected model. |
+| `vts_clips` | `{}` | clip name → hotkey id or name. |
+| `vts_mouth_param` | `"MouthOpen"` | The parameter the lip sync writes to. |
+
+The token VTube Studio issues is **not** kept here. It lives in
+`data/vtube_studio_token.json`, gitignored, because `GET /config` is
+unauthenticated.
+
+Full reference: **[Avatar module →](modules/avatar.md)**
+
+---
+
 ## Avatar and the text bubble
 
 `avatar_map` holds one `{idle, talking}` pair per mood: `normal`, `angry`,

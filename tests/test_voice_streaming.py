@@ -13,6 +13,7 @@ from src.core.expression.pcm import duration_ms
 from src.core.expression.voice import Expression
 from src.core.skills.voice.channel import VoiceChannel, unframe
 from src.interfaces.base_interfaces import TTSInterface
+from tests.fakes import FakeAvatar, FakeCaption
 
 # --- where a line gets cut ---------------------------------------------------
 
@@ -101,20 +102,6 @@ class ChunkedTTS(OneShotTTS):
             yield np.zeros(800, dtype=np.float32), 24000
 
 
-class Obs:
-    def set_image(self, *a, **k):
-        pass
-
-    def set_media(self, *a, **k):
-        pass
-
-    def set_text(self, *a, **k):
-        pass
-
-    async def type_text(self, **kwargs):
-        return 0
-
-
 class Events:
     def publish(self, *a, **k):
         pass
@@ -134,8 +121,7 @@ class Config:
 
 
 def expression(tts) -> Expression:
-    e = Expression(Config(), tts, Obs(), Events())
-    e.set_png_map({})
+    e = Expression(Config(), tts, FakeAvatar(), FakeCaption(), Events())
     return e
 
 

@@ -1,20 +1,25 @@
 # OBS Module
 
-← [Back to README](../../README.md) | [Architecture](../architecture.md)
+← [Back to README](../../README.md) | [Architecture](../architecture.md) | [Avatar →](avatar.md)
 
 ---
 
 ## Overview
 
-The OBS module connects to OBS Studio via WebSocket and controls two types of sources in real time:
+`OBSController` is the WebSocket transport to OBS Studio: the connection and the
+two kinds of source it can drive.
 
-1. **Avatar source** — swaps the image/video file to reflect Bea's current mood and speaking state.
-2. **Text source** — animates text with a typewriter effect for the speech bubble overlay.
+1. **Avatar source** — the file swapped by the `png` avatar backend.
+2. **Text source** — the typewriter driven by the `obs` caption backend.
 
 ```
 src/modules/obs/
 └── obs_websocket.py    OBSController implementing OBSInterface
 ```
+
+Which of the two are in use depends on the backends in `stage` — see the
+[avatar module](avatar.md). With `model` or `vtube_studio` for the avatar and
+`stage` or `off` for the caption, this module is never called.
 
 ---
 
@@ -54,6 +59,11 @@ obs.set_media("data/pngs/angry/talking.mp4")
 
 `type_text()` writes a message character-by-character into the OBS text source, paginating if the message exceeds the visible area.
 
+Cost: one `SetInputSettings` request per character, each carrying the font block.
+A 158-character line is 159 requests and ~30 KB of JSON. The `stage` caption
+backend sends the line in one message and animates it in the page;
+`tests/test_stage.py` asserts the difference.
+
 **Parameters:**
 
 | Parameter | Description |
@@ -69,7 +79,9 @@ obs.set_media("data/pngs/angry/talking.mp4")
 | `min_page_duration` | Minimum seconds a page stays visible |
 | `speaking_rate` | Characters per second used to estimate reading time per page (default: `12.0`). Controls the post-typing wait so that longer pages stay visible longer. |
 
-Returns the final font size used (stored by the brain to correctly clear the source afterward).
+Returns the final font size used. `ObsTextCaption` keeps it so it can clear the
+source at the size the text was actually typed at — a long line shrinks to fit,
+and clearing at the configured size resizes the box on screen.
 
 The typing task and the playback task run in parallel — both are asyncio tasks,
 and `Expression.interrupt()` cancels them together on barge-in, keeping what was
@@ -83,18 +95,18 @@ OBS text sources have their font settings stored in OBS. The controller reads th
 
 ---
 
-## Avatar Swap Logic
+## Avatar swap logic
 
-`Expression` (`src/core/expression/voice.py`) owns this — it is the single
-output sink, so nothing else touches OBS:
+This lives in `PngAvatar` (`src/modules/avatar/png.py`), behind the avatar port.
+`Expression` asks for a mood and a state and never learns there is a file:
 
-1. `_resolve_paths(mood)` looks up `(idle_path, talking_path)` in `png_map`.
-2. Before speaking: `set_media(talking_path)` (or `set_image`).
-3. After speaking: `set_media(idle_path)`.
+1. `show(mood, "talking")` before speaking.
+2. `show(mood, "idle")` after.
 
-If the mood is unknown it falls back to `"normal"`. `set_mood_avatar()` is also
-used directly for states rather than speech — `sleeping` when she goes to
-sleep, `normal` when she wakes.
+An unknown mood falls back to `"normal"`. The states `sleeping` and `listening`
+use their own entry in `avatar_map` when there is one, and otherwise fall back to
+the mood's image and log a warning. Full resolution order is in the
+[avatar module](avatar.md).
 
 ---
 

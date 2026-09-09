@@ -125,6 +125,40 @@ server sees a normal player. Nothing is needed server-side.
 
 ---
 
+## How she looks on stream
+
+Three ways to put her on screen. Pick one in **Settings → Stream**, with a live
+preview of what the stream will see.
+
+| | What it is | What you need |
+|---|---|---|
+| **Images** | One picture per mood, swapped in OBS | Your PNGs |
+| **3D model** | A VRM in an OBS browser source | A `.vrm` file |
+| **VTube Studio** | Your own Live2D model, driven over its API | VTube Studio running |
+
+Her speech bubble is a separate choice — an OBS text source, the same browser
+source, or nothing — so you can mix them however you like.
+
+For the 3D route, `make model` downloads a free model to start from. If you go
+looking for your own, run it through the inspector first:
+
+```bash
+uv run python tools/inspect_vrm.py your-model.vrm
+```
+
+It tells you whether the model can do what she needs — a mouth that moves, a face
+per mood — and reads out the licence the file carries, so you know what you are
+allowed to stream with it. Her gestures are `.vrma` clips: drop them in
+`data/clips` and assign one per mood.
+
+Whichever you pick, the mood she chooses for a line drives all of it — her
+expression, her gesture, and her mouth, which follows the audio she is about to
+say.
+
+**[How it works, and how to add a backend →](docs/modules/avatar.md)**
+
+---
+
 ## A busy chat costs almost nothing
 
 Answering every message is what makes an always-on persona expensive to run and
@@ -272,6 +306,8 @@ touching the core.
 | **LLM** | `LLMClient` (tool-aware) | OpenRouter, OpenAI, Groq |
 | **TTS** | `TTSInterface` | EdgeTTS (free), Kokoro (local ONNX), Orpheus (API) |
 | **STT** | `STTInterface` | Groq, OpenRouter (Whisper) |
+| **Avatar** | `AvatarInterface` | Images (OBS), 3D model (VRM), VTube Studio |
+| **Caption** | `CaptionInterface` | OBS text source, browser source, off |
 | **OBS** | `OBSInterface` | OBS WebSocket |
 
 Models are configured per **role**, not one at a time: `mind` for the
@@ -280,7 +316,7 @@ role is a pool that round-robins to spread rate limits and falls back when a
 provider is down. Hot reload is built in: change models, voices or settings at
 runtime, without a restart.
 
-**[LLM →](docs/modules/llm.md)** · **[TTS →](docs/modules/tts.md)** · **[STT →](docs/modules/stt.md)** · **[OBS →](docs/modules/obs.md)**
+**[LLM →](docs/modules/llm.md)** · **[TTS →](docs/modules/tts.md)** · **[STT →](docs/modules/stt.md)** · **[Avatar →](docs/modules/avatar.md)** · **[OBS →](docs/modules/obs.md)**
 
 ---
 
@@ -387,7 +423,7 @@ same source.
 | [Setup & Install](docs/setup.md) | Installation, OBS setup, audio routing |
 | [Configuration](docs/configuration.md) | Every config field, CLI arg and `.env` var |
 | [Skills Overview](docs/skills/overview.md) | The `Skill` API, the registry, every tool |
-| [Modules](docs/modules/llm.md) | [LLM](docs/modules/llm.md) · [TTS](docs/modules/tts.md) · [STT](docs/modules/stt.md) · [OBS](docs/modules/obs.md) |
+| [Modules](docs/modules/llm.md) | [LLM](docs/modules/llm.md) · [TTS](docs/modules/tts.md) · [STT](docs/modules/stt.md) · [Avatar](docs/modules/avatar.md) · [OBS](docs/modules/obs.md) |
 | [Skills](docs/skills/overview.md) | [Memory](docs/skills/memory.md) · [Social](docs/skills/social.md) · [Dream](docs/skills/dream.md) · [Plan](docs/skills/plan.md) · [Discord](docs/skills/discord.md) · [Telegram](docs/skills/telegram.md) · [Twitch](docs/skills/twitch.md) · [Minecraft](docs/skills/minecraft.md) · [Donations](docs/skills/donations.md) · [Monologue](docs/skills/monologue.md) |
 | [Web](docs/web/api.md) | [API reference](docs/web/api.md) · [Frontend](docs/web/frontend.md) |
 | [Contributing](docs/contributing.md) | Where to start, the invariants, tests, pull requests |

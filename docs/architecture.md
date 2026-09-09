@@ -62,6 +62,8 @@ ProjectBEA/
 │   ├── bea.db              # everything she remembers (gitignored)
 │   ├── conversations/      # session transcripts, one JSON per session
 │   ├── embeddings_cache/   # the local embedding model's cache
+│   ├── models/             # the .vrm you bring (gitignored, `make model`)
+│   ├── clips/              # .vrma behaviours (gitignored, `make model`)
 │   ├── pngs/               # avatars per mood (idle/talking)
 │   └── prompts/            # soul · operating · monologue · minecraft · chat
 ├── docs/                   # this documentation, rendered by the docs site
@@ -80,16 +82,20 @@ ProjectBEA/
     │   ├── mind/           # routing, scheduler, conversations, correlation
     │   ├── memory/         # sqlite, rag, embedder, profiler, plan
     │   ├── social/         # the roster, reach and agenda
-    │   ├── expression/     # the single output sink + humanizer
+    │   ├── expression/     # the single output sink + humanizer + the face
+    │   ├── stage.py        # fan-out to the OBS browser source
     │   ├── agent/          # LLMClient, role pools, tools, runner
     │   └── skills/         # one package per capability
-    ├── interfaces/         # TTS · STT · OBS contracts
-    ├── modules/            # llm · tts · stt · obs implementations
+    ├── interfaces/         # TTS · STT · OBS · Avatar · Caption contracts
+    ├── modules/            # llm · tts · stt · obs · avatar · caption implementations
     ├── setup/              # the wizard behind `bea --setup`
     ├── utils/
     └── web/
         ├── app.py          # FastAPI
         └── frontend/       # React + Vite + Tailwind
+            ├── index.html  # the dashboard
+            ├── stage.html  # the OBS browser source (separate bundle)
+            └── src/stage/  # caption + the VRM renderer
 ```
 
 ---

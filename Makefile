@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install setup docker docker-up docker-down run web frontend lock clean test lint migrate
+.PHONY: help install setup docker docker-up docker-down run web frontend lock clean test lint migrate model
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -44,6 +44,9 @@ test: ## run the test suite
 
 lint: ## static checks
 	uv run ruff check src tests
+
+model: ## download the free sample 3d model and clip into data/
+	uv run python tools/fetch_model.py
 
 lock: ## refresh uv.lock after changing dependencies
 	uv lock

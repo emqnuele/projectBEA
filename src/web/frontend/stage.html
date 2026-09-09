@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bea — Stage</title>
+  <!--
+    The page an OBS Browser Source points at. Deliberately not part of the
+    dashboard bundle: this one loads a 3D renderer and must not drag React,
+    the router and the whole control room into a source that runs all stream.
+  -->
+</head>
+
+<body>
+  <div id="stage"></div>
+  <script type="module" src="/src/stage/main.js"></script>
+</body>
+
+</html>

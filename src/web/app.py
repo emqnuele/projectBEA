@@ -37,6 +37,7 @@ from src.core.persona_store import describe as persona_describe
 from src.core.settings_schema import ValidationError, apply_section, describe
 from src.core.settings_schema import restart_needed as _restart_needed
 from src.core.settings_schema import section as _section
+from src.core.stage import public_config
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.web")
@@ -997,6 +998,32 @@ def test_obs():
         return TestResult(ok=False, message="Could not reach OBS", detail=str(e)[:300])
 
 
+@app.post("/test/vts", response_model=TestResult)
+async def test_vts():
+    """Whether she can reach VTube Studio, and what your model can do."""
+    from src.modules.avatar.vtube_studio import probe
+
+    found = await probe(get_brain().config)
+    # "" and not None: `detail` is a str, and the failure path is exactly the
+    # one that would have hit a validation error instead of reporting the failure
+    detail = ""
+    if found["ok"]:
+        detail = f"{len(found['expressions'])} expressions, {len(found['hotkeys'])} hotkeys"
+    return TestResult(ok=found["ok"], message=found["message"], detail=detail)
+
+
+@app.get("/vts/model")
+async def vts_model():
+    """The expressions and hotkeys of the model VTube Studio has loaded.
+
+    So the dashboard offers what your own model actually has, instead of a text
+    box where a typo is silent until you are live.
+    """
+    from src.modules.avatar.vtube_studio import probe
+
+    return await probe(get_brain().config)
+
+
 @app.get("/secrets")
 def secrets_state():
     """Which secrets are set — never their values.
@@ -1026,6 +1053,127 @@ def audio_devices():
     except Exception as e:
         logger.warning(f"Could not enumerate audio devices: {e}")
         return []
+
+
+# --- the stage -------------------------------------------------------------
+
+
+@app.get("/stage/config")
+def stage_config():
+    """What the browser source needs to draw her. Never a secret."""
+    return public_config(get_brain().config)
+
+
+def _clips_dir(config) -> Path:
+    stage = getattr(config, "stage", {}) or {}
+    return Path(stage.get("clips_dir") or "data/clips")
+
+
+@app.get("/stage/model")
+def stage_model():
+    """The .vrm the browser source draws.
+
+    Served by the engine rather than by a path in the page, so the model can
+    live anywhere on the machine without the browser needing file access.
+    """
+    config = get_brain().config
+    raw = (getattr(config, "stage", {}) or {}).get("model_path")
+    if not raw:
+        raise HTTPException(status_code=404, detail="No model is configured")
+    path = Path(raw).resolve()
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"Configured, but not on disk: {path}")
+    return FileResponse(path, media_type="model/gltf-binary")
+
+
+@app.get("/stage/clips")
+def stage_clips():
+    """The behaviours installed, by name — what the dashboard offers you."""
+    folder = _clips_dir(get_brain().config)
+    if not folder.is_dir():
+        return []
+    return sorted(p.stem for p in folder.glob("*.vrma"))
+
+
+@app.get("/stage/clips/{name}")
+def stage_clip(name: str):
+    """One .vrma behaviour, by the name `/stage/clips` listed."""
+    folder = _clips_dir(get_brain().config).resolve()
+    path = (folder / f"{name}.vrma").resolve()
+    # the name comes from a page: it must not be able to walk out of the folder
+    if not path.is_relative_to(folder) or not path.is_file():
+        raise HTTPException(status_code=404, detail=f"No behaviour called {name!r}")
+    return FileResponse(path, media_type="model/gltf-binary")
+
+
+def _avatar_files(config) -> Dict[str, Path]:
+    """Every image the avatar map names, keyed `mood/state`.
+
+    The allow-list for the preview: an endpoint that served any path the query
+    string asked for would read any file on the machine.
+    """
+    out: Dict[str, Path] = {}
+    for mood, slots in (config.avatar_map or {}).items():
+        for state, raw in (slots or {}).items():
+            if raw:
+                out[f"{mood}/{state}"] = Path(raw).resolve()
+    return out
+
+
+@app.get("/stage/stream")
+async def stage_stream(request: Request):
+    """Server-sent events for the browser source.
+
+    A snapshot first, then patches. No backlog on purpose: OBS reloads a browser
+    source whenever it is toggled, and replaying what already happened would
+    have her act out the last minute of the stream a second time.
+    """
+    brain = get_brain()
+    queue = brain.stage.subscribe()
+
+    async def pump():
+        yield f"data: {json.dumps({'type': 'snapshot', **brain.stage.snapshot()})}\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    patch = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+                yield f"data: {json.dumps({'type': 'patch', **patch})}\n\n"
+        finally:
+            brain.stage.unsubscribe(queue)
+
+    return StreamingResponse(pump(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@app.get("/stage")
+def stage_page():
+    """The page you point an OBS Browser Source at."""
+    page = frontend_path / "stage.html"
+    if not page.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="The stage page is not built. Run `make frontend`.",
+        )
+    return FileResponse(page)
+
+
+@app.get("/stage/preview")
+def stage_preview(mood: str, state: str = "idle"):
+    """One avatar image, for the preview in the dashboard."""
+    config = get_brain().config
+    path = _avatar_files(config).get(f"{mood}/{state}")
+    if path is None:
+        raise HTTPException(status_code=404, detail="No image is mapped for that mood and state")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"Mapped, but not on disk: {path}")
+    return FileResponse(path)
 
 
 @app.get("/health")

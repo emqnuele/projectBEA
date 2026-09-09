@@ -90,10 +90,34 @@ class BrainConfig:
 
 
 
-    # avatar: one slot per mood, derived so a new mood is never avatar-less
+    # avatar: one slot per mood, derived so a new mood is never avatar-less.
+    # Used by the `png` backend; the others have their own maps under `stage`.
     avatar_map: Dict[str, Dict[str, str]] = field(default_factory=default_avatar_map)
 
     png_dir: str = "data/pngs"
+
+    # how she is put on screen. Two independent choices, because "PNG avatar with
+    # the nicer browser caption" and "3D body with the bubble still in OBS" are
+    # both setups people actually want.
+    stage: Dict[str, Any] = field(default_factory=lambda: {
+        "avatar_backend": "png",       # png | model | vtube_studio
+        "caption_backend": "obs",      # obs | stage | off
+        "lipsync_fps": 30,             # how often the mouth is told what to do
+
+        # the `model` backend
+        "model_path": "",              # the .vrm you bring; never shipped with the repo
+        "clips_dir": "data/clips",     # .vrma behaviours, which are portable and are
+        "shot": "bust",                # bust | half | full, framed off the head bone
+        "mood_clips": {},              # mood -> clip name, all optional
+        "background": "",              # a colour behind her, or empty for transparent
+
+        # the `vtube_studio` backend: nothing is bundled, it talks to yours
+        "vts_host": "127.0.0.1",
+        "vts_port": 8001,
+        "vts_expressions": {},         # mood -> expression file in the user's model
+        "vts_clips": {},               # clip name -> hotkey id in the user's model
+        "vts_mouth_param": "MouthOpen",
+    })
 
     # typing animation
     text_line_width: int = 40

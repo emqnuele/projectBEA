@@ -521,10 +521,64 @@ Filters the event buffer and returns only events in the `skill`, `thought`, and 
 
 ---
 
+### The stage
+
+What the OBS browser source reads, and what the dashboard asks about the avatar.
+None of it is authenticated, so none of it ever carries a secret.
+
+#### `GET /stage`
+The page to point an OBS **Browser Source** at. `404` with "run `make frontend`"
+when the frontend has not been built.
+
+#### `GET /stage/stream`
+Server-sent events for the browser source. **One snapshot first**, then patches:
+
+```
+data: {"type": "snapshot", "mood": "angry", "state": "talking", "caption": "..."}
+data: {"type": "patch", "envelope": [0.02, 0.31, ...], "envelope_fps": 30}
+```
+
+Deliberately no backlog. OBS reloads a browser source whenever it is toggled,
+and replaying what already happened would have her act out the last minute of
+the stream again.
+
+#### `GET /stage/config`
+What the page needs to draw her: the two backends, the shot, the lip sync rate
+and the caption's typography. Never a key, a token or a password.
+
+#### `GET /stage/model`
+The configured `.vrm`. `404` when none is set, or when it is set and missing —
+the message names the path.
+
+#### `GET /stage/clips` · `GET /stage/clips/{name}`
+The behaviours installed, by name, and one `.vrma` each. A name that would walk
+out of the clips folder is a `404`.
+
+#### `GET /stage/preview`
+**Query:** `mood`, `state` (`idle` by default). One avatar image, for the
+preview in the dashboard. Only paths that appear in `avatar_map` are served —
+anything else is a `404`, so the endpoint cannot be used to read the disk.
+
+#### `POST /test/vts`
+Whether she can reach VTube Studio. Returns the standard
+`{ ok, message, detail }`, and reports a refused connection rather than raising.
+
+#### `GET /vts/model`
+The expressions and hotkeys of the model VTube Studio currently has loaded, so
+the dashboard can offer them as a list instead of a text box.
+
+---
+
 ## Frontend Static Serving
 
-When the React frontend is built (`npm run build`), only the `dist/assets/` sub-folder is mounted as a `StaticFiles` route at `/assets`. All other requests — including navigation routes like `/dashboard` and the root `/` — are handled by a catch-all `GET /{full_path}` route that returns `dist/index.html` directly.
+Two entry points are built from `src/web/frontend`: `index.html` (the dashboard)
+and `stage.html` (the OBS browser source). They are separate bundles — the stage
+does not carry React, the router or the dashboard, and three.js is loaded only
+when the 3D backend is chosen.
 
-> **Note:** Files placed in `dist/` outside of `assets/` (e.g. `favicon.ico`, `robots.txt`) are **not** served as static files. Any request for such a file will receive `index.html` instead.
+`dist/assets/` is mounted as a `StaticFiles` route at `/assets`. Everything else
+falls through to a catch-all `GET /{full_path}`, which serves a **real file** if
+one exists under `dist/` (the favicon, `stage.html`) and otherwise returns
+`dist/index.html` so the SPA can route it.
 
 [Frontend Documentation →](frontend.md)

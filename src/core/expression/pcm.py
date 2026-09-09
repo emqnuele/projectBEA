@@ -83,3 +83,37 @@ def split_at_ms(pcm: bytes, played_ms: int) -> Tuple[bytes, bytes]:
     # never split mid-frame: half a sample is a click
     cut -= cut % (CALL_CHANNELS * BYTES_PER_SAMPLE)
     return pcm[:cut], pcm[cut:]
+
+
+# how often the mouth is told what to do. 30 is well under a stream's frame rate
+# and already smoother than a mouth can move.
+ENVELOPE_FPS = 30
+
+
+def envelope(audio: np.ndarray, sample_rate: int, fps: int = ENVELOPE_FPS) -> list:
+    """Per-frame loudness in [0, 1] — the only thing a mouth actually needs.
+
+    Not a phoneme model and not a viseme classifier: the RMS of the audio she is
+    about to say, normalised. It costs a fraction of a millisecond for a whole
+    utterance, and it is computed here rather than in the browser because the
+    audio is played on this machine and the page never hears it.
+    """
+    if audio is None or getattr(audio, "size", 0) == 0:
+        return []
+    mono = to_mono(np.asarray(audio))
+    if mono.dtype == np.int16:
+        mono = mono.astype(np.float32) / 32768.0
+
+    hop = max(1, int(sample_rate) // max(1, int(fps)))
+    frames = mono.size // hop
+    if frames == 0:
+        return []
+
+    blocks = mono[: frames * hop].reshape(frames, hop)
+    rms = np.sqrt(np.mean(np.square(blocks, dtype=np.float64), axis=1))
+    peak = rms.max()
+    if peak <= 0:
+        return [0.0] * frames
+    # rounded because this crosses the wire: three decimals is finer than a
+    # mouth can be seen to move, and halves the payload
+    return [round(float(value), 3) for value in (rms / peak)]

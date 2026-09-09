@@ -112,5 +112,10 @@ export const api = {
     testLlm: () => request('/test/llm', { method: 'POST' }),
     testTts: () => request('/test/tts', { method: 'POST' }),
     testObs: () => request('/test/obs', { method: 'POST' }),
+    testVts: () => request('/test/vts', { method: 'POST' }),
     audioDevices: () => request('/audio/devices'),
+
+    // the stage: what she is drawn with
+    stageClips: () => request('/stage/clips'),
+    vtsModel: () => request('/vts/model'),
 };
