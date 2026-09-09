@@ -25,11 +25,17 @@ def _model(config, obs, publisher):
     return Model3DAvatar(config, publisher)
 
 
+def _vtube_studio(config, obs, publisher):
+    from src.modules.avatar.vtube_studio import VTubeStudioAvatar
+    return VTubeStudioAvatar(config)
+
+
 # name -> builder. Imports live inside the builders so that choosing the PNG
 # backend never pays for the ones it is not using.
 BUILDERS: Dict[str, Callable[..., AvatarInterface]] = {
     "png": _png,
     "model": _model,
+    "vtube_studio": _vtube_studio,
 }
 
 # backends that cannot work without somewhere to publish to

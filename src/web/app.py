@@ -997,6 +997,32 @@ def test_obs():
         return TestResult(ok=False, message="Could not reach OBS", detail=str(e)[:300])
 
 
+@app.post("/test/vts", response_model=TestResult)
+async def test_vts():
+    """Whether she can reach VTube Studio, and what your model can do."""
+    from src.modules.avatar.vtube_studio import probe
+
+    found = await probe(get_brain().config)
+    return TestResult(
+        ok=found["ok"],
+        message=found["message"],
+        detail=(f"{len(found['expressions'])} expressions, {len(found['hotkeys'])} hotkeys"
+                if found["ok"] else None),
+    )
+
+
+@app.get("/vts/model")
+async def vts_model():
+    """The expressions and hotkeys of the model VTube Studio has loaded.
+
+    So the dashboard offers what your own model actually has, instead of a text
+    box where a typo is silent until you are live.
+    """
+    from src.modules.avatar.vtube_studio import probe
+
+    return await probe(get_brain().config)
+
+
 @app.get("/secrets")
 def secrets_state():
     """Which secrets are set — never their values.
