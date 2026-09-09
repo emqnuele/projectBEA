@@ -125,6 +125,38 @@ server sees a normal player. Nothing is needed server-side.
 
 ---
 
+## Pick a body for her
+
+She has always been a PNG that swapped when her mood did. Now that is one choice
+of three, and the engine no longer knows which one you made.
+
+| | What it is | What you need |
+|---|---|---|
+| **Images** | One picture per mood, swapped in OBS | Your PNGs. Nothing else. |
+| **3D model** | A VRM rendered in an OBS browser source | A `.vrm` — or `make model` for a free one |
+| **VTube Studio** | Your own Live2D model, over its plugin API | VTube Studio, which you already have or do not |
+
+The speech bubble is a **separate** choice: an OBS text source, the browser
+source, or nothing at all. "Images with the nicer browser caption" and "3D body
+with the bubble still in OBS" are both setups people want.
+
+**No model ships with projectBEA.** A model is 11 MB of binary most people
+replace with their own, and its licence is not ours to hand you — the same call
+the repo already makes for the speech models. `make model` fetches pixiv's free
+VRM 1.0 sample, and `tools/inspect_vrm.py` reads any model's licence out of the
+file itself and tells you in words what it allows.
+
+The mood she picks for a line already decides how she sounds. Now it decides how
+she looks, out of the same two numbers: `src/core/expression/face.py` turns a
+mood into VRM expression weights, and the test suite checks them against the
+valence/arousal vectors so a face can never contradict a feeling. Her mouth is
+driven by the loudness of the audio she is about to say — 180 frames for six
+seconds, computed in a fifth of a millisecond, sent once.
+
+**[How the avatar port works →](docs/modules/avatar.md)**
+
+---
+
 ## A busy chat costs almost nothing
 
 Answering every message is what makes an always-on persona expensive to run and
@@ -272,6 +304,8 @@ touching the core.
 | **LLM** | `LLMClient` (tool-aware) | OpenRouter, OpenAI, Groq |
 | **TTS** | `TTSInterface` | EdgeTTS (free), Kokoro (local ONNX), Orpheus (API) |
 | **STT** | `STTInterface` | Groq, OpenRouter (Whisper) |
+| **Avatar** | `AvatarInterface` | Images (OBS), 3D model (VRM), VTube Studio |
+| **Caption** | `CaptionInterface` | OBS text source, browser source, off |
 | **OBS** | `OBSInterface` | OBS WebSocket |
 
 Models are configured per **role**, not one at a time: `mind` for the
@@ -280,7 +314,7 @@ role is a pool that round-robins to spread rate limits and falls back when a
 provider is down. Hot reload is built in: change models, voices or settings at
 runtime, without a restart.
 
-**[LLM →](docs/modules/llm.md)** · **[TTS →](docs/modules/tts.md)** · **[STT →](docs/modules/stt.md)** · **[OBS →](docs/modules/obs.md)**
+**[LLM →](docs/modules/llm.md)** · **[TTS →](docs/modules/tts.md)** · **[STT →](docs/modules/stt.md)** · **[Avatar →](docs/modules/avatar.md)** · **[OBS →](docs/modules/obs.md)**
 
 ---
 
@@ -387,7 +421,7 @@ same source.
 | [Setup & Install](docs/setup.md) | Installation, OBS setup, audio routing |
 | [Configuration](docs/configuration.md) | Every config field, CLI arg and `.env` var |
 | [Skills Overview](docs/skills/overview.md) | The `Skill` API, the registry, every tool |
-| [Modules](docs/modules/llm.md) | [LLM](docs/modules/llm.md) · [TTS](docs/modules/tts.md) · [STT](docs/modules/stt.md) · [OBS](docs/modules/obs.md) |
+| [Modules](docs/modules/llm.md) | [LLM](docs/modules/llm.md) · [TTS](docs/modules/tts.md) · [STT](docs/modules/stt.md) · [Avatar](docs/modules/avatar.md) · [OBS](docs/modules/obs.md) |
 | [Skills](docs/skills/overview.md) | [Memory](docs/skills/memory.md) · [Social](docs/skills/social.md) · [Dream](docs/skills/dream.md) · [Plan](docs/skills/plan.md) · [Discord](docs/skills/discord.md) · [Telegram](docs/skills/telegram.md) · [Twitch](docs/skills/twitch.md) · [Minecraft](docs/skills/minecraft.md) · [Donations](docs/skills/donations.md) · [Monologue](docs/skills/monologue.md) |
 | [Web](docs/web/api.md) | [API reference](docs/web/api.md) · [Frontend](docs/web/frontend.md) |
 | [Contributing](docs/contributing.md) | Where to start, the invariants, tests, pull requests |
