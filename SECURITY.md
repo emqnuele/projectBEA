@@ -6,7 +6,7 @@
 [Report a vulnerability](https://github.com/emqnuele/projectBEA/security/advisories/new).
 
 Include what you ran, what you got, and what an attacker could do with it. You
-will get a reply within a few days — this is a side project, not a vendor with
+will get a reply within a few days. This is a side project, not a vendor with
 an on-call rotation, and it is better to say so than to promise an SLA nobody
 is holding.
 
@@ -25,9 +25,9 @@ Putting it on a public address as it stands exposes every endpoint, including
 the ones that write to her memory and change her configuration. Reports that
 amount to "the API is open if you expose it" are documented behaviour.
 
-If you have found a way to reach the API *without* exposing it — an SSRF from a
-skill, a CSRF from a page the owner visits, a WebSocket that ignores its origin
-— that is in scope and worth reporting.
+If you have found a way to reach the API *without* exposing it (an SSRF from a
+skill, a CSRF from a page the owner visits, a WebSocket that ignores its
+origin), that is in scope and worth reporting.
 
 **She runs on your keys.** Model API keys live in `.env` and are read at
 startup. A skill or a prompt that convinces her to reveal them is in scope. Keys

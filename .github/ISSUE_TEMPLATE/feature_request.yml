@@ -5,9 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Anything that changes how the system is put together — the perception
+        Anything that changes how the system is put together (the perception
         bus, the single mind, the expression sink, the on-disk schema or
-        `config.json` — is worth agreeing on here before it is written. See
+        `config.json`) is worth agreeing on here before it is written. See
         [the three invariants](https://github.com/emqnuele/projectBEA/blob/main/docs/contributing.md#the-three-invariants).
 
   - type: textarea

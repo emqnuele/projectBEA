@@ -9,7 +9,7 @@ body:
         specific thing, so the provider and model fields below matter more than
         they look.
 
-        **Do not report a security problem here** — see [SECURITY.md](https://github.com/emqnuele/projectBEA/blob/main/SECURITY.md).
+        **Do not report a security problem here.** See [SECURITY.md](https://github.com/emqnuele/projectBEA/blob/main/SECURITY.md).
 
   - type: textarea
     id: what
@@ -69,7 +69,7 @@ body:
     id: model
     attributes:
       label: Provider and model
-      description: Which pool, if it matters — `mind` and `background` can differ.
+      description: Which pool, if it matters. `mind` and `background` can differ.
       placeholder: openrouter · anthropic/claude-sonnet-4.5 (mind), groq · llama-3.3-70b (background)
 
   - type: textarea
