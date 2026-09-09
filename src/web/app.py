@@ -1028,6 +1028,58 @@ def audio_devices():
         return []
 
 
+# --- the stage -------------------------------------------------------------
+
+
+@app.get("/stage/config")
+def stage_config():
+    """What the browser source needs to draw her, and nothing else.
+
+    Deliberately not the whole config: this endpoint is read by a page that
+    lives in OBS, and OBS is not a place to hand out API keys.
+    """
+    config = get_brain().config
+    stage = dict(getattr(config, "stage", {}) or {})
+    return {
+        "avatar_backend": stage.get("avatar_backend", "png"),
+        "caption_backend": stage.get("caption_backend", "obs"),
+        "shot": stage.get("shot", "bust"),
+        "background": stage.get("background", ""),
+        "lipsync_fps": stage.get("lipsync_fps", 30),
+        "has_model": bool(stage.get("model_path")),
+        "typing_delay": config.typing_delay,
+        "text_line_width": config.text_line_width,
+        "text_lines": config.text_lines,
+        "text_font_size": config.text_font_size,
+    }
+
+
+def _avatar_files(config) -> Dict[str, Path]:
+    """Every image the avatar map names, keyed `mood/state`.
+
+    The allow-list for the preview: an endpoint that served any path the query
+    string asked for would read any file on the machine.
+    """
+    out: Dict[str, Path] = {}
+    for mood, slots in (config.avatar_map or {}).items():
+        for state, raw in (slots or {}).items():
+            if raw:
+                out[f"{mood}/{state}"] = Path(raw).resolve()
+    return out
+
+
+@app.get("/stage/preview")
+def stage_preview(mood: str, state: str = "idle"):
+    """One avatar image, for the preview in the dashboard."""
+    config = get_brain().config
+    path = _avatar_files(config).get(f"{mood}/{state}")
+    if path is None:
+        raise HTTPException(status_code=404, detail="No image is mapped for that mood and state")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"Mapped, but not on disk: {path}")
+    return FileResponse(path)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "brain": brain_instance is not None}

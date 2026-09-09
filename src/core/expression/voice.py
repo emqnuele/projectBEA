@@ -78,6 +78,12 @@ class Expression:
             self._mood = mood
         self.avatar.show(self._mood, state)
 
+    def set_ports(self, avatar: AvatarInterface, caption: CaptionInterface) -> None:
+        """Swaps the backends under her, mid-run, without dropping the mood."""
+        self.avatar = avatar
+        self.caption = caption
+        self.avatar.show(self._mood, "idle")
+
     def reload_config(self, config: BrainConfig) -> None:
         self.config = config
         self.avatar.reload_config(config)

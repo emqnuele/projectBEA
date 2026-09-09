@@ -35,7 +35,9 @@ from src.core.social.reach import Reach
 from src.core.social.rhythm import RhythmTick
 from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
 from src.modules.avatar import build_avatar
+from src.modules.avatar.factory import backend_name as avatar_backend
 from src.modules.caption import build_caption
+from src.modules.caption.factory import backend_name as caption_backend
 from src.utils.history_manager import HistoryManager
 from src.utils.logger import get_logger
 from src.utils.prompts import compose, load_text
@@ -81,6 +83,7 @@ class AIVtuberBrain:
         # never learns whether that is a PNG, a 3D model or VTube Studio
         self.avatar = build_avatar(config, obs)
         self.caption = build_caption(config, obs)
+        self._backends = (avatar_backend(config), caption_backend(config))
         self.soul = ""           # shared persona, prepended to the operating manual
         self.system_prompt = ""  # composed: soul + operating manual
         self.history_manager = HistoryManager()
@@ -373,12 +376,29 @@ class AIVtuberBrain:
             self.consciousness.llm = self.llm
         self.tts.reload_config(self.config)
         self.obs.reload_config(self.config)
-        # the ports are reloaded through Expression, which owns them
-        self.expression.reload_config(self.config)
+        self._reload_stage()
         if self.stt:
             self.stt.reload_config(self.config)
 
         logger.info("Hot Reload Complete")
+
+    def _reload_stage(self) -> None:
+        """Re-points the avatar and caption, rebuilding only what changed.
+
+        Picking a different backend in the dashboard has to take effect without
+        a restart, and rebuilding a port that did not change would drop the
+        state it holds — a loaded model, an authenticated socket.
+        """
+        wanted = (avatar_backend(self.config), caption_backend(self.config))
+        if wanted[0] != self._backends[0]:
+            self.avatar.close()
+            self.avatar = build_avatar(self.config, self.obs)
+        if wanted[1] != self._backends[1]:
+            self.caption = build_caption(self.config, self.obs)
+        if wanted != self._backends:
+            self.expression.set_ports(self.avatar, self.caption)
+            self._backends = wanted
+        self.expression.reload_config(self.config)
 
     def _obs_connect(self):
         if hasattr(self.obs, "source_name"):

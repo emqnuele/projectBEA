@@ -265,3 +265,14 @@ def test_every_state_the_engine_uses_resolves_to_something_showable(state):
     obs = RecordingObs()
     PngAvatar(Config(), obs).show("normal", state)
     assert obs.images, f"the '{state}' state showed nothing at all"
+
+
+def test_swapping_the_backend_mid_run_keeps_the_face_she_was_wearing():
+    """Changing the dropdown must not reset her to neutral on stream."""
+    e = Expression(Config(), SilentTTS(), FakeAvatar(), FakeCaption(), Events())
+    e.set_state("idle", mood="angry")
+
+    replacement = FakeAvatar()
+    e.set_ports(replacement, FakeCaption())
+
+    assert replacement.shown == [("angry", "idle")]
