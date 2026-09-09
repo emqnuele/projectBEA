@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Optional, Tuple, Union
+from typing import Any, AsyncIterator, Dict, Optional, Sequence, Tuple, Union
 
 
 class LLMInterface(ABC):
@@ -113,6 +113,76 @@ class OBSInterface(ABC):
         Sets text immediately without animation.
         """
         pass
+
+class AvatarInterface(ABC):
+    """How Bea looks. Knows nothing about files, OBS or three.js.
+
+    `OBSInterface` above conflated two jobs — the avatar and the speech bubble —
+    and both of them spoke in file paths. A body has no file per mood, so the
+    engine hands down what she *is* (a mood, a state) and each backend decides
+    what that means: a PNG swap, a blend of VRM expressions, a VTube Studio
+    hotkey. Every method is synchronous; a backend that needs the network
+    queues the work rather than making the whole engine wait on it.
+    """
+
+    @abstractmethod
+    def show(self, mood: str, state: str) -> None:
+        """Her mood, and what she is doing: idle, talking, listening, sleeping."""
+        pass
+
+    @abstractmethod
+    def perform(self, clip: str) -> None:
+        """Play a named behaviour. A backend without behaviours ignores it."""
+        pass
+
+    @abstractmethod
+    def mouth(self, envelope: Sequence[float], fps: int) -> None:
+        """Per-frame loudness of the line about to be heard, in [0, 1].
+
+        Deliberately the whole utterance at once rather than a value per frame:
+        a page can replay it against its own clock, and a backend that needs a
+        stream (VTube Studio wants one message per frame) can pace it itself.
+        A backend with no mouth ignores it.
+        """
+        pass
+
+    @abstractmethod
+    def reload_config(self, config) -> None:
+        pass
+
+    @abstractmethod
+    def close(self) -> None:
+        """Release whatever the backend holds.
+
+        Abstract rather than a no-op default: a backend that opens a socket and
+        forgets to close it leaks a task for the life of the process, and every
+        backend saying out loud whether it holds anything is cheaper than
+        finding that out on a stream.
+        """
+        pass
+
+
+class CaptionInterface(ABC):
+    """The words on screen while she talks, if the setup shows them at all."""
+
+    @abstractmethod
+    async def say(self, text: str) -> None:
+        """Put a line on screen, with whatever animation the backend has.
+
+        Awaitable because the OBS backend animates over time and barge-in
+        cancels the task mid-sentence.
+        """
+        pass
+
+    @abstractmethod
+    def clear(self) -> None:
+        """Take the words away. Safe to call when there are none."""
+        pass
+
+    @abstractmethod
+    def reload_config(self, config) -> None:
+        pass
+
 
 class STTInterface(ABC):
     @abstractmethod

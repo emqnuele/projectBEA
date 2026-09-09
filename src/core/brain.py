@@ -15,7 +15,6 @@ from src.core.mind.operating import BUILTIN_OPERATING, missing_tools
 from src.core.mind.spontaneous import SpontaneousPresence
 from src.core.perception.bus import PerceptionBus
 from src.core.persona import Persona, persona_of
-from src.core.resources import load_avatar_resources
 from src.core.skills.base import SkillRegistry
 from src.core.skills.chat import ChatSurface
 from src.core.skills.clock import ClockSkill
@@ -35,6 +34,8 @@ from src.core.social.agenda import AgendaRunner
 from src.core.social.reach import Reach
 from src.core.social.rhythm import RhythmTick
 from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
+from src.modules.avatar import build_avatar
+from src.modules.caption import build_caption
 from src.utils.history_manager import HistoryManager
 from src.utils.logger import get_logger
 from src.utils.prompts import compose, load_text
@@ -75,7 +76,11 @@ class AIVtuberBrain:
         self.tts = tts
         self.stt = stt
         self.obs = obs
-        self.png_map = {}
+
+        # how she appears and how her words are shown: two ports, so the engine
+        # never learns whether that is a PNG, a 3D model or VTube Studio
+        self.avatar = build_avatar(config, obs)
+        self.caption = build_caption(config, obs)
         self.soul = ""           # shared persona, prepended to the operating manual
         self.system_prompt = ""  # composed: soul + operating manual
         self.history_manager = HistoryManager()
@@ -83,7 +88,7 @@ class AIVtuberBrain:
         self.event_manager = EventManager()
 
         # single output sink (VOICE actuator + barge-in)
-        self.expression = Expression(config, tts, obs, self.event_manager)
+        self.expression = Expression(config, tts, self.avatar, self.caption, self.event_manager)
 
         # everything Bea remembers, in one transactional file
         self.memory = self._build_memory()
@@ -216,11 +221,6 @@ class AIVtuberBrain:
     def initialize(self):
         """Loads resources and connects to services."""
         logger.info("Initializing Brain...")
-
-        self.png_map = load_avatar_resources(self.config.avatar_map)
-        if not self.png_map:
-            logger.warning("No avatar resources loaded from avatar_map.")
-        self.expression.set_png_map(self.png_map)
 
         self.soul = self.persona.fill(load_text(self.config.soul_path))
         self.system_prompt = compose(self.soul, self._load_operating_rules())
@@ -373,6 +373,7 @@ class AIVtuberBrain:
             self.consciousness.llm = self.llm
         self.tts.reload_config(self.config)
         self.obs.reload_config(self.config)
+        # the ports are reloaded through Expression, which owns them
         self.expression.reload_config(self.config)
         if self.stt:
             self.stt.reload_config(self.config)
@@ -601,5 +602,6 @@ class AIVtuberBrain:
             await self.consciousness.stop()
 
     def shutdown(self):
+        self.avatar.close()
         self.obs.disconnect()
         self.memory.close()

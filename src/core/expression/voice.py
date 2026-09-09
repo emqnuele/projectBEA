@@ -1,16 +1,15 @@
 import asyncio
 import time
 import uuid
-from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
 from src.core.expression.chunking import split_for_speech
 from src.core.expression.pcm import duration_ms, to_call_pcm
 from src.core.expression.prosody import for_mood
-from src.core.resources import resolve_mood_paths
-from src.interfaces.base_interfaces import OBSInterface, TTSInterface
+from src.core.mind.moods import DEFAULT_MOOD
+from src.interfaces.base_interfaces import AvatarInterface, CaptionInterface, TTSInterface
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.expression")
@@ -19,14 +18,18 @@ logger = get_logger("bea.expression")
 class Expression:
     """The single output sink for everything Bea expresses.
 
-    Owns the VOICE actuator: TTS generation, local audio playback, OBS avatar/text
-    animation, barge-in/interruption and the resume buffer. Every surface that used
-    to roll its own speech path (chat, discord voice, minecraft thoughts, monologue)
-    routes through here so the rendering logic lives in exactly one place.
+    Owns the VOICE actuator: TTS generation, local audio playback, the avatar and
+    the caption, barge-in/interruption and the resume buffer. Every surface that
+    used to roll its own speech path (chat, discord voice, minecraft thoughts,
+    monologue) routes through here so the rendering logic lives in one place.
+
+    It drives two ports and knows neither of their backends: whether the avatar
+    is a PNG in OBS, a VRM in a browser source or a Live2D model in VTube Studio
+    is a line of config, not a branch in here.
 
     Routes:
     - "local"  -> generate audio and play it on the configured device (stream/OBS).
-    - "call"   -> generate audio, drive only the OBS visuals, and push the samples
+    - "call"   -> generate audio, drive only the visuals, and push the samples
                   into the live voice call through the push channel.
 
     The call is a sink she *owns*, not a reply she hands back: nothing outside
@@ -34,13 +37,17 @@ class Expression:
     and knowing how far a sentence got can live in one place.
     """
 
-    def __init__(self, config: BrainConfig, tts: TTSInterface, obs: OBSInterface, event_manager: EventManager):
+    def __init__(self, config: BrainConfig, tts: TTSInterface, avatar: AvatarInterface,
+                 caption: CaptionInterface, event_manager: EventManager):
         self.config = config
         self.tts = tts
-        self.obs = obs
+        self.avatar = avatar
+        self.caption = caption
         self.event_manager = event_manager
 
-        self.png_map = {}
+        # the last mood she was seen in, so a state change (falling asleep, a
+        # resumed sentence) does not silently reset her face to neutral
+        self._mood = DEFAULT_MOOD
 
         self._is_speaking = False
         self.current_typing_task: Optional[asyncio.Task] = None
@@ -60,15 +67,21 @@ class Expression:
         # the last utterance a barge-in cut short, for the mind to be told about
         self.interrupted = None
 
-    def set_png_map(self, png_map) -> None:
-        self.png_map = png_map
+    def set_state(self, state: str, mood: Optional[str] = None) -> None:
+        """A visible state that is not speech: sleeping, listening, idle.
 
-    def set_mood_avatar(self, mood: str) -> None:
-        """Set a static (idle) avatar for a mood without speaking — e.g. sleeping."""
-        self._set_idle(mood)
+        A state is not a mood. Passing `"sleeping"` where a mood belonged is
+        exactly why the sleeping avatar was never once seen: it resolved to
+        `normal` without a word of complaint.
+        """
+        if mood is not None:
+            self._mood = mood
+        self.avatar.show(self._mood, state)
 
     def reload_config(self, config: BrainConfig) -> None:
         self.config = config
+        self.avatar.reload_config(config)
+        self.caption.reload_config(config)
 
     # --- VOICE actuator -----------------------------------------------------
 
@@ -232,7 +245,7 @@ class Expression:
     async def _speak_local(self, mood: str, message: str, feeling=None):
         """Audio + visual output on the local device (stream/OBS)."""
         self.is_speaking = True
-        font_used = self.config.text_font_size
+        self._mood = mood
         try:
             logger.info(f"Mood: {mood}")
             logger.info(f"Message: {message}")
@@ -245,20 +258,11 @@ class Expression:
                 logger.info("Interrupting previous speech task...")
                 self.current_speech_task.cancel()
 
-            if self.config.obs_text_source:
-                self.obs.set_text("", self.config.obs_text_source)
-
-            idle_path, talking_path = self._resolve_paths(mood)
-
-            if self.config.obs_source_type == "media":
-                self.obs.set_media(talking_path)
-            else:
-                self.obs.set_image(talking_path)
+            self.caption.clear()
+            self.avatar.show(mood, "talking")
 
             async with self.audio_lock:
-                self.current_typing_task = None
-                if self.config.obs_text_source:
-                    self.current_typing_task = asyncio.create_task(self._type(message))
+                self.current_typing_task = asyncio.create_task(self.caption.say(message))
 
                 self.event_manager.publish(
                     EventCategory.OUTPUT, "tts", f"Speaking: {message[:50]}...",
@@ -272,20 +276,13 @@ class Expression:
                         self._play_audio(audio_data, fs, self.config.audio_device_id)
                     )
 
-                    font_used = self.config.text_font_size
                     try:
-                        if self.current_typing_task:
-                            results = await asyncio.gather(self.current_typing_task, self.current_speech_task)
-                            font_used = results[0]
-                        else:
-                            await self.current_speech_task
+                        await asyncio.gather(self.current_typing_task, self.current_speech_task)
                     except asyncio.CancelledError:
                         logger.info("Output tasks cancelled (Interruption).")
 
-            if self.config.obs_text_source:
-                self.obs.set_text("", self.config.obs_text_source, font_size=font_used)
-
-            self._set_idle(mood)
+            self.caption.clear()
+            self.avatar.show(mood, "idle")
         finally:
             self.is_speaking = False
 
@@ -339,57 +336,21 @@ class Expression:
         return not self.call_is_live or current is None or current.id != utterance_id
 
     async def _visual_only(self, mood: str, message: str, duration: float):
-        """Updates OBS visuals/text without playing local audio."""
+        """Drives the visuals for a line the room hears, without playing it here."""
         self.is_speaking = True
+        self._mood = mood
         try:
-            _, talking_path = self._resolve_paths(mood)
-            if self.config.obs_source_type == "media":
-                self.obs.set_media(talking_path)
-            else:
-                self.obs.set_image(talking_path)
+            self.avatar.show(mood, "talking")
 
-            if self.config.obs_text_source:
-                await self._type(message)
-            else:
-                await asyncio.sleep(duration)
+            typed = asyncio.create_task(self.caption.say(message))
+            # a caption backend that shows nothing returns at once, and the
+            # visuals would snap back before the room finished hearing her
+            await asyncio.gather(typed, asyncio.sleep(duration))
 
-            self._set_idle(mood)
-            if self.config.obs_text_source:
-                self.obs.set_text("", self.config.obs_text_source)
+            self.avatar.show(mood, "idle")
+            self.caption.clear()
         finally:
             self.is_speaking = False
-
-    async def _type(self, message: str) -> int:
-        return await self.obs.type_text(
-            text=message,
-            source_name=self.config.obs_text_source,
-            line_width=self.config.text_line_width,
-            max_lines=self.config.text_lines,
-            base_font_size=self.config.text_font_size,
-            min_font_size=self.config.text_min_font_size,
-            font_step=self.config.text_font_step,
-            typing_delay=self.config.typing_delay,
-            min_page_duration=self.config.text_min_duration,
-        )
-
-    def _resolve_paths(self, mood: str) -> Tuple[Path, Path]:
-        try:
-            return resolve_mood_paths(self.png_map, mood)
-        except KeyError:
-            logger.warning(f"Could not resolve mood {mood}, falling back to 'normal'.")
-            if "normal" in self.png_map:
-                return self.png_map["normal"]
-            return Path("placeholder.png"), Path("placeholder.png")
-
-    def _set_idle(self, mood: str):
-        try:
-            idle_path, _ = self._resolve_paths(mood)
-        except Exception:
-            idle_path = self.png_map.get("normal", (Path("placeholder.png"),))[0]
-        if self.config.obs_source_type == "media":
-            self.obs.set_media(idle_path)
-        else:
-            self.obs.set_image(idle_path)
 
     # --- barge-in / resume --------------------------------------------------
 
@@ -434,8 +395,8 @@ class Expression:
         if self.current_typing_task and not self.current_typing_task.done():
             self.current_typing_task.cancel()
 
-        if self.config.obs_text_source:
-            self.obs.set_text("", self.config.obs_text_source)
+        self.caption.clear()
+        self.avatar.show(self._mood, "idle")
 
         self.is_speaking = False
         return "Interrupted"
@@ -450,12 +411,9 @@ class Expression:
         self.is_speaking = True
         try:
             async with self.audio_lock:
-                if "normal" in self.png_map:
-                    _, talking_path = self.png_map["normal"]
-                    if self.config.obs_source_type == "media":
-                        self.obs.set_media(talking_path)
-                    else:
-                        self.obs.set_image(talking_path)
+                # the mood she was cut off in, not `normal`: finishing an angry
+                # sentence with a neutral face is worse than not finishing it
+                self.avatar.show(self._mood, "talking")
 
                 self.current_speech_task = asyncio.create_task(
                     self._play_audio(self.resume_buffer, self.playback_sample_rate, self.config.audio_device_id)
@@ -468,9 +426,4 @@ class Expression:
                 self.resume_buffer = None
         finally:
             self.is_speaking = False
-            if "normal" in self.png_map:
-                idle_path, _ = self.png_map["normal"]
-                if self.config.obs_source_type == "media":
-                    self.obs.set_media(idle_path)
-                else:
-                    self.obs.set_image(idle_path)
+            self.avatar.show(self._mood, "idle")

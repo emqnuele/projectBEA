@@ -97,7 +97,7 @@ class Consciousness:
             return
         self.sleeping = True
         try:
-            self.expression.set_mood_avatar("sleeping")
+            self.expression.set_state("sleeping")
         except Exception as e:
             logger.error(f"Failed to set sleeping avatar: {e}")
         self.events.publish(EventCategory.SYSTEM, "consciousness", f"Bea fell asleep ({reason}).")
@@ -109,7 +109,7 @@ class Consciousness:
             return
         self.sleeping = False
         try:
-            self.expression.set_mood_avatar("normal")
+            self.expression.set_state("idle", mood="normal")
         except Exception as e:
             logger.error(f"Failed to restore avatar on wake: {e}")
         self.events.publish(EventCategory.SYSTEM, "consciousness", "Bea woke up.")
