@@ -130,6 +130,8 @@ server sees a normal player. Nothing is needed server-side.
 Three ways to put her on screen. Pick one in **Settings → Stream**, with a live
 preview of what the stream will see.
 
+![The stream preview showing Bea's 3D model](assets/3dmodel.png)
+
 | | What it is | What you need |
 |---|---|---|
 | **Images** | One picture per mood, swapped in OBS | Your PNGs |
