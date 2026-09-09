@@ -257,7 +257,7 @@ Three invariants hold it together: one bus, one mind, one sink. They are
 written down in **[Contributing](docs/contributing.md#the-three-invariants)**,
 because breaking one is the kind of change worth agreeing on first.
 
-**[Full architecture →](docs/architecture.md)**
+**[Full architecture →](docs/architecture.md)** · **[Repository layout →](docs/architecture.md#repository-layout)**
 
 ---
 
@@ -277,7 +277,8 @@ touching the core.
 Models are configured per **role**, not one at a time: `mind` for the
 consciousness, `background` for the diary, the dreamer and the game body. Each
 role is a pool that round-robins to spread rate limits and falls back when a
-provider is down. Change any of it at runtime, without a restart.
+provider is down. Hot reload is built in: change models, voices or settings at
+runtime, without a restart.
 
 **[LLM →](docs/modules/llm.md)** · **[TTS →](docs/modules/tts.md)** · **[STT →](docs/modules/stt.md)** · **[OBS →](docs/modules/obs.md)**
 
@@ -317,13 +318,14 @@ The compose file publishes the dashboard to `127.0.0.1:8000`, never to
 
 **Prerequisites:** [uv](https://docs.astral.sh/uv/) (it installs Python for
 you), Node.js 18+ for the dashboard and the Discord bot, OBS Studio with the
-WebSocket plugin if you are streaming, and a virtual audio cable such as
+WebSocket server enabled if you are streaming (*Tools -> WebSocket Server
+Settings*), and a virtual audio cable such as
 [VB-Audio Cable](https://vb-audio.com/Cable/) if you want her voice on a
 separate track.
 
 ```bash
-uv sync                # install dependencies
-uv run bea --setup     # the wizard: writes config.json and .env for you
+uv sync                # or: make install
+uv run bea --setup     # or: make setup  (writes config.json and .env for you)
 ```
 
 Or by hand, copy `.env.example` to `.env`:
@@ -339,8 +341,8 @@ Then review `config.json` for your OBS source names, audio device, TTS voice and
 which skills are enabled.
 
 ```bash
-uv run bea                       # CLI mode
-uv run bea --web                 # dashboard on :8000
+uv run bea                       # or: make run   (CLI mode)
+uv run bea --web                 # or: make web   (dashboard on :8000)
 uv run bea --llm-provider openrouter --tts-provider kokoro --web
 ```
 
@@ -351,8 +353,8 @@ make test        # uv run pytest -q
 make lint        # uv run ruff check src tests
 ```
 
-The suite runs without network access or API keys: every model client, surface
-and transport is faked.
+1302 tests, and they run without network access or API keys: every model
+client, surface and transport is faked. CI runs exactly these two commands.
 
 **[Setup guide →](docs/setup.md)** · **[Configuration →](docs/configuration.md)**
 

@@ -47,6 +47,53 @@ Skills are registered in this order (`brain.py`, `_build_consciousness`):
 
 ---
 
+## Repository layout
+
+```
+ProjectBEA/
+├── main.py                 # thin wrapper; the entrypoint is src/cli.py
+├── config.example.json     # copy to config.json and edit
+├── install.sh / .ps1       # one-command bootstrap for a fresh machine
+├── Dockerfile              # engine + dashboard + discord bot in one image
+├── docker-compose.yml      # `setup` runs the wizard, `bea` runs the engine
+├── Makefile                # setup · docker · run · web · test · lint · migrate
+├── assets/                 # the images the README renders
+├── data/
+│   ├── bea.db              # everything she remembers (gitignored)
+│   ├── conversations/      # session transcripts, one JSON per session
+│   ├── embeddings_cache/   # the local embedding model's cache
+│   ├── pngs/               # avatars per mood (idle/talking)
+│   └── prompts/            # soul · operating · monologue · minecraft · chat
+├── docs/                   # this documentation, rendered by the docs site
+├── tests/                  # 63 files, no network
+└── src/
+    ├── cli.py              # argument parsing and composition
+    ├── core/
+    │   ├── brain.py        # composition root
+    │   ├── consciousness.py# the one always-on loop
+    │   ├── config.py
+    │   ├── events.py       # pub/sub + SSE fan-out
+    │   ├── perception/     # bus, Perception, Author
+    │   ├── attention/      # the gate: rules (pure) + state
+    │   ├── affect/         # how she feels, and who put her there
+    │   ├── floor/          # who holds the floor, and when she yields it
+    │   ├── mind/           # routing, scheduler, conversations, correlation
+    │   ├── memory/         # sqlite, rag, embedder, profiler, plan
+    │   ├── social/         # the roster, reach and agenda
+    │   ├── expression/     # the single output sink + humanizer
+    │   ├── agent/          # LLMClient, role pools, tools, runner
+    │   └── skills/         # one package per capability
+    ├── interfaces/         # TTS · STT · OBS contracts
+    ├── modules/            # llm · tts · stt · obs implementations
+    ├── setup/              # the wizard behind `bea --setup`
+    ├── utils/
+    └── web/
+        ├── app.py          # FastAPI
+        └── frontend/       # React + Vite + Tailwind
+```
+
+---
+
 ## One mind, two clocks
 
 "One mind" is a constraint on *identity* — one soul, one self-lore, one set of
