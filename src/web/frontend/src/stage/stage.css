@@ -1,0 +1,72 @@
+/* The browser source. Transparent by default: OBS composites it over the scene,
+   so anything painted here that is not her is something the stream will see. */
+
+:root {
+    --caption-ink: #ffffff;
+    --caption-shadow: 0 2px 0 rgba(0, 0, 0, 0.55), 0 0 18px rgba(0, 0, 0, 0.45);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+}
+
+#stage {
+    position: relative;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* the renderer fills the frame; the caption sits over it */
+#stage canvas {
+    display: block;
+    position: absolute;
+    inset: 0;
+}
+
+.caption {
+    position: absolute;
+    left: 50%;
+    bottom: 6vh;
+    transform: translateX(-50%);
+    margin: 0;
+    padding: 0.35em 0.6em;
+    text-align: center;
+    font-family: "Bricolage Grotesque", "Inter", system-ui, -apple-system, sans-serif;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--caption-ink);
+    text-shadow: var(--caption-shadow);
+    white-space: pre-wrap;
+    opacity: 0;
+    transition: opacity 140ms ease-out;
+}
+
+.caption.is-visible {
+    opacity: 1;
+}
+
+/* shown only when the page cannot reach the engine; never during a stream */
+.offline {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    padding: 6px 9px;
+    border-radius: 6px;
+    background: rgba(10, 12, 17, 0.85);
+    color: #ff7a85;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .caption {
+        transition: none;
+    }
+}

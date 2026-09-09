@@ -15,6 +15,11 @@ def _obs(config, obs, publisher):
     return ObsTextCaption(config, obs)
 
 
+def _stage(config, obs, publisher):
+    from src.modules.caption.stage import StageCaption
+    return StageCaption(config, publisher)
+
+
 def _off(config, obs, publisher):
     from src.modules.caption.silent import SilentCaption
     return SilentCaption()
@@ -22,8 +27,12 @@ def _off(config, obs, publisher):
 
 BUILDERS: Dict[str, Callable[..., CaptionInterface]] = {
     "obs": _obs,
+    "stage": _stage,
     "off": _off,
 }
+
+# backends that cannot work without somewhere to publish to
+NEEDS_PUBLISHER = frozenset({"stage"})
 
 
 def backend_name(config) -> str:
@@ -41,6 +50,9 @@ def backend_name(config) -> str:
 def build_caption(config, obs: OBSInterface, publisher=None) -> CaptionInterface:
     """The caption described by `stage.caption_backend`."""
     name = backend_name(config)
+    if name in NEEDS_PUBLISHER and publisher is None:
+        logger.warning(f"The {name!r} caption needs a stage channel; using {DEFAULT_BACKEND!r}.")
+        name = DEFAULT_BACKEND
     caption = BUILDERS[name](config, obs, publisher)
     logger.info(f"Caption backend: {name}")
     return caption

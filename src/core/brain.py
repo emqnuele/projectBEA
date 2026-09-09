@@ -33,6 +33,7 @@ from src.core.skills.voice.surface import VoiceSurface
 from src.core.social.agenda import AgendaRunner
 from src.core.social.reach import Reach
 from src.core.social.rhythm import RhythmTick
+from src.core.stage import StageChannel
 from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
 from src.modules.avatar import build_avatar
 from src.modules.avatar.factory import backend_name as avatar_backend
@@ -79,10 +80,13 @@ class AIVtuberBrain:
         self.stt = stt
         self.obs = obs
 
+        # what the browser source is told, when there is one
+        self.stage = StageChannel()
+
         # how she appears and how her words are shown: two ports, so the engine
         # never learns whether that is a PNG, a 3D model or VTube Studio
-        self.avatar = build_avatar(config, obs)
-        self.caption = build_caption(config, obs)
+        self.avatar = build_avatar(config, obs, self.stage)
+        self.caption = build_caption(config, obs, self.stage)
         self._backends = (avatar_backend(config), caption_backend(config))
         self.soul = ""           # shared persona, prepended to the operating manual
         self.system_prompt = ""  # composed: soul + operating manual
@@ -392,9 +396,9 @@ class AIVtuberBrain:
         wanted = (avatar_backend(self.config), caption_backend(self.config))
         if wanted[0] != self._backends[0]:
             self.avatar.close()
-            self.avatar = build_avatar(self.config, self.obs)
+            self.avatar = build_avatar(self.config, self.obs, self.stage)
         if wanted[1] != self._backends[1]:
-            self.caption = build_caption(self.config, self.obs)
+            self.caption = build_caption(self.config, self.obs, self.stage)
         if wanted != self._backends:
             self.expression.set_ports(self.avatar, self.caption)
             self._backends = wanted
@@ -622,6 +626,7 @@ class AIVtuberBrain:
             await self.consciousness.stop()
 
     def shutdown(self):
+        self.stage.close()
         self.avatar.close()
         self.obs.disconnect()
         self.memory.close()

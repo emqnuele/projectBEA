@@ -1068,6 +1068,50 @@ def _avatar_files(config) -> Dict[str, Path]:
     return out
 
 
+@app.get("/stage/stream")
+async def stage_stream(request: Request):
+    """Server-sent events for the browser source.
+
+    A snapshot first, then patches. No backlog on purpose: OBS reloads a browser
+    source whenever it is toggled, and replaying what already happened would
+    have her act out the last minute of the stream a second time.
+    """
+    brain = get_brain()
+    queue = brain.stage.subscribe()
+
+    async def pump():
+        yield f"data: {json.dumps({'type': 'snapshot', **brain.stage.snapshot()})}\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    patch = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+                yield f"data: {json.dumps({'type': 'patch', **patch})}\n\n"
+        finally:
+            brain.stage.unsubscribe(queue)
+
+    return StreamingResponse(pump(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@app.get("/stage")
+def stage_page():
+    """The page you point an OBS Browser Source at."""
+    page = frontend_path / "stage.html"
+    if not page.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="The stage page is not built. Run `make frontend`.",
+        )
+    return FileResponse(page)
+
+
 @app.get("/stage/preview")
 def stage_preview(mood: str, state: str = "idle"):
     """One avatar image, for the preview in the dashboard."""
