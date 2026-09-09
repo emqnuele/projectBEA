@@ -70,7 +70,7 @@ ProjectBEA/
     ├── cli.py              # argument parsing and composition
     ├── core/
     │   ├── brain.py        # composition root
-    │   ├── consciousness.py# the one always-on loop
+    │   ├── consciousness.py  # the one always-on loop
     │   ├── config.py
     │   ├── events.py       # pub/sub + SSE fan-out
     │   ├── perception/     # bus, Perception, Author
