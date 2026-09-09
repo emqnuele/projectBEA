@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { Field, SecretInput, Select, Slider, TextInput, CheckRow } from '../../components/ui/fields';
 import { Button } from '../../components/ui/controls';
-import { Group, ProviderChoice, SecretState, TestButton } from './parts';
+import { CopyField, Group, ProviderChoice, SecretState, TestButton } from './parts';
+import { StagePreview } from './StagePreview';
 import { PromptEditor } from './PromptEditor';
 import { createSchemaSection } from './SchemaSection';
 import { PersonalitySection } from './PersonalitySection';
@@ -297,83 +298,290 @@ function HearingSection({ config, update }) {
 
 // --- the stream -------------------------------------------------------------
 
+/** One row per mood, so a map is edited where the moods actually are. */
+function MoodMap({ moods, values, onChange, placeholder, options }) {
+    if (!moods.length) return <p className="text-[12px] text-faint">No moods are configured.</p>;
+    return (
+        <div className="grid gap-2">
+            {moods.map((mood) => (
+                <div key={mood} className="grid items-center gap-2 sm:grid-cols-[7rem_1fr]">
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-dim">{mood}</span>
+                    {options ? (
+                        <Select value={values[mood] || ''} onChange={(e) => onChange(mood, e.target.value)}>
+                            <option value="">— none —</option>
+                            {options.map((o) => (
+                                <option key={o.id} value={o.id}>{o.label}</option>
+                            ))}
+                        </Select>
+                    ) : (
+                        <TextInput
+                            value={values[mood] || ''}
+                            onChange={(e) => onChange(mood, e.target.value)}
+                            placeholder={placeholder}
+                            className="font-mono text-[11px]"
+                        />
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function VTubeStudioGroups({ stage, moods, updateStage, updateStageMap }) {
+    const [model, setModel] = useState(null);
+
+    // one call does both jobs: it reports the connection and fills the pickers
+    const load = async () => {
+        const found = await api.vtsModel();
+        setModel(found);
+        return {
+            ok: found.ok,
+            message: found.message,
+            detail: found.ok
+                ? `${found.expressions.length} expressions, ${found.hotkeys.length} hotkeys`
+                : null,
+        };
+    };
+
+    return (
+        <>
+            <Group title="VTube Studio" description="Not bundled and not required: if you run it, she can drive it. Your model stays yours.">
+                <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
+                    <Field label="Host">
+                        <TextInput value={stage.vts_host || ''} onChange={(e) => updateStage('vts_host', e.target.value)} className="font-mono" />
+                    </Field>
+                    <Field label="Port" help="8001 by default.">
+                        <TextInput type="number" value={stage.vts_port ?? 8001} onChange={(e) => updateStage('vts_port', parseInt(e.target.value, 10) || 0)} />
+                    </Field>
+                </div>
+                <p className="text-[11px] leading-snug text-faint">
+                    The first time she connects, VTube Studio asks you to allow the plugin. Say yes in its window;
+                    the token is stored under <span className="font-mono">data/</span> and never leaves this machine.
+                </p>
+                <TestButton label="Test the connection" run={load} />
+            </Group>
+
+            <Group title="A face per mood" description="Expressions come from your model, so pick from what it actually has.">
+                <MoodMap
+                    moods={moods}
+                    values={stage.vts_expressions || {}}
+                    onChange={(mood, value) => updateStageMap('vts_expressions', mood, value)}
+                    placeholder="angry.exp3.json"
+                    options={model?.expressions?.map((name) => ({ id: name, label: name }))}
+                />
+            </Group>
+
+            <Group title="A behaviour per mood" description="Hotkeys as your model defines them.">
+                <MoodMap
+                    moods={moods}
+                    values={stage.vts_clips || {}}
+                    onChange={(mood, value) => updateStageMap('vts_clips', mood, value)}
+                    placeholder="hotkey id"
+                    options={model?.hotkeys?.map((h) => ({ id: h.id, label: h.name || h.id }))}
+                />
+            </Group>
+        </>
+    );
+}
+
+const AVATAR_BACKENDS = [
+    { id: 'png', label: 'Images', blurb: 'One picture per mood, swapped in OBS.' },
+    { id: 'model', label: '3D model', blurb: 'A VRM you bring, rendered in a browser source.' },
+    { id: 'vtube_studio', label: 'VTube Studio', blurb: 'Your own Live2D model, driven over its API.' },
+];
+
+const CAPTION_BACKENDS = [
+    { id: 'obs', label: 'OBS text', blurb: 'Typed into a text source.' },
+    { id: 'stage', label: 'Browser source', blurb: 'Typed in the page, one message instead of one per letter.' },
+    { id: 'off', label: 'Off', blurb: 'She speaks, nothing is written.' },
+];
+
 function StreamSection({ config, update, setConfig }) {
+    const stage = config.stage || {};
+    const avatarBackend = stage.avatar_backend || 'png';
+    const captionBackend = stage.caption_backend || 'obs';
+
+    const updateStage = (key, value) => setConfig((prev) => ({
+        ...prev,
+        stage: { ...(prev.stage || {}), [key]: value },
+    }));
+    const updateStageMap = (key, mood, value) => setConfig((prev) => ({
+        ...prev,
+        stage: { ...(prev.stage || {}), [key]: { ...((prev.stage || {})[key] || {}), [mood]: value } },
+    }));
     const updateAvatar = (mood, state, value) => setConfig((prev) => ({
         ...prev,
         avatar_map: { ...prev.avatar_map, [mood]: { ...prev.avatar_map[mood], [state]: value } },
     }));
 
+    const needsObs = avatarBackend === 'png' || captionBackend === 'obs';
+    const moods = Object.keys(config.avatar_map || {});
+    const stageUrl = `${window.location.origin}/stage`;
+
+    // what is actually installed in the clips folder, so the picker offers real
+    // names instead of a text box where a typo is silent until you are live
+    const [clips, setClips] = useState([]);
+    useEffect(() => {
+        if (avatarBackend !== 'model') return;
+        api.stageClips().then(setClips).catch(() => setClips([]));
+    }, [avatarBackend, stage.clips_dir]);
+
     return (
         <>
-            <Group title="OBS" description="She swaps the avatar and types into a text source over WebSocket.">
-                <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
-                    <Field label="Host"><TextInput value={config.obs_host || ''} onChange={(e) => update('obs_host', e.target.value)} className="font-mono" /></Field>
-                    <Field label="Port">
-                        <TextInput
-                            type="number"
-                            value={config.obs_port ?? 4455}
-                            onChange={(e) => update('obs_port', parseInt(e.target.value, 10) || 0)}
-                        />
-                    </Field>
-                </div>
-                <Field label="Password">
-                    <SecretInput value={config.obs_password || ''} onChange={(e) => update('obs_password', e.target.value)} />
+            <Group title="How she appears" description="Two independent choices: the body, and the words on screen.">
+                <Field label="Avatar" help="What the audience actually sees of her.">
+                    <ProviderChoice
+                        value={avatarBackend}
+                        onChange={(id) => updateStage('avatar_backend', id)}
+                        options={AVATAR_BACKENDS}
+                        columns={3}
+                    />
                 </Field>
-                <TestButton label="Connect to OBS" run={api.testObs} />
-            </Group>
-
-            <Group title="Sources" description="The names exactly as they appear in your OBS scene.">
-                <ProviderChoice
-                    value={config.obs_source_type}
-                    onChange={(id) => update('obs_source_type', id)}
-                    options={[
-                        { id: 'image', label: 'Image source', blurb: 'Static PNG avatars.' },
-                        { id: 'media', label: 'Media source', blurb: 'Video or animated files.' },
-                    ]}
-                />
-                <Field label="Avatar source">
-                    <TextInput value={config.obs_avatar_source || ''} onChange={(e) => update('obs_avatar_source', e.target.value)} className="font-mono" />
-                </Field>
-                <Field label="Text source">
-                    <TextInput value={config.obs_text_source || ''} onChange={(e) => update('obs_text_source', e.target.value)} className="font-mono" />
+                <Field label="Speech bubble" help="How her words are shown while she talks.">
+                    <ProviderChoice
+                        value={captionBackend}
+                        onChange={(id) => updateStage('caption_backend', id)}
+                        options={CAPTION_BACKENDS}
+                        columns={3}
+                    />
                 </Field>
             </Group>
 
-            <Group title="The text bubble" description="How her words appear on screen while she talks.">
-                <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Line width">
-                        <TextInput type="number" value={config.text_line_width ?? 0} onChange={(e) => update('text_line_width', parseInt(e.target.value, 10) || 0)} />
-                    </Field>
-                    <Field label="Font size">
-                        <TextInput type="number" value={config.text_font_size ?? 0} onChange={(e) => update('text_font_size', parseInt(e.target.value, 10) || 0)} />
-                    </Field>
-                    <Field label="Typing delay" help="Seconds between characters.">
-                        <TextInput type="number" step="0.01" value={config.typing_delay ?? 0} onChange={(e) => update('typing_delay', parseFloat(e.target.value))} />
-                    </Field>
-                    <Field label="Minimum time on screen" help="Seconds a short line stays up.">
-                        <TextInput type="number" step="0.1" value={config.text_min_duration ?? 2} onChange={(e) => update('text_min_duration', parseFloat(e.target.value))} />
-                    </Field>
-                </div>
-            </Group>
+            <StagePreview config={config} />
 
-            <Group title="Avatar" description="One image per mood, one for idle and one for talking.">
-                <Field label="Image folder">
-                    <TextInput value={config.png_dir || ''} onChange={(e) => update('png_dir', e.target.value)} className="font-mono" />
-                </Field>
-                {Object.entries(config.avatar_map || {}).map(([mood, paths]) => (
-                    <div key={mood} className="rounded-b2 border border-line bg-fill p-3">
-                        <p className="mb-2.5 font-mono text-[10px] uppercase tracking-wider text-dim">{mood}</p>
-                        <div className="grid gap-2.5 sm:grid-cols-2">
-                            <Field label="Idle">
-                                <TextInput value={paths.idle || ''} onChange={(e) => updateAvatar(mood, 'idle', e.target.value)} className="font-mono text-[11px]" />
+            {(avatarBackend === 'model' || captionBackend === 'stage') && (
+                <Group title="The browser source" description="Add this URL to OBS as a Browser Source. Tick 'Shutdown source when not visible' off, so she keeps her pose.">
+                    <CopyField value={stageUrl} />
+                </Group>
+            )}
+
+            {needsObs && (
+                <Group title="OBS" description="She swaps the avatar and types into a text source over WebSocket.">
+                    <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
+                        <Field label="Host"><TextInput value={config.obs_host || ''} onChange={(e) => update('obs_host', e.target.value)} className="font-mono" /></Field>
+                        <Field label="Port">
+                            <TextInput
+                                type="number"
+                                value={config.obs_port ?? 4455}
+                                onChange={(e) => update('obs_port', parseInt(e.target.value, 10) || 0)}
+                            />
+                        </Field>
+                    </div>
+                    <Field label="Password">
+                        <SecretInput value={config.obs_password || ''} onChange={(e) => update('obs_password', e.target.value)} />
+                    </Field>
+                    <TestButton label="Connect to OBS" run={api.testObs} />
+                </Group>
+            )}
+
+            {(avatarBackend === 'png' || captionBackend === 'obs') && (
+                <Group title="Sources" description="The names exactly as they appear in your OBS scene.">
+                    {avatarBackend === 'png' && (
+                        <>
+                            <ProviderChoice
+                                value={config.obs_source_type}
+                                onChange={(id) => update('obs_source_type', id)}
+                                options={[
+                                    { id: 'image', label: 'Image source', blurb: 'Static PNG avatars.' },
+                                    { id: 'media', label: 'Media source', blurb: 'Video or animated files.' },
+                                ]}
+                            />
+                            <Field label="Avatar source">
+                                <TextInput value={config.obs_avatar_source || ''} onChange={(e) => update('obs_avatar_source', e.target.value)} className="font-mono" />
                             </Field>
-                            <Field label="Talking">
-                                <TextInput value={paths.talking || ''} onChange={(e) => updateAvatar(mood, 'talking', e.target.value)} className="font-mono text-[11px]" />
+                        </>
+                    )}
+                    {captionBackend === 'obs' && (
+                        <Field label="Text source">
+                            <TextInput value={config.obs_text_source || ''} onChange={(e) => update('obs_text_source', e.target.value)} className="font-mono" />
+                        </Field>
+                    )}
+                </Group>
+            )}
+
+            {captionBackend !== 'off' && (
+                <Group title="The text bubble" description="How her words appear on screen while she talks.">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Line width">
+                            <TextInput type="number" value={config.text_line_width ?? 0} onChange={(e) => update('text_line_width', parseInt(e.target.value, 10) || 0)} />
+                        </Field>
+                        <Field label="Font size">
+                            <TextInput type="number" value={config.text_font_size ?? 0} onChange={(e) => update('text_font_size', parseInt(e.target.value, 10) || 0)} />
+                        </Field>
+                        <Field label="Typing delay" help="Seconds between characters.">
+                            <TextInput type="number" step="0.01" value={config.typing_delay ?? 0} onChange={(e) => update('typing_delay', parseFloat(e.target.value))} />
+                        </Field>
+                        <Field label="Minimum time on screen" help="Seconds a short line stays up.">
+                            <TextInput type="number" step="0.1" value={config.text_min_duration ?? 2} onChange={(e) => update('text_min_duration', parseFloat(e.target.value))} />
+                        </Field>
+                    </div>
+                </Group>
+            )}
+
+            {avatarBackend === 'png' && (
+                <Group title="Avatar" description="One image per mood, one for idle and one for talking.">
+                    <Field label="Image folder">
+                        <TextInput value={config.png_dir || ''} onChange={(e) => update('png_dir', e.target.value)} className="font-mono" />
+                    </Field>
+                    {Object.entries(config.avatar_map || {}).map(([mood, paths]) => (
+                        <div key={mood} className="rounded-b2 border border-line bg-fill p-3">
+                            <p className="mb-2.5 font-mono text-[10px] uppercase tracking-wider text-dim">{mood}</p>
+                            <div className="grid gap-2.5 sm:grid-cols-2">
+                                <Field label="Idle">
+                                    <TextInput value={paths.idle || ''} onChange={(e) => updateAvatar(mood, 'idle', e.target.value)} className="font-mono text-[11px]" />
+                                </Field>
+                                <Field label="Talking">
+                                    <TextInput value={paths.talking || ''} onChange={(e) => updateAvatar(mood, 'talking', e.target.value)} className="font-mono text-[11px]" />
+                                </Field>
+                            </div>
+                        </div>
+                    ))}
+                </Group>
+            )}
+
+            {avatarBackend === 'model' && (
+                <>
+                    <Group title="The model" description="A .vrm file on this machine. Nothing is bundled: the model is yours.">
+                        <Field label="Model file" help="Run `make model` to download the free sample, or point this at your own.">
+                            <TextInput value={stage.model_path || ''} onChange={(e) => updateStage('model_path', e.target.value)} placeholder="data/models/bea.vrm" className="font-mono" />
+                        </Field>
+                        <Field label="Framing" help="Computed from the head bone, so any model is framed the same way.">
+                            <ProviderChoice
+                                value={stage.shot || 'bust'}
+                                onChange={(id) => updateStage('shot', id)}
+                                options={[
+                                    { id: 'bust', label: 'Bust', blurb: 'Head and shoulders.' },
+                                    { id: 'half', label: 'Half', blurb: 'From the hips up.' },
+                                    { id: 'full', label: 'Full', blurb: 'All of her.' },
+                                ]}
+                                columns={3}
+                            />
+                        </Field>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <Field label="Behaviours folder" help="The .vrma clips she can play.">
+                                <TextInput value={stage.clips_dir || ''} onChange={(e) => updateStage('clips_dir', e.target.value)} className="font-mono" />
+                            </Field>
+                            <Field label="Lip sync rate" help="Mouth updates per second.">
+                                <TextInput type="number" value={stage.lipsync_fps ?? 30} onChange={(e) => updateStage('lipsync_fps', parseInt(e.target.value, 10) || 30)} />
                             </Field>
                         </div>
-                    </div>
-                ))}
-            </Group>
+                    </Group>
+
+                    <Group title="A behaviour per mood" description="Optional. Leave one empty and she just changes expression.">
+                        <MoodMap
+                            moods={moods}
+                            values={stage.mood_clips || {}}
+                            onChange={(mood, value) => updateStageMap('mood_clips', mood, value)}
+                            placeholder="wave"
+                            options={(clips || []).map((name) => ({ id: name, label: name }))}
+                        />
+                    </Group>
+                </>
+            )}
+
+            {avatarBackend === 'vtube_studio' && (
+                <VTubeStudioGroups stage={stage} moods={moods} updateStage={updateStage} updateStageMap={updateStageMap} />
+            )}
         </>
     );
 }

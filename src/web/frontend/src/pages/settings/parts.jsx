@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, X } from 'lucide-react';
+import { Check, Copy, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { Glass } from '../../components/glass/Glass';
 import { Button } from '../../components/ui/controls';
@@ -109,6 +109,31 @@ export function TestButton({ label, run }) {
                     </motion.span>
                 )}
             </AnimatePresence>
+        </div>
+    );
+}
+
+/** A value you are meant to paste somewhere else, with one click to take it. */
+export function CopyField({ value, help }) {
+    const toast = useToast();
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(value);
+            toast.success('Copied');
+        } catch {
+            // a browser that refuses the clipboard still lets you select the text
+            toast.error('Could not copy — select it and copy by hand');
+        }
+    };
+    return (
+        <div>
+            <div className="flex items-center gap-2 rounded-b2 border border-line bg-fill px-3 py-2">
+                <code className="flex-1 truncate font-mono text-[12px] text-text">{value}</code>
+                <Button variant="ghost" size="sm" onClick={copy} aria-label="Copy">
+                    <Copy size={13} />
+                </Button>
+            </div>
+            {help && <p className="mt-1.5 text-[11px] leading-snug text-faint">{help}</p>}
         </div>
     );
 }
