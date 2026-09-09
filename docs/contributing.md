@@ -1,10 +1,46 @@
 # Contributing
 
-← [Back to README](../README.md) | [Architecture](architecture.md)
+ProjectBEA is one always-on consciousness that perceives, remembers, decides and
+acts. Most of what makes it work is not the code in any one file — it is three
+rules about how the files talk to each other. This page is those rules, and what
+it takes to get a change merged.
+
+← [README](../README.md) · [Architecture](architecture.md) · [Skills API](skills/overview.md)
 
 ---
 
-## Getting a working checkout
+## Where to start
+
+If you are looking for something to pick up:
+
+- **[good first issue](https://github.com/emqnuele/projectBEA/labels/good%20first%20issue)** — scoped, and the surrounding code is already tested.
+- **[help wanted](https://github.com/emqnuele/projectBEA/labels/help%20wanted)** — real work, no hand-holding attached.
+
+Issues carry an `area:` label — `area: attention`, `area: memory`,
+`area: minecraft`, `area: skills`, `area: web/ui`, `area: llm/tts`,
+`area: install`, `area: docs`. Pick the area you actually want to read.
+
+The most useful contributions, in order:
+
+1. **A new surface.** Extend `PlatformSkill` and she is on it — the roster,
+   person cards, attention gate and scoped conversations come for free.
+2. **A new TTS engine or LLM provider.** Both are one interface and one branch.
+3. **A failing test for something she gets wrong.** A reproduction is worth more
+   than a fix built on a guess.
+
+## Issue first, or straight to a pull request
+
+Open a pull request directly for anything local: a bug fix, a provider, a skill,
+a docs correction, a test.
+
+Open an issue first if the change touches how the system is put together —
+anything that breaks one of the three invariants below, changes the on-disk
+schema, changes `config.json`, or adds a dependency. Those are worth agreeing on
+before you spend an evening on them.
+
+---
+
+## A working checkout
 
 ```bash
 git clone https://github.com/emqnuele/projectBEA.git
@@ -25,18 +61,18 @@ make lint        # uv run ruff check src tests
 ```
 
 Both have to pass before a pull request can merge. CI runs exactly these two
-commands, so if they are green locally they are green there.
+commands, so green locally is green there.
 
 ---
 
-## Before you write code
+## The three invariants
 
-Three invariants hold the system together. Breaking one of them is the kind of
-change that needs discussing in an issue first, not a surprise in a diff.
+These hold the system together. Breaking one is the kind of change that needs an
+issue first, not a surprise in a diff.
 
-**One bus.** Every sense pushes `Perception` objects onto `PerceptionBus` and
-nothing gets a private channel into the consciousness. If your new surface needs
-to reach her some other way, that is a design problem, not a shortcut.
+**One bus.** Every sense pushes `Perception` objects onto `PerceptionBus`, and
+nothing gets a private channel into the consciousness. If a new surface needs to
+reach her some other way, that is a design problem, not a shortcut.
 
 **One mind.** There is a single always-on loop. Written channels run as scoped
 conversation turns alongside it — one turn at a time per channel — but there is
@@ -46,9 +82,9 @@ never a second consciousness.
 what makes it possible to answer "what did she actually do" by looking in one
 place.
 
-The attention rules in `src/core/attention/rules.py` are deliberately pure
-functions with no IO, because that is what makes her behaviour testable. Keep
-them that way.
+One more, smaller but load-bearing: the attention rules in
+`src/core/attention/rules.py` are pure functions with no IO, because that is what
+makes her behaviour testable. Keep them that way.
 
 ---
 
@@ -71,7 +107,7 @@ New behaviour needs a test. The suite is not there for coverage, it is there
 because this is a system with a lot of moving parts and no way to eyeball
 whether a change made her worse.
 
-Two things worth copying from the existing tests:
+Two things worth copying from the tests that already exist:
 
 **Name the test after the behaviour, not the function.**
 `test_thirty_messages_a_minute_stay_under_four_model_calls` says what would be
@@ -91,20 +127,19 @@ assertion than a call-count matcher.
 - Say what breaks if the change is wrong. That is the most useful sentence in a
   description.
 - If it changes behaviour someone might be relying on, update the docs in the
-  same pull request — `docs/` is the source the documentation site renders from,
-  so a stale page there is a stale page in public.
+  same pull request — `docs/` is what the documentation site renders, so a stale
+  page there is a stale page in public.
 
-Commit messages are lowercase and describe what was done, in a few words.
-Look at `git log` for the shape.
+Commit messages are lowercase and say what was done, in a few words. Look at
+`git log` for the shape.
 
 ---
 
-## Reporting something broken
+## Reporting a bug
 
-Include what you ran, what happened, and what you expected. If it involves a
-model, say which provider and which model — most surprising behaviour turns out
-to be a specific model doing something specific.
+Include what you ran, what happened, and what you expected. If a model is
+involved, say which provider and which model — most surprising behaviour turns
+out to be one specific model doing one specific thing.
 
-If it is a security issue — anything about the web API, which has no
-authentication and binds to `127.0.0.1` for that reason — say so in the issue
-title so it gets looked at first.
+**Do not open a public issue for a security problem.** See
+[SECURITY.md](../SECURITY.md).

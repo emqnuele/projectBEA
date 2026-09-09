@@ -1,0 +1,35 @@
+name: Feature request
+description: Something she should be able to do, or somewhere she should be.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Anything that changes how the system is put together — the perception
+        bus, the single mind, the expression sink, the on-disk schema or
+        `config.json` — is worth agreeing on here before it is written. See
+        [the three invariants](https://github.com/emqnuele/projectBEA/blob/main/docs/contributing.md#the-three-invariants).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is missing
+      description: The situation you hit, not the solution you have in mind.
+      placeholder: |
+        She has no way to notice that a stream went live, so she cannot react to
+        one starting without me typing it into the dashboard.
+    validations:
+      required: true
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: What it might look like
+      description: A skill, a provider, a tool, a dashboard screen? Rough is fine.
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you write it?
+      options:
+        - label: I would be up for opening a pull request for this.

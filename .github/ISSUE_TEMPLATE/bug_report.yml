@@ -1,0 +1,80 @@
+name: Bug report
+description: Something she does that she should not, or does not do that she should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most surprising behaviour turns out to be one specific model doing one
+        specific thing, so the provider and model fields below matter more than
+        they look.
+
+        **Do not report a security problem here** — see [SECURITY.md](https://github.com/emqnuele/projectBEA/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what she did, and what you expected instead.
+      placeholder: |
+        I ran `uv run bea --web`, said "hey Bea" in Discord, and she never answered.
+        The dashboard showed the perception arriving but the attention gate dropped it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce it
+      description: The shortest path from a fresh checkout to seeing it.
+      placeholder: |
+        1. `make setup`, pick the Solo chat profile
+        2. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it happens
+      options:
+        - Attention (she reacts, or does not, when she should)
+        - Memory (diary, recall, person cards, self-lore)
+        - Minecraft (the body, the mod, goals)
+        - Skills (Discord, Telegram, Twitch, donations, plan, monologue)
+        - Web / control room
+        - LLM / TTS / STT
+        - Install, setup wizard or Docker
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: A release tag, or the output of `git rev-parse --short HEAD`.
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and how you run her
+      placeholder: macOS 15, native · Ubuntu 24.04, Docker · Windows 11, native
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Provider and model
+      description: Which pool, if it matters — `mind` and `background` can differ.
+      placeholder: openrouter · anthropic/claude-sonnet-4.5 (mind), groq · llama-3.3-70b (background)
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The console output around the failure. Redact your API keys.
+      render: shell

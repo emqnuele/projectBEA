@@ -343,6 +343,8 @@ The API has no authentication, so the server binds to `127.0.0.1` unless
 | [Monologue](docs/skills/monologue.md) | The idle perception |
 | [Web API](docs/web/api.md) | Every REST endpoint |
 | [Frontend](docs/web/frontend.md) | React component structure |
+| [Contributing](docs/contributing.md) | Where to start, the invariants, tests, pull requests |
+| [Security](SECURITY.md) | What is in scope, and how to report it privately |
 
 ---
 
@@ -355,7 +357,9 @@ The modular design makes adding new capabilities straightforward:
 - **New skill** → extend `Skill`, register it in `AIVtuberBrain._build_consciousness()`
 - **New text platform** → extend `PlatformSkill` and the roster, person cards, attention gate and scoped conversations work with no extra code
 
-See [Skills Overview](docs/skills/overview.md) for the full plugin API.
+See [Skills Overview](docs/skills/overview.md) for the full plugin API, and
+[Contributing](docs/contributing.md) for the three invariants that hold the
+system together — worth reading before a change that spans more than one file.
 
 ---
 

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup and configuration help
+    url: https://projectbea.emqnuele.dev/docs/setup
+    about: Installing, OBS, audio routing and every config field are documented here.
+  - name: Questions and show and tell
+    url: https://github.com/emqnuele/projectBEA/discussions
+    about: Ask a question, or show what you built with it.
+  - name: Report a security vulnerability
+    url: https://github.com/emqnuele/projectBEA/security/advisories/new
+    about: Privately, not as a public issue.
