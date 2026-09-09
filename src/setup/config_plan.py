@@ -67,6 +67,12 @@ def apply_answers(config, answers: Dict[str, Any]):
     if answers.get("audio_device_id") is not None:
         config.audio_device_id = answers["audio_device_id"]
 
+    stage = answers.get("stage")
+    if stage:
+        # merged, not replaced: the wizard asks about the two choices and the one
+        # or two knobs they imply, never about every key in the block
+        config.stage = {**config.stage, **stage}
+
     obs = answers.get("obs")
     if obs:
         config.obs_host = obs.get("host", config.obs_host)

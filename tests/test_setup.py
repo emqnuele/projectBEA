@@ -109,6 +109,46 @@ def test_apply_answers_applies_obs_when_it_was_accepted(tmp_path, monkeypatch):
     assert (cfg.obs_host, cfg.obs_port, cfg.obs_avatar_source) == ("10.0.0.2", 4466, "Avatar")
 
 
+# --- how she appears -------------------------------------------------------
+
+
+def test_apply_answers_leaves_the_stage_alone_when_it_was_not_asked(tmp_path, monkeypatch):
+    cfg = apply_answers(config(tmp_path, monkeypatch), base_answers())
+    assert cfg.stage["avatar_backend"] == "png"
+    assert cfg.stage["caption_backend"] == "obs"
+
+
+def test_apply_answers_takes_the_two_choices_the_wizard_offers(tmp_path, monkeypatch):
+    cfg = apply_answers(config(tmp_path, monkeypatch), base_answers(
+        stage={"avatar_backend": "model", "caption_backend": "stage",
+               "model_path": "data/models/bea.vrm"}))
+
+    assert cfg.stage["avatar_backend"] == "model"
+    assert cfg.stage["caption_backend"] == "stage"
+    assert cfg.stage["model_path"] == "data/models/bea.vrm"
+
+
+def test_the_wizard_never_has_to_ask_about_every_key_in_the_block(tmp_path, monkeypatch):
+    """It asks two questions; the rest of the block keeps its defaults."""
+    cfg = apply_answers(config(tmp_path, monkeypatch),
+                        base_answers(stage={"avatar_backend": "vtube_studio"}))
+
+    assert cfg.stage["avatar_backend"] == "vtube_studio"
+    assert cfg.stage["lipsync_fps"] == 30
+    assert cfg.stage["vts_mouth_param"] == "MouthOpen"
+
+
+def test_every_backend_the_wizard_offers_is_one_the_engine_can_build():
+    """A wizard that offers a name the factory has never heard of is a dead end."""
+    from src.modules.avatar.factory import BUILDERS as AVATARS
+    from src.modules.caption.factory import BUILDERS as CAPTIONS
+    from src.setup.wizard import AVATARS as OFFERED_AVATARS
+    from src.setup.wizard import CAPTIONS as OFFERED_CAPTIONS
+
+    assert {a[0] for a in OFFERED_AVATARS} <= set(AVATARS)
+    assert {c[0] for c in OFFERED_CAPTIONS} <= set(CAPTIONS)
+
+
 def test_saved_config_carries_no_secret(tmp_path, monkeypatch):
     cfg = apply_answers(config(tmp_path, monkeypatch), base_answers())
     cfg.save_to_file()

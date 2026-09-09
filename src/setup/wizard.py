@@ -43,6 +43,18 @@ PROVIDERS: List[Tuple[str, str, str]] = [
     ("groq", "Groq", "Fastest, smallest catalogue. https://console.groq.com/keys"),
 ]
 
+AVATARS: List[Tuple[str, str, str]] = [
+    ("png", "Images", "One picture per mood, swapped in OBS. Nothing else to install."),
+    ("model", "A 3D model", "A .vrm you bring, rendered in an OBS browser source."),
+    ("vtube_studio", "VTube Studio", "Your own Live2D model, driven over its API."),
+]
+
+CAPTIONS: List[Tuple[str, str, str]] = [
+    ("stage", "Browser source", "Typed in the page. One message per line instead of one per letter."),
+    ("obs", "OBS text source", "Typed into a text source over WebSocket."),
+    ("off", "Nothing", "She speaks; nothing is written on screen."),
+]
+
 TTS_ENGINES: List[Tuple[str, str, str]] = [
     ("edge", "EdgeTTS", "Free, no key, good quality. Needs internet."),
     ("kokoro", "Kokoro", "Runs locally from an ONNX file you download yourself."),
@@ -255,21 +267,50 @@ def _ask_ears(console: Console, answers: Dict[str, Any]) -> None:
     answers["stt_key"] = _ask_key(console, "API key", PROVIDER_KEYS[stt_provider][1])
 
 
-def _ask_obs(console: Console, answers: Dict[str, Any]) -> None:
-    _rule(console, "4/5", "OBS")
-    console.print("  Enable the WebSocket server first: OBS → Tools → WebSocket Server Settings.\n")
+def _ask_stage(console: Console, answers: Dict[str, Any]) -> None:
+    _rule(console, "4/5", "How she appears")
+    console.print("  Two separate choices: what the audience sees of her, and how her "
+                  "words are shown.\n")
 
-    if not Confirm.ask("  Connect to OBS?", default=True):
-        return
-
+    avatar = _choose(console, "Avatar", AVATARS, "png")
     console.print()
-    answers["obs"] = {
-        "host": Prompt.ask("  Host", default="localhost"),
-        "port": IntPrompt.ask("  Port", default=4455),
-        "password": Prompt.ask("  Password", password=True, default="", show_default=False),
-        "avatar_source": Prompt.ask("  Avatar source name", default="BeaPNG"),
-        "text_source": Prompt.ask("  Text bubble source name", default="AIText"),
-    }
+    caption = _choose(console, "Speech bubble", CAPTIONS, "stage")
+    console.print()
+
+    stage: Dict[str, Any] = {"avatar_backend": avatar, "caption_backend": caption}
+
+    if avatar == "model":
+        console.print("  No model ships with projectBEA. Run `make model` afterwards for the "
+                      "free sample, or point this at your own .vrm.\n")
+        stage["model_path"] = Prompt.ask("  Model file", default="data/models/VRM1_Constraint_Twist_Sample.vrm")
+        console.print()
+    elif avatar == "vtube_studio":
+        console.print("  Turn the plugin API on first: VTube Studio → Settings → "
+                      "Start API. She will ask to be allowed the first time.\n")
+        stage["vts_port"] = IntPrompt.ask("  API port", default=8001)
+        console.print()
+
+    answers["stage"] = stage
+
+    if avatar == "png" or caption == "obs":
+        console.print("  That needs OBS. Enable the WebSocket server first: "
+                      "OBS → Tools → WebSocket Server Settings.\n")
+        if not Confirm.ask("  Connect to OBS?", default=True):
+            return
+        console.print()
+        obs: Dict[str, Any] = {
+            "host": Prompt.ask("  Host", default="localhost"),
+            "port": IntPrompt.ask("  Port", default=4455),
+            "password": Prompt.ask("  Password", password=True, default="", show_default=False),
+        }
+        if avatar == "png":
+            obs["avatar_source"] = Prompt.ask("  Avatar source name", default="BeaPNG")
+        if caption == "obs":
+            obs["text_source"] = Prompt.ask("  Text bubble source name", default="AIText")
+        answers["obs"] = obs
+    elif avatar == "model" or caption == "stage":
+        console.print("  Add a Browser Source in OBS pointing at http://127.0.0.1:8000/stage,")
+        console.print("  and untick 'Shutdown source when not visible' so she keeps her pose.\n")
 
 
 def _ask_skills(console: Console, answers: Dict[str, Any]) -> None:
@@ -345,6 +386,9 @@ def _summary(console: Console, answers: Dict[str, Any]) -> None:
     table.add_row("Mind", f"{answers['llm_provider']} · {answers['llm_model']}")
     table.add_row("Voice", answers.get("tts_voice") or answers.get("tts_provider", "edge"))
     table.add_row("Ears", answers.get("stt_provider") or "off")
+    stage = answers.get("stage", {})
+    table.add_row("Avatar", dict((a[0], a[1]) for a in AVATARS).get(stage.get("avatar_backend", "png"), "Images"))
+    table.add_row("Speech bubble", dict((c[0], c[1]) for c in CAPTIONS).get(stage.get("caption_backend", "obs"), "OBS text source"))
     table.add_row("OBS", "connected" if answers.get("obs") else "off")
 
     armed = [name for name in PLATFORM_SKILLS if name in answers.get("skills", {})]
@@ -390,7 +434,7 @@ def run_setup(console: Optional[Console] = None) -> int:
         _ask_voice(console, answers)
         _ask_ears(console, answers)
         if profile in ("stream", "full"):
-            _ask_obs(console, answers)
+            _ask_stage(console, answers)
         if profile == "full":
             _ask_skills(console, answers)
     except (KeyboardInterrupt, EOFError):
