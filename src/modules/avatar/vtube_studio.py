@@ -74,7 +74,7 @@ class VTubeStudioClient:
     async def _send(self, message_type: str, data: Optional[Dict] = None) -> Dict[str, Any]:
         if self._socket is None:
             raise VTubeStudioError("not connected")
-        payload = {
+        payload: Dict[str, Any] = {
             "apiName": API_NAME,
             "apiVersion": API_VERSION,
             "requestID": uuid.uuid4().hex,
