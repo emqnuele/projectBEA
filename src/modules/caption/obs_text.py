@@ -1,9 +1,8 @@
 """The speech bubble, typed character by character into an OBS text source.
 
-Moved out of `Expression` unchanged, with one thing put right: `type_text`
-handed the font size it had settled on back to the caller, and `Expression` kept
-it around only so it could clear the source with the same font later. That is an
-OBS detail, and it now stays here.
+The size a line settles at is kept here: a long line shrinks to fit, and
+clearing the source at the configured size instead would resize the box on
+screen between one line and the next.
 """
 
 from typing import Optional

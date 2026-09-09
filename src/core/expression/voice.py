@@ -70,9 +70,8 @@ class Expression:
     def set_state(self, state: str, mood: Optional[str] = None) -> None:
         """A visible state that is not speech: sleeping, listening, idle.
 
-        A state is not a mood. Passing `"sleeping"` where a mood belonged is
-        exactly why the sleeping avatar was never once seen: it resolved to
-        `normal` without a word of complaint.
+        The state travels beside the mood rather than in place of it, so falling
+        asleep does not also decide what her face is doing.
         """
         if mood is not None:
             self._mood = mood

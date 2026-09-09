@@ -1,9 +1,7 @@
-"""The avatar she has always had: one image per mood, swapped over OBS.
+"""One image per mood, swapped in an OBS source.
 
-This is not new code. It is `Expression._resolve_paths` and `_set_idle` moved
-behind `AvatarInterface`, so that the six copies of
-`if obs_source_type == "media"` that were scattered through the speech path can
-live in one method.
+The only place that knows whether the scene holds an image source or a media
+source, so nothing above the port has to ask.
 """
 
 from pathlib import Path
@@ -41,9 +39,7 @@ class PngAvatar(AvatarInterface):
     # --- the port -----------------------------------------------------------
 
     def show(self, mood: str, state: str) -> None:
-        # a state is not a mood: `sleeping` used to be passed where a mood was
-        # expected and resolved silently to `normal`, so the sleeping avatar was
-        # never once seen. It gets its own slot, and says so when it has none.
+        # a state gets a slot of its own rather than resolving to a mood's image
         if state in _STATE_SLOTS:
             slot = self.png_map.get(state)
             if slot:

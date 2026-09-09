@@ -6,10 +6,8 @@
 
 ## Overview
 
-`OBSController` is the WebSocket transport to OBS Studio. It is **not** how Bea
-appears — that is the [avatar port](avatar.md), and OBS is one of the places it
-can draw to. This module owns the connection and the two kinds of source it can
-drive:
+`OBSController` is the WebSocket transport to OBS Studio: the connection and the
+two kinds of source it can drive.
 
 1. **Avatar source** — the file swapped by the `png` avatar backend.
 2. **Text source** — the typewriter driven by the `obs` caption backend.
@@ -19,8 +17,9 @@ src/modules/obs/
 └── obs_websocket.py    OBSController implementing OBSInterface
 ```
 
-Choose `stage` for the caption, or `model` / `vtube_studio` for the avatar, and
-nothing here is used at all.
+Which of the two are in use depends on the backends in `stage` — see the
+[avatar module](avatar.md). With `model` or `vtube_studio` for the avatar and
+`stage` or `off` for the caption, this module is never called.
 
 ---
 
@@ -60,10 +59,10 @@ obs.set_media("data/pngs/angry/talking.mp4")
 
 `type_text()` writes a message character-by-character into the OBS text source, paginating if the message exceeds the visible area.
 
-> **One request per character.** A 158-character line costs 159 WebSocket
-> requests and 29.7 KB of JSON, because every one of them re-sends the font
-> block. The `stage` caption backend sends the line **once** and animates it in
-> the browser instead. `tests/test_stage.py` measures both.
+Cost: one `SetInputSettings` request per character, each carrying the font block.
+A 158-character line is 159 requests and ~30 KB of JSON. The `stage` caption
+backend sends the line in one message and animates it in the page;
+`tests/test_stage.py` asserts the difference.
 
 **Parameters:**
 
@@ -104,10 +103,10 @@ This lives in `PngAvatar` (`src/modules/avatar/png.py`), behind the avatar port.
 1. `show(mood, "talking")` before speaking.
 2. `show(mood, "idle")` after.
 
-An unknown mood falls back to `"normal"`. A **state** — `sleeping`, `listening` —
-uses its own slot in `avatar_map` when there is one, and otherwise falls back to
-the mood's image with a warning. It used to fall back silently, which is why the
-sleeping avatar was never once seen.
+An unknown mood falls back to `"normal"`. The states `sleeping` and `listening`
+use their own entry in `avatar_map` when there is one, and otherwise fall back to
+the mood's image and log a warning. Full resolution order is in the
+[avatar module](avatar.md).
 
 ---
 

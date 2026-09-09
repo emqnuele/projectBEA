@@ -117,12 +117,10 @@ class OBSInterface(ABC):
 class AvatarInterface(ABC):
     """How Bea looks. Knows nothing about files, OBS or three.js.
 
-    `OBSInterface` above conflated two jobs — the avatar and the speech bubble —
-    and both of them spoke in file paths. A body has no file per mood, so the
-    engine hands down what she *is* (a mood, a state) and each backend decides
-    what that means: a PNG swap, a blend of VRM expressions, a VTube Studio
-    hotkey. Every method is synchronous; a backend that needs the network
-    queues the work rather than making the whole engine wait on it.
+    The engine hands down what she *is* — a mood and a state — and each backend
+    decides what that means: a PNG swap, a blend of VRM expressions, a VTube
+    Studio hotkey. Every method is synchronous, so a backend that needs the
+    network queues the work instead of holding up the turn she is speaking in.
     """
 
     @abstractmethod

@@ -1,8 +1,8 @@
 """What a mood looks like on a face that has one.
 
-`prosody.py` turned a mood into a way of speaking. This turns the same mood into
-a set of expression weights, and it exists for the same reason: the mood was
-already chosen, and until now it only ever reached a file name.
+The mood she picks for a line reaches her voice through `prosody.py` and her
+face through here, both reading the same two numbers in `moods.py`. One choice,
+two readers, so how she sounds and how she looks cannot disagree.
 
 VRM 1.0 standardises five emotions — happy, angry, sad, relaxed, surprised —
 plus five visemes and the blinks. Bea has seven moods. Two of them, `ew` and

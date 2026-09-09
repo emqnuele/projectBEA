@@ -125,35 +125,37 @@ server sees a normal player. Nothing is needed server-side.
 
 ---
 
-## Pick a body for her
+## How she looks on stream
 
-She has always been a PNG that swapped when her mood did. Now that is one choice
-of three, and the engine no longer knows which one you made.
+Three ways to put her on screen. Pick one in **Settings → Stream**, with a live
+preview of what the stream will see.
 
 | | What it is | What you need |
 |---|---|---|
-| **Images** | One picture per mood, swapped in OBS | Your PNGs. Nothing else. |
-| **3D model** | A VRM rendered in an OBS browser source | A `.vrm` — or `make model` for a free one |
-| **VTube Studio** | Your own Live2D model, over its plugin API | VTube Studio, which you already have or do not |
+| **Images** | One picture per mood, swapped in OBS | Your PNGs |
+| **3D model** | A VRM in an OBS browser source | A `.vrm` file |
+| **VTube Studio** | Your own Live2D model, driven over its API | VTube Studio running |
 
-The speech bubble is a **separate** choice: an OBS text source, the browser
-source, or nothing at all. "Images with the nicer browser caption" and "3D body
-with the bubble still in OBS" are both setups people want.
+Her speech bubble is a separate choice — an OBS text source, the same browser
+source, or nothing — so you can mix them however you like.
 
-**No model ships with projectBEA.** A model is 11 MB of binary most people
-replace with their own, and its licence is not ours to hand you — the same call
-the repo already makes for the speech models. `make model` fetches pixiv's free
-VRM 1.0 sample, and `tools/inspect_vrm.py` reads any model's licence out of the
-file itself and tells you in words what it allows.
+For the 3D route, `make model` downloads a free model to start from. If you go
+looking for your own, run it through the inspector first:
 
-The mood she picks for a line already decides how she sounds. Now it decides how
-she looks, out of the same two numbers: `src/core/expression/face.py` turns a
-mood into VRM expression weights, and the test suite checks them against the
-valence/arousal vectors so a face can never contradict a feeling. Her mouth is
-driven by the loudness of the audio she is about to say — 180 frames for six
-seconds, computed in a fifth of a millisecond, sent once.
+```bash
+uv run python tools/inspect_vrm.py your-model.vrm
+```
 
-**[How the avatar port works →](docs/modules/avatar.md)**
+It tells you whether the model can do what she needs — a mouth that moves, a face
+per mood — and reads out the licence the file carries, so you know what you are
+allowed to stream with it. Her gestures are `.vrma` clips: drop them in
+`data/clips` and assign one per mood.
+
+Whichever you pick, the mood she chooses for a line drives all of it — her
+expression, her gesture, and her mouth, which follows the audio she is about to
+say.
+
+**[How it works, and how to add a backend →](docs/modules/avatar.md)**
 
 ---
 
