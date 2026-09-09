@@ -335,3 +335,65 @@ async def test_vtube_studio_not_running_is_reported_and_not_raised(tmp_path, mon
     assert found["ok"] is False
     assert "refused" in found["message"]
     assert found["expressions"] == [] and found["hotkeys"] == []
+
+
+# --- the endpoints the dashboard calls ---------------------------------------
+
+
+@pytest.fixture
+def client(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from src.web import app as web
+
+    class BrainStub:
+        def __init__(self):
+            self.config = config()
+
+    stub = BrainStub()
+    previous = web.brain_instance
+    web.brain_instance = stub
+    try:
+        yield TestClient(web.app), stub
+    finally:
+        web.brain_instance = previous
+
+
+def test_the_connection_test_reports_a_failure_instead_of_blowing_up(client, monkeypatch):
+    """`detail` is a str: answering None here raised where it should report.
+
+    This is the path that runs when VTube Studio is not open — the single most
+    likely thing to happen when somebody first tries the backend.
+    """
+    async def refuse(url, **kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr("websockets.connect", refuse)
+    api, _ = client
+
+    response = api.post("/test/vts")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert "refused" in body["message"]
+    assert body["detail"] == ""
+
+
+def test_the_connection_test_counts_what_the_model_offers(client, monkeypatch):
+    socket = FakeSocket(answers={
+        "CurrentModelRequest": {"modelLoaded": True, "modelName": "Hiyori"},
+        "ExpressionStateRequest": {"expressions": [{"name": "a", "file": "a.exp3.json"}]},
+        "HotkeysInCurrentModelRequest": {"availableHotkeys": [{"hotkeyID": "h", "name": "Wave"}]},
+    })
+
+    async def fake_connect(url, **kwargs):
+        return socket
+
+    monkeypatch.setattr("websockets.connect", fake_connect)
+    api, _ = client
+
+    body = api.post("/test/vts").json()
+
+    assert body["ok"] is True
+    assert body["detail"] == "1 expressions, 1 hotkeys"

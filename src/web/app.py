@@ -1003,12 +1003,12 @@ async def test_vts():
     from src.modules.avatar.vtube_studio import probe
 
     found = await probe(get_brain().config)
-    return TestResult(
-        ok=found["ok"],
-        message=found["message"],
-        detail=(f"{len(found['expressions'])} expressions, {len(found['hotkeys'])} hotkeys"
-                if found["ok"] else None),
-    )
+    # "" and not None: `detail` is a str, and the failure path is exactly the
+    # one that would have hit a validation error instead of reporting the failure
+    detail = ""
+    if found["ok"]:
+        detail = f"{len(found['expressions'])} expressions, {len(found['hotkeys'])} hotkeys"
+    return TestResult(ok=found["ok"], message=found["message"], detail=detail)
 
 
 @app.get("/vts/model")
