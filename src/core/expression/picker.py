@@ -83,6 +83,8 @@ class Picker:
     # --- internals ----------------------------------------------------------
 
     def _nearest(self, wanted: str) -> str:
+        if self.embedder is None:
+            return self.fallback
         vectors = self._candidates()
         if not vectors:
             return self.fallback
@@ -113,9 +115,9 @@ class Picker:
             self._vectors = []
             return self._vectors
         try:
-            self._vectors = self.embedder.embed(
+            self._vectors = list(self.embedder.embed(
                 [self.aliases.get(name, name) for name in self.names]
-            )
+            ))
         except Exception as e:
             self._give_up(e)
             self._vectors = []

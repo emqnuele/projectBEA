@@ -72,6 +72,9 @@ class LiveLine:
         # the line stopped being worth finishing — the room moved on
         self.abandoned = False
 
+        # a whole piece of it turned out to be the model's own scaffolding
+        self.tainted = False
+
         self._chunker = SpeechChunker()
         self._beats: "asyncio.Queue[Optional[Beat]]" = asyncio.Queue()
         self._ready: "asyncio.Queue[Optional[Rendered]]" = asyncio.Queue(maxsize=LOOKAHEAD)
@@ -95,7 +98,7 @@ class LiveLine:
 
     def say(self, text: str) -> None:
         """Take more of the line. Whatever is ready to speak leaves at once."""
-        if self._closed or not text:
+        if self._closed or self.tainted or not text:
             return
         self.start()
         self._written.append(text)
@@ -146,6 +149,18 @@ class LiveLine:
     def cancelled(self) -> bool:
         return self._cancelled
 
+    @property
+    def spoiled(self) -> bool:
+        """Scaffolding reached the line, and nothing has been heard yet.
+
+        A stream is cleaned one piece at a time, which cannot see a `<think>`
+        that closes two sentences later. When a whole piece turns out to be
+        nothing but that, the line is thrown away and the caller says the
+        finished message instead — which can be cleaned all at once. Nothing is
+        lost while she has not been heard; once she has, this is over.
+        """
+        return self.tainted and not self._spoken
+
     # --- internals ----------------------------------------------------------
 
     def _enqueue(self, piece: str) -> None:
@@ -156,7 +171,12 @@ class LiveLine:
                 # scaffolding, and a chunk of that would be read out loud
                 text = clean_model_output(beat.value)
                 if not text:
-                    continue
+                    # a whole piece of scaffolding means an opening tag whose
+                    # end has not arrived, so the next piece is the inside of it
+                    # — and the inside carries no tag to recognise it by. She
+                    # stops here rather than read a reasoning chain out loud.
+                    self.tainted = True
+                    return
                 beat = Beat(BeatKind.SAY, text)
             self._beats.put_nowait(beat)
 

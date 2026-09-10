@@ -1,7 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from src.core.agent.types import AssistantMessage
+
+# (tool name, the new characters of its arguments). Called as a tool call is
+# being written, so the arguments are a JSON fragment and not yet an object.
+ToolDelta = Callable[[str, str], None]
 
 
 class LLMClient(ABC):
@@ -37,6 +41,22 @@ class LLMClient(ABC):
         whole call — with a dozen sessions to dream, Bea went deaf for minutes.
         """
         ...
+
+    async def stream_complete(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        *,
+        on_tool_delta: Optional[ToolDelta] = None,
+    ) -> AssistantMessage:
+        """`complete`, with the tool call reported as it is written.
+
+        Deliberately not abstract, and the default is `complete` itself: a
+        provider that cannot stream, or a model that turns out not to, then
+        behaves exactly as it did before — the turn is simply heard when the
+        whole line exists rather than as it is written.
+        """
+        return await self.complete(messages, tools=tools)
 
     @abstractmethod
     def reload_config(self, config) -> None:

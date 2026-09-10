@@ -66,6 +66,12 @@ class RotatingClient(LLMClient):
             tools_needed=bool(tools),
         )
 
+    async def stream_complete(self, messages, tools=None, *, on_tool_delta=None):
+        return await self._attempt(
+            lambda c: c.stream_complete(messages, tools=tools, on_tool_delta=on_tool_delta),
+            tools_needed=bool(tools),
+        )
+
     async def complete_json(self, user_input, system_prompt=None, history=None):
         return await self._attempt(
             lambda c: c.complete_json(user_input, system_prompt, history),

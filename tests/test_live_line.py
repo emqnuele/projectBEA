@@ -249,3 +249,32 @@ async def test_being_talked_over_stops_the_rest_of_the_line():
     await line.close()
 
     assert e.is_speaking is False
+
+
+async def test_scaffolding_that_arrives_a_piece_at_a_time_is_never_read_out():
+    """A `<think>` closing two sentences later cannot be seen one piece at a
+    time — the piece after it carries no tag to recognise it by."""
+    script = Script()
+    e = expression(script)
+
+    line = e.open_line("neutral")
+    line.say("<think>dovrei essere cattiva qui. ")
+    line.say("no, meglio di no. </think>ovviamente no. ")
+    await line.close()
+
+    assert script.of("render") == []
+    assert line.spoiled
+
+
+async def test_a_line_that_was_already_heard_is_not_spoiled_by_it():
+    """Nothing can be unsaid, so from here it is only about stopping."""
+    script = Script()
+    e = expression(script)
+
+    line = e.open_line("neutral")
+    line.say("Ma tu guarda questa cosa. <think>ora invece rifletto un attimo. ")
+    line.say("si insomma. </think>e comunque no. ")
+    await line.close()
+
+    assert script.of("render") == ["Ma tu guarda questa cosa."]
+    assert line.tainted and not line.spoiled

@@ -4,10 +4,12 @@ import time
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.messages import assistant_to_message, tool_result_message
+from src.core.agent.streaming import SpokenCall, spoken_call
 from src.core.agent.tools import Tool
-from src.core.agent.types import ToolCall, Usage
+from src.core.agent.types import AssistantMessage, ToolCall, Usage
 from src.core.events import EventCategory
 from src.core.expression.chunking import spoken_prefix
+from src.core.expression.live import LiveLine
 from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.core.mind.recap import SessionRecap
@@ -59,6 +61,8 @@ class Consciousness:
         self.burst_steps = cc.get("burst_steps", 6)
         self.history_limit = cc.get("history_limit", 30)
         self.correlation_timeout = cc.get("correlation_timeout", 30.0)
+        # whether a line starts being spoken while the model is still writing it
+        self.stream_speech = bool(cc.get("stream_speech", True))
 
         self.context: List[Dict[str, Any]] = []
         # what provoked the turn in flight: `speak` needs it to know who to pin
@@ -70,6 +74,9 @@ class Consciousness:
         self.sleeping = False
         self._loop_task: Optional[asyncio.Task] = None
         self._body_task: Optional[asyncio.Task] = None
+        # a line already on its way out while the tool call that asked for it is
+        # still being written
+        self._live: Optional[LiveLine] = None
 
         # a request lifecycle, not part of thinking
         self.correlations = CorrelationRegistry()
@@ -215,7 +222,7 @@ class Consciousness:
 
                     steps += 1
                     t_llm = time.perf_counter()
-                    assistant = await self.llm.complete(self.context, tools=self._tool_schemas())
+                    assistant = await self._think()
                     spent = spent + assistant.usage
                     if not is_idle:
                         logger.info(f"llm step {steps} took {(time.perf_counter() - t_llm) * 1000:.0f}ms"
@@ -230,6 +237,9 @@ class Consciousness:
                     for call in assistant.tool_calls:
                         obs = await self._dispatch(call)
                         self.context.append(tool_result_message(call, obs))
+                    # she started a line and then did something else with the
+                    # turn: nobody is going to finish it
+                    await self._drop_unspoken()
 
                     # she spoke or chose silence: the turn is over, and a new
                     # message becomes its own next turn
@@ -255,6 +265,76 @@ class Consciousness:
                 # whole correlation timeout
                 self.correlations.release()
                 self._drop(briefing)
+                await self._drop_unspoken()
+
+    # --- one model step -----------------------------------------------------
+
+    async def _think(self) -> AssistantMessage:
+        """One model step, with the line already on its way out as it is written.
+
+        A spoken turn used to exist all at once: the model finished the whole
+        tool call, and only then did anything reach the engine. The words are
+        there long before that — sitting inside a JSON string with no closing
+        quote — so the first sentence leaves as soon as it is a whole sentence.
+
+        Everything here is best-effort. A provider that cannot stream, a model
+        that writes the message before the mood, an engine that is busy: any of
+        those simply means no line was opened, and the turn is spoken by
+        `_speak` exactly as it was before.
+        """
+        if not self.stream_speech:
+            return await self.llm.complete(self.context, tools=self._tool_schemas())
+
+        reader: Optional[SpokenCall] = None
+        watched = True
+        line: Optional[LiveLine] = None
+
+        def on_delta(name: str, delta: str) -> None:
+            nonlocal reader, watched, line
+            if not watched:
+                return
+            if reader is None:
+                reader = spoken_call(name)
+                if reader is None:
+                    watched = False
+                    return
+            words = reader.push(delta)
+            if not words:
+                return
+            if line is None:
+                line = self._open_line(reader.mood)
+                if line is None:
+                    watched = False
+                    return
+            line.say(words)
+
+        try:
+            return await self.llm.stream_complete(
+                self.context, tools=self._tool_schemas(), on_tool_delta=on_delta)
+        finally:
+            self._live = line
+
+    def _open_line(self, mood: str) -> Optional[LiveLine]:
+        """A line to start speaking into, or None when speaking early cannot work."""
+        try:
+            route = "call" if self.expression.call_is_live else "local"
+            feeling = self.affect.current if self.affect else None
+            return self.expression.open_line(
+                normalize_mood(mood), route=route, feeling=feeling)
+        except Exception as e:
+            logger.error(f"Could not start speaking early: {e}")
+            return None
+
+    async def _drop_unspoken(self) -> None:
+        """Throws away a line she started and then decided against."""
+        line, self._live = self._live, None
+        if line is None:
+            return
+        logger.info("A line was started and never spoken; dropping it.")
+        try:
+            await line.cancel()
+        except Exception as e:
+            logger.error(f"Could not drop the unspoken line: {e}")
 
     # --- attention ----------------------------------------------------------
 
@@ -453,6 +533,15 @@ class Consciousness:
     # --- speaking (non-blocking) -------------------------------------------
 
     async def _speak(self, mood: str, message: str) -> str:
+        # whatever of this line is already on its way out. Taken here rather than
+        # in the loop so the two can never both own it.
+        line, self._live = self._live, None
+        if line is not None and line.spoiled:
+            # she met her own scaffolding before a word was heard: throw the
+            # line away and say the finished message, which cleans whole
+            await line.cancel()
+            line = None
+
         # the model invents moods; an avatar that silently fails to change is
         # worse than landing on the nearest one she actually has
         mood = normalize_mood(mood)
@@ -460,6 +549,8 @@ class Consciousness:
         message = clean_model_output(message)
         if not message:
             logger.warning("speak() had nothing left after sanitizing; staying silent.")
+            if line is not None:
+                await line.cancel()
             return await self._stay_silent("nothing sayable")
         if self.attention:
             self.attention.mark_spoke()
@@ -470,7 +561,18 @@ class Consciousness:
         # how she felt when she decided on this line, before it moves her
         feeling = self.affect.current if self.affect else None
 
-        if self.expression.call_is_live:
+        if line is not None:
+            # she is already saying it: all that is left is the end of the line
+            if latency:
+                latency.mark(MIND)
+            if line.route == "call":
+                await line.close()
+                if latency:
+                    latency.mark(TTS)
+            else:
+                # fire-and-forget so reasoning keeps going
+                asyncio.create_task(self._finish_line(line))
+        elif self.expression.call_is_live:
             # every sentence of a turn goes to the room, not just the first: the
             # call is a sink she pushes into, not one reply she hands back
             if latency:
@@ -496,6 +598,13 @@ class Consciousness:
     def _voice_latency(self):
         """The stopwatch of the voice turn in flight, when there is a call."""
         return getattr(self.surfaces.get("voice:discord"), "latency", None)
+
+    async def _finish_line(self, line: LiveLine) -> None:
+        """Waits out a line that is already being heard, without holding the mind."""
+        try:
+            await line.close()
+        except Exception as e:
+            logger.error(f"Local speech failed: {e}")
 
     async def _speak_local_safe(self, mood: str, message: str, feeling=None) -> None:
         """Local speech in a task: a playback error must not go unretrieved."""
