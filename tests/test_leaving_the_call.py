@@ -37,14 +37,19 @@ class Transport:
         return {"ok": True}
 
 
-def surface(transport, **discord):
+def surface(transport, expression=None, **discord):
     from src.core.skills.voice.surface import VoiceSurface
 
-    s = VoiceSurface(Cfg(**discord), bus=None, expression=None)
+    s = VoiceSurface(Cfg(**discord), bus=None, expression=expression)
     s.initialize()
     s.transport = transport
     s.active = True
     return s
+
+
+class Events:
+    def publish(self, *a, **k):
+        pass
 
 
 BEA = {"id": "bot", "name": "Bea"}
@@ -58,6 +63,22 @@ async def test_she_remembers_which_call_she_joined():
     s = surface(Transport())
     await s._tool_join_voice("vc1")
     assert s.voice_channel == "vc1"
+
+
+async def test_sitting_in_a_call_is_something_you_can_see_on_her():
+    """`listening` was a state the port documented and nothing ever asked for."""
+    from src.core.expression.voice import Expression
+    from tests.fakes import FakeAvatar, FakeCaption
+
+    avatar = FakeAvatar()
+    expression = Expression(Cfg(), None, avatar, FakeCaption(), Events())
+    s = surface(Transport(), expression=expression)
+
+    s.channel.on_message({"type": "joined", "channel_id": "vc1", "listeners": 1})
+    assert avatar.states[-1] == "listening"
+
+    s.channel.on_message({"type": "left"})
+    assert avatar.states[-1] == "idle"
 
 
 async def test_leaving_forgets_it():

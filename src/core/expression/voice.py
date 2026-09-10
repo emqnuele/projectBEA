@@ -49,6 +49,11 @@ class Expression:
         # resumed sentence) does not silently reset her face to neutral
         self._mood = DEFAULT_MOOD
 
+        # what she goes back to when a line ends. `idle` most of the time, but
+        # she is still listening after a line in a call and still asleep after
+        # one she talked in her sleep: snapping back to idle would throw that away
+        self._resting = "idle"
+
         self._is_speaking = False
         self.current_typing_task: Optional[asyncio.Task] = None
         self.current_speech_task: Optional[asyncio.Task] = None
@@ -75,13 +80,18 @@ class Expression:
         """
         if mood is not None:
             self._mood = mood
+        self._resting = state
+        if self.is_speaking:
+            # mid-line. Someone walking into the call is where she goes *back* to,
+            # not a reason to take the talking face off her halfway through a word
+            return
         self.avatar.show(self._mood, state)
 
     def set_ports(self, avatar: AvatarInterface, caption: CaptionInterface) -> None:
         """Swaps the backends under her, mid-run, without dropping the mood."""
         self.avatar = avatar
         self.caption = caption
-        self.avatar.show(self._mood, "idle")
+        self.avatar.show(self._mood, self._resting)
 
     def reload_config(self, config: BrainConfig) -> None:
         self.config = config
@@ -290,7 +300,7 @@ class Expression:
                         logger.info("Output tasks cancelled (Interruption).")
 
             self.caption.clear()
-            self.avatar.show(mood, "idle")
+            self.avatar.show(mood, self._resting)
         finally:
             self.is_speaking = False
 
@@ -370,12 +380,14 @@ class Expression:
             if frames:
                 self.avatar.mouth(frames, self._lipsync_fps)
 
-            typed = asyncio.create_task(self.caption.say(message))
+            # held where barge-in can reach it: the caption for a line the room
+            # hears is typed here, and an interruption has to stop it mid-word
+            self.current_typing_task = asyncio.create_task(self.caption.say(message))
             # a caption backend that shows nothing returns at once, and the
             # visuals would snap back before the room finished hearing her
-            await asyncio.gather(typed, asyncio.sleep(duration))
+            await asyncio.gather(self.current_typing_task, asyncio.sleep(duration))
 
-            self.avatar.show(mood, "idle")
+            self.avatar.show(mood, self._resting)
             self.caption.clear()
         finally:
             self.is_speaking = False
@@ -424,7 +436,7 @@ class Expression:
             self.current_typing_task.cancel()
 
         self.caption.clear()
-        self.avatar.show(self._mood, "idle")
+        self.avatar.show(self._mood, self._resting)
 
         self.is_speaking = False
         return "Interrupted"
@@ -454,4 +466,4 @@ class Expression:
                 self.resume_buffer = None
         finally:
             self.is_speaking = False
-            self.avatar.show(self._mood, "idle")
+            self.avatar.show(self._mood, self._resting)

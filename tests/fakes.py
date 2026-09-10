@@ -131,14 +131,28 @@ class FakeAvatar:
 
 
 class FakeCaption:
-    """Records the lines put on screen, without animating them."""
+    """Records the lines put on screen, without animating them.
 
-    def __init__(self):
+    `delay` stands in for a backend that types over time, like the OBS one: it is
+    what makes "an interruption reaches the caption" something a test can see.
+    """
+
+    def __init__(self, delay: float = 0.0):
         self.said: List[str] = []
         self.clears = 0
+        self.delay = delay
+        self.cancelled = 0
+        self.finished = 0
 
     async def say(self, text):
         self.said.append(text)
+        try:
+            if self.delay:
+                await asyncio.sleep(self.delay)
+        except asyncio.CancelledError:
+            self.cancelled += 1
+            raise
+        self.finished += 1
 
     def clear(self):
         self.clears += 1

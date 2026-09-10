@@ -44,7 +44,15 @@ class AvatarInterface(ABC):
 | `show` | before and after every spoken line, and on a state change | `mood` is one of `MOODS`; `state` is `idle`, `talking`, `listening` or `sleeping` |
 | `perform` | when a mood maps to a behaviour | a clip name, resolved by the backend |
 | `mouth` | once per line, **before playback starts** | the whole envelope, so the backend can pace it against its own clock |
-| `close` | on shutdown | — |
+| `close` | when the backend is swapped out, and on shutdown | — |
+
+**The state she rests in.** `talking` is the only state the speech path chooses
+for itself. The others are set by whoever knows about them — `sleeping` by the
+consciousness, `listening` by the voice surface while she sits in a call — and
+`Expression` remembers the last one: a line ends by going back to it, not to a
+hardcoded `idle`. A state that arrives mid-line is recorded and applied when she
+stops talking, so someone walking into the call cannot take her talking face off
+her halfway through a word.
 
 Three rules a backend has to hold to:
 
