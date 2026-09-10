@@ -113,6 +113,10 @@ Keys are moods, plus optionally the two non-speech **states**, `sleeping` and
 
 A missing state entry logs one warning per state, not per frame.
 
+`close()` blanks the source. The image is the only thing this backend leaves
+behind, and another backend taking over mid-stream would otherwise be drawn on
+top of the face it replaced.
+
 ---
 
 ## `model`
@@ -264,6 +268,11 @@ weight cannot name an expression no real VRM has.
 
 `envelope(audio, sample_rate, fps)` in `src/core/expression/pcm.py` returns the
 per-frame RMS of the audio, normalised to `[0, 1]` and rounded to three decimals.
+
+The line is normalised against its own peak, but never against a peak below
+`MOUTH_FLOOR_RMS` (0.05). Dividing by the peak alone makes every line as loud as
+every other, so a whisper is drawn exactly like a shout; the floor keeps a quiet
+line quiet while any normal one still opens her mouth all the way.
 
 It is computed in `Expression._speak_local` between synthesis and playback, and
 on the call route it is accumulated per sentence as each one is synthesised. It

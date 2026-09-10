@@ -89,6 +89,11 @@ def split_at_ms(pcm: bytes, played_ms: int) -> Tuple[bytes, bytes]:
 # and already smoother than a mouth can move.
 ENVELOPE_FPS = 30
 
+# the quietest line that still opens her mouth all the way. The envelope is
+# normalised so that any engine's output moves a mouth at all, but normalising a
+# whisper against its own peak draws it exactly like a shout.
+MOUTH_FLOOR_RMS = 0.05
+
 
 def envelope(audio: np.ndarray, sample_rate: int, fps: int = ENVELOPE_FPS) -> list:
     """Per-frame loudness in [0, 1] — the only thing a mouth actually needs.
@@ -116,4 +121,4 @@ def envelope(audio: np.ndarray, sample_rate: int, fps: int = ENVELOPE_FPS) -> li
         return [0.0] * frames
     # rounded because this crosses the wire: three decimals is finer than a
     # mouth can be seen to move, and halves the payload
-    return [round(float(value), 3) for value in (rms / peak)]
+    return [round(float(value), 3) for value in (rms / max(peak, MOUTH_FLOOR_RMS))]

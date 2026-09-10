@@ -101,6 +101,28 @@ def test_a_png_avatar_ignores_the_behaviours_it_cannot_perform():
     assert obs.media == []
 
 
+def test_closing_the_png_backend_takes_her_picture_down():
+    """Switching to the 3D body mid-stream used to leave the old PNG on screen."""
+    obs = RecordingObs()
+    avatar = PngAvatar(Config(), obs)
+    avatar.show("angry", "talking")
+
+    avatar.close()
+
+    assert obs.images[-1] == ""
+
+
+def test_taking_her_picture_down_goes_through_the_source_that_holds_it():
+    """A media source is cleared as a media source, not as an image one."""
+    config = Config()
+    config.obs_source_type = "media"
+    obs = RecordingObs()
+
+    PngAvatar(config, obs).close()
+
+    assert obs.media == [""] and obs.images == []
+
+
 def test_the_media_branch_now_lives_in_exactly_one_place():
     """The same `if` used to be copied into six methods of the speech path."""
     config = Config()

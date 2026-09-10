@@ -35,8 +35,14 @@ WEIGHTS: Dict[str, Dict[str, float]] = {
     "bored": {"relaxed": 0.25, "sad": 0.35},
 }
 
-# a mood with no face would silently do nothing on screen
-assert set(WEIGHTS) == set(MOODS), "every mood needs expression weights"
+# a mood with no face would silently do nothing on screen. Not an `assert`:
+# those are stripped under `python -O`, and this is the check that stops a new
+# mood from reaching a stream with no expression behind it.
+if set(WEIGHTS) != set(MOODS):
+    raise RuntimeError(
+        f"every mood needs expression weights; the two disagree on "
+        f"{sorted(set(WEIGHTS) ^ set(MOODS))}"
+    )
 
 
 def weights_for(mood: str) -> Dict[str, float]:

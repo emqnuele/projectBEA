@@ -5,7 +5,7 @@ source, so nothing above the port has to ask.
 """
 
 from pathlib import Path
-from typing import Dict, Sequence, Tuple
+from typing import Dict, Sequence, Tuple, Union
 
 from src.core.resources import load_avatar_resources, resolve_mood_paths
 from src.interfaces.base_interfaces import AvatarInterface, OBSInterface
@@ -57,7 +57,13 @@ class PngAvatar(AvatarInterface):
         """A still image has no mouth: the talking frame already stands in for it."""
 
     def close(self) -> None:
-        """Holds nothing of its own; the OBS client belongs to the brain."""
+        """Takes her picture down. It is the only thing this backend holds.
+
+        The OBS client belongs to the brain, but the image left in the source
+        does not: another backend taking over mid-stream, or the engine stopping,
+        would otherwise leave a face on screen with nothing behind it.
+        """
+        self._swap("")
 
     # --- internals ----------------------------------------------------------
 
@@ -68,7 +74,7 @@ class PngAvatar(AvatarInterface):
             logger.warning(f"Could not resolve mood {mood}, falling back to 'normal'.")
             return self.png_map.get("normal", (Path("placeholder.png"), Path("placeholder.png")))
 
-    def _swap(self, path: Path) -> None:
+    def _swap(self, path: Union[str, Path]) -> None:
         if self.config.obs_source_type == "media":
             self.obs.set_media(path)
         else:

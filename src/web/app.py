@@ -133,6 +133,11 @@ def update_config(request: ConfigUpdateRequest):
                     # (and a masked secret never overwrites the real one)
                     _merge_skills(brain.config.skills, value)
                     continue
+                if key == "stage" and isinstance(value, dict):
+                    # same reason: a post carrying only the backend choice must
+                    # not wipe the model path and the maps it said nothing about
+                    brain.config.stage = {**brain.config.stage, **value}
+                    continue
                 setattr(brain.config, key, value)
 
                 # check for critical changes
