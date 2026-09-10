@@ -60,6 +60,11 @@ class VTubeStudioClient:
         self.port = port
         self.token_file = token_file
         self._socket = None
+        # one request at a time. The mouth injects a parameter every frame while
+        # the worker may be setting an expression, and a socket is a single
+        # send/recv pair: without this the two read each other's answers, and
+        # websockets refuses a second concurrent recv outright.
+        self._turn = asyncio.Lock()
 
     @property
     def url(self) -> str:
@@ -83,8 +88,10 @@ class VTubeStudioClient:
         if data is not None:
             payload["data"] = data
 
-        await self._socket.send(json.dumps(payload))
-        answer = json.loads(await self._socket.recv())
+        async with self._turn:
+            await self._socket.send(json.dumps(payload))
+            answer = json.loads(await self._socket.recv())
+
         if answer.get("messageType") == "APIError":
             detail = answer.get("data", {})
             raise VTubeStudioError(f"{detail.get('errorID')}: {detail.get('message')}")
@@ -196,10 +203,16 @@ class VTubeStudioAvatar(AvatarInterface):
     def show(self, mood: str, state: str) -> None:
         expression = (self._stage.get("vts_expressions") or {}).get(mood)
         self._enqueue(("expression", expression))
+        # the same rule the 3D body follows: a mood may carry a behaviour, and it
+        # plays when she starts talking rather than every time her face changes
+        hotkey = (self._stage.get("vts_clips") or {}).get(mood)
+        if hotkey and state == "talking":
+            self._enqueue(("hotkey", hotkey))
         if state != "talking":
             self._stop_mouth()
 
     def perform(self, clip: str) -> None:
+        """A behaviour by name: a mood that maps to a hotkey, or a hotkey id."""
         hotkey = (self._stage.get("vts_clips") or {}).get(clip, clip)
         if hotkey:
             self._enqueue(("hotkey", hotkey))
@@ -221,9 +234,17 @@ class VTubeStudioAvatar(AvatarInterface):
 
     def close(self) -> None:
         self._stop_mouth()
-        if self._worker is not None:
-            self._worker.cancel()
-            self._worker = None
+        worker, self._worker = self._worker, None
+        if worker is not None:
+            worker.cancel()
+
+        # the socket is let go of here rather than in the worker's own clean-up:
+        # a cancelled task is not guaranteed another turn when the loop is on its
+        # way out, and a socket nobody closed outlives the process that opened it
+        client, self._connected = self._connected, None
+        loop = self._loop()
+        if client is not None and loop is not None:
+            loop.create_task(client.close())
 
     # --- internals ----------------------------------------------------------
 

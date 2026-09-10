@@ -56,6 +56,40 @@ class FakeSocket:
         return [m for m in self.sent if m["messageType"] == kind]
 
 
+class StrictSocket(FakeSocket):
+    """A socket that suspends between the request and its answer, as a real one does.
+
+    `websockets` refuses a second concurrent `recv`, and answers arrive in the
+    order they were asked for. Both are reproduced here, because the bug this
+    guards against is invisible to a fake that answers instantly.
+    """
+
+    def __init__(self, answers=None):
+        super().__init__(answers)
+        self._pending = []
+        self._reading = False
+
+    async def send(self, raw):
+        await super().send(raw)
+        self._pending.append(self.sent[-1])
+
+    async def recv(self):
+        if self._reading:
+            raise RuntimeError("cannot call recv while another coroutine is already running recv()")
+        self._reading = True
+        try:
+            await asyncio.sleep(0)          # where a real socket waits for the wire
+            request = self._pending.pop(0)
+            kind = request["messageType"]
+            return json.dumps({
+                "messageType": f"{kind[:-7]}Response",
+                "requestID": request["requestID"],
+                "data": self.answers.get(kind, {}),
+            })
+        finally:
+            self._reading = False
+
+
 def client_with(socket, tmp_path, **kwargs) -> VTubeStudioClient:
     client = VTubeStudioClient("127.0.0.1", 8001, tmp_path / "token.json", **kwargs)
     client._socket = socket
@@ -156,6 +190,42 @@ def test_the_token_is_never_kept_in_the_config(tmp_path):
     assert "token" not in flat
 
 
+async def test_two_requests_at_once_do_not_read_each_others_answers(tmp_path):
+    """Her mouth writes 30 times a second while her face is being set.
+
+    A socket is one send/recv pair. Without a lock the two coroutines interleave:
+    websockets raises on the second reader, the connection is torn down and
+    reconnected, and on stream her expression simply never arrives.
+    """
+    socket = StrictSocket(answers={"CurrentModelRequest": {"modelName": "Hiyori"}})
+    client = client_with(socket, tmp_path)
+
+    model, _ = await asyncio.gather(
+        client.current_model(),
+        client.set_parameter("MouthOpen", 0.4),
+    )
+
+    assert model == {"modelName": "Hiyori"}, "the answer belonged to the other request"
+    assert [m["messageType"] for m in socket.sent] == [
+        "CurrentModelRequest", "InjectParameterDataRequest"]
+
+
+async def test_the_mouth_and_the_face_share_one_socket_without_colliding(tmp_path):
+    """The same collision, through the port: a line being spoken, a mood arriving."""
+    socket = StrictSocket()
+    avatar = VTubeStudioAvatar(config(vts_expressions={"angry": "furious.exp3.json"}),
+                               tmp_path / "token.json")
+    client = client_with(socket, tmp_path)
+    avatar._connected = client
+
+    mouth = asyncio.get_running_loop().create_task(avatar._run_mouth([0.2] * 20, fps=1000))
+    await avatar._apply_expression(client, "furious.exp3.json")
+    await mouth
+
+    assert socket.of_type("ExpressionActivationRequest"), "her face never arrived"
+    assert len(socket.of_type("InjectParameterDataRequest")) == 21
+
+
 # --- the port's promises -----------------------------------------------------
 
 
@@ -196,6 +266,49 @@ async def test_an_unmapped_behaviour_is_passed_through_as_a_hotkey_name(tmp_path
     avatar = VTubeStudioAvatar(config(vts_clips={}), tmp_path / "token.json")
     avatar.perform("Wave hand")
     assert avatar._commands.get_nowait() == ("hotkey", "Wave hand")
+
+
+async def test_a_mood_can_carry_a_behaviour_the_way_the_3d_body_does(tmp_path):
+    """`vts_clips` is keyed by mood: what the dashboard writes is what fires."""
+    avatar = VTubeStudioAvatar(config(vts_clips={"love": "hk-42"}), tmp_path / "token.json")
+
+    avatar.show("love", "talking")
+
+    assert avatar._commands.get_nowait() == ("expression", None)
+    assert avatar._commands.get_nowait() == ("hotkey", "hk-42")
+
+
+async def test_a_behaviour_plays_when_she_starts_talking_and_not_while_idle(tmp_path):
+    avatar = VTubeStudioAvatar(config(vts_clips={"love": "hk-42"}), tmp_path / "token.json")
+
+    avatar.show("love", "idle")
+
+    assert avatar._commands.get_nowait() == ("expression", None)
+    assert avatar._commands.empty(), "an idle face must not replay the behaviour"
+
+
+async def test_a_mood_with_no_behaviour_just_changes_face(tmp_path):
+    avatar = VTubeStudioAvatar(config(vts_clips={"love": "hk-42"}), tmp_path / "token.json")
+
+    avatar.show("angry", "talking")
+
+    assert avatar._commands.get_nowait() == ("expression", None)
+    assert avatar._commands.empty()
+
+
+async def test_closing_lets_go_of_the_socket_without_waiting_for_the_worker(tmp_path):
+    """A cancelled task gets no guaranteed turn while the loop is shutting down."""
+    socket = FakeSocket()
+    avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
+    avatar._connected = client_with(socket, tmp_path)
+    avatar._worker = asyncio.get_running_loop().create_task(asyncio.sleep(3600))
+
+    avatar.close()
+    await asyncio.sleep(0)
+
+    assert socket.closed
+    assert avatar._worker is None
+    assert avatar._connected is None
 
 
 async def test_a_backlog_keeps_the_newest_face_not_the_oldest(tmp_path):

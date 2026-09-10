@@ -184,14 +184,14 @@ model and the software are the user's.
   "vts_host": "127.0.0.1",
   "vts_port": 8001,
   "vts_expressions": { "angry": "furious.exp3.json" },
-  "vts_clips": { "lean_in": "hotkey-id-or-name" },
+  "vts_clips": { "love": "hotkey-id-or-name" },
   "vts_mouth_param": "MouthOpen"
 }
 ```
 
 | Port call | Request |
 |---|---|
-| `show(mood, state)` | `ExpressionActivationRequest`, file from `vts_expressions[mood]` |
+| `show(mood, state)` | `ExpressionActivationRequest`, file from `vts_expressions[mood]`; on `talking`, also `HotkeyTriggerRequest` from `vts_clips[mood]` |
 | `perform(clip)` | `HotkeyTriggerRequest`, id from `vts_clips[clip]`, falling back to the name itself |
 | `mouth(envelope, fps)` | `InjectParameterDataRequest` on `vts_mouth_param`, one per frame, `mode: "set"` |
 
@@ -201,10 +201,17 @@ Studio; the token is written to `data/vtube_studio_token.json` and reused with
 deleted so the next attempt asks again instead of failing forever. It is kept
 out of `config.json` because `GET /config` is unauthenticated.
 
-**Threading.** `_run` owns one connection and drains a bounded queue over it,
+**Threading.** Every request holds a lock for its send and its reply: a socket is
+one send/recv pair, and the mouth writes to it 30 times a second while the worker
+may be setting an expression. `_run` owns one connection and drains a bounded queue over it,
 reconnecting with backoff from 3s to 30s. When the queue fills, the oldest
 command is dropped — the newest face is the correct one. The mouth runs in its
 own task so a new line cancels the previous one.
+
+**A behaviour per mood.** `vts_clips` is keyed by mood, exactly like `mood_clips`
+on the 3D backend, and fires when she starts talking rather than on every change
+of face. `perform` resolves through the same map, so a hotkey id passed straight
+in still works.
 
 **Two behaviours specific to this backend.** VTube Studio holds an expression
 until told otherwise, so the adapter deactivates the previous one before
