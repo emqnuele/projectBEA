@@ -167,7 +167,10 @@ viseme (her mouth cannot move) or the emotion presets (one face for every mood).
 It exits non-zero when something required is absent.
 
 `make model` downloads pixiv's VRM 1.0 sample and one clip into `data/models`
-and `data/clips`, both gitignored.
+and `data/clips`, both gitignored. Both are pinned to the `three-vrm` release the
+dashboard itself is built against and checked against a SHA-256: what arrives is
+loaded and run by a renderer, so anything that does not match is deleted rather
+than kept. A file already at that path is never overwritten — it is yours.
 
 ### Notes for the renderer
 
