@@ -9,6 +9,7 @@ import asyncio
 import uuid
 from typing import Any, Callable, Dict, List
 
+from src.core.mind.moods import DEFAULT_MOOD
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.mind.correlation")
@@ -62,5 +63,5 @@ class CorrelationRegistry:
             entry = self._waiting.pop(cid, None)
             if not entry or entry["future"].done():
                 continue
-            entry["future"].set_result({"mood": "normal", "message": ""})
+            entry["future"].set_result({"mood": DEFAULT_MOOD, "message": ""})
         self._batch = []

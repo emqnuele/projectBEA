@@ -52,7 +52,7 @@ function Empty({ icon: Icon = Eye, children }) {
 
 function PngPreview({ map }) {
     const moods = Object.keys(map);
-    const [mood, setMood] = useState(moods[0] || 'normal');
+    const [mood, setMood] = useState(moods[0] || 'neutral');
     const [state, setState] = useState('idle');
     const [missing, setMissing] = useState(false);
 

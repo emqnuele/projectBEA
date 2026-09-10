@@ -122,7 +122,7 @@ Sends an audio file (WAV) for STT transcription and response.
   "response": {
     "role": "assistant",
     "content": "...",
-    "mood": "normal",
+    "mood": "neutral",
     "user_transcript": "the transcribed text"
   }
 }
@@ -255,7 +255,7 @@ Returns the last 50 messages of the current session.
 ```json
 [
   { "role": "user", "content": "hi", "timestamp": "..." },
-  { "role": "assistant", "content": "...", "mood": "normal", "timestamp": "..." }
+  { "role": "assistant", "content": "...", "mood": "neutral", "timestamp": "..." }
 ]
 ```
 

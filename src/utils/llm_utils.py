@@ -2,6 +2,8 @@ import json
 import re
 from typing import Dict, Iterator, Optional, Tuple
 
+from src.core.mind.moods import DEFAULT_MOOD
+
 # matches a trailing comma right before a closing } or ] (a common llm mistake)
 _TRAILING_COMMA = re.compile(r",(\s*[}\]])")
 
@@ -98,8 +100,8 @@ def parse_llm_json(reply: str) -> Tuple[str, str, Dict]:
     """
     data = extract_json(reply or "")
     if not isinstance(data, dict):
-        return "normal", (reply or "").strip(), {}
+        return DEFAULT_MOOD, (reply or "").strip(), {}
 
-    mood = data.get("mood", "normal")
+    mood = data.get("mood", DEFAULT_MOOD)
     message = data.get("message", "")
     return str(mood), str(message), data

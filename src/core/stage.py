@@ -12,6 +12,7 @@ import contextlib
 from pathlib import Path
 from typing import Any, Dict, List
 
+from src.core.mind.moods import DEFAULT_MOOD
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stage")
@@ -61,7 +62,7 @@ class StageChannel:
 
     def __init__(self) -> None:
         self._subscribers: List["asyncio.Queue[Dict[str, Any]]"] = []
-        self._state: Dict[str, Any] = {"mood": "normal", "state": "idle", "caption": ""}
+        self._state: Dict[str, Any] = {"mood": DEFAULT_MOOD, "state": "idle", "caption": ""}
 
     # --- writing ------------------------------------------------------------
 

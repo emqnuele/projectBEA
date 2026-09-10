@@ -30,12 +30,12 @@ CALM = Affect(0.0, 0.0, T0)
 
 
 def test_no_mood_and_no_feeling_leaves_the_voice_alone():
-    assert for_mood("normal") == NEUTRAL
-    assert for_mood("normal").neutral is True
+    assert for_mood("neutral") == NEUTRAL
+    assert for_mood("neutral").neutral is True
 
 
 def test_a_calm_state_leaves_a_neutral_line_alone():
-    assert for_mood("normal", CALM) == NEUTRAL
+    assert for_mood("neutral", CALM) == NEUTRAL
 
 
 def test_an_unknown_mood_falls_back_to_neutral():
@@ -54,19 +54,19 @@ def test_angry_is_faster_higher_and_louder_than_flat():
 
 def test_angry_and_sad_do_not_sound_the_same():
     # both are negative; only arousal separates a shout from a sulk
-    angry, cry = for_mood("angry"), for_mood("cry")
+    angry, cry = for_mood("angry"), for_mood("sad")
     assert angry.rate > cry.rate
     assert angry.pitch_hz > cry.pitch_hz
 
 
 def test_sad_is_slower_and_lower_than_neutral():
-    cry = for_mood("cry")
+    cry = for_mood("sad")
     assert cry.rate < 1.0
     assert cry.pitch_hz < 0.0
 
 
 def test_delight_lifts_the_pitch():
-    assert for_mood("love").pitch_hz > 0.0
+    assert for_mood("happy").pitch_hz > 0.0
 
 
 # --- the standing state -----------------------------------------------------
@@ -81,19 +81,19 @@ def test_a_contradicting_state_softens_it():
 
 
 def test_an_ordinary_line_said_while_furious_is_not_ordinary():
-    assert for_mood("normal", FURIOUS) != NEUTRAL
+    assert for_mood("neutral", FURIOUS) != NEUTRAL
 
 
 def test_a_state_below_the_threshold_changes_nothing():
     barely = Affect(-0.1, 0.1, T0)
     assert for_mood("angry", barely) == for_mood("angry")
-    assert for_mood("normal", barely) == NEUTRAL
+    assert for_mood("neutral", barely) == NEUTRAL
 
 
 # --- limits -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("mood", ["normal", "shock", "love", "cry", "angry", "ew", "bored"])
+@pytest.mark.parametrize("mood", ["neutral", "surprised", "happy", "sad", "angry", "disgusted", "bored"])
 @pytest.mark.parametrize("affect", [None, FURIOUS, DELIGHTED, Affect(-1.0, -1.0, T0)])
 def test_no_mood_can_push_the_voice_out_of_range(mood, affect):
     p = for_mood(mood, affect)

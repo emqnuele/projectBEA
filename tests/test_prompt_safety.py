@@ -12,6 +12,7 @@ import pytest
 from src.core.mind.moods import (
     DEFAULT_MOOD,
     MOODS,
+    RENAMED,
     mood_table,
     normalize_mood,
 )
@@ -84,17 +85,24 @@ def test_case_and_padding_do_not_matter():
 
 
 @pytest.mark.parametrize("said,expected", [
-    ("happy", "love"),
-    ("sad", "cry"),
-    ("excited", "love"),
-    ("neutral", "normal"),
-    ("disgusted", "ew"),
-    ("surprised", "shock"),
+    ("excited", "happy"),
+    ("smug", "happy"),
+    ("upset", "sad"),
+    ("furious", "angry"),
+    ("cringe", "disgusted"),
+    ("shocked", "surprised"),
+    ("tired", "bored"),
 ])
 def test_a_near_miss_lands_on_the_closest_real_mood(said, expected):
     """The model will invent moods. An avatar that silently fails to change is
     worse than picking the nearest one."""
     assert normalize_mood(said) == expected
+
+
+@pytest.mark.parametrize("old,now", list(RENAMED.items()))
+def test_a_mood_id_from_before_the_rename_still_reaches_its_mood(old, now):
+    """Saved sessions and config files in the wild are full of the old ids."""
+    assert normalize_mood(old) == now
 
 
 def test_something_unrecognisable_falls_back_rather_than_breaking():
@@ -182,7 +190,7 @@ async def test_an_invented_mood_is_normalised_before_it_reaches_the_avatar():
     )
     await mind._speak("happy", "ciao")
     await settle()
-    assert expression.spoken[0][0] == "love"
+    assert expression.spoken[0][0] == "happy"
 
 
 async def test_a_real_mood_is_left_alone():

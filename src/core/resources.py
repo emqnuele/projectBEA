@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, Tuple
 
+from src.core.mind.moods import DEFAULT_MOOD
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.resources")
@@ -34,14 +35,14 @@ def load_avatar_resources(avatar_map: Dict[str, Dict[str, str]]) -> Dict[str, Tu
     return processed_map
 
 def resolve_mood_paths(png_map: Dict[str, Tuple[Path, Path]], mood: str) -> Tuple[Path, Path]:
-    """Trova i PNG per il mood, con fallback a normal."""
+    """Trova i PNG per il mood, con fallback al mood di default."""
     # 1. exact match
     if mood in png_map:
         return png_map[mood]
 
-    # 2. fallback normal
-    if "normal" in png_map:
-        return png_map["normal"]
+    # 2. fallback al default
+    if DEFAULT_MOOD in png_map:
+        return png_map[DEFAULT_MOOD]
 
     # 3. fallback any
     if png_map:

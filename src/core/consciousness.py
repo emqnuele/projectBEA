@@ -9,7 +9,7 @@ from src.core.agent.types import ToolCall, Usage
 from src.core.events import EventCategory
 from src.core.expression.chunking import spoken_prefix
 from src.core.mind.correlation import CorrelationRegistry
-from src.core.mind.moods import normalize_mood
+from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.core.mind.recap import SessionRecap
 from src.core.mind.routing import route
 from src.core.mind.tools import MindTools
@@ -109,7 +109,7 @@ class Consciousness:
             return
         self.sleeping = False
         try:
-            self.expression.set_state("idle", mood="normal")
+            self.expression.set_state("idle", mood=DEFAULT_MOOD)
         except Exception as e:
             logger.error(f"Failed to restore avatar on wake: {e}")
         self.events.publish(EventCategory.SYSTEM, "consciousness", "Bea woke up.")
@@ -481,7 +481,7 @@ class Consciousness:
         latency = self._voice_latency
         if latency:
             latency.abandon()
-        self.correlations.resolve(lambda r: True, {"mood": "normal", "message": ""})
+        self.correlations.resolve(lambda r: True, {"mood": DEFAULT_MOOD, "message": ""})
         return "Staying silent."
 
     def _trim(self):

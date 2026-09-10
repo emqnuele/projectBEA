@@ -4,7 +4,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.core.mind.moods import default_avatar_map
+from src.core.mind.moods import default_avatar_map, rename_legacy
 from src.core.persona import DEFAULT_NAME, DEFAULT_PRONOUNS
 from src.utils.logger import get_logger
 
@@ -282,6 +282,16 @@ class BrainConfig:
                 # migration: image to avatar source
                 if "obs_image_source" in data and "obs_avatar_source" not in data:
                     data["obs_avatar_source"] = data.pop("obs_image_source")
+
+                # migration: the moods were renamed to the plain names of the
+                # feelings, and every one of these dicts is keyed by mood
+                if "avatar_map" in data:
+                    data["avatar_map"] = rename_legacy(data["avatar_map"])
+                stage = data.get("stage")
+                if isinstance(stage, dict):
+                    for key in ("mood_clips", "vts_expressions", "vts_clips"):
+                        if key in stage:
+                            stage[key] = rename_legacy(stage[key])
 
                 # update fields
                 for key, value in data.items():

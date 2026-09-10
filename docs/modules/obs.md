@@ -103,7 +103,7 @@ This lives in `PngAvatar` (`src/modules/avatar/png.py`), behind the avatar port.
 1. `show(mood, "talking")` before speaking.
 2. `show(mood, "idle")` after.
 
-An unknown mood falls back to `"normal"`. The states `sleeping` and `listening`
+An unknown mood falls back to `"neutral"`. The states `sleeping` and `listening`
 use their own entry in `avatar_map` when there is one, and otherwise fall back to
 the mood's image and log a warning. Full resolution order is in the
 [avatar module](avatar.md).

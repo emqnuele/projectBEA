@@ -151,7 +151,7 @@ def test_the_person_who_got_to_her_goes_cold(store):
 
 def test_the_person_who_made_her_day_goes_warm(store):
     card = known(store)
-    affect(store).spoke("love", [said("sei bravissima")])
+    affect(store).spoke("happy", [said("sei bravissima")])
     assert store.people.get(card.person_id).warmth > 0
 
 
@@ -270,7 +270,7 @@ def test_an_unchanged_mood_is_not_reannounced_every_turn(store):
     events = RecordingEvents()
     state = affect(store, events=events)
     for _ in range(6):
-        state.spoke("normal", [said("ciao")])
+        state.spoke("neutral", [said("ciao")])
     assert [e for e in events.events if e[1] == "affect"] == []
 
 

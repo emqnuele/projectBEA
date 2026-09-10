@@ -62,7 +62,15 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "kokoro_speed": 1,
     "kokoro_lang": "en-us",
     "avatar_map": {
-        "normal": {
+        "neutral": {
+            "idle": "",
+            "talking": ""
+        },
+        "happy": {
+            "idle": "",
+            "talking": ""
+        },
+        "sad": {
             "idle": "",
             "talking": ""
         },
@@ -70,23 +78,15 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
             "idle": "",
             "talking": ""
         },
+        "surprised": {
+            "idle": "",
+            "talking": ""
+        },
+        "disgusted": {
+            "idle": "",
+            "talking": ""
+        },
         "bored": {
-            "idle": "",
-            "talking": ""
-        },
-        "cry": {
-            "idle": "",
-            "talking": ""
-        },
-        "ew": {
-            "idle": "",
-            "talking": ""
-        },
-        "love": {
-            "idle": "",
-            "talking": ""
-        },
-        "shock": {
             "idle": "",
             "talking": ""
         }
@@ -395,9 +395,9 @@ Full reference: **[Avatar module →](modules/avatar.md)**
 
 ## Avatar and the text bubble
 
-`avatar_map` holds one `{idle, talking}` pair per mood: `normal`, `angry`,
-`bored`, `cry`, `ew`, `love`, `shock`. Leave a path empty to fall back to
-`normal`. `png_dir` (`data/pngs`) is where they live.
+`avatar_map` holds one `{idle, talking}` pair per mood: `neutral`, `happy`,
+`sad`, `angry`, `surprised`, `disgusted`, `bored`. Leave a path empty to fall
+back to `neutral`. `png_dir` (`data/pngs`) is where they live.
 
 | Key | Default | Description |
 |---|---|---|

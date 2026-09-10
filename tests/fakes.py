@@ -53,7 +53,7 @@ class FakeLLMClient(LLMClient):
         return first.get("content", "") if first.get("role") == "system" else ""
 
 
-def speaks(message: str, mood: str = "normal", call_id: str = "c1") -> AssistantMessage:
+def speaks(message: str, mood: str = "neutral", call_id: str = "c1") -> AssistantMessage:
     return AssistantMessage(tool_calls=[
         ToolCall(id=call_id, name="speak", arguments={"mood": mood, "message": message})
     ])

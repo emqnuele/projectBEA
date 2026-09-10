@@ -270,25 +270,25 @@ async def test_an_unmapped_behaviour_is_passed_through_as_a_hotkey_name(tmp_path
 
 async def test_a_mood_can_carry_a_behaviour_the_way_the_3d_body_does(tmp_path):
     """`vts_clips` is keyed by mood: what the dashboard writes is what fires."""
-    avatar = VTubeStudioAvatar(config(vts_clips={"love": "hk-42"}), tmp_path / "token.json")
+    avatar = VTubeStudioAvatar(config(vts_clips={"happy": "hk-42"}), tmp_path / "token.json")
 
-    avatar.show("love", "talking")
+    avatar.show("happy", "talking")
 
     assert avatar._commands.get_nowait() == ("expression", None)
     assert avatar._commands.get_nowait() == ("hotkey", "hk-42")
 
 
 async def test_a_behaviour_plays_when_she_starts_talking_and_not_while_idle(tmp_path):
-    avatar = VTubeStudioAvatar(config(vts_clips={"love": "hk-42"}), tmp_path / "token.json")
+    avatar = VTubeStudioAvatar(config(vts_clips={"happy": "hk-42"}), tmp_path / "token.json")
 
-    avatar.show("love", "idle")
+    avatar.show("happy", "idle")
 
     assert avatar._commands.get_nowait() == ("expression", None)
     assert avatar._commands.empty(), "an idle face must not replay the behaviour"
 
 
 async def test_a_mood_with_no_behaviour_just_changes_face(tmp_path):
-    avatar = VTubeStudioAvatar(config(vts_clips={"love": "hk-42"}), tmp_path / "token.json")
+    avatar = VTubeStudioAvatar(config(vts_clips={"happy": "hk-42"}), tmp_path / "token.json")
 
     avatar.show("angry", "talking")
 

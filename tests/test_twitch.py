@@ -252,4 +252,4 @@ async def test_being_named_in_a_busy_chat_always_gets_through(twitch):
         pass
 
     assert llm.call_count == 1
-    assert mind.expression.spoken == [("normal", "che c'e'", "local")]
+    assert mind.expression.spoken == [("neutral", "che c'e'", "local")]

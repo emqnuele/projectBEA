@@ -27,7 +27,15 @@
     "kokoro_speed": 1,
     "kokoro_lang": "en-us",
     "avatar_map": {
-        "normal": {
+        "neutral": {
+            "idle": "",
+            "talking": ""
+        },
+        "happy": {
+            "idle": "",
+            "talking": ""
+        },
+        "sad": {
             "idle": "",
             "talking": ""
         },
@@ -35,23 +43,15 @@
             "idle": "",
             "talking": ""
         },
+        "surprised": {
+            "idle": "",
+            "talking": ""
+        },
+        "disgusted": {
+            "idle": "",
+            "talking": ""
+        },
         "bored": {
-            "idle": "",
-            "talking": ""
-        },
-        "cry": {
-            "idle": "",
-            "talking": ""
-        },
-        "ew": {
-            "idle": "",
-            "talking": ""
-        },
-        "love": {
-            "idle": "",
-            "talking": ""
-        },
-        "shock": {
             "idle": "",
             "talking": ""
         }

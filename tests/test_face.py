@@ -55,8 +55,8 @@ def test_a_face_is_handed_every_emotion_so_none_is_left_behind():
 
 
 def test_whatever_the_model_invents_still_lands_on_a_real_face():
-    assert weights_for("happy") == weights_for("love")
-    assert weights_for("nonsense-the-model-made-up") == weights_for("normal")
+    assert weights_for("smug") == weights_for("happy")
+    assert weights_for("nonsense-the-model-made-up") == weights_for("neutral")
 
 
 # --- agreement with how she actually feels ----------------------------------
@@ -80,15 +80,15 @@ def test_a_mood_does_not_look_the_opposite_of_how_it_feels(mood):
 
 def test_the_only_neutral_face_is_the_neutral_mood():
     for mood, weights in WEIGHTS.items():
-        if mood == "normal":
+        if mood == "neutral":
             assert weights == {"neutral": 1.0}
         else:
             assert "neutral" not in weights, f"{mood} would sit under a neutral face"
 
 
 def test_the_two_moods_vrm_has_no_preset_for_are_blends():
-    """`ew` and `bored` are the only judgement calls in the table."""
-    assert len(WEIGHTS["ew"]) > 1
+    """`disgusted` and `bored` are the only judgement calls in the table."""
+    assert len(WEIGHTS["disgusted"]) > 1
     assert len(WEIGHTS["bored"]) > 1
 
 

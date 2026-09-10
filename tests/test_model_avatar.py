@@ -144,7 +144,7 @@ def test_a_behaviour_plays_when_she_starts_talking_and_not_while_idle():
 def test_a_mood_with_no_behaviour_just_changes_face():
     channel = StageChannel()
     queue = channel.subscribe()
-    Model3DAvatar(config(mood_clips={}), channel).show("love", "talking")
+    Model3DAvatar(config(mood_clips={}), channel).show("happy", "talking")
 
     assert "perform" not in queue.get_nowait()
 
@@ -161,7 +161,7 @@ def test_a_missing_model_is_a_warning_not_a_crash(caplog):
     channel = StageChannel()
     with caplog.at_level("WARNING"):
         avatar = Model3DAvatar(config(model_path=""), channel)
-    avatar.show("normal", "idle")
+    avatar.show("neutral", "idle")
 
     assert any("model_path" in r.message for r in caplog.records)
 
@@ -181,7 +181,7 @@ async def test_speaking_hands_the_body_a_face_and_a_mouth():
     expression = Expression(config(), SilentTTS(), avatar, FakeCaption(), Events())
     queue = channel.subscribe()
 
-    await expression.speak("cry", "non ce la faccio piu")
+    await expression.speak("sad", "non ce la faccio piu")
 
     patches = [queue.get_nowait() for _ in range(queue.qsize())]
     faces = [p for p in patches if "expressions" in p]
@@ -203,7 +203,7 @@ async def test_the_mouth_is_told_between_the_talking_face_and_the_idle_one():
     expression = Expression(config(), SilentTTS(), Model3DAvatar(config(), channel),
                             FakeCaption(), Events())
 
-    await expression.speak("normal", "ciao")
+    await expression.speak("neutral", "ciao")
 
     patches = [queue.get_nowait() for _ in range(queue.qsize())]
     talking = next(i for i, p in enumerate(patches) if p.get("state") == "talking")
@@ -223,7 +223,7 @@ async def test_a_lip_sync_failure_never_stops_her_from_speaking(caplog):
                             FakeCaption(), Events())
 
     with caplog.at_level("ERROR"):
-        await expression.speak("normal", "vado avanti comunque")
+        await expression.speak("neutral", "vado avanti comunque")
 
     assert any("Lip sync failed" in r.message for r in caplog.records)
     assert channel.snapshot()["state"] == "idle", "she finished the line anyway"

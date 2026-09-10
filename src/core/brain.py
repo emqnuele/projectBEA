@@ -11,6 +11,7 @@ from src.core.expression import Expression
 from src.core.memory.profiler import Profiler
 from src.core.memory.store import MemoryStore
 from src.core.mind import ConversationMind, ConversationScheduler
+from src.core.mind.moods import DEFAULT_MOOD
 from src.core.mind.operating import BUILTIN_OPERATING, missing_tools
 from src.core.mind.spontaneous import SpontaneousPresence
 from src.core.perception.bus import PerceptionBus
@@ -472,14 +473,14 @@ class AIVtuberBrain:
         chat = self._surface("chat:ui")
         if not chat or not self.consciousness:
             logger.warning("generate_response called before initialize().")
-            return "normal", ""
+            return DEFAULT_MOOD, ""
         payload = await self._perceive_and_wait(
             lambda cid: chat.perceive(user_text, meta={"correlation_id": cid}),
             route="local",
         )
         if not payload:
-            return "normal", ""
-        return payload.get("mood", "normal"), payload.get("message", "")
+            return DEFAULT_MOOD, ""
+        return payload.get("mood", DEFAULT_MOOD), payload.get("message", "")
 
     async def generate_audio_response(self, audio_path: str) -> Tuple[str, str, str]:
         """Transcribes audio, deposits a voice perception, waits for the reply."""
@@ -487,14 +488,14 @@ class AIVtuberBrain:
         text = transcript or "[Audio Message]"
         voice = self._surface("voice:discord")
         if not voice or not self.consciousness:
-            return "normal", "", transcript
+            return DEFAULT_MOOD, "", transcript
         payload = await self._perceive_and_wait(
             lambda cid: voice.perceive(text, "user", meta={"correlation_id": cid}),
             route="local",
         )
         if not payload:
-            return "normal", "", transcript
-        return payload.get("mood", "normal"), payload.get("message", ""), transcript
+            return DEFAULT_MOOD, "", transcript
+        return payload.get("mood", DEFAULT_MOOD), payload.get("message", ""), transcript
 
     async def process_text_input(self, user_text: str):
         mood, message = await self.generate_response(user_text)
