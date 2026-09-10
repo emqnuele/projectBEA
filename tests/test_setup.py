@@ -138,6 +138,71 @@ def test_the_wizard_never_has_to_ask_about_every_key_in_the_block(tmp_path, monk
     assert cfg.stage["vts_mouth_param"] == "MouthOpen"
 
 
+def ask_stage(monkeypatch, avatar: str, caption: str, connect_obs: bool = True):
+    """Runs the wizard's stage question with the answers already decided."""
+    from src.setup import wizard
+
+    printed: list = []
+
+    class Recorder:
+        def print(self, *args, **kwargs):
+            printed.append(" ".join(str(a) for a in args))
+
+        def rule(self, *args, **kwargs):
+            pass
+
+    picked = iter([avatar, caption])
+    monkeypatch.setattr(wizard, "_choose", lambda *a, **k: next(picked))
+    monkeypatch.setattr(wizard.Confirm, "ask", lambda *a, **k: connect_obs)
+    monkeypatch.setattr(wizard.Prompt, "ask", lambda *a, **k: "whatever")
+    monkeypatch.setattr(wizard.IntPrompt, "ask", lambda *a, **k: 4455)
+
+    answers: dict = {}
+    wizard._ask_stage(Recorder(), answers)
+    return answers, "\n".join(printed)
+
+
+def test_the_setup_explains_the_browser_source_even_when_obs_is_also_needed(monkeypatch):
+    """Images in OBS with her words in the browser needs both, and used to get one.
+
+    The two questions were an if/elif, so this pairing — the one the wizard
+    itself offers by default — never heard about the page it depends on.
+    """
+    answers, printed = ask_stage(monkeypatch, "png", "stage")
+
+    assert "obs" in answers, "the images still live in an OBS source"
+    assert "/stage" in printed, "nothing told her where the caption is drawn"
+
+
+def test_the_setup_explains_the_browser_source_after_declining_obs(monkeypatch):
+    answers, printed = ask_stage(monkeypatch, "model", "obs", connect_obs=False)
+
+    assert "obs" not in answers
+    assert "/stage" in printed
+
+
+def test_the_setup_leaves_obs_out_when_nothing_goes_through_it(monkeypatch):
+    answers, printed = ask_stage(monkeypatch, "model", "stage")
+
+    assert "obs" not in answers
+    assert "WebSocket Server Settings" not in printed
+    assert "/stage" in printed
+
+
+def test_the_setup_asks_for_a_page_exactly_when_the_engine_needs_one():
+    """The wizard's rule and the factories' must not drift apart."""
+    from src.modules.avatar.factory import BUILDERS as AVATARS
+    from src.modules.avatar.factory import NEEDS_PUBLISHER as AVATAR_NEEDS_PAGE
+    from src.modules.caption.factory import BUILDERS as CAPTIONS
+    from src.modules.caption.factory import NEEDS_PUBLISHER as CAPTION_NEEDS_PAGE
+    from src.setup.wizard import needs_browser_source
+
+    for avatar in AVATARS:
+        for caption in CAPTIONS:
+            needs_page = avatar in AVATAR_NEEDS_PAGE or caption in CAPTION_NEEDS_PAGE
+            assert needs_browser_source(avatar, caption) is needs_page, (avatar, caption)
+
+
 def test_every_backend_the_wizard_offers_is_one_the_engine_can_build():
     """A wizard that offers a name the factory has never heard of is a dead end."""
     from src.modules.avatar.factory import BUILDERS as AVATARS

@@ -267,6 +267,16 @@ def _ask_ears(console: Console, answers: Dict[str, Any]) -> None:
     answers["stt_key"] = _ask_key(console, "API key", PROVIDER_KEYS[stt_provider][1])
 
 
+def needs_obs(avatar: str, caption: str) -> bool:
+    """Whether anything she shows still goes through the OBS WebSocket."""
+    return avatar == "png" or caption == "obs"
+
+
+def needs_browser_source(avatar: str, caption: str) -> bool:
+    """Whether anything she shows is drawn by the stage page."""
+    return avatar == "model" or caption == "stage"
+
+
 def _ask_stage(console: Console, answers: Dict[str, Any]) -> None:
     _rule(console, "4/5", "How she appears")
     console.print("  Two separate choices: what the audience sees of her, and how her "
@@ -292,23 +302,26 @@ def _ask_stage(console: Console, answers: Dict[str, Any]) -> None:
 
     answers["stage"] = stage
 
-    if avatar == "png" or caption == "obs":
+    # two independent questions, because both can be true at once: images in an
+    # OBS source with her words typed in the browser needs OBS *and* the page
+    if needs_obs(avatar, caption):
         console.print("  That needs OBS. Enable the WebSocket server first: "
                       "OBS → Tools → WebSocket Server Settings.\n")
-        if not Confirm.ask("  Connect to OBS?", default=True):
-            return
-        console.print()
-        obs: Dict[str, Any] = {
-            "host": Prompt.ask("  Host", default="localhost"),
-            "port": IntPrompt.ask("  Port", default=4455),
-            "password": Prompt.ask("  Password", password=True, default="", show_default=False),
-        }
-        if avatar == "png":
-            obs["avatar_source"] = Prompt.ask("  Avatar source name", default="BeaPNG")
-        if caption == "obs":
-            obs["text_source"] = Prompt.ask("  Text bubble source name", default="AIText")
-        answers["obs"] = obs
-    elif avatar == "model" or caption == "stage":
+        if Confirm.ask("  Connect to OBS?", default=True):
+            console.print()
+            obs: Dict[str, Any] = {
+                "host": Prompt.ask("  Host", default="localhost"),
+                "port": IntPrompt.ask("  Port", default=4455),
+                "password": Prompt.ask("  Password", password=True, default="", show_default=False),
+            }
+            if avatar == "png":
+                obs["avatar_source"] = Prompt.ask("  Avatar source name", default="BeaPNG")
+            if caption == "obs":
+                obs["text_source"] = Prompt.ask("  Text bubble source name", default="AIText")
+            answers["obs"] = obs
+            console.print()
+
+    if needs_browser_source(avatar, caption):
         console.print("  Add a Browser Source in OBS pointing at http://127.0.0.1:8000/stage,")
         console.print("  and untick 'Shutdown source when not visible' so she keeps her pose.\n")
 
