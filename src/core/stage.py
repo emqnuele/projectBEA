@@ -75,6 +75,7 @@ def public_config(config) -> Dict[str, Any]:
         "shot": stage.get("shot", "bust"),
         "background": stage.get("background", ""),
         "lipsync_fps": stage.get("lipsync_fps", 30),
+        "max_fps": stage.get("max_fps", 0),
         "has_model": bool(stage.get("model_path")),
         "model_id": _model_id(stage.get("model_path") or ""),
         "typing_delay": config.typing_delay,

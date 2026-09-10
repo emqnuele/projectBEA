@@ -5,11 +5,11 @@ source, so nothing above the port has to ask.
 """
 
 from pathlib import Path
-from typing import Dict, Sequence, Tuple, Union
+from typing import Dict, Tuple, Union
 
 from src.core.mind.moods import DEFAULT_MOOD
 from src.core.resources import load_avatar_resources, resolve_mood_paths
-from src.interfaces.base_interfaces import AvatarInterface, OBSInterface
+from src.interfaces.base_interfaces import AvatarInterface, MouthFrames, OBSInterface
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.avatar.png")
@@ -54,7 +54,7 @@ class PngAvatar(AvatarInterface):
     def perform(self, clip: str) -> None:
         """A still image has no behaviours."""
 
-    def mouth(self, envelope: Sequence[float], fps: int) -> None:
+    def mouth(self, envelope: MouthFrames, fps: int) -> None:
         """A still image has no mouth: the talking frame already stands in for it."""
 
     def close(self) -> None:

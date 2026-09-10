@@ -66,11 +66,13 @@
         "shot": "bust",
         "mood_clips": {},
         "background": "",
+        "max_fps": 0,
         "vts_host": "127.0.0.1",
         "vts_port": 8001,
         "vts_expressions": {},
         "vts_clips": {},
-        "vts_mouth_param": "MouthOpen"
+        "vts_mouth_param": "MouthOpen",
+        "vts_mouth_form_param": ""
     },
     "text_line_width": 40,
     "text_lines": 4,

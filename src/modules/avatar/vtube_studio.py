@@ -16,10 +16,10 @@ import contextlib
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 from src.core.expression.pcm import ENVELOPE_FPS
-from src.interfaces.base_interfaces import AvatarInterface
+from src.interfaces.base_interfaces import AvatarInterface, MouthFrames
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.avatar.vts")
@@ -217,7 +217,7 @@ class VTubeStudioAvatar(AvatarInterface):
         if hotkey:
             self._enqueue(("hotkey", hotkey))
 
-    def mouth(self, envelope: Sequence[float], fps: int = ENVELOPE_FPS) -> None:
+    def mouth(self, envelope: MouthFrames, fps: int = ENVELOPE_FPS) -> None:
         """Replays the envelope frame by frame.
 
         The browser source is handed the whole line and runs it off its own
@@ -278,15 +278,20 @@ class VTubeStudioAvatar(AvatarInterface):
             self._mouth.cancel()
         self._mouth = None
 
-    async def _run_mouth(self, frames: List[float], fps: int) -> None:
+    async def _run_mouth(self, frames: MouthFrames, fps: int) -> None:
         client = self._connected
         if client is None or not client.connected:
             return
         param = self._stage.get("vts_mouth_param") or "MouthOpen"
+        # optional and off by default: every VTS model has a mouth that opens,
+        # and only some have one that changes shape
+        form = self._stage.get("vts_mouth_form_param") or ""
         step = 1.0 / fps
         try:
-            for value in frames:
-                await client.set_parameter(param, value)
+            for how_open, shape in frames:
+                await client.set_parameter(param, how_open)
+                if form:
+                    await client.set_parameter(form, shape)
                 await asyncio.sleep(step)
             await client.set_parameter(param, 0.0)
         except asyncio.CancelledError:

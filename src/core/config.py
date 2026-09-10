@@ -110,6 +110,7 @@ class BrainConfig:
         "shot": "bust",                # bust | half | full, framed off the head bone
         "mood_clips": {},              # mood -> clip name, all optional
         "background": "",              # a colour behind her, or empty for transparent
+        "max_fps": 0,                  # cap the browser source; 0 follows the display
 
         # the `vtube_studio` backend: nothing is bundled, it talks to yours
         "vts_host": "127.0.0.1",
@@ -117,6 +118,7 @@ class BrainConfig:
         "vts_expressions": {},         # mood -> expression file in the user's model
         "vts_clips": {},               # clip name -> hotkey id in the user's model
         "vts_mouth_param": "MouthOpen",
+        "vts_mouth_form_param": "",    # a mouth that also changes shape, if yours has one
     })
 
     # typing animation

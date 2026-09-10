@@ -94,14 +94,33 @@ ENVELOPE_FPS = 30
 # whisper against its own peak draws it exactly like a shout.
 MOUTH_FLOOR_RMS = 0.05
 
+# Where a mouth sits on the vowel axis, as one number in [0, 1] — dark to
+# bright. One number rather than a class per frame because that is what a
+# spectrum actually gives you, and because a blend between two neighbours moves
+# like a mouth where a hard choice between five flickers.
+#
+# The band is speech: under the first bound is a hum with no vowel in it, over
+# the second is an "s", and neither is a shape worth drawing.
+DARKEST_HZ = 350.0
+BRIGHTEST_HZ = 2600.0
+
+# a frame this quiet has no vowel to measure, only the noise floor's own colour
+_SHAPE_FLOOR_RMS = 0.01
+
+# what a frame falls back to when there is nothing to measure: the middle of the
+# axis, which is an open `aa` — the shape a mouth already had before any of this
+NEUTRAL_SHAPE = 0.5
+
 
 def envelope(audio: np.ndarray, sample_rate: int, fps: int = ENVELOPE_FPS) -> list:
-    """Per-frame loudness in [0, 1] — the only thing a mouth actually needs.
+    """What the mouth does, per frame: `[how open, what shape]`.
 
-    Not a phoneme model and not a viseme classifier: the RMS of the audio she is
-    about to say, normalised. It costs a fraction of a millisecond for a whole
-    utterance, and it is computed here rather than in the browser because the
-    audio is played on this machine and the page never hears it.
+    Not a phoneme model. How open comes from the RMS of the audio she is about
+    to say; what shape comes from where that frame's energy sits in the
+    spectrum, which is what separates an "oo" from an "ee" without knowing a
+    single word. Both are computed here rather than in the browser because the
+    audio is played on this machine and the page never hears it — and here they
+    are testable without one.
     """
     if audio is None or getattr(audio, "size", 0) == 0:
         return []
@@ -114,11 +133,37 @@ def envelope(audio: np.ndarray, sample_rate: int, fps: int = ENVELOPE_FPS) -> li
     if frames == 0:
         return []
 
-    blocks = mono[: frames * hop].reshape(frames, hop)
-    rms = np.sqrt(np.mean(np.square(blocks, dtype=np.float64), axis=1))
+    blocks = mono[: frames * hop].reshape(frames, hop).astype(np.float64)
+    rms = np.sqrt(np.mean(np.square(blocks), axis=1))
+    shapes = _shapes(blocks, rms, sample_rate)
+
     peak = rms.max()
-    if peak <= 0:
-        return [0.0] * frames
+    open_by_frame = (rms / max(peak, MOUTH_FLOOR_RMS)) if peak > 0 else np.zeros(frames)
+
     # rounded because this crosses the wire: three decimals is finer than a
     # mouth can be seen to move, and halves the payload
-    return [round(float(value), 3) for value in (rms / max(peak, MOUTH_FLOOR_RMS))]
+    return [[round(float(how_open), 3), round(float(shape), 3)]
+            for how_open, shape in zip(open_by_frame, shapes, strict=True)]
+
+
+def _shapes(blocks: np.ndarray, rms: np.ndarray, sample_rate: int) -> np.ndarray:
+    """Each frame's place on the vowel axis, from the centre of its spectrum.
+
+    The spectral centroid is the frequency the frame's energy balances around.
+    It rises for the bright vowels and falls for the dark ones, which is the
+    whole of what a mouth has to show — and it is one FFT per frame of a fifth
+    of a second, so it costs nothing worth measuring.
+    """
+    spectrum = np.abs(np.fft.rfft(blocks * np.hanning(blocks.shape[1]), axis=1))
+    hertz = np.fft.rfftfreq(blocks.shape[1], d=1.0 / max(1, int(sample_rate)))
+
+    energy = spectrum.sum(axis=1)
+    # a frame with no energy would divide by zero; it also has no vowel
+    quiet = (energy <= 0) | (rms < _SHAPE_FLOOR_RMS)
+    centroid = (spectrum @ hertz) / np.where(energy > 0, energy, 1.0)
+
+    # logarithmic, because pitch is: the distance from 350 to 700 Hz is heard as
+    # the same step as the one from 700 to 1400
+    span = np.log(BRIGHTEST_HZ / DARKEST_HZ)
+    placed = np.log(np.clip(centroid, DARKEST_HZ, BRIGHTEST_HZ) / DARKEST_HZ) / span
+    return np.where(quiet, NEUTRAL_SHAPE, placed)

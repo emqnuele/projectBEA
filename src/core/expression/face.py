@@ -19,8 +19,11 @@ from src.core.mind.moods import MOODS, normalize_mood
 # the emotion presets VRM 1.0 declares, and nothing invented on top
 VRM_EMOTIONS = ("happy", "angry", "sad", "relaxed", "surprised", "neutral")
 
-# the mouth shapes; `aa` is the one the lip sync drives
-VRM_VISEMES = ("aa", "ih", "ou", "ee", "oh")
+# The mouth shapes, in the order a spectrum puts them: dark to bright. The
+# order is the point — `pcm.envelope` places every frame on that axis as one
+# number, and the page blends the two shapes it falls between. Reordering this
+# tuple without reordering the page's own list draws the wrong vowels.
+VRM_VISEMES = ("ou", "oh", "aa", "ee", "ih")
 
 WEIGHTS: Dict[str, Dict[str, float]] = {
     "neutral": {"neutral": 1.0},
