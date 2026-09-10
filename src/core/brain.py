@@ -8,6 +8,7 @@ from src.core.config import BrainConfig
 from src.core.consciousness import Consciousness
 from src.core.events import EventCategory, EventManager
 from src.core.expression import Expression
+from src.core.expression.picker import clip_picker, mood_picker
 from src.core.memory.profiler import Profiler
 from src.core.memory.store import MemoryStore
 from src.core.mind import ConversationMind, ConversationScheduler
@@ -34,7 +35,7 @@ from src.core.skills.voice.surface import VoiceSurface
 from src.core.social.agenda import AgendaRunner
 from src.core.social.reach import Reach
 from src.core.social.rhythm import RhythmTick
-from src.core.stage import StageChannel, public_config
+from src.core.stage import StageChannel, installed_clips, public_config
 from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
 from src.modules.avatar import build_avatar
 from src.modules.avatar.factory import backend_name as avatar_backend
@@ -100,6 +101,9 @@ class AIVtuberBrain:
 
         # everything Bea remembers, in one transactional file
         self.memory = self._build_memory()
+
+        # how a word she writes inline becomes something she actually has
+        self._install_matchers()
 
         # unified consciousness (built in initialize, started only if enabled)
         self.perception_bus: Optional[PerceptionBus] = None
@@ -196,6 +200,20 @@ class AIVtuberBrain:
             except Exception as e:
                 logger.error(f"Could not verify the embedding model: {e}")
         return store
+
+    def _install_matchers(self) -> None:
+        """Teaches the sink to read the direction she writes inside a line.
+
+        Both matchers share the embedder the memory already loaded — a mood is
+        one short word, so the cost of a miss is one `embed` of it and nothing
+        after that, since the answer is remembered. Without an embedder they
+        fall back to the fixed tables, which is where the project already was.
+        """
+        embedder = self.memory.embedder
+        self.expression.set_matchers(
+            mood=mood_picker(embedder).pick,
+            clip=clip_picker(installed_clips(self.config), embedder).pick,
+        )
 
     def _load_operating_rules(self) -> str:
         """The operating manual, with a floor under it.
@@ -404,6 +422,9 @@ class AIVtuberBrain:
             self.expression.set_ports(self.avatar, self.caption)
             self._backends = wanted
         self.expression.reload_config(self.config)
+        # a behaviour dropped into the folder, or a different backend, changes
+        # what `<do:…>` can land on
+        self._install_matchers()
         # the browser source is told rather than left to be reloaded by hand,
         # so a shot or a model changed mid-stream takes effect where it shows
         self.stage.publish({"config": public_config(self.config)})

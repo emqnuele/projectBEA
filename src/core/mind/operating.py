@@ -14,6 +14,7 @@ force still names the tools the mind actually registers.
 import re
 from typing import List, Sequence
 
+from src.core.expression.tags import direction_help
 from src.core.mind.moods import mood_table
 
 BUILTIN_OPERATING = f"""# OPERATING MANUAL — How You Exist
@@ -41,6 +42,9 @@ your audience with the matching facial expression.
 ## MOODS (pick the EXACT id for `speak`)
 
 {mood_table()}
+
+## DIRECTION
+{direction_help()}
 
 ## WHAT YOU NOTICE
 You do not deliberate over everything that reaches you — most of it you simply

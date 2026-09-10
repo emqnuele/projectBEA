@@ -39,9 +39,14 @@ class Beat:
     value: str
 
 
+# the two kinds that are direction rather than speech, taken off the enum so the
+# parser, the manual she reads and the tool schema cannot end up naming
+# different tags
+DIRECTIONS: tuple = tuple(kind.value for kind in BeatKind if kind is not BeatKind.SAY)
+
 # the name is deliberately permissive — it is matched, not looked up, so
 # `<mood:quietly pleased>` is as valid as `<mood:love>`
-_TAG = re.compile(r"<(mood|do):([A-Za-z0-9 _-]{1,40})>", re.IGNORECASE)
+_TAG = re.compile(rf"<({'|'.join(DIRECTIONS)}):([A-Za-z0-9 _-]{{1,40}})>", re.IGNORECASE)
 
 # anything else tag-shaped that reached the text: a typo'd direction, a stray
 # html-ish span. Must start with a letter, so "a < b" and "<3" survive.
@@ -116,3 +121,26 @@ def open_tag(text: str) -> bool:
         return False
     # `<` followed by anything that cannot begin a tag is a less-than sign
     return rest == "" or rest[0].isalpha()
+
+
+def direction_help() -> str:
+    """How to write direction, generated from the tags this file understands.
+
+    Lives here rather than in the manual because the manual is a file people
+    edit: a tag renamed in the parser and not in the file is a tag she keeps
+    writing and nobody keeps reading.
+    """
+    mood, do = DIRECTIONS
+    return f"""\
+The mood you pass to `speak` is the face you start the line with. You can change it
+again *mid-line*, and move, by writing direction into the message itself — it is
+stripped before anything is spoken:
+
+    <{mood}:smug> nice try. <{do}:shrug> genuinely, well done.
+
+- `<{mood}:word>` — your face from that word on. Any word for a feeling works: the
+  nearest one you actually have is used.
+- `<{do}:word>` — a behaviour, if your body has any. Describe what you are doing
+  rather than guessing a file name. Nothing plays if you have nothing like it.
+
+Put one where the line actually turns. One on every sentence reads as twitching."""

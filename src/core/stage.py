@@ -36,6 +36,33 @@ def _model_id(raw: str) -> str:
         return path.name
 
 
+def clips_dir(config) -> Path:
+    """Where the .vrma behaviours live."""
+    stage = getattr(config, "stage", None) or {}
+    return Path(stage.get("clips_dir") or "data/clips")
+
+
+def installed_clips(config) -> List[str]:
+    """Every behaviour she can actually play, by name.
+
+    Which is a different question per backend, and asking it in one place is
+    what stops the dashboard from offering a behaviour she does not have and
+    the mind from writing `<do:…>` for one that was never installed. A still
+    image has no behaviours at all; adding one to the folder is enough for the
+    `model` backend, which is the point of a folder.
+    """
+    stage = getattr(config, "stage", None) or {}
+    backend = stage.get("avatar_backend", "png")
+    if backend == "vtube_studio":
+        return sorted(name for name in (stage.get("vts_clips") or {}) if name)
+    if backend != "model":
+        return []
+    folder = clips_dir(config)
+    if not folder.is_dir():
+        return []
+    return sorted(path.stem for path in folder.glob("*.vrma"))
+
+
 def public_config(config) -> Dict[str, Any]:
     """What the browser source needs to draw her, and nothing else.
 

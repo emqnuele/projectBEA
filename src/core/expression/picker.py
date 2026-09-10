@@ -15,8 +15,10 @@ The embedder is optional everywhere. Without one, this degrades to exactly the
 fast path, which is where the project already was.
 """
 
+import re
 from typing import Callable, Dict, Iterable, List, Optional, Sequence
 
+from src.core.mind.moods import COVERS, DEFAULT_MOOD, MOODS, known_mood
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.expression.picker")
@@ -48,12 +50,19 @@ class Picker:
 
     def __init__(self, names: Iterable[str], *, aliases: Optional[Dict[str, str]] = None,
                  embedder=None, threshold: float = DEFAULT_THRESHOLD,
-                 fallback: str = "", exact: Optional[Callable[[str], Optional[str]]] = None):
+                 fallback: Optional[str] = None,
+                 exact: Optional[Callable[[str], Optional[str]]] = None):
         self.names: List[str] = [n for n in names if n]
+        # a clip is a file name, so it arrives with whatever capitals it was
+        # saved with; nothing she writes will have them
+        self._by_name = {name.lower(): name for name in self.names}
         self.aliases = dict(aliases or {})
         self.embedder = embedder
         self.threshold = threshold
-        self.fallback = fallback or (self.names[0] if self.names else "")
+        # an empty string is a fallback — "do nothing" — and not the absence of
+        # one, so it cannot be told apart from unset by truthiness
+        self.fallback = fallback if fallback is not None else (
+            self.names[0] if self.names else "")
         self._exact = exact
         self._vectors: Optional[List[List[float]]] = None
         self._cache: Dict[str, str] = {}
@@ -64,8 +73,8 @@ class Picker:
         wanted = (word or "").strip().lower()
         if not wanted:
             return self.fallback
-        if wanted in self.names:
-            return wanted
+        if wanted in self._by_name:
+            return self._by_name[wanted]
 
         if self._exact is not None:
             hit = self._exact(wanted)
@@ -129,3 +138,39 @@ class Picker:
             return
         self._warned = True
         logger.warning(f"Cannot match words by meaning ({error}); using the fallback.")
+
+
+def mood_picker(embedder=None) -> Picker:
+    """The seven moods, reachable by any word that means one of them.
+
+    The table in `moods.py` answers first and costs nothing; `COVERS` is what
+    gets embedded when it does not, because `disgusted` on its own is close to
+    a handful of words and the whole row is close to most of the ways she would
+    ever write it.
+    """
+    return Picker(MOODS, aliases=COVERS, embedder=embedder,
+                  fallback=DEFAULT_MOOD, exact=known_mood)
+
+
+def clip_picker(names: Iterable[str], embedder=None) -> Picker:
+    """The behaviours installed, reachable by what they look like.
+
+    File names are not vocabulary — a clip called `dismissive_wave_01` is what
+    she means when she writes `<do:shrug>`, and expecting her to remember the
+    filename is expecting her to read the folder. Underscores and the numbering
+    people leave on exported clips are stripped before matching, and the name
+    handed back is still the real one.
+
+    The fallback is nothing rather than the first clip: playing the wrong
+    behaviour is worse than playing none, because it is what the audience sees.
+    """
+    installed = [name for name in names if name]
+    aliases = {name: _readable(name) for name in installed}
+    return Picker(installed, aliases=aliases, embedder=embedder, fallback="")
+
+
+def _readable(name: str) -> str:
+    """`003_dismissive_wave.vrma` as the two words it is actually about."""
+    words = re.sub(r"[_\-.]+", " ", name)
+    words = re.sub(r"\b\d+\b", " ", words)
+    return re.sub(r"\s+", " ", words).strip().lower() or name
