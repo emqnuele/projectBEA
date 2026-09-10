@@ -81,7 +81,7 @@ class Consciousness:
 
     async def start(self):
         self.alive = True
-        self.context = [self._system_message([])]
+        self.context = [self._system_message()]
         for s in self.surfaces.all():
             try:
                 await s.start()
@@ -152,6 +152,7 @@ class Consciousness:
 
     async def run(self):
         while self.alive:
+            briefing: Optional[Dict[str, Any]] = None
             try:
                 idle = self.surfaces.get("idle")
                 if idle and idle.active:
@@ -186,9 +187,12 @@ class Consciousness:
                                 f"{', '.join(p.surface for p in batch)}")
 
                 t_ctx = time.perf_counter()
-                self.context[0] = await self._build_system_message(batch, is_idle=is_idle)
+                self.context[0] = self._system_message()
+                briefing = await self._build_briefing(batch, is_idle=is_idle)
                 if not is_idle:
                     logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
+                if briefing:
+                    self.context.append(briefing)
                 self.context.append(self._frame(batch))
                 self._batch = list(batch)
 
@@ -239,6 +243,7 @@ class Consciousness:
                     logger.info(f"turn done: {steps} llm call(s), {spent.total} tokens, "
                                 f"in {elapsed_ms:.0f}ms")
                     self._publish_cost(steps, spent, elapsed_ms)
+                self._drop(briefing)
                 self._trim()
             except asyncio.CancelledError:
                 break
@@ -249,6 +254,7 @@ class Consciousness:
                 # a turn that raised must not leave its caller hanging for the
                 # whole correlation timeout
                 self.correlations.release()
+                self._drop(briefing)
 
     # --- attention ----------------------------------------------------------
 
@@ -275,13 +281,15 @@ class Consciousness:
         """What the turn cost, for the dashboard: the gate cannot be tuned blind."""
         self.total_tokens += spent.total
         self.total_calls += steps
+        cached = f", {round(spent.cache_hit * 100)}% cached" if spent.cached_tokens else ""
         self.events.publish(
             EventCategory.SYSTEM, "cost",
-            f"turn: {steps} call(s), {spent.total} tokens, {elapsed_ms:.0f}ms",
+            f"turn: {steps} call(s), {spent.total} tokens, {elapsed_ms:.0f}ms{cached}",
             metadata={
                 "steps": steps,
                 "prompt_tokens": spent.prompt_tokens,
                 "completion_tokens": spent.completion_tokens,
+                "cached_tokens": spent.cached_tokens,
                 "tokens": spent.total,
                 "ms": round(elapsed_ms),
                 "session_tokens": self.total_tokens,
@@ -311,42 +319,62 @@ class Consciousness:
 
     # --- context building ---------------------------------------------------
 
-    async def _build_system_message(self, batch: List[Perception], is_idle: bool = False) -> Dict[str, Any]:
+    async def _build_briefing(self, batch: List[Perception],
+                              is_idle: bool = False) -> Optional[Dict[str, Any]]:
         """Builds it off the loop: a slow retrieval must not stall speech."""
         dynamic = await asyncio.to_thread(self.surfaces.dynamic_context, batch) if batch else []
-        return self._system_message(batch, is_idle=is_idle, dynamic=dynamic)
+        return self._briefing(batch, is_idle=is_idle, dynamic=dynamic)
 
-    def _system_message(self, batch: List[Perception], is_idle: bool = False,
-                        dynamic: Optional[List[str]] = None) -> Dict[str, Any]:
-        soul = self._get_soul()
-        operating = self._get_operating()
+    def _system_message(self) -> Dict[str, Any]:
+        """Who she is and how she works: the half that does not move.
 
-        # monologue rules only on a pure-idle frame
+        Everything a provider can cache lives here, and it is worth keeping it
+        that way. Caching matches on the longest common prefix of a request, so
+        one volatile line at the top — the date, a retrieved memory, how she
+        happens to feel — costs the whole prompt on every single turn. That is
+        why the rest of it is a separate message further down: see `_briefing`.
+        """
         sections = [
             s.context_section for s in self.surfaces.active()
-            if s.context_section and (s.name != "idle" or is_idle)
+            # the monologue rules are only true on an idle turn, so they belong
+            # to the briefing rather than in here
+            if s.context_section and s.name != "idle"
+        ]
+        return {"role": "system",
+                "content": compose(self._get_soul(), self._get_operating(), *sections)}
+
+    def _briefing(self, batch: List[Perception], is_idle: bool = False,
+                  dynamic: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+        """Everything that is only true right now, as one block she is told once.
+
+        It sits directly above the perceptions it describes and is taken back out
+        at the end of the turn: what she was told about this moment is not part
+        of the conversation, and leaving it in would have her answering a memory
+        retrieved for a question somebody asked ten minutes ago.
+        """
+        parts: List[str] = [
+            f"CURRENT DATE: {datetime.datetime.now().strftime('%Y-%m-%d')}"
         ]
 
-        live = [s.live_state() for s in self.surfaces.active()]
-        live = [x for x in live if x]
+        if is_idle:
+            idle = self.surfaces.get("idle")
+            if idle is not None and idle.active and idle.context_section:
+                parts.append(idle.context_section)
 
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        parts.extend(x for x in (s.live_state() for s in self.surfaces.active()) if x)
+
         if dynamic is None:
             dynamic = self.surfaces.dynamic_context(batch) if batch else []
-        digest = self.attention.digest() if self.attention else ""
-        elsewhere = self.conversations.recent_lines() if self.conversations else ""
+
         feeling = self.affect.render() if self.affect else ""
-        parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live]
         if feeling:
             parts.append(feeling)
         parts.extend(dynamic)
-        recap = self.recap.render()
-        if recap:
-            parts.append(recap)
-        if digest:
-            parts.append(digest)
-        if elsewhere:
-            parts.append(elsewhere)
+        for block in (self.recap.render(),
+                      self.attention.digest() if self.attention else "",
+                      self.conversations.recent_lines() if self.conversations else ""):
+            if block:
+                parts.append(block)
 
         return {"role": "system", "content": compose(*parts)}
 
@@ -483,6 +511,20 @@ class Consciousness:
             latency.abandon()
         self.correlations.resolve(lambda r: True, {"mood": DEFAULT_MOOD, "message": ""})
         return "Staying silent."
+
+    def _drop(self, message: Optional[Dict[str, Any]]) -> None:
+        """Takes a per-turn message back out of the context.
+
+        By identity, not by value: two briefings a minute apart can be the same
+        text, and removing the wrong one would leave a stale retrieval in the
+        conversation for the rest of the session.
+        """
+        if message is None:
+            return
+        for index, existing in enumerate(self.context):
+            if existing is message:
+                del self.context[index]
+                return
 
     def _trim(self):
         if len(self.context) <= self.history_limit + 1:

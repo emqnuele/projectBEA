@@ -13,6 +13,27 @@ from src.utils.sanitize import clean_model_output
 logger = get_logger("bea.llm.openai_compat")
 
 
+def _usage(raw) -> Usage:
+    """Token counts off a completed response, including what the cache covered.
+
+    Providers spell the cached figure differently and most do not send it at
+    all, so every field is read defensively: a missing usage block must never
+    cost a turn.
+    """
+    if raw is None:
+        return Usage()
+    details = getattr(raw, "prompt_tokens_details", None)
+    cached = getattr(details, "cached_tokens", None) if details else None
+    if cached is None:
+        # openrouter reports it flat, next to the totals
+        cached = getattr(raw, "cached_tokens", None)
+    return Usage(
+        prompt_tokens=int(getattr(raw, "prompt_tokens", 0) or 0),
+        completion_tokens=int(getattr(raw, "completion_tokens", 0) or 0),
+        cached_tokens=int(cached or 0),
+    )
+
+
 class OpenAICompatibleClient(LLMClient, LLMInterface):
     """Shared implementation for any provider exposing the OpenAI Chat API.
 
@@ -81,11 +102,7 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
                 args = {}
             tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
 
-        raw = getattr(response, "usage", None)
-        usage = Usage(
-            prompt_tokens=int(getattr(raw, "prompt_tokens", 0) or 0),
-            completion_tokens=int(getattr(raw, "completion_tokens", 0) or 0),
-        )
+        usage = _usage(getattr(response, "usage", None))
 
         # cheap models leak <think> blocks and special tokens; unfiltered they
         # end up spoken out loud

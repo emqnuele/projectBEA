@@ -62,7 +62,7 @@ class World:
             now_line=self.mind.now_line,
         )
         self.mind.conversations = self.conversations
-        self.mind.context = [self.mind._system_message([])]
+        self.mind.context = [self.mind._system_message()]
 
     async def run(self, timeout: float = 1.0):
         self.mind.alive = True

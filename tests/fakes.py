@@ -47,10 +47,15 @@ class FakeLLMClient(LLMClient):
 
     @property
     def last_system_prompt(self) -> str:
+        """Everything she was told as system on the last call, in order.
+
+        More than one message, since the stable half of the prompt and the
+        briefing for this particular moment are deliberately kept apart.
+        """
         if not self.calls:
             return ""
-        first = self.calls[-1][0]
-        return first.get("content", "") if first.get("role") == "system" else ""
+        return "\n\n".join(m.get("content", "") for m in self.calls[-1]
+                            if m.get("role") == "system")
 
 
 def speaks(message: str, mood: str = "neutral", call_id: str = "c1") -> AssistantMessage:

@@ -24,7 +24,7 @@ def mind() -> Consciousness:
         soul_getter=lambda: "soul", operating_getter=lambda: "rules",
         attention=Attention(config),
     )
-    c.context = [c._system_message([])]
+    c.context = [c._system_message()]
     return c
 
 

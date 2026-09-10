@@ -63,7 +63,7 @@ class Mind:
             attention=Attention(config, rng=rng),
             affect=AffectState(config, store, events=RecordingEvents()) if affect else None,
         )
-        self.consciousness.context = [self.consciousness._system_message([])]
+        self.consciousness.context = [self.consciousness._system_message()]
 
     async def hears(self, *perceptions, timeout: float = 1.0):
         """Puts them on the bus and lets the loop chew through them."""

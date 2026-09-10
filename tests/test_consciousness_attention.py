@@ -50,7 +50,7 @@ def build(llm, **attention):
         soul_getter=lambda: "you are bea", operating_getter=lambda: "call speak to talk",
         attention=Attention(config, rng=rng, clock=lambda: NOON),
     )
-    mind.context = [mind._system_message([])]
+    mind.context = [mind._system_message()]
     return mind, bus, events
 
 
