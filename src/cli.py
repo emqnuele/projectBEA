@@ -28,6 +28,8 @@ def parse_args():
 
     parser.add_argument("--setup", action="store_true",
                         help="Interactive first-run setup: writes .env and config.json")
+    parser.add_argument("--doctor", action="store_true",
+                        help="Check this machine: keys, voice, ears, body, and what to fix")
     parser.add_argument("--web", action="store_true", help="Start Web Interface (FastAPI + React)")
     parser.add_argument("--host", default="127.0.0.1",
                         help="Bind address for the web interface (default: loopback only)")
@@ -133,14 +135,8 @@ async def main(args=None):
     # 2. modules
 
     # stt
-    if config.stt_provider == "groq":
-        from src.modules.STT.groq_stt import GroqSTT
-        stt = GroqSTT(config)
-    elif config.stt_provider == "openrouter":
-        from src.modules.STT.openrouter_stt import OpenRouterSTT
-        stt = OpenRouterSTT(config)
-    else:
-        stt = None
+    from src.modules.STT.factory import build_stt
+    stt = build_stt(config)
 
     # llm: one pool per role, so a provider outage does not silence her and the
     # dreamer never competes with the mind
@@ -152,30 +148,8 @@ async def main(args=None):
         return
 
     # tts
-    if config.tts_provider == "orpheus":
-        from src.modules.tts.orpheus_tts_wrapper import OrpheusTTSWrapper
-        tts = OrpheusTTSWrapper(
-            api_key=config.orpheus_key,
-            endpoint_url=config.orpheus_endpoint,
-            voice=config.orpheus_voice
-        )
-    elif config.tts_provider == "kokoro":
-        from src.modules.tts.kokoro_tts_wrapper import KokoroTTSWrapper
-        tts = KokoroTTSWrapper(
-            model_path=config.kokoro_model,
-            voices_path=config.kokoro_voices_file,
-            voice=config.kokoro_voice,
-            speed=config.kokoro_speed,
-            lang=config.kokoro_lang
-        )
-    else:
-        from src.modules.tts.edge_tts_wrapper import EdgeTTSWrapper
-        tts = EdgeTTSWrapper(
-            voice=config.tts_voice,
-            pitch=config.tts_pitch,
-            rate=config.tts_rate,
-            volume=config.tts_volume
-        )
+    from src.modules.tts.factory import build_tts
+    tts = build_tts(config)
 
     # obs
     obs = OBSController(
@@ -221,6 +195,10 @@ def run():
     if args.setup:
         from src.setup import run_setup
         raise SystemExit(run_setup())
+    # same reason: it exists for the case where something below is broken
+    if args.doctor:
+        from src.setup.doctor import run_doctor
+        raise SystemExit(run_doctor())
     asyncio.run(main(args))
 
 

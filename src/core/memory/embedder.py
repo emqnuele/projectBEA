@@ -32,7 +32,7 @@ def resolve_model(name: Optional[str]) -> str:
 
 
 class FastEmbedEmbedder:
-    def __init__(self, model_name: str = DEFAULT_MODEL,
+    def __init__(self, model_name: Optional[str] = DEFAULT_MODEL,
                  cache_dir: Optional[str] = DEFAULT_CACHE_DIR) -> None:
         self.model_name = resolve_model(model_name)
         self.cache_dir = cache_dir
