@@ -145,7 +145,10 @@
         "correlation_timeout": 90.0,
         "conversation_history": 16,
         "conversation_steps": 3,
-        "max_coalesced_runs": 3
+        "max_coalesced_runs": 3,
+        "turn_log": true,
+        "turn_log_dir": "data/turns",
+        "turn_log_days": 14
     },
     "models": {
         "mind": [

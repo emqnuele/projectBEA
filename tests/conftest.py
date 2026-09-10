@@ -56,3 +56,20 @@ def silent_audio(monkeypatch):
     device = _SilentDevice()
     monkeypatch.setitem(sys.modules, "sounddevice", device)
     return device
+
+
+@pytest.fixture(autouse=True)
+def turns_stay_out_of_the_repo(monkeypatch, tmp_path):
+    """A test that runs a whole turn writes that turn down, like the real loop.
+
+    It just must not write it into `data/turns/` of the checkout it is running
+    in. The log is still real and still readable — `mind.turns.path_for(day)`
+    points at this test's own directory.
+    """
+    from src.core import consciousness as consciousness_module
+    from src.core.mind.turnlog import TurnLog
+
+    def sandboxed(directory="data/turns", keep_days=14, clock=None):
+        return TurnLog(str(tmp_path / "turns"), keep_days, clock)
+
+    monkeypatch.setattr(consciousness_module, "TurnLog", sandboxed)

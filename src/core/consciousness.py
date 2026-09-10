@@ -15,6 +15,7 @@ from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.core.mind.recap import SessionRecap
 from src.core.mind.routing import route
 from src.core.mind.tools import MindTools
+from src.core.mind.turnlog import TurnLog, turn_record
 from src.core.perception.types import Perception, PerceptionKind
 from src.core.skills.voice.latency import MIND, TTS
 from src.utils.logger import get_logger
@@ -77,6 +78,13 @@ class Consciousness:
         # a line already on its way out while the tool call that asked for it is
         # still being written
         self._live: Optional[LiveLine] = None
+
+        # what this turn has done so far, for the record written at the end of it
+        self._acted: List[Dict[str, Any]] = []
+        self._said: Optional[Dict[str, str]] = None
+        self.turns = TurnLog(
+            cc.get("turn_log_dir", "data/turns"), cc.get("turn_log_days", 14),
+        ) if cc.get("turn_log", True) else None
 
         # a request lifecycle, not part of thinking
         self.correlations = CorrelationRegistry()
@@ -206,6 +214,7 @@ class Consciousness:
                 t_turn = time.perf_counter()
                 steps = 0
                 spent = Usage()
+                self._acted, self._said = [], None
                 for _ in range(self.burst_steps):
                     steer = self.bus.drain_nowait()
                     if steer:
@@ -253,6 +262,7 @@ class Consciousness:
                     logger.info(f"turn done: {steps} llm call(s), {spent.total} tokens, "
                                 f"in {elapsed_ms:.0f}ms")
                     self._publish_cost(steps, spent, elapsed_ms)
+                    self._write_down(batch, steps, spent, elapsed_ms)
                 self._drop(briefing)
                 self._trim()
             except asyncio.CancelledError:
@@ -377,6 +387,22 @@ class Consciousness:
             },
         )
 
+    def _write_down(self, batch: List[Perception], steps: int, spent: Usage,
+                    elapsed_ms: float) -> None:
+        """Files the turn away, for the questions that only come up afterwards."""
+        if self.turns is None:
+            return
+        self.turns.write(turn_record(
+            context=self.context,
+            perceptions=[p.render() for p in batch],
+            calls=self._acted,
+            spoke=self._said,
+            usage=spent,
+            steps=steps,
+            ms=elapsed_ms,
+            model=getattr(self.llm, "model_name", ""),
+        ))
+
     def now_line(self) -> str:
         """One line for a scoped turn: what she is doing on stage right now.
 
@@ -498,6 +524,11 @@ class Consciousness:
 
     async def _dispatch(self, call: ToolCall) -> str:
         self.events.publish(EventCategory.TOOL, "consciousness", f"{call.name}({call.arguments})")
+        result = await self._run_tool(call)
+        self._acted.append({"tool": call.name, "arguments": call.arguments, "result": result})
+        return result
+
+    async def _run_tool(self, call: ToolCall) -> str:
         registry = self.tools.registry()
         tool = registry.get(call.name)
         if tool is None:
@@ -556,6 +587,7 @@ class Consciousness:
             self.attention.mark_spoke()
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
+        self._said = {"mood": mood, "message": message}
 
         latency = self._voice_latency
         # how she felt when she decided on this line, before it moves her

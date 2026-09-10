@@ -8,6 +8,8 @@ words that arrive early turn out not to be words at all.
 """
 
 import asyncio
+import datetime
+import json
 
 from src.core.agent.types import AssistantMessage, ToolCall
 from src.core.attention.gate import Attention
@@ -233,3 +235,47 @@ async def test_a_line_that_met_scaffolding_is_thrown_away_and_said_properly():
 
     assert mind.expression.lines[0].cancelled
     assert mind.expression.spoken == [("neutral", "ovviamente no", "local")]
+
+
+# --- and what the turn leaves behind -----------------------------------------
+
+
+async def test_a_turn_writes_itself_down():
+    """Twenty minutes later, "what was she actually told?" has an answer."""
+    llm = StreamingLLMClient([speaks("ma tu guarda questa cosa", mood="angry")])
+    mind, bus = build(llm)
+
+    bus.put(said_to(mind))
+    await one_turn(mind, bus)
+
+    written = [json.loads(line) for line in
+               mind.turns.path_for(datetime.date.today().isoformat())
+               .read_text(encoding="utf-8").splitlines()]
+
+    assert len(written) == 1
+    turn = written[0]
+    assert turn["spoke"] == {"mood": "angry", "message": "ma tu guarda questa cosa"}
+    assert turn["tools"][0]["tool"] == "speak"
+    assert "you are bea" in turn["prompt"]
+    assert any("bea dimmi una cosa" in line for line in turn["perceptions"])
+
+
+async def test_a_turn_she_said_nothing_in_is_written_down_too():
+    """The silent ones are the turns you most want to be able to read back."""
+    silent = AssistantMessage(tool_calls=[
+        ToolCall(id="c1", name="stay_silent", arguments={"reason": "nothing to say"})
+    ])
+    mind, bus = build(StreamingLLMClient([silent]))
+
+    bus.put(said_to(mind))
+    await one_turn(mind, bus)
+
+    turn = json.loads(mind.turns.path_for(datetime.date.today().isoformat())
+                      .read_text(encoding="utf-8").splitlines()[0])
+    assert turn["spoke"] is None
+    assert turn["tools"][0]["tool"] == "stay_silent"
+
+
+async def test_it_can_be_switched_off_entirely():
+    mind, _ = build(StreamingLLMClient(), turn_log=False)
+    assert mind.turns is None

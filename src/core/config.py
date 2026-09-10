@@ -214,6 +214,11 @@ class BrainConfig:
         "conversation_history": 16,   # past messages of that channel in the turn
         "conversation_steps": 3,      # a reply is not an expedition
         "max_coalesced_runs": 3,      # cap on re-runs when messages keep arriving
+        # one jsonl a day of every turn she takes: the prompt in force, what she
+        # was shown, what she did and what it cost. Nothing leaves the machine.
+        "turn_log": True,
+        "turn_log_dir": "data/turns",
+        "turn_log_days": 14,          # 0 keeps them forever
     })
 
     # "provider:model" pools per role: round-robin spreads rate limits, the rest
