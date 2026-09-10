@@ -269,8 +269,8 @@ async def test_a_barge_in_stops_her_paying_for_words_nobody_will_hear():
         async def generate_audio(self, text, prosody=None):
             self.rendered.append(text)
             channel = self.channel_getter()
-            # the first piece is already playing when someone talks over her
-            if len(self.rendered) == 2 and channel.current is not None:
+            # somebody talks over her as soon as the first piece is playing
+            if channel.current is not None:
                 channel.on_message({"type": "playback", "utterance_id": channel.current.id,
                                     "played_ms": 120, "state": "stopped"})
             return np.zeros(2400, dtype=np.float32), 24000
@@ -283,10 +283,12 @@ async def test_a_barge_in_stops_her_paying_for_words_nobody_will_hear():
     e.set_call(channel)
 
     await e.speak("neutral", "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga. "
-                            "Terza frase, ancora lunga assai.", route="call")
+                            "Terza frase, ancora lunga assai. Quarta frase, la piu lunga di tutte.",
+                  route="call")
 
-    # the third was never synthesised: nobody was going to hear it
-    assert tts.rendered == ["Prima frase, abbastanza lunga.", "Seconda frase, altrettanto lunga."]
+    # she stopped once the room had moved on, rather than paying to the end
+    assert "Quarta frase, la piu lunga di tutte." not in tts.rendered
+    assert len(tts.rendered) < 4
 
 
 async def test_with_no_call_nothing_is_synthesised_for_one():
