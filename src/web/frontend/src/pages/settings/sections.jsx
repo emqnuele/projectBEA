@@ -327,9 +327,7 @@ function MoodMap({ moods, values, onChange, placeholder, options }) {
     );
 }
 
-function VTubeStudioGroups({ stage, moods, updateStage, updateStageMap }) {
-    const [model, setModel] = useState(null);
-
+function VTubeStudioGroups({ stage, moods, updateStage, updateStageMap, model, setModel }) {
     // one call does both jobs: it reports the connection and fills the pickers
     const load = async () => {
         const found = await api.vtsModel();
@@ -421,6 +419,9 @@ function StreamSection({ config, update, setConfig }) {
     // what is actually installed in the clips folder, so the picker offers real
     // names instead of a text box where a typo is silent until you are live
     const [clips, setClips] = useState([]);
+    // what VTube Studio answered, held here so the preview and the pickers are
+    // looking at the same connection instead of each asking on their own
+    const [vtsModel, setVtsModel] = useState(null);
     useEffect(() => {
         if (avatarBackend !== 'model') return;
         api.stageClips().then(setClips).catch(() => setClips([]));
@@ -447,7 +448,7 @@ function StreamSection({ config, update, setConfig }) {
                 </Field>
             </Group>
 
-            <StagePreview config={config} />
+            <StagePreview config={config} vtsStatus={vtsModel} />
 
             {(avatarBackend === 'model' || captionBackend === 'stage') && (
                 <Group title="The browser source" description="Add this URL to OBS as a Browser Source. Tick 'Shutdown source when not visible' off, so she keeps her pose.">
@@ -580,7 +581,14 @@ function StreamSection({ config, update, setConfig }) {
             )}
 
             {avatarBackend === 'vtube_studio' && (
-                <VTubeStudioGroups stage={stage} moods={moods} updateStage={updateStage} updateStageMap={updateStageMap} />
+                <VTubeStudioGroups
+                    stage={stage}
+                    moods={moods}
+                    updateStage={updateStage}
+                    updateStageMap={updateStageMap}
+                    model={vtsModel}
+                    setModel={setVtsModel}
+                />
             )}
         </>
     );

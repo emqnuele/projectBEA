@@ -22,8 +22,9 @@ const EMOTIONS = ['happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral'];
 // expression, fast enough that the line she is saying still matches it.
 const EASING = 8;
 
-// the shot, as a height in metres to fit in frame
-const SHOTS = { bust: 0.52, half: null, full: null };
+// the bust shot, as a height in metres to fit in frame. The other two are
+// measured off the model's own bones rather than fixed here.
+const BUST_SPAN = 0.52;
 
 function setBackground(renderer, colour) {
     if (colour) renderer.setClearColor(new THREE.Color(colour), 1);
@@ -90,7 +91,7 @@ export async function createAvatar(root, config = {}) {
             span = (headY - hipsY) * 1.5;
         } else {
             centre = headY - 0.06;        // a little headroom, the way a shot is framed
-            span = SHOTS.bust;
+            span = BUST_SPAN;
         }
 
         const distance = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
@@ -188,15 +189,6 @@ export async function createAvatar(root, config = {}) {
         setLook(next = {}) {
             setBackground(renderer, next.background);
             frame(next.shot || 'bust');
-        },
-
-        reframe: frame,
-
-        dispose() {
-            window.removeEventListener('resize', onResize);
-            renderer.setAnimationLoop(null);
-            VRMUtils.deepDispose(vrm.scene);
-            renderer.dispose();
         },
     };
 }
