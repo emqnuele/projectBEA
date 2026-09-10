@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Eye } from 'lucide-react';
 import { Group } from './parts';
 import { Segmented } from '../../components/ui/controls';
@@ -50,25 +50,32 @@ function Empty({ icon: Icon = Eye, children }) {
     );
 }
 
-function PngPreview({ moods }) {
+function PngPreview({ map }) {
+    const moods = Object.keys(map);
     const [mood, setMood] = useState(moods[0] || 'normal');
     const [state, setState] = useState('idle');
     const [missing, setMissing] = useState(false);
-    const src = `/stage/preview?mood=${encodeURIComponent(mood)}&state=${state}&t=${state}`;
+
+    // the mapped path rides along so the url changes when the mapping does:
+    // the engine serves the same address either way, and the browser caches it
+    const file = map[mood]?.[state] || '';
+    const src = `/stage/preview?mood=${encodeURIComponent(mood)}`
+        + `&state=${state}&file=${encodeURIComponent(file)}`;
+    useEffect(() => setMissing(false), [src]);
 
     return (
         <>
             <div className="flex flex-wrap items-center gap-2">
                 <Segmented
                     value={mood}
-                    onChange={(next) => { setMood(next); setMissing(false); }}
+                    onChange={setMood}
                     options={moods.map((m) => ({ value: m, label: m }))}
                     size="sm"
                 />
                 <div className="ml-auto">
                     <Segmented
                         value={state}
-                        onChange={(next) => { setState(next); setMissing(false); }}
+                        onChange={setState}
                         options={STATES}
                         size="sm"
                     />
@@ -144,11 +151,10 @@ function VtsPreview({ status }) {
 export function StagePreview({ config, vtsStatus }) {
     const stage = config.stage || {};
     const backend = stage.avatar_backend || 'png';
-    const moods = Object.keys(config.avatar_map || {});
 
     return (
         <Group title="Preview" description="What the stream sees, before you go looking in OBS.">
-            {backend === 'png' && <PngPreview moods={moods} />}
+            {backend === 'png' && <PngPreview map={config.avatar_map || {}} />}
             {backend === 'model' && <ModelPreview hasModel={Boolean(stage.model_path)} />}
             {backend === 'vtube_studio' && <VtsPreview status={vtsStatus} />}
         </Group>

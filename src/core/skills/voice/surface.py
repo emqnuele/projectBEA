@@ -70,6 +70,10 @@ class VoiceSurface(PlatformSkill):
         self.voice_channel = channel_id
         if channel_id is None:
             self._alone_since = None
+        if self.expression is not None:
+            # sitting in a call is the one moment she is plainly listening rather
+            # than idle, and it is where her face should say so between lines
+            self.expression.set_state("listening" if channel_id else "idle")
 
     async def start(self) -> None:
         if not self.enabled:

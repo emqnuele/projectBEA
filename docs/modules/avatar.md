@@ -44,7 +44,15 @@ class AvatarInterface(ABC):
 | `show` | before and after every spoken line, and on a state change | `mood` is one of `MOODS`; `state` is `idle`, `talking`, `listening` or `sleeping` |
 | `perform` | when a mood maps to a behaviour | a clip name, resolved by the backend |
 | `mouth` | once per line, **before playback starts** | the whole envelope, so the backend can pace it against its own clock |
-| `close` | on shutdown | — |
+| `close` | when the backend is swapped out, and on shutdown | — |
+
+**The state she rests in.** `talking` is the only state the speech path chooses
+for itself. The others are set by whoever knows about them — `sleeping` by the
+consciousness, `listening` by the voice surface while she sits in a call — and
+`Expression` remembers the last one: a line ends by going back to it, not to a
+hardcoded `idle`. A state that arrives mid-line is recorded and applied when she
+stops talking, so someone walking into the call cannot take her talking face off
+her halfway through a word.
 
 Three rules a backend has to hold to:
 
@@ -105,6 +113,10 @@ Keys are moods, plus optionally the two non-speech **states**, `sleeping` and
 
 A missing state entry logs one warning per state, not per frame.
 
+`close()` blanks the source. The image is the only thing this backend leaves
+behind, and another backend taking over mid-stream would otherwise be drawn on
+top of the face it replaced.
+
 ---
 
 ## `model`
@@ -155,7 +167,10 @@ viseme (her mouth cannot move) or the emotion presets (one face for every mood).
 It exits non-zero when something required is absent.
 
 `make model` downloads pixiv's VRM 1.0 sample and one clip into `data/models`
-and `data/clips`, both gitignored.
+and `data/clips`, both gitignored. Both are pinned to the `three-vrm` release the
+dashboard itself is built against and checked against a SHA-256: what arrives is
+loaded and run by a renderer, so anything that does not match is deleted rather
+than kept. A file already at that path is never overwritten — it is yours.
 
 ### Notes for the renderer
 
@@ -184,14 +199,14 @@ model and the software are the user's.
   "vts_host": "127.0.0.1",
   "vts_port": 8001,
   "vts_expressions": { "angry": "furious.exp3.json" },
-  "vts_clips": { "lean_in": "hotkey-id-or-name" },
+  "vts_clips": { "love": "hotkey-id-or-name" },
   "vts_mouth_param": "MouthOpen"
 }
 ```
 
 | Port call | Request |
 |---|---|
-| `show(mood, state)` | `ExpressionActivationRequest`, file from `vts_expressions[mood]` |
+| `show(mood, state)` | `ExpressionActivationRequest`, file from `vts_expressions[mood]`; on `talking`, also `HotkeyTriggerRequest` from `vts_clips[mood]` |
 | `perform(clip)` | `HotkeyTriggerRequest`, id from `vts_clips[clip]`, falling back to the name itself |
 | `mouth(envelope, fps)` | `InjectParameterDataRequest` on `vts_mouth_param`, one per frame, `mode: "set"` |
 
@@ -201,10 +216,17 @@ Studio; the token is written to `data/vtube_studio_token.json` and reused with
 deleted so the next attempt asks again instead of failing forever. It is kept
 out of `config.json` because `GET /config` is unauthenticated.
 
-**Threading.** `_run` owns one connection and drains a bounded queue over it,
+**Threading.** Every request holds a lock for its send and its reply: a socket is
+one send/recv pair, and the mouth writes to it 30 times a second while the worker
+may be setting an expression. `_run` owns one connection and drains a bounded queue over it,
 reconnecting with backoff from 3s to 30s. When the queue fills, the oldest
 command is dropped — the newest face is the correct one. The mouth runs in its
 own task so a new line cancels the previous one.
+
+**A behaviour per mood.** `vts_clips` is keyed by mood, exactly like `mood_clips`
+on the 3D backend, and fires when she starts talking rather than on every change
+of face. `perform` resolves through the same map, so a hotkey id passed straight
+in still works.
 
 **Two behaviours specific to this backend.** VTube Studio holds an expression
 until told otherwise, so the adapter deactivates the previous one before
@@ -249,6 +271,11 @@ weight cannot name an expression no real VRM has.
 
 `envelope(audio, sample_rate, fps)` in `src/core/expression/pcm.py` returns the
 per-frame RMS of the audio, normalised to `[0, 1]` and rounded to three decimals.
+
+The line is normalised against its own peak, but never against a peak below
+`MOUTH_FLOOR_RMS` (0.05). Dividing by the peak alone makes every line as loud as
+every other, so a whisper is drawn exactly like a shout; the floor keeps a quiet
+line quiet while any normal one still opens her mouth all the way.
 
 It is computed in `Expression._speak_local` between synthesis and playback, and
 on the call route it is accumulated per sentence as each one is synthesised. It

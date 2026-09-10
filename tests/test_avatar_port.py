@@ -101,6 +101,28 @@ def test_a_png_avatar_ignores_the_behaviours_it_cannot_perform():
     assert obs.media == []
 
 
+def test_closing_the_png_backend_takes_her_picture_down():
+    """Switching to the 3D body mid-stream used to leave the old PNG on screen."""
+    obs = RecordingObs()
+    avatar = PngAvatar(Config(), obs)
+    avatar.show("angry", "talking")
+
+    avatar.close()
+
+    assert obs.images[-1] == ""
+
+
+def test_taking_her_picture_down_goes_through_the_source_that_holds_it():
+    """A media source is cleared as a media source, not as an image one."""
+    config = Config()
+    config.obs_source_type = "media"
+    obs = RecordingObs()
+
+    PngAvatar(config, obs).close()
+
+    assert obs.media == [""] and obs.images == []
+
+
 def test_the_media_branch_now_lives_in_exactly_one_place():
     """The same `if` used to be copied into six methods of the speech path."""
     config = Config()
@@ -187,6 +209,68 @@ async def test_a_caption_with_no_source_configured_does_nothing():
 
 
 # --- what Expression is left knowing ----------------------------------------
+
+
+async def test_a_line_ends_in_the_state_she_was_resting_in():
+    """She is in a call, so she goes back to listening, not to idle.
+
+    `idle` was hardcoded at the end of every line, which quietly threw away the
+    state she was actually in the moment she opened her mouth.
+    """
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), SilentTTS(), avatar, caption, Events())
+
+    e.set_state("listening")
+    await e.speak("normal", "ci sono")
+
+    assert avatar.states == ["listening", "talking", "listening"]
+
+
+async def test_falling_asleep_survives_a_line_talked_in_her_sleep():
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), SilentTTS(), avatar, caption, Events())
+
+    e.set_state("sleeping")
+    await e.speak("normal", "mh")
+
+    assert avatar.states[-1] == "sleeping"
+
+
+async def test_waking_up_puts_her_back_to_idle():
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), SilentTTS(), avatar, caption, Events())
+
+    e.set_state("sleeping")
+    e.set_state("idle", mood="normal")
+    await e.speak("normal", "eccomi")
+
+    assert avatar.states[-1] == "idle"
+
+
+async def test_someone_joining_the_call_does_not_take_her_face_mid_word():
+    """The bot reports the room on every join and leave, whatever she is doing."""
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), SilentTTS(), avatar, caption, Events())
+    e.is_speaking = True
+
+    e.set_state("listening")
+
+    assert avatar.shown == [], "her talking face was replaced halfway through a line"
+
+    e.is_speaking = False
+    await e.speak("normal", "dicevo")
+    assert avatar.states[-1] == "listening", "and she still goes back to it after"
+
+
+async def test_swapping_backends_keeps_the_state_she_is_in():
+    """Picking another avatar in the dashboard must not wake her or deafen her."""
+    e = Expression(Config(), SilentTTS(), FakeAvatar(), FakeCaption(), Events())
+    e.set_state("listening")
+
+    fresh = FakeAvatar()
+    e.set_ports(fresh, FakeCaption())
+
+    assert fresh.shown == [("normal", "listening")]
 
 
 async def test_expression_drives_the_ports_and_never_a_file_path():

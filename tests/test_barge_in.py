@@ -182,6 +182,39 @@ def test_the_call_has_the_last_word_on_whether_she_is_talking():
     assert e.is_speaking is False
 
 
+async def test_barge_in_stops_the_caption_a_call_line_was_still_typing():
+    """Clearing the bubble is not the same as stopping the hand writing in it.
+
+    The visuals for a line the room hears run in a task of their own, and the OBS
+    caption types one character per request. Nothing held that task, so a line cut
+    off at the second word went on being written *after* the bubble was cleared —
+    the sentence nobody heard the end of, left on screen.
+    """
+    caption = FakeCaption(delay=5)
+    e = Expression(Config(), SilentTTS(), FakeAvatar(), caption, Events())
+    channel = VoiceChannel()
+    channel.attach(Socket())
+    channel.on_message({"type": "joined", "channel_id": "c1", "listeners": 1})
+    e.set_call(channel)
+
+    await e.speak("normal", "una frase lunga che viene interrotta a meta", route="call")
+    utterance_id = channel.current.id
+    await asyncio.sleep(0.01)
+    assert caption.said, "the caption never started, so there is nothing to interrupt"
+
+    async def bot_answers():
+        await asyncio.sleep(0)
+        channel.on_message({"type": "playback", "utterance_id": utterance_id,
+                            "played_ms": 30, "state": "stopped"})
+
+    asyncio.create_task(bot_answers())
+    await e.interrupt(ramp_ms=200)
+    await asyncio.sleep(0)
+
+    assert caption.cancelled == 1
+    assert caption.finished == 0, "she kept typing a line the room stopped hearing"
+
+
 async def test_an_interruption_reaches_the_call_and_not_only_the_speakers():
     e = Expression(Config(), SilentTTS(), FakeAvatar(), FakeCaption(), Events())
     channel = VoiceChannel()

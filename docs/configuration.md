@@ -382,7 +382,7 @@ Two independent choices, plus the settings each one needs.
 | `vts_host` | `"127.0.0.1"` | Where VTube Studio is. |
 | `vts_port` | `8001` | Its plugin API port. |
 | `vts_expressions` | `{}` | mood → expression file in **your** model. The dashboard reads the list from the connected model. |
-| `vts_clips` | `{}` | clip name → hotkey id or name. |
+| `vts_clips` | `{}` | mood → hotkey id or name, triggered when she starts talking. |
 | `vts_mouth_param` | `"MouthOpen"` | The parameter the lip sync writes to. |
 
 The token VTube Studio issues is **not** kept here. It lives in

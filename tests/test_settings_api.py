@@ -45,6 +45,26 @@ def client(tmp_path, monkeypatch):
         web.brain_instance = previous
 
 
+def test_a_partial_save_keeps_the_rest_of_the_stage_block(client):
+    """The dashboard posts the block it is showing, not every key in it.
+
+    `stage` is one field holding eleven settings. Assigning it wholesale, the way
+    every other field is assigned, turned "use the 3D body" into "and forget the
+    model, the clips and both VTube Studio maps".
+    """
+    api, stub = client
+    stub.config.stage = {**stub.config.stage, "model_path": "data/models/bea.vrm",
+                         "vts_expressions": {"angry": "furious.exp3.json"}}
+
+    answer = api.post("/config", json={"config": {"stage": {"avatar_backend": "model"}}})
+
+    assert answer.status_code == 200
+    assert stub.config.stage["avatar_backend"] == "model"
+    assert stub.config.stage["model_path"] == "data/models/bea.vrm"
+    assert stub.config.stage["vts_expressions"] == {"angry": "furious.exp3.json"}
+    assert stub.config.stage["lipsync_fps"] == 30
+
+
 def _section(payload, key):
     return next(s for s in payload["sections"] if s["key"] == key)
 

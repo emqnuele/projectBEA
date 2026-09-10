@@ -97,6 +97,18 @@ def test_nothing_to_say_moves_no_mouth(audio):
     assert envelope(audio, 24000) == []
 
 
+def test_a_whisper_is_not_drawn_like_a_shout():
+    """Normalising every line against its own peak flattened them all to one."""
+    rate = 24000
+    rng = np.random.default_rng(0)
+    loud = envelope(rng.normal(0, 0.3, rate).astype(np.float32), rate, 30)
+    whisper = envelope(rng.normal(0, 0.005, rate).astype(np.float32), rate, 30)
+
+    assert max(loud) == 1.0
+    assert max(whisper) < 0.2, "her mouth opened as wide for a whisper as for a shout"
+    assert max(whisper) > 0.0, "and it must still move"
+
+
 def test_a_silent_buffer_does_not_divide_by_its_own_peak():
     frames = envelope(np.zeros(24000, dtype=np.float32), 24000, 30)
     assert frames and set(frames) == {0.0}
