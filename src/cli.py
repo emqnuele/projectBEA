@@ -34,6 +34,8 @@ def parse_args():
                         help="Pull the new version without overwriting your prompts or your config")
     parser.add_argument("--no-rebuild", action="store_true",
                         help="With --update: skip `uv sync` and the dashboard build")
+    parser.add_argument("--install-node", action="store_true",
+                        help="Install the dashboard and the discord bot (needs Node 20+)")
     parser.add_argument("--web", action="store_true", help="Start Web Interface (FastAPI + React)")
     parser.add_argument("--host", default="127.0.0.1",
                         help="Bind address for the web interface (default: loopback only)")
@@ -208,6 +210,11 @@ def run():
         config = BrainConfig()
         apply_cli_overrides(config, args)
         raise SystemExit(run_doctor(config=config))
+    # no engine needed to run npm, and this is what people without `make` reach
+    # for when the dashboard or the discord bot was never installed
+    if args.install_node:
+        from src.setup.node import install_all
+        raise SystemExit(install_all())
     # and again: an update exists to repair the tree everything below is
     # imported from, so it must not import any of it
     if args.update:

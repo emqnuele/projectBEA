@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Sequence, runtime_checkable
 
 from src.core.agent.tools import Tool
 from src.utils.logger import get_logger
@@ -165,15 +165,45 @@ class SkillRegistry:
     def active(self) -> List[Skill]:
         return [s for s in self._skills.values() if s.active]
 
-    def context_sections(self) -> List[str]:
-        return [s.context_section for s in self.active() if s.context_section]
+    def _contribution(self, skill: Skill, what: str, call) -> Optional[str]:
+        """One block of context, or nothing at all when producing it went wrong.
+
+        A skill that raises while describing itself used to take the whole turn
+        with it: the loop caught the error far away from here, so what reached
+        the log named neither the skill nor what it had been asked for, and she
+        said nothing at all rather than saying something without that block.
+        """
+        try:
+            return call()
+        except Exception as e:
+            logger.error(f"Skill '{skill.name}' could not contribute its {what}: {e}",
+                         exc_info=True)
+            return None
+
+    def context_sections(self, exclude: Sequence[str] = ()) -> List[str]:
+        out: List[str] = []
+        for s in self.active():
+            if s.name in exclude:
+                continue
+            text = self._contribution(s, "prompt section", lambda s=s: s.context_section)
+            if text:
+                out.append(text)
+        return out
+
+    def live_states(self) -> List[str]:
+        out: List[str] = []
+        for s in self.active():
+            text = self._contribution(s, "live state", lambda s=s: s.live_state())
+            if text:
+                out.append(text)
+        return out
 
     def dynamic_context(self, batch) -> List[str]:
         out: List[str] = []
         for s in self.active():
-            ctx = s.context_for(batch)
-            if ctx:
-                out.append(ctx)
+            text = self._contribution(s, "context for this batch", lambda s=s: s.context_for(batch))
+            if text:
+                out.append(text)
         return out
 
     def tools(self) -> List[Tool]:

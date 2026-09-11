@@ -10,6 +10,7 @@ happens, which is exactly why it needs a test.
 
 import asyncio
 import random
+import time
 from datetime import datetime
 
 from src.core.attention.gate import Attention
@@ -85,17 +86,30 @@ def chat(text: str) -> Perception:
     )
 
 
+async def _until(condition, timeout: float = 5.0) -> None:
+    """Waits for the thing being waited for, rather than for a while.
+
+    A fixed sleep looked fine here and made the file flaky on windows, where
+    the timer moves in steps of about 15ms and a turn can take longer than the
+    20ms it was given — so the second turn never ran and the assertion blamed
+    the prompt.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return
+        await asyncio.sleep(0.005)
+
+
 async def run_turns(mind, bus, lines) -> None:
     mind.alive = True
     task = asyncio.create_task(mind.run())
     try:
-        for line in lines:
+        for index, line in enumerate(lines, start=1):
             bus.put(chat(line))
-            for _ in range(40):
-                await asyncio.sleep(0.005)
-                if not bus._queue.qsize():
-                    break
-        await asyncio.sleep(0.02)
+            # one line, one turn: waiting for the call keeps the next line from
+            # joining this batch, which would make two messages into one turn
+            await _until(lambda n=index: mind.llm.call_count >= n)
     finally:
         mind.alive = False
         task.cancel()

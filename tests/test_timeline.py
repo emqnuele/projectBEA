@@ -70,6 +70,28 @@ def test_it_says_the_weekday_the_date_and_the_time():
     assert "12:30" in block
 
 
+def test_a_single_digit_day_keeps_no_leading_zero():
+    assert "5 August 2026" in now_block(datetime(2026, 8, 5, 12, 30))
+
+
+def test_the_date_survives_a_clock_that_refuses_unix_only_directives():
+    """Windows raises `Invalid format string` on `%-d` rather than ignoring it.
+
+    This line goes into every turn, so it did not degrade anything — it took
+    the whole turn down, on every message, with an error naming neither.
+    """
+
+    class WindowsClock:
+        day = 5
+
+        def strftime(self, fmt: str) -> str:
+            if "%-" in fmt:
+                raise ValueError("Invalid format string")
+            return datetime(2026, 8, 5, 12, 30).strftime(fmt)
+
+    assert "5 August 2026" in now_block(WindowsClock())
+
+
 def test_it_is_labelled_so_she_can_find_it():
     assert now_block(NOON).startswith("[RIGHT NOW]")
 

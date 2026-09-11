@@ -88,7 +88,7 @@ def test_applying_from_the_dashboard_can_be_revoked(client):
     response = client.post("/update/apply")
 
     assert response.status_code == 403
-    assert "make update" in response.json()["detail"]
+    assert "bea --update" in response.json()["detail"]
 
 
 def test_a_config_without_the_block_still_works(client):

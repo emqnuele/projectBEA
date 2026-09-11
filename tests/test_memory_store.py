@@ -430,3 +430,37 @@ def test_a_real_model_name_is_left_alone():
     from src.core.memory.embedder import resolve_model
 
     assert resolve_model("BAAI/bge-small-en-v1.5") == "BAAI/bge-small-en-v1.5"
+
+
+# --- what the stored vectors were made with ----------------------------------
+
+
+def test_the_identity_carries_more_than_the_model_name():
+    """fastembed 0.6 began mean-pooling the model 0.5 read the CLS token of.
+
+    Same name, different vector space: every memory written before it became
+    incomparable to the queries made after, and nothing reported it.
+    """
+    from src.core.memory.embedder import FastEmbedEmbedder
+
+    embedder = FastEmbedEmbedder("BAAI/bge-small-en-v1.5")
+    assert embedder.identity.startswith("BAAI/bge-small-en-v1.5@fastembed")
+    assert embedder.identity != embedder.model_name
+
+
+def test_a_new_fastembed_series_re_embeds_the_store(monkeypatch):
+    from src.core.memory import embedder as embedder_module
+
+    monkeypatch.setattr(embedder_module, "_fastembed_series", lambda: "0.5")
+    before = embedder_module.FastEmbedEmbedder("m").identity
+    monkeypatch.setattr(embedder_module, "_fastembed_series", lambda: "0.6")
+    assert embedder_module.FastEmbedEmbedder("m").identity != before
+
+
+def test_a_patch_release_is_not_worth_re_embedding_for(monkeypatch):
+    from src.core.memory import embedder as embedder_module
+
+    monkeypatch.setattr(embedder_module.metadata, "version", lambda _: "0.7.3")
+    first = embedder_module._fastembed_series()
+    monkeypatch.setattr(embedder_module.metadata, "version", lambda _: "0.7.9")
+    assert embedder_module._fastembed_series() == first

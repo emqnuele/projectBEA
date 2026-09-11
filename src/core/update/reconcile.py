@@ -71,6 +71,29 @@ class Outcome:
         }
 
 
+def _lf(text: str) -> str:
+    """Line endings out of the way, so a merge is about the words.
+
+    The three sides reach us having been read three different ways: the user's
+    file through python's text mode, which turns CRLF into LF, and the other two
+    straight out of git as bytes, which does not. On windows that made every
+    line of every prompt differ from itself — so a clean merge came back as a
+    conflict, and the engine's own improvements were dropped on the floor while
+    the report said the user's edits had collided with them.
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _newline(text: str) -> str:
+    """What this file is written with, so a merge does not quietly convert it."""
+    crlf = text.count("\r\n")
+    return "\r\n" if crlf and crlf >= text.count("\n") - crlf else "\n"
+
+
+def _as_written(text: str, newline: str) -> str:
+    return text if newline == "\n" else text.replace("\n", newline)
+
+
 def new_file_for(root: Path, path: str) -> Path:
     return Path(root) / (path + NEW_SUFFIX)
 
@@ -93,11 +116,20 @@ def reconcile(root: Path, repo: Repo, path: str, ours: str, base_sha: Optional[s
     root = Path(root)
     theirs = repo.file_at(target, path)
 
+    # whatever the user's file is written with survives whatever we decide
+    style = _newline(ours)
+    ours = _lf(ours)
+    if theirs is not None:
+        theirs = _lf(theirs)
+
+    def write(destination: Path, text: str) -> None:
+        _write(destination, _as_written(text, style))
+
     if theirs is None:
         # the new version does not have this file at all — deleted upstream, or
         # a blob we refuse to decode. Either way the user's copy is the only
         # one anybody asked for.
-        _write(root / path, ours)
+        write(root / path, ours)
         # the base stays where it was: if the file comes back upstream, their
         # edits still have something to be merged against
         return Outcome(path, REMOVED, "the new version no longer ships this file; yours was kept",
@@ -108,13 +140,15 @@ def reconcile(root: Path, repo: Repo, path: str, ours: str, base_sha: Optional[s
         return Outcome(path, UNTOUCHED, "already identical to the new version", base=target)
 
     base = repo.file_at(base_sha, path) if base_sha else None
+    if base is not None:
+        base = _lf(base)
 
     if base is None:
         # no usable base: either we never recorded one, or the revision is gone
         # from a shallow history. A two-way guess is exactly the silent data
         # loss this module exists to prevent, so hand both versions over.
-        _write(root / path, ours)
-        _write(new_file_for(root, path), theirs)
+        write(root / path, ours)
+        write(new_file_for(root, path), theirs)
         return Outcome(
             path, CONFLICT,
             "there is no record of which version yours was based on, so it was left untouched",
@@ -122,21 +156,21 @@ def reconcile(root: Path, repo: Repo, path: str, ours: str, base_sha: Optional[s
         )
 
     if base == theirs:
-        _write(root / path, ours)
+        write(root / path, ours)
         _clear_new(root, path)
         return Outcome(path, KEPT, "the new version does not change this file", base=target)
 
     merged = _merge(repo, ours=ours, base=base, theirs=theirs)
     if merged is None:
-        _write(root / path, ours)
-        _write(new_file_for(root, path), theirs)
+        write(root / path, ours)
+        write(new_file_for(root, path), theirs)
         return Outcome(
             path, CONFLICT,
             "your edits and the new version touch the same lines",
             base=base_sha,
         )
 
-    _write(root / path, merged)
+    write(root / path, merged)
     _clear_new(root, path)
     return Outcome(path, MERGED, "your edits were carried over onto the new version", base=target)
 
@@ -173,8 +207,9 @@ def _merge(repo: Repo, ours: str, base: str, theirs: str) -> Optional[str]:
         directory = Path(workspace)
         sides = {}
         for name, text in (("ours", ours), ("base", base), ("theirs", theirs)):
-            # newline="" keeps CRLF intact: rewriting every line ending of a file
-            # the user edited on Windows would turn a clean merge into a conflict
+            # all three arrive normalised to LF, and newline="" writes them out
+            # unchanged: the merge compares words, and the caller puts the
+            # user's own line endings back on whatever comes out of it
             sides[name] = directory / name
             sides[name].write_text(text, encoding="utf-8", newline="")
         try:

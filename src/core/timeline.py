@@ -82,7 +82,10 @@ def now_block(
     It goes into every turn, so it stays short: the day and the clock, how long
     she has been up, and when she last spoke where she is.
     """
-    stamp = now.strftime("%A %-d %B %Y, %H:%M")
+    # the day number is written out rather than asked of strftime: `%-d` is a
+    # unix extension, and on windows it raises instead of dropping the zero —
+    # which cost her every turn, since this line is in all of them
+    stamp = f"{now.strftime('%A')} {now.day} {now.strftime('%B %Y, %H:%M')}"
     if timezone:
         stamp += f" ({timezone})"
     lines = ["[RIGHT NOW]", stamp]

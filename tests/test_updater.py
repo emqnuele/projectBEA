@@ -19,6 +19,7 @@ the result and updates again.
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -67,10 +68,14 @@ ORIGINAL = "\n".join([
 
 
 def git(cwd: Path, *args: str) -> str:
+    # the developer's own git config is kept out of these fixtures, but the
+    # PATH is inherited: git lives somewhere else entirely on windows, and a
+    # hardcoded posix one made the suite unrunnable there
+    env = {**os.environ,
+           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+           "HOME": str(cwd), "USERPROFILE": str(cwd)}
     result = subprocess.run(
-        ["git", *args], cwd=str(cwd), capture_output=True, text=True,
-        env={"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
-             "HOME": str(cwd), "PATH": "/usr/bin:/bin:/usr/local/bin"},
+        ["git", *args], cwd=str(cwd), capture_output=True, text=True, env=env,
     )
     assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
     return result.stdout.strip()
@@ -83,9 +88,12 @@ def commit(cwd: Path, message: str) -> str:
 
 
 def write(root: Path, relative: str, text: str) -> None:
+    # bytes, so the fixture is the same repository on every platform: text mode
+    # on windows writes CRLF, which quietly made these tests build a different
+    # repository there than the one they describe
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_bytes(text.encode("utf-8"))
 
 
 def read(root: Path, relative: str) -> str:
@@ -707,3 +715,119 @@ def test_docker_is_told_to_rebuild_the_image(world, monkeypatch):
     status = runner.check(root=clone, force=True)
     assert not status.supported
     assert "Docker" in status.reason
+
+
+# --- the javascript she has that is not the dashboard -------------------------
+
+
+def test_an_update_to_the_discord_bot_installs_it(world, monkeypatch):
+    """The bot was left out of the rebuild for as long as it existed.
+
+    An update that changed its packages left the discord toggle on in the UI
+    and the bot unable to start, saying so nowhere but its own stderr.
+    """
+    upstream, clone = world
+    write(upstream, "src/core/skills/voice/bot/package.json", '{"name": "bea-discord-bot"}\n')
+    commit(upstream, "bump the bot")
+
+    ran = []
+
+    def record(cwd, args):
+        ran.append((cwd, args))
+        return True, ""
+
+    monkeypatch.setattr(runner.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(runner, "_command", record)
+
+    report = update(clone)
+
+    statuses = {s.id: s.status for s in report.steps}
+    assert statuses["discord bot"] == "done"
+    assert any("bot" in str(cwd) and args[:1] == ["npm"] for cwd, args in ran)
+
+
+def test_the_bot_is_left_alone_when_it_did_not_change(world):
+    upstream, clone = world
+    replace(upstream, SOUL, "She is the one we ship.", "changed")
+    commit(upstream, "prompt only")
+
+    report = update(clone)
+
+    assert {s.id: s.status for s in report.steps}["discord bot"] == "skipped"
+
+
+def test_a_missing_npm_names_the_one_command_that_fixes_it(world, monkeypatch):
+    upstream, clone = world
+    write(upstream, "src/core/skills/voice/bot/package.json", '{"name": "bea-discord-bot"}\n')
+    commit(upstream, "bump the bot")
+    monkeypatch.setattr(runner.shutil, "which", lambda name: None if name == "npm" else "/usr/bin/x")
+
+    report = update(clone)
+
+    bot = [s for s in report.steps if s.id == "discord bot"][0]
+    assert bot.status == "failed"
+    assert "--install-node" in bot.detail
+
+
+# --- the same file, written the way windows writes it -------------------------
+
+
+def write_crlf(root: Path, relative: str, text: str) -> None:
+    """A file as an editor on windows leaves it."""
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
+
+
+def test_a_prompt_stored_with_windows_line_endings_still_merges(world):
+    """The three sides used to be read two different ways.
+
+    The user's file came through python's text mode, which turns CRLF into LF;
+    the other two came out of git as bytes, which does not. Every line then
+    differed from itself, so a clean merge was reported as a collision and the
+    engine's own improvements were dropped.
+    """
+    upstream, clone = world
+    write_crlf(upstream, OPERATING, ORIGINAL)
+    commit(upstream, "as windows wrote it")
+    git(clone, "pull", "-q", "origin", "main")
+
+    write_crlf(clone, OPERATING, ORIGINAL.replace("She is curious.", "She is sarcastic and tired."))
+    write_crlf(upstream, OPERATING,
+               ORIGINAL.replace("Use the speak tool.", "Use the speak tool, never narrate."))
+    commit(upstream, "improve the manual")
+
+    report = update(clone)
+
+    merged = read(clone, OPERATING)
+    assert "She is sarcastic and tired." in merged, "the user's character was dropped"
+    assert "Use the speak tool, never narrate." in merged, "the engine improvement was dropped"
+    assert [o.state for o in report.prompts] == [MERGED]
+
+
+def test_an_identical_edit_is_not_a_conflict_because_of_line_endings(world):
+    upstream, clone = world
+    write_crlf(upstream, OPERATING, ORIGINAL)
+    commit(upstream, "as windows wrote it")
+    git(clone, "pull", "-q", "origin", "main")
+
+    changed = ORIGINAL.replace("She is curious.", "She is curious and blunt.")
+    write_crlf(clone, OPERATING, changed)
+    write_crlf(upstream, OPERATING, changed)
+    commit(upstream, "same change")
+
+    assert [o.state for o in update(clone).prompts] == [UNTOUCHED]
+
+
+def test_a_merge_hands_the_file_back_written_the_way_it_was_found(world):
+    """Rewriting somebody's line endings behind their back is its own bug."""
+    upstream, clone = world
+    write_crlf(clone, OPERATING, ORIGINAL.replace("She is curious.", "She is sarcastic."))
+    replace(upstream, OPERATING, "Use the speak tool.", "Use the speak tool, briefly.")
+    commit(upstream, "an easy change")
+
+    update(clone)
+
+    raw = (clone / OPERATING).read_bytes()
+    assert b"\r\n" in raw
+    assert raw.count(b"\n") == raw.count(b"\r\n"), "half the file was converted"

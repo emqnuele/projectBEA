@@ -38,6 +38,8 @@ from src.core.update.reconcile import (
     reconcile,
 )
 from src.core.update.version import current_version
+from src.setup.node import PROJECTS as NODE_PROJECTS
+from src.setup.node import executable
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.update")
@@ -52,6 +54,8 @@ CHECK_TTL = 30 * 60
 # `npm install` on a slow link is measured in minutes, not seconds
 DEPENDENCY_TIMEOUT = 30 * 60
 
+# the node projects contribute a step each, so adding one is a line in
+# `setup/node.py` rather than four scattered through here
 STEPS: List[tuple] = [
     ("preflight", "Checking your install"),
     ("download", "Downloading the new version"),
@@ -59,8 +63,7 @@ STEPS: List[tuple] = [
     ("apply", "Applying the update"),
     ("reconcile", "Putting your edits back"),
     ("dependencies", "Updating dependencies"),
-    ("dashboard", "Rebuilding the dashboard"),
-]
+] + [(p.name, f"Updating the {p.name}") for p in NODE_PROJECTS]
 
 RUNNING, DONE, SKIPPED, FAILED = "running", "done", "skipped", "failed"
 
@@ -333,7 +336,8 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
 
     if target == base_sha:
         step("download", DONE, "already on the latest version")
-        for pending in ("backup", "apply", "reconcile", "dependencies", "dashboard"):
+        for pending in ("backup", "apply", "reconcile", "dependencies",
+                        *(p.name for p in NODE_PROJECTS)):
             step(pending, SKIPPED, "nothing to update")
         return Report(status=CURRENT, headline="She is already up to date",
                       steps=steps, from_sha=base_sha, to_sha=target)
@@ -390,10 +394,11 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
     changed = repo.changed_between(base_sha, target)
     if rebuild:
         _sync_dependencies(root, changed, step)
-        _rebuild_dashboard(root, changed, step)
+        _rebuild_node(root, changed, step)
     else:
         step("dependencies", SKIPPED, "asked to skip")
-        step("dashboard", SKIPPED, "asked to skip")
+        for project in NODE_PROJECTS:
+            step(project.name, SKIPPED, "asked to skip")
 
     headline = "Updated" if not conflicts else "Updated — some prompts need a look"
     return Report(
@@ -463,34 +468,44 @@ def _sync_dependencies(root: Path, changed: List[str], step) -> None:
     step("dependencies", DONE if ok else FAILED, detail if not ok else "python dependencies are current")
 
 
-def _rebuild_dashboard(root: Path, changed: List[str], step) -> None:
-    frontend = root / "src/web/frontend"
-    if not any(p.startswith("src/web/frontend/") for p in changed):
-        step("dashboard", SKIPPED, "the dashboard did not change in this update")
-        return
-    if not shutil.which("npm"):
-        # the built dashboard is gitignored, so without this the user updates
-        # and sees the old screens with no clue why
-        step("dashboard", FAILED,
-             "npm is not on PATH — run `make frontend` yourself, or the dashboard stays on the old build")
-        return
+def _rebuild_node(root: Path, changed: List[str], step) -> None:
+    """Every javascript part of her, not only the one you can see.
 
-    step("dashboard", RUNNING, "installing")
-    ok, detail = _command(frontend, ["npm", "install", "--no-audit", "--no-fund"])
-    if not ok:
-        step("dashboard", FAILED, detail)
-        return
+    The discord bot was left out of this for as long as it existed: an update
+    that changed its packages left the skill switched on in the UI and the bot
+    unable to start, saying so nowhere but its own stderr.
+    """
+    for project in NODE_PROJECTS:
+        if not any(p.startswith(project.path + "/") for p in changed):
+            step(project.name, SKIPPED, f"the {project.name} did not change in this update")
+            continue
+        if not shutil.which("npm"):
+            # what npm builds is gitignored, so without this the user updates
+            # and gets the old screens — or no voice — with no clue why
+            step(project.name, FAILED,
+                 f"npm is not on PATH — run `uv run bea --install-node` yourself, "
+                 f"or the {project.name} stays as it was")
+            continue
 
-    step("dashboard", RUNNING, "building")
-    ok, detail = _command(frontend, ["npm", "run", "build"])
-    step("dashboard", DONE if ok else FAILED, detail if not ok else "the dashboard was rebuilt")
+        step(project.name, RUNNING, "installing")
+        ok, detail = _command(project.directory(root), ["npm", "install", "--no-audit", "--no-fund"])
+        if ok and project.builds:
+            step(project.name, RUNNING, "building")
+            ok, detail = _command(project.directory(root), ["npm", "run", "build"])
+        step(project.name, DONE if ok else FAILED,
+             detail if not ok else f"the {project.name} is current")
 
 
 def _command(cwd: Path, args: List[str]) -> tuple:
     """Runs one build command. Returns (ok, the last thing it said when it failed)."""
+    # under the name this machine gave it: npm is `npm.cmd` on windows, which
+    # subprocess cannot find by its bare name
+    program = executable(args[0])
+    if program is None:
+        return False, f"{args[0]} is not installed"
     try:
         result = subprocess.run(
-            args, cwd=str(cwd), capture_output=True, text=True,
+            [program, *args[1:]], cwd=str(cwd), capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=DEPENDENCY_TIMEOUT,
         )
     except FileNotFoundError:
@@ -508,8 +523,11 @@ def _command(cwd: Path, args: List[str]) -> tuple:
 
 
 def _read(path: Path) -> Optional[str]:
+    # newline="" so the file arrives written the way the user wrote it: the
+    # reconciler needs to know, to hand it back in the same shape
     try:
-        return path.read_text(encoding="utf-8")
+        with path.open(encoding="utf-8", newline="") as handle:
+            return handle.read()
     except (OSError, UnicodeDecodeError):
         return None
 

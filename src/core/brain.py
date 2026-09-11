@@ -197,7 +197,7 @@ class AIVtuberBrain:
         if store.rag is not None and embedder is not None:
             # vectors from two models are not comparable: a change re-embeds
             try:
-                store.rag.ensure_model(embedder.model_name)
+                store.rag.ensure_model(embedder.identity)
             except Exception as e:
                 logger.error(f"Could not verify the embedding model: {e}")
         return store
@@ -526,11 +526,15 @@ class AIVtuberBrain:
         """Transcribes audio, deposits a voice perception, waits for the reply."""
         transcript = self.stt.transcribe(audio_path) if self.stt else ""
         text = transcript or "[Audio Message]"
-        voice = self._surface("voice:discord")
-        if not voice or not self.consciousness:
+        # the dashboard's own microphone, not discord's: handing it to the
+        # discord surface made the owner arrive as a stranger in a call she was
+        # not in, which the attention gate was free to ignore — and did
+        chat = self._surface("chat:ui")
+        if not chat or not self.consciousness:
+            logger.warning("generate_audio_response called before initialize().")
             return DEFAULT_MOOD, "", transcript
         payload = await self._perceive_and_wait(
-            lambda cid: voice.perceive(text, "user", meta={"correlation_id": cid}),
+            lambda cid: chat.perceive_voice(text, meta={"correlation_id": cid}),
             route="local",
         )
         if not payload:

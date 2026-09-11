@@ -36,6 +36,18 @@ class VoiceSurface(PlatformSkill):
     # how long to wait before bringing a crashed bot back up
     restart_backoff: float = 3.0
 
+    # a bot that never gets as far as logging in is not crashing, it is refusing
+    # to run: a bad token is the usual reason, and no number of restarts will
+    # change that. Restarting it forever buried the one line that said why under
+    # a stack trace every three seconds.
+    healthy_after: float = 20.0
+    max_failed_starts: int = 3
+
+    # how the supervisor tells "it crashed" apart from "it never ran". Class
+    # attributes, so a surface is supervisable before it has been initialized.
+    _started_at: float = 0.0
+    _failed_starts: int = 0
+
     def initialize(self) -> None:
         super().initialize()
         self.transport = DiscordTransport(self.config)
@@ -81,6 +93,8 @@ class VoiceSurface(PlatformSkill):
             return
         if self.transport.start():
             self.active = True
+            self._started_at = time.time()
+            self._failed_starts = 0
             self._monitor = asyncio.create_task(self._watch_transport())
             self._floor_task = asyncio.create_task(self._watch_floor())
             logger.info("VoiceSurface started.")
@@ -114,12 +128,36 @@ class VoiceSurface(PlatformSkill):
         """
         if self.transport.poll_exit() is None:
             return
-        logger.warning("Discord bot died; restarting it.")
+
+        # it ran long enough to have been working: whatever killed it now is not
+        # the reason it would not start, so the count starts again
+        if time.time() - self._started_at >= self.healthy_after:
+            self._failed_starts = 0
+        self._failed_starts += 1
+
+        if self._failed_starts > self.max_failed_starts:
+            self._give_up()
+            return
+
+        logger.warning(f"Discord bot died; restarting it "
+                       f"({self._failed_starts}/{self.max_failed_starts}).")
         await asyncio.sleep(self.restart_backoff)
         if self.transport.start():
+            self._started_at = time.time()
             logger.info("Discord bot is back up.")
             return
         logger.error("Discord bot could not be restarted; the capability is off.")
+        self.active = False
+
+    def _give_up(self) -> None:
+        """Says the thing the restart loop was drowning out, once, and stops."""
+        reason = ("The discord bot has quit immediately every time it was started. "
+                  "Its own output above says why — an invalid DISCORD_TOKEN is the "
+                  "usual answer. Discord is off until that is fixed.")
+        logger.error(reason)
+        events = getattr(self.context, "event_manager", None)
+        if events is not None:
+            events.publish(EventCategory.ERROR, "discord", reason)
         self.active = False
 
     # --- being left alone ---------------------------------------------------

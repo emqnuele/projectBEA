@@ -404,13 +404,13 @@ async def check_discord(config: BrainConfig) -> Finding:
 
     if shutil.which("node") is None:
         return failed("the bot is a node program and node is not installed",
-                      "Install node 20 or newer, then `npm ci` in "
-                      "src/core/skills/voice/bot.", blocking=False)
+                      "Install node 20 or newer from https://nodejs.org, then "
+                      "`uv run bea --install-node`.", blocking=False)
 
     bot = Path("src/core/skills/voice/bot")
     if not (bot / "node_modules" / "@discordjs" / "voice").is_dir():
         return failed("the bot's packages have never been installed",
-                      f"cd {bot} && npm ci", blocking=False)
+                      "uv run bea --install-node", blocking=False)
 
     return passed("node, the bot's packages and a token are all in place")
 
@@ -439,9 +439,9 @@ async def check_dashboard(config: BrainConfig) -> Finding:
     if not DASHBOARD.is_file():
         if needs_page:
             return failed("the dashboard has never been built, and her stage needs it",
-                          "make frontend")
+                          "uv run bea --install-node")
         return warned("the dashboard has never been built",
-                      "make frontend — the engine runs without it, the web "
+                      "uv run bea --install-node — the engine runs without it, the web "
                       "interface does not.")
 
     if _reachable("127.0.0.1", DEFAULT_PORT):

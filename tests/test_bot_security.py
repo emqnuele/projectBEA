@@ -236,3 +236,79 @@ async def test_stopping_the_surface_releases_the_session():
     surface.active = True
     await surface.stop()
     assert closed == [True]
+
+
+# --- a bot that will not start is not a bot that keeps crashing ---------------
+
+
+class NeverLogsIn(FlakyTransport):
+    """Starts every time and quits immediately every time: a bad token."""
+
+    def __init__(self):
+        super().__init__(deaths=0)
+
+    def poll_exit(self):
+        return 1
+
+
+async def test_a_bot_that_never_comes_up_is_not_restarted_forever():
+    """An invalid token restarted it every three seconds, for as long as she
+    ran, burying the one line that said why under a stack trace each time."""
+    from src.core.skills.voice.surface import VoiceSurface
+
+    surface = VoiceSurface(Config(), bus=None, expression=None)
+    surface.transport = NeverLogsIn()
+    surface.active = True
+    surface.restart_backoff = 0.0
+
+    for _ in range(10):
+        await surface.supervise_once()
+
+    assert surface.active is False
+    assert surface.transport.starts <= surface.max_failed_starts
+
+
+async def test_giving_up_says_what_to_look_at():
+    from src.core.events import EventCategory
+    from src.core.skills.voice.surface import VoiceSurface
+
+    published = []
+
+    class Events:
+        def publish(self, category, source, message, metadata=None):
+            published.append((category, message))
+
+    class Ctx:
+        event_manager = Events()
+
+    surface = VoiceSurface(Config(), bus=None, expression=None, context=Ctx())
+    surface.transport = NeverLogsIn()
+    surface.active = True
+    surface.restart_backoff = 0.0
+
+    for _ in range(10):
+        await surface.supervise_once()
+
+    assert published
+    category, message = published[-1]
+    assert category == EventCategory.ERROR
+    assert "DISCORD_TOKEN" in message
+
+
+async def test_a_bot_that_ran_for_a_while_gets_its_restarts_back():
+    """Crashing after an hour is not the same failure as never starting."""
+    import time
+
+    from src.core.skills.voice.surface import VoiceSurface
+
+    surface = VoiceSurface(Config(), bus=None, expression=None)
+    surface.transport = FlakyTransport(deaths=10)
+    surface.active = True
+    surface.restart_backoff = 0.0
+
+    for _ in range(10):
+        surface._started_at = time.time() - surface.healthy_after - 1
+        await surface.supervise_once()
+
+    assert surface.active is True
+    assert surface.transport.starts == 10

@@ -64,7 +64,9 @@ nothing else. No OBS, no Discord bot, no Minecraft server, no virtual audio
 cable. Those are three separate profiles you can pick later, or turn on one at
 a time from the Abilities screen.
 
-Already cloned the repo? `make setup` does the same thing.
+Already cloned the repo? `uv run bea --setup` does the same thing — `make setup`
+if you have Make. Every `make` target here is one `uv run` command underneath, so
+nothing needs Make: Windows in particular does not ship it.
 
 > [!NOTE]
 > She needs an API key from OpenRouter, OpenAI or Groq.
@@ -74,7 +76,7 @@ Already cloned the repo? `make setup` does the same thing.
 ## Updating without losing her
 
 ```bash
-make update
+uv run bea --update
 ```
 
 Not `git pull`. The files that hold who she is — her soul, her operating manual
@@ -82,7 +84,7 @@ Not `git pull`. The files that hold who she is — her soul, her operating manua
 to run or writes conflict markers straight into the text her personality is read
 from, and nobody finds out until she starts talking like someone else.
 
-`make update` backs up your prompts, your config and your memory first, then
+`--update` backs up your prompts, your config and your memory first, then
 merges the new version *into* your edits the way git merges a branch: you keep
 the character you wrote, and the engine still gets the improvements to its own
 instructions. If a change lands on the exact lines you rewrote, yours stays
@@ -385,7 +387,7 @@ The compose file publishes the dashboard to `127.0.0.1:8000`, never to
 
 ## Manual setup
 
-`make setup` covers all of this. Here it is by hand.
+`uv run bea --setup` covers all of this. Here it is by hand.
 
 **Prerequisites:** [uv](https://docs.astral.sh/uv/) (it installs Python for
 you), Node.js 18+ for the dashboard and the Discord bot, OBS Studio with the
@@ -395,9 +397,13 @@ Settings*), and a virtual audio cable such as
 separate track.
 
 ```bash
-uv sync                # or: make install
-uv run bea --setup     # or: make setup  (writes config.json and .env for you)
+uv sync                    # or: make install
+uv run bea --install-node  # or: make node   (the dashboard and the discord bot)
+uv run bea --setup         # or: make setup  (writes config.json and .env for you)
 ```
+
+Both of those need Node 20+. The discord bot is a node program of its own, so
+turning the skill on without it leaves her looking enabled and never online.
 
 Or by hand, copy `.env.example` to `.env`:
 

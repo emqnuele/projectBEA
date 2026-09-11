@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 import aiohttp
 
 from src.core.config import BrainConfig
+from src.setup.node import executable
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.voice.transport")
@@ -72,14 +73,21 @@ class DiscordTransport:
             return False
 
         if not (self.bot_dir / "node_modules").exists():
-            logger.error("node_modules not found. Run 'npm install' in the bot directory.")
+            logger.error("The discord bot's packages are not installed. "
+                         "Run `uv run bea --install-node`.")
+            return False
+
+        node = executable("node")
+        if node is None:
+            logger.error("The discord bot is a node program and node is not installed. "
+                         "Get node 20 or newer from https://nodejs.org.")
             return False
 
         self.api_url = f"http://{LOOPBACK}:{self._port()}"
 
         try:
             self.bot_process = subprocess.Popen(
-                ["node", "index.js"], cwd=str(self.bot_dir), env=self.subprocess_env(token),
+                [node, "index.js"], cwd=str(self.bot_dir), env=self.subprocess_env(token),
                 stdout=sys.stdout, stderr=sys.stderr, shell=False,
             )
             logger.info(f"Discord bot started with PID {self.bot_process.pid}.")

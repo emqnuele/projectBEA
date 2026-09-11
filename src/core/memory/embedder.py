@@ -7,6 +7,8 @@ The default is multilingual: with an English-only model, non-English sentences
 collapse into the same region and retrieval becomes close to random.
 """
 
+import warnings
+from importlib import metadata
 from typing import Any, List, Optional, Sequence
 
 from src.utils.logger import get_logger
@@ -18,6 +20,20 @@ DEFAULT_CACHE_DIR = "data/embeddings_cache"
 
 # old config values meaning "the default": fastembed rejects them
 _LEGACY_NAMES = frozenset({"local", "default", "", "none"})
+
+
+def _fastembed_series() -> str:
+    """`major.minor` of the installed fastembed, or "?" when it cannot be read.
+
+    Patch releases are left out on purpose: the pooling of a model is the kind
+    of thing that moves in a minor, and re-embedding a whole store on a bugfix
+    would be a long startup for nothing.
+    """
+    try:
+        return ".".join(metadata.version("fastembed").split(".")[:2])
+    except Exception as e:
+        logger.warning(f"Could not read the fastembed version ({e}).")
+        return "?"
 
 
 def resolve_model(name: Optional[str]) -> str:
@@ -47,8 +63,27 @@ class FastEmbedEmbedder:
         from fastembed import TextEmbedding  # lazy: heavy import
 
         logger.info(f"Loading embedding model '{self.model_name}'…")
-        self._model = TextEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
+        with warnings.catch_warnings():
+            # fastembed warns that it pools this model differently than it used
+            # to. That is handled — `identity` carries the version, so the store
+            # re-embeds — and printing a raw traceback about it on every start
+            # reads like something is broken
+            warnings.filterwarnings("ignore", message=".*mean pooling.*")
+            self._model = TextEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
         return self._model
+
+    @property
+    def identity(self) -> str:
+        """What the stored vectors were made with, not merely which model.
+
+        The same model name does not mean the same vector space: fastembed 0.6
+        began mean-pooling the sentence-transformers models it used to read the
+        CLS token of, which left every memory written before it in a space the
+        new queries cannot be compared against. Nothing said so — recall simply
+        got worse. Carrying the version here makes that a re-embed, which is
+        what a changed model has always been.
+        """
+        return f"{self.model_name}@fastembed{_fastembed_series()}"
 
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         model = self._ensure()
