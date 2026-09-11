@@ -1,9 +1,6 @@
 const { Transform } = require('stream');
 
-// what discord plays and the only thing the brain sends: 48khz stereo s16le
-const SAMPLE_RATE = 48000;
-const BYTES_PER_FRAME = 4; // 2 channels * 2 bytes
-const BYTES_PER_MS = (SAMPLE_RATE * BYTES_PER_FRAME) / 1000;
+const { SAMPLE_RATE, BYTES_PER_FRAME, BYTES_PER_MS } = require('./Pcm');
 
 /**
  * volume, with a ramp, on the way to the player — plus a running count of what
