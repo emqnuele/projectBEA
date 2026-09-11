@@ -86,18 +86,8 @@ def parse_args():
     return parser.parse_args()
 
 
-async def main(args=None):
-    args = args or parse_args()
-
-    # 1. config — priority: CLI arg > config.json > dataclass default
-    #
-    # BrainConfig() loads config.json in __post_init__ (via load_from_file),
-    # giving us: config.json values on top of dataclass defaults.
-    # We then apply any explicitly-provided CLI args on top, so CLI always wins.
-    config = BrainConfig()
-
-    # Map every CLI argument to its config field name.
-    # Only override when the user explicitly passed the flag (value is not None).
+def apply_cli_overrides(config: BrainConfig, args) -> None:
+    """Only overrides where the flag was passed: CLI arg > config.json > default."""
     cli_overrides = {
         "system_prompt_path": args.system_file,
         "png_dir":            args.png_dir,
@@ -126,11 +116,22 @@ async def main(args=None):
         "audio_device_id":    args.device_id,
         "typing_delay":       args.typing_delay,
     }
-
     for field_name, value in cli_overrides.items():
         if value is not None:
             setattr(config, field_name, value)
             logger.info(f"CLI override: {field_name} = {value}")
+
+
+async def main(args=None):
+    args = args or parse_args()
+
+    # 1. config — priority: CLI arg > config.json > dataclass default
+    #
+    # BrainConfig() loads config.json in __post_init__ (via load_from_file),
+    # giving us: config.json values on top of dataclass defaults.
+    # We then apply any explicitly-provided CLI args on top, so CLI always wins.
+    config = BrainConfig()
+    apply_cli_overrides(config, args)
 
     # 2. modules
 
@@ -198,7 +199,11 @@ def run():
     # same reason: it exists for the case where something below is broken
     if args.doctor:
         from src.setup.doctor import run_doctor
-        raise SystemExit(run_doctor())
+        # a check ought to test what it was asked to test: `--tts-provider
+        # kokoro` on the command line must not diagnose the default instead
+        config = BrainConfig()
+        apply_cli_overrides(config, args)
+        raise SystemExit(run_doctor(config=config))
     asyncio.run(main(args))
 
 

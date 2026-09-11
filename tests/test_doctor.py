@@ -138,6 +138,18 @@ async def test_a_missing_config_file_says_which_command_writes_one(monkeypatch, 
     assert "--setup" in found.fix
 
 
+async def test_a_config_file_that_will_not_parse_is_itself_the_finding(monkeypatch, tmp_path):
+    """The engine swallows a corrupt config.json and runs on defaults; the
+    doctor must name the file, or the silence reads as 'all clear'."""
+    settings = tmp_path / "config.json"
+    settings.write_text("{ this is not json")
+    monkeypatch.setattr(doctor.config_module, "CONFIG_FILE", str(settings))
+
+    found = await check_config(config())
+    assert found.stops
+    assert "not valid JSON" in found.detail
+
+
 async def test_a_missing_env_file_is_a_warning_and_not_a_wall(monkeypatch, tmp_path):
     """Keys can perfectly well come from the environment."""
     settings = tmp_path / "config.json"
@@ -153,6 +165,7 @@ async def test_a_pool_naming_a_provider_with_no_key_names_the_variable(monkeypat
     for name in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     settings = config(models={"mind": ["groq:a/model"], "background": []},
+                      stt_provider="groq",
                       groq_key=None, openrouter_key=None, openai_key=None)
 
     found = await check_keys(settings)
@@ -161,8 +174,31 @@ async def test_a_pool_naming_a_provider_with_no_key_names_the_variable(monkeypat
 
 
 async def test_a_pool_whose_keys_are_all_there_passes():
-    settings = config(models={"mind": ["groq:a/model"], "background": []}, groq_key="k")
+    settings = config(models={"mind": ["groq:a/model"], "background": []},
+                      stt_provider="groq", groq_key="k")
     assert (await check_keys(settings)).ok
+
+
+async def test_a_bare_model_rides_on_the_default_providers_key(monkeypatch):
+    """A pool entry with no `provider:` names no provider of its own."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    settings = config(models={"mind": ["a/model"], "background": []},
+                      llm_provider="groq", stt_provider="openrouter",
+                      groq_key=None, openrouter_key="ok")
+
+    found = await check_keys(settings)
+    assert found.stops and "GROQ_API_KEY" in found.fix
+
+
+async def test_the_stt_provider_gets_its_key_checked_too(monkeypatch):
+    """Her ears run on a key of their own; nobody was looking at it."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    settings = config(models={"mind": ["groq:a/model"], "background": []},
+                      llm_provider="groq", stt_provider="openrouter",
+                      groq_key="k", openrouter_key=None)
+
+    found = await check_keys(settings)
+    assert found.stops and "OPENROUTER_API_KEY" in found.fix
 
 
 async def test_the_provider_is_checked_when_no_pool_names_one(monkeypatch):

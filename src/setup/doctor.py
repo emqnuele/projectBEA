@@ -20,6 +20,7 @@ or a network.
 """
 
 import asyncio
+import json
 import os
 import shutil
 import socket
@@ -46,6 +47,11 @@ TEST_LINE = "one two three"
 
 # where the dashboard listens unless it is told otherwise
 DEFAULT_PORT = 8000
+
+# how long a network call gets before the check counts it as down. A diagnostic
+# that hangs on one cold provider is worse than one that says so.
+PROVIDER_CALL_TIMEOUT = 30.0
+EARS_ROUND_TRIP_TIMEOUT = 60.0
 
 
 @dataclass(frozen=True)
@@ -102,6 +108,14 @@ async def check_config(config: BrainConfig) -> Finding:
     settings = Path(config_module.CONFIG_FILE)
     if not settings.is_file():
         return failed(f"{settings} is not there", "uv run bea --setup")
+    try:
+        json.loads(settings.read_text(encoding="utf-8"))
+    except Exception as e:
+        # the engine swallows a config it cannot read and runs on defaults,
+        # which is exactly why it has to be caught here instead
+        return failed(f"{settings} is not valid JSON ({e})",
+                      "Back it up and run `uv run bea --setup`, or repair the "
+                      "file by hand.")
     if not ENV_FILE.is_file():
         return warned(f"{ENV_FILE} is not there — every key is coming from the "
                       "environment instead",
@@ -114,10 +128,17 @@ async def check_keys(config: BrainConfig) -> Finding:
     wanted = set()
     for role in (MIND, BACKGROUND):
         for entry in config.models.get(role) or []:
+            # a bare model name rides on the default provider's key; only
+            # `provider:model` names its own
             if ":" in str(entry):
                 wanted.add(str(entry).split(":", 1)[0])
+            else:
+                wanted.add(config.llm_provider)
     if not wanted:
         wanted.add(config.llm_provider)
+    # her ears run on the same key namespace as the llm, and are as keyed as it
+    if config.stt_provider:
+        wanted.add(config.stt_provider)
 
     missing = [name for name in sorted(wanted) if not _key_for(config, name)]
     if missing:
@@ -142,8 +163,14 @@ async def check_mind(config: BrainConfig) -> Finding:
                        "properties": {"text": {"type": "string"}},
                        "required": ["text"]}}}]
     try:
-        reply = await client.complete(
-            [{"role": "user", "content": "Call answer with the text 'ok'."}], tools=tool)
+        reply = await asyncio.wait_for(
+            client.complete(
+                [{"role": "user", "content": "Call answer with the text 'ok'."}],
+                tools=tool),
+            timeout=PROVIDER_CALL_TIMEOUT)
+    except asyncio.TimeoutError:
+        return failed("the mind did not answer in time",
+                      "Check the key, the model id and whether the provider is up.")
     except Exception as e:
         if looks_like_missing_tool_support(e):
             return failed(
@@ -222,13 +249,20 @@ async def check_voice(config: BrainConfig) -> Finding:
     from src.modules.tts.factory import build_tts
 
     try:
-        tts = build_tts(config)
+        tts = await asyncio.wait_for(asyncio.to_thread(build_tts, config),
+                                     timeout=PROVIDER_CALL_TIMEOUT)
+    except asyncio.TimeoutError:
+        return failed(f"the {config.tts_provider} voice could not be built in time",
+                      _voice_fix(config))
     except Exception as e:
         return failed(f"the {config.tts_provider} voice could not be built ({e})",
                       "Check `tts_provider` and its settings in config.json.")
 
     try:
-        audio, rate = await tts.generate_audio(TEST_LINE)
+        audio, rate = await asyncio.wait_for(
+            tts.generate_audio(TEST_LINE), timeout=PROVIDER_CALL_TIMEOUT)
+    except asyncio.TimeoutError:
+        return failed(f"{config.tts_provider} produced nothing in time", _voice_fix(config))
     except Exception as e:
         return failed(f"{config.tts_provider} produced nothing ({e})",
                       _voice_fix(config))
@@ -246,13 +280,15 @@ async def check_ears(config: BrainConfig) -> Finding:
                       "She cannot hear voice input. Set `stt_provider` if you "
                       "want to talk to her rather than type.")
 
-    from src.modules.STT.factory import build_stt
-    from src.modules.tts.factory import build_tts
-
     try:
-        stt = build_stt(config)
-        audio, rate = await build_tts(config).generate_audio(TEST_LINE)
-        heard = await asyncio.to_thread(_transcribe, stt, audio, rate)
+        # one thread for the whole journey: build_stt can download a model and
+        # the transcriber can hang, and either must be counted down, not waited on
+        heard = await asyncio.wait_for(asyncio.to_thread(_round_trip, config),
+                                       timeout=EARS_ROUND_TRIP_TIMEOUT)
+    except asyncio.TimeoutError:
+        return failed(f"{config.stt_provider} did not answer in time",
+                      "Check the STT key and model in config.json, and its "
+                      "network reach from this machine.")
     except Exception as e:
         return failed(f"{config.stt_provider} could not transcribe ({e})",
                       "Check the STT key and model in config.json.")
@@ -266,6 +302,16 @@ async def check_ears(config: BrainConfig) -> Finding:
                       "Not necessarily wrong — but a different STT model may "
                       "serve you better.")
     return passed(f"{config.stt_provider} heard {heard.strip()!r}")
+
+
+def _round_trip(config: BrainConfig) -> str:
+    """The ears check's sync body: build both sides, say a line, hear it back."""
+    from src.modules.STT.factory import build_stt
+    from src.modules.tts.factory import build_tts
+
+    stt = build_stt(config)
+    audio, rate = asyncio.run(build_tts(config).generate_audio(TEST_LINE))
+    return _transcribe(stt, audio, rate)
 
 
 async def check_memory(config: BrainConfig) -> Finding:
@@ -284,7 +330,13 @@ async def check_memory(config: BrainConfig) -> Finding:
         from src.core.memory.embedder import FastEmbedEmbedder
         embedder = FastEmbedEmbedder(cfg.get("embedding_model"),
                                      cfg.get("embedding_cache_dir"))
-        await asyncio.to_thread(embedder.embed, ["a line to embed"])
+        await asyncio.wait_for(
+            asyncio.to_thread(embedder.embed, ["a line to embed"]),
+            timeout=PROVIDER_CALL_TIMEOUT)
+    except asyncio.TimeoutError:
+        return warned("the embedding model did not answer in time",
+                      "An offline model that hangs will cost her recall. Check "
+                      "`skills.memory.embedding_model` and its cache.")
     except Exception as e:
         return warned(f"the embedding model is not usable ({e})",
                       "She keeps her people and her hot facts; she loses recall "
@@ -442,7 +494,7 @@ async def diagnose(config: BrainConfig, report=None) -> List[Tuple[str, Finding]
     return found
 
 
-def run_doctor(console=None) -> int:
+def run_doctor(config=None, console=None) -> int:
     """The command. Returns a shell exit code: 0 when nothing is blocking."""
     import warnings
 
@@ -455,7 +507,7 @@ def run_doctor(console=None) -> int:
     warnings.filterwarnings("ignore")
 
     console = console or Console()
-    config = BrainConfig()
+    config = config or BrainConfig()
 
     console.print()
     console.rule("[bold]Checking your setup[/bold]", align="left", style="dim")
@@ -518,7 +570,9 @@ def _model_of(client) -> str:
 
 def _voice_fix(config: BrainConfig) -> str:
     if config.tts_provider == "kokoro":
-        return "make kokoro — the ONNX model and voices file are downloaded, not shipped."
+        return ("Delete ./kokoro-v0_19.onnx and ./voices.bin and check internet "
+                "access to github releases — kokoro downloads them on first "
+                "run, and silence means the download or the load failed.")
     if config.tts_provider == "orpheus":
         return "Check ORPHEUS_API_KEY and `orpheus_endpoint`; the endpoint may be cold."
     return "EdgeTTS needs internet and no key. If you are online, the service may be down."
