@@ -99,6 +99,7 @@ class RotatingClient(LLMClient):
                 # the first one is allowed to stream; anyone picking up after a
                 # failure must produce a whole, self-contained answer
                 task = call if not started_streaming else fallback
+                assert task is not None
                 result = await task(client)
                 self._last_client = client
                 return result

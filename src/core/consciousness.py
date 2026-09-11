@@ -82,7 +82,7 @@ class Consciousness:
 
         # what this turn has done so far, for the record written at the end of it
         self._acted: List[Dict[str, Any]] = []
-        self._said: Optional[Dict[str, str]] = None
+        self._said: Optional[Dict[str, Any]] = None
         self.turns = TurnLog(
             cc.get("turn_log_dir", "data/turns"), cc.get("turn_log_days", 14),
         ) if cc.get("turn_log", True) else None
@@ -413,7 +413,7 @@ class Consciousness:
             # writing down is for later, and must never cost the turn it describes
             logger.warning(f"Could not write the turn down: {e}")
 
-    def _heard(self) -> Optional[Dict[str, str]]:
+    def _heard(self) -> Optional[Dict[str, Any]]:
         """What the room actually heard, not what the whole sentence was.
 
         An interruption from the call is proof the tail never reached the room:
