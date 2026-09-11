@@ -101,7 +101,7 @@ def _verdict(console, report: Report) -> int:
                       "is beside it:[/dim]")
         for outcome in reviews:
             console.print(f"      [cyan]{outcome.path}.new[/cyan]")
-        console.print("  [dim]Compare them in Settings → Personality, or with:[/dim]")
+        console.print("  [dim]Compare them on the dashboard's Maintenance screen, or with:[/dim]")
         console.print(f"      [cyan]diff {reviews[0].path} {reviews[0].path}.new[/cyan]")
         console.print()
 

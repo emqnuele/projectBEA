@@ -121,11 +121,11 @@ def start_update() -> Dict[str, Any]:
         }
 
     threading.Thread(target=_work, name="bea-update", daemon=True).start()
-    return _snapshot_run()
+    return _snapshot_run() or {}
 
 
 @router.get("/run")
-def run_progress() -> Dict[str, Any]:
+def run_progress() -> Optional[Dict[str, Any]]:
     """Polled while the bar is on screen. Returns the last run once it is over."""
     return _snapshot_run()
 
