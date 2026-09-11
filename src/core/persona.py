@@ -17,6 +17,21 @@ from typing import Any, Dict, List
 DEFAULT_NAME = "Bea"
 DEFAULT_PRONOUNS = "she/her"
 
+# sha256 of `data/prompts/soul.md` as this version ships it, used to tell "still
+# the character we ship" from "someone wrote their own".
+#
+# A constant rather than a lookup, because every other way of answering that
+# question is wrong somewhere. Reading the live file and comparing it to itself
+# — which is what this replaced — can only ever answer "unchanged". Recording a
+# hash in the database goes stale the first time an update changes the file
+# underneath it. Reading the shipped version out of git assumes a `.git`, which
+# an install unzipped from a tarball does not have.
+#
+# This travels with the code: a release that changes the soul changes the hash
+# in the same commit. `test_the_shipped_soul_hash_matches_the_file_we_ship`
+# fails the build if it does not.
+SHIPPED_SOUL_SHA256 = "f1828541b0cfc3e0b699ed429397bc61db1ec6d66e3a6115238beffdd24be45e"
+
 # what a prompt file may write. Anything else is left alone: these files are
 # hand-edited, and a typo must not eat the line it is on
 _PLACEHOLDER = re.compile(r"\{(name|pronouns|subject|object|possessive)\}")

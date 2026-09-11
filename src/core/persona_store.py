@@ -5,11 +5,12 @@ This is the other way in — the dashboard — which means a web request ends up
 writing to disk, so most of what is here is about refusing to.
 """
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.core.persona import DEFAULT_PRONOUNS, persona_of
+from src.core.persona import DEFAULT_PRONOUNS, SHIPPED_SOUL_SHA256, persona_of
 from src.utils.files import atomic_write_text
 from src.utils.logger import get_logger
 
@@ -74,12 +75,25 @@ def soul_file(config) -> SoulFile:
     return SoulFile(resolved)
 
 
-def _shipped_soul() -> str:
-    """The persona we ship, used to tell "never touched" from "set up"."""
-    try:
-        return (Path(__file__).parents[2] / "data/prompts/soul.md").read_text(encoding="utf-8")
-    except OSError:
-        return ""
+def is_customised(soul: str) -> bool:
+    """Whether somebody has made her theirs, or she is still the one we ship.
+
+    Compared by hash against `SHIPPED_SOUL_SHA256`, and deliberately not
+    against the file on disk: that is the same file, so the comparison could
+    only ever say "unchanged" and the banners asking people to set her up never
+    went away.
+
+    Whitespace is normalised the same way the text is read, so re-saving a soul
+    from the dashboard — which strips nothing but may end it with a newline —
+    does not count as writing one.
+    """
+    text = soul.strip()
+    return bool(text) and soul_digest(text) != SHIPPED_SOUL_SHA256
+
+
+def soul_digest(soul: str) -> str:
+    """The one definition of the hash, so the constant and its test cannot drift."""
+    return hashlib.sha256(soul.strip().encode("utf-8")).hexdigest()
 
 
 ONBOARDING_KEY = "onboarding.completed"
@@ -121,7 +135,7 @@ def describe(config) -> Dict[str, Any]:
         **persona.as_dict(),
         "soul": soul,
         # "the file exists" is not the question: it always does, we ship it
-        "customised": bool(soul.strip()) and soul.strip() != _shipped_soul().strip(),
+        "customised": is_customised(soul),
     }
 
 
