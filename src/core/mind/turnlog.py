@@ -108,7 +108,9 @@ class TurnLog:
         if not self.keep_days:
             return
         cutoff = (now - datetime.timedelta(days=self.keep_days)).strftime("%Y-%m-%d")
-        for path in self.directory.glob("*.jsonl"):
+        # only this log's own daily files: a foreign .jsonl the user keeps here
+        # must not be deleted because it happens to be older than the log is
+        for path in self.directory.glob("????-??-??.jsonl"):
             if path.stem < cutoff:
                 path.unlink(missing_ok=True)
 

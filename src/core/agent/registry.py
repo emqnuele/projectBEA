@@ -47,10 +47,18 @@ class RotatingClient(LLMClient):
         self._clients = clients
         self._index = 0
         self.name = name or f"pool[{len(clients)}]"
+        # who answered the most recent call, for anything that wants to know
+        # which model a turn was actually served by
+        self._last_client: Optional[LLMClient] = None
 
     @property
     def clients(self) -> List[LLMClient]:
         return list(self._clients)
+
+    @property
+    def model_name(self) -> str:
+        used = self._last_client
+        return getattr(used, "model_name", "") if used is not None else ""
 
     def _order(self) -> List[LLMClient]:
         """The pool starting at the next client, then everyone else as fallback."""
@@ -67,9 +75,13 @@ class RotatingClient(LLMClient):
         )
 
     async def stream_complete(self, messages, tools=None, *, on_tool_delta=None):
+        # on a failure the fallback says the turn whole: a client that died
+        # mid-stream may already have handed a line to the room, and blending a
+        # second voice onto that same line reads as one sentence from two people
         return await self._attempt(
             lambda c: c.stream_complete(messages, tools=tools, on_tool_delta=on_tool_delta),
             tools_needed=bool(tools),
+            fallback=lambda c: c.complete(messages, tools=tools),
         )
 
     async def complete_json(self, user_input, system_prompt=None, history=None):
@@ -78,16 +90,23 @@ class RotatingClient(LLMClient):
             tools_needed=False,
         )
 
-    async def _attempt(self, call, *, tools_needed: bool):
+    async def _attempt(self, call, *, tools_needed: bool, fallback=None):
         last: Optional[BaseException] = None
+        started_streaming = fallback is not None
         for client in self._order():
             label = _label(client)
             try:
-                return await call(client)
+                # the first one is allowed to stream; anyone picking up after a
+                # failure must produce a whole, self-contained answer
+                task = call if not started_streaming else fallback
+                result = await task(client)
+                self._last_client = client
+                return result
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 last = e
+                started_streaming = False
                 if tools_needed and looks_like_missing_tool_support(e):
                     logger.error(
                         f"Model {label} does not support tool calling and cannot serve the "

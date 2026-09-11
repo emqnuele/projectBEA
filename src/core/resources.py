@@ -9,9 +9,9 @@ logger = get_logger("bea.resources")
 def load_avatar_resources(avatar_map: Dict[str, Dict[str, str]]) -> Dict[str, Tuple[Path, Path]]:
     """The configured avatar images, checked, as mood -> (idle, talking).
 
-    A mood with only one of the two, or with a file that is not there, is left
-    out rather than allowed to fail later: a missing image is a mood that does
-    not change on screen, and that is easier to explain at startup.
+    A mood missing either path declaration is dropped. A *file* that is not on
+    disk is kept with a warning and falls back later (see `resolve_mood_paths`):
+    deleting a png mid-stream must not be the thing that blanks the mood it had.
     """
     processed_map: Dict[str, Tuple[Path, Path]] = {}
 

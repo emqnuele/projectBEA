@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
 from src.core.expression.chunking import SpeechChunker
-from src.core.expression.tags import Beat, BeatKind, parse
+from src.core.expression.tags import Beat, BeatKind, parse, strip
 from src.utils.logger import get_logger
 from src.utils.sanitize import clean_model_output
 
@@ -169,14 +169,19 @@ class LiveLine:
             if beat.kind is BeatKind.SAY:
                 # the last gate before the engine: a cheap model leaks its own
                 # scaffolding, and a chunk of that would be read out loud
-                text = clean_model_output(beat.value)
-                if not text:
+                cleaned = clean_model_output(beat.value)
+                if not cleaned:
                     # a whole piece of scaffolding means an opening tag whose
                     # end has not arrived, so the next piece is the inside of it
                     # — and the inside carries no tag to recognise it by. She
                     # stops here rather than read a reasoning chain out loud.
                     self.tainted = True
                     return
+                text = strip(cleaned)
+                if not text:
+                    # a chunk that was only tag-shaped ("<moodd:smug>") is not
+                    # scaffolding, so it costs the chunk and not the whole line
+                    continue
                 beat = Beat(BeatKind.SAY, text)
             self._beats.put_nowait(beat)
 
@@ -188,6 +193,10 @@ class LiveLine:
                 if beat is None:
                     break
                 if beat.kind is not BeatKind.SAY:
+                    if beat.kind is BeatKind.MOOD:
+                        # she changed her mind mid-line: her voice follows her
+                        # face from the same word the face changes on
+                        self.prosody = self.sink.prosody_for(beat.value, self.feeling)
                     await self._ready.put(Rendered(beat))
                     continue
                 try:

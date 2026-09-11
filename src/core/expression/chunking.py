@@ -163,13 +163,15 @@ class SpeechChunker:
 
         Direction does not count against the budget — a line with three tags in
         it is not a longer line — so the ceiling has to be walked rather than
-        assumed.
+        assumed. A `<` only opens a tag when a letter follows it: treating every
+        one as an opener would swallow "5 < 6" into an endless tag.
         """
         spoken = 0
         inside = False
         for index, char in enumerate(self._buffer):
             if char == "<":
-                inside = True
+                nxt = self._buffer[index + 1] if index + 1 < len(self._buffer) else ""
+                inside = bool(nxt) and nxt.isalpha()
             elif char == ">":
                 inside = False
             elif not inside:

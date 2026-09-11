@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.core.agent.llm_client import LLMClient
@@ -11,6 +12,11 @@ from src.utils.logger import get_logger
 from src.utils.sanitize import clean_model_output
 
 logger = get_logger("bea.llm.openai_compat")
+
+# how long a failed-to-stream provider stays on the non-streaming path. A
+# permanent blacklist over one bad request would lose speaking-early for the
+# whole session; this forgets a transient 429 in a couple of minutes.
+NO_STREAM_COOLDOWN = 120.0
 
 
 def _usage(raw) -> Usage:
@@ -129,9 +135,17 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
         self.model_name = model_name
         self.stt = stt
         self.reasoning = reasoning or NO_STYLE
-        # the model that was asked to stream and could not. Held by name rather
-        # than as a flag so a config reload onto a different model tries again.
-        self._no_stream = ""
+        # when each model last refused to stream, as monotonic clock readings.
+        # Held per model so one stubborn provider never takes streaming away
+        # from the pool's next-of-kin, and a config reload onto a different
+        # model tries again.
+        self._no_stream: Dict[str, float] = {}
+
+    def _stream_blocked(self) -> bool:
+        ref = self._no_stream.get(self.model_name, 0.0)
+        # a refusal while it is still remembered makes the whole attempt
+        # pointless; once the cooldown runs out, try streaming again
+        return bool(ref) and time.monotonic() - ref < NO_STREAM_COOLDOWN
 
     # --- the sdk call, with the reasoning fields negotiated ------------------
 
@@ -206,7 +220,7 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
         the model is remembered so the next turn does not pay for the attempt
         twice.
         """
-        if on_tool_delta is None or self.model_name == self._no_stream:
+        if on_tool_delta is None or self._stream_blocked():
             return await self.complete(messages, tools=tools)
 
         kwargs: Dict[str, Any] = {"model": self.model_name, "messages": messages,
@@ -237,9 +251,9 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
                     break
                 if isinstance(item, BaseException):
                     if assembly.empty:
-                        self._no_stream = self.model_name
+                        self._no_stream[self.model_name] = time.monotonic()
                         logger.info(f"{self.model_name} did not stream ({item}); "
-                                    f"speaking early is off for it.")
+                                    f"trying again without streaming for a while.")
                         return await self.complete(messages, tools=tools)
                     raise item
                 assembly.take(item)

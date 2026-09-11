@@ -96,6 +96,9 @@ class JsonFieldStream:
 
         if ch == '"':
             self._in_string = False
+            # an unpaired high surrogate left holding when the string closes
+            # must not pair with the first \uxxxx of the next field's content
+            self._high = ""
             if self._emitting:
                 self._emitting = False
                 self._done = True
@@ -147,6 +150,9 @@ class JsonFieldStream:
             self._in_string = True
             self._is_key = self._expect_key
             self._current = []
+            # a fresh string starts with a clean slate, not whatever surrogate
+            # pair was half-heard earlier in the document
+            self._high = ""
             if not self._is_key and self._depth == 1 and self._last_key == self.field:
                 self._emitting = True
             return ""

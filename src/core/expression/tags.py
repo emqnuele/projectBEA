@@ -45,8 +45,9 @@ class Beat:
 DIRECTIONS: tuple = tuple(kind.value for kind in BeatKind if kind is not BeatKind.SAY)
 
 # the name is deliberately permissive — it is matched, not looked up, so
-# `<mood:quietly pleased>` is as valid as `<mood:love>`
-_TAG = re.compile(rf"<({'|'.join(DIRECTIONS)}):([A-Za-z0-9 _-]{{1,40}})>", re.IGNORECASE)
+# `<mood:quietly pleased>` is as valid as `<mood:love>`. Anything but another
+# angle bracket is fair game, or "stizzita" would be read out loud.
+_TAG = re.compile(rf"<({'|'.join(DIRECTIONS)}):([^<>]{{1,40}})>", re.IGNORECASE)
 
 # anything else tag-shaped that reached the text: a typo'd direction, a stray
 # html-ish span. Must start with a letter, so "a < b" and "<3" survive.
@@ -54,8 +55,9 @@ _TAG_SHAPED = re.compile(r"<[A-Za-z][^<>]{0,80}>")
 
 # a direction the model started and never closed. It only reaches here on a line
 # that has already ended, so there is nothing left to wait for and the choice is
-# between dropping it and reading `<mood:sm` out loud.
-_TAG_UNCLOSED = re.compile(r"<[A-Za-z][^<>]{0,80}$")
+# between dropping it and reading `<mood:sm` out loud. It has to open with a real
+# direction word, or a lone less-than in "x<y" loses the y the same way.
+_TAG_UNCLOSED = re.compile(rf"<({'|'.join(DIRECTIONS)}):[^<>]{{0,80}}$", re.IGNORECASE)
 
 # past this many characters with no `>`, a lone `<` is just a less-than sign.
 # Without a ceiling a line containing "5 < 6" would never finish streaming.

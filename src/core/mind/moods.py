@@ -45,8 +45,14 @@ VECTORS: Dict[str, Tuple[float, float]] = {
     "bored": (-0.30, -0.70),
 }
 
-# a mood without a vector would silently stop colouring her voice
-assert set(VECTORS) == set(MOODS), "every mood needs a valence/arousal vector"
+# a mood without a vector would silently stop colouring her voice. Not an
+# `assert`: those are stripped under `python -O`, and this is the check that
+# stops a new mood from reaching a stream with no sound behind it.
+if set(VECTORS) != set(MOODS):
+    raise RuntimeError(
+        f"every mood needs a valence/arousal vector; the two disagree on "
+        f"{sorted(set(VECTORS) ^ set(MOODS))}"
+    )
 
 
 # What each mood covers, in words. Read only when a word reaches the matcher
@@ -75,8 +81,13 @@ COVERS: Dict[str, str] = {
              "glazed over, indifferent, weary, over it",
 }
 
-# a mood without words to match on would only ever be reachable by its exact id
-assert set(COVERS) == set(MOODS), "every mood needs words that reach it"
+# a mood without words to match on would only ever be reachable by its exact
+# id. Same shape as the vector check above: fail loud, so it cannot ship.
+if set(COVERS) != set(MOODS):
+    raise RuntimeError(
+        f"every mood needs words that reach it; the two disagree on "
+        f"{sorted(set(COVERS) ^ set(MOODS))}"
+    )
 
 
 # The ids these moods used to have. Kept because they are written into saved

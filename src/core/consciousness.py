@@ -396,18 +396,46 @@ class Consciousness:
     def _write_down(self, batch: List[Perception], steps: int, spent: Usage,
                     elapsed_ms: float) -> None:
         """Files the turn away, for the questions that only come up afterwards."""
-        if self.turns is None:
+        if self.turns is None or not self.turns.enabled:
             return
-        self.turns.write(turn_record(
-            context=self.context,
-            perceptions=[p.render() for p in batch],
-            calls=self._acted,
-            spoke=self._said,
-            usage=spent,
-            steps=steps,
-            ms=elapsed_ms,
-            model=getattr(self.llm, "model_name", ""),
-        ))
+        try:
+            self.turns.write(turn_record(
+                context=self.context,
+                perceptions=[p.render() for p in batch],
+                calls=self._acted,
+                spoke=self._heard(),
+                usage=spent,
+                steps=steps,
+                ms=elapsed_ms,
+                model=getattr(self.llm, "model_name", "") or "",
+            ))
+        except Exception as e:
+            # writing down is for later, and must never cost the turn it describes
+            logger.warning(f"Could not write the turn down: {e}")
+
+    def _heard(self) -> Optional[Dict[str, str]]:
+        """What the room actually heard, not what the whole sentence was.
+
+        An interruption from the call is proof the tail never reached the room:
+        the log claiming it did is how she ends up referred to a second half
+        nobody heard. `_interruption_note` reads the same record next turn.
+        """
+        heard = dict(self._said) if self._said else None
+        if not heard or "message" not in heard:
+            return heard
+        utterance = getattr(self.expression, "interrupted", None)
+        if utterance is None or getattr(utterance, "complete", True):
+            return heard
+        if getattr(utterance, "text", None) != heard["message"]:
+            return heard
+        cut = spoken_prefix(utterance.text, utterance.played_ms, utterance.sent_ms)
+        if cut:
+            heard["message"] = cut
+        else:
+            # the sentence was cut off before a single word of it landed
+            heard.pop("message", None)
+            heard["cut_off"] = True
+        return heard
 
     def now_line(self) -> str:
         """One line for a scoped turn: what she is doing on stage right now.
