@@ -43,6 +43,23 @@ jobs:
       - name: Tests
         run: uv run pytest -q
 
+  frontend:
+    name: browser source tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # deliberately no `npm ci`: what is tested here is pure — a spectrum in,
+      # a decision out — so it needs neither three.js nor react to run
+      - name: Tests
+        working-directory: src/web/frontend
+        run: npm test
+
   bot:
     name: discord bot tests
     runs-on: ubuntu-latest

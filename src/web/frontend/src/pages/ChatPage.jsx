@@ -138,9 +138,7 @@ export default function ChatPage() {
     // --- voice mode: she listens continuously and you can talk over her ---
     const { startVAD, stopVAD, isSpeaking: userSpeaking, volume } = useVAD({
         onSpeechStart: () => { api.interrupt().catch(() => { }); },
-        onSpeechEnd: (blob) => sendAudio(blob, 'wav'),
-        threshold: 20,
-        silenceDuration: 1000,
+        onSpeechEnd: (blob, extension) => sendAudio(blob, extension),
     });
 
     useEffect(() => {
