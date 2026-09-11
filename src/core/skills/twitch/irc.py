@@ -256,11 +256,12 @@ class TwitchIRC:
         parsed = parse_line(line)
         if parsed is None:
             return
-        handler = self.on_event if isinstance(parsed, ChatEvent) else self.on_message
-        if handler is None:
-            return
         try:
-            await handler(parsed)
+            if isinstance(parsed, ChatEvent):
+                if self.on_event is not None:
+                    await self.on_event(parsed)
+            elif self.on_message is not None:
+                await self.on_message(parsed)
         except Exception as e:
             logger.error(f"Twitch handler failed: {e}")
 

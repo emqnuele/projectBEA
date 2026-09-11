@@ -7,7 +7,7 @@ The default is multilingual: with an English-only model, non-English sentences
 collapse into the same region and retrieval becomes close to random.
 """
 
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from src.utils.logger import get_logger
 
@@ -36,20 +36,23 @@ class FastEmbedEmbedder:
                  cache_dir: Optional[str] = DEFAULT_CACHE_DIR) -> None:
         self.model_name = resolve_model(model_name)
         self.cache_dir = cache_dir
-        self._model = None
+        self._model: Optional[Any] = None
         self._dim: Optional[int] = None
 
-    def _ensure(self) -> None:
+    def _ensure(self) -> Any:
+        """The loaded model, loading it the first time. Returned, not just set,
+        so a caller has the thing itself rather than a promise that it is there."""
         if self._model is not None:
-            return
+            return self._model
         from fastembed import TextEmbedding  # lazy: heavy import
 
         logger.info(f"Loading embedding model '{self.model_name}'…")
         self._model = TextEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
+        return self._model
 
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
-        self._ensure()
-        return [list(map(float, v)) for v in self._model.embed(list(texts))]
+        model = self._ensure()
+        return [list(map(float, v)) for v in model.embed(list(texts))]
 
     @property
     def dim(self) -> int:

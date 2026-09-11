@@ -127,6 +127,13 @@ class Reach:
 
         channel = channels[0]
         skill = self._skill_for(channel.platform)
+        if skill is None:
+            return Delivered(
+                False,
+                f"You know {card.primary_name} on {channel.platform}, but it is not on "
+                f"right now.",
+                channel.platform,
+            )
         try:
             conversation_id = await skill.send_dm(channel.native_id, text)
         except Exception as e:

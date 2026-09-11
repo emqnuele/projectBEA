@@ -25,7 +25,7 @@ class DreamSkill(Skill):
     skill_name = "dream"
 
     def initialize(self) -> None:
-        memory = self.context.memory
+        memory = self.brain.memory
         self.selflore = memory.selflore
         self.recent = memory.hot
         self.sessions = memory.sessions

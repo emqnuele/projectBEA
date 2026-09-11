@@ -40,6 +40,13 @@ jobs:
       - name: Lint
         run: uv run ruff check src tests
 
+      # src only, and only because it is at zero: tests pass fakes and
+      # deliberately wrong values on purpose, so checking them fights the point
+      # of the fakes. Added once it already passed — a gate that is red on the
+      # day it lands is a gate people learn to ignore.
+      - name: Types
+        run: uvx pyright
+
       - name: Tests
         run: uv run pytest -q
 

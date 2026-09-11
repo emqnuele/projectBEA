@@ -275,27 +275,51 @@ def _voice_surface():
     return s
 
 
+def _discord_text(surface, name, user_id, *, whitelisted=True, **kwargs):
+    """One discord message, addressed the way every platform now addresses one."""
+    return surface.perceive_text(
+        "ciao", author=surface.build_author(user_id, name), channel_id="c1",
+        meta={"whitelisted": whitelisted}, **kwargs)
+
+
 def test_someone_on_the_whitelist_pulls_at_full_strength():
     s = _voice_surface()
-    p = s.perceive_text("ciao", "Ema", "c1", user_id="1", whitelisted=True)
-    assert p.salience == 0.8
+    assert _discord_text(s, "Ema", "1", whitelisted=True).salience == 0.8
 
 
 def test_a_stranger_is_heard_but_more_faintly():
     """Boost mode: she notices them, they just don't interrupt what she's doing."""
     s = _voice_surface()
-    p = s.perceive_text("ciao", "Sconosciuto", "c1", user_id="9", whitelisted=False)
-    assert 0 < p.salience < 0.8
+    assert 0 < _discord_text(s, "Sconosciuto", "9", whitelisted=False).salience < 0.8
 
 
 def test_a_dm_from_a_stranger_still_counts_as_a_dm():
     s = _voice_surface()
-    p = s.perceive_text("ciao", "Sconosciuto", "c1", user_id="9",
-                        is_dm=True, whitelisted=False)
+    p = _discord_text(s, "Sconosciuto", "9", whitelisted=False, is_dm=True)
     assert p.meta["is_dm"] is True
 
 
 def test_whether_she_knows_them_is_on_the_perception():
     s = _voice_surface()
-    p = s.perceive_text("ciao", "Sconosciuto", "c1", user_id="9", whitelisted=False)
-    assert p.meta["whitelisted"] is False
+    assert _discord_text(s, "Sconosciuto", "9", whitelisted=False).meta["whitelisted"] is False
+
+
+def test_discord_text_can_be_handed_over_the_way_any_platform_is():
+    """It took its own signature for a long time, so nothing generic could.
+
+    Every other surface answers `perceive_text(text, *, author, channel_id, ...)`;
+    this one wanted `(text, user, channel_id, ...)` positionally, which meant a
+    caller holding "whichever surface this came from" could not call it at all.
+    """
+    from src.core.skills.platform import PlatformSkill
+
+    s = _voice_surface()
+    hand_over: PlatformSkill = s
+    p = hand_over.perceive_text(
+        "ciao", author=s.build_author("1", "Ema"), channel_id="c1", message_id="m1")
+
+    assert p.author is not None and p.author.native_id == "1"
+    assert p.meta["channel_id"] == "c1"
+    # the ids stay inside the sentence: acting on a message here means naming
+    # its channel back to a tool
+    assert "channel_id=c1" in p.content and "message_id=m1" in p.content

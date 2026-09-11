@@ -555,7 +555,9 @@ async def buffer_voice_transcript(
 
         if transcript and transcript.strip() and transcript != "[Unintelligible]":
             if brain.surface_registry is not None:
-                voice = brain.surface_registry.get("voice:discord")
+                # the registry is keyed by name, and each name has its own
+                # interface: what this one perceives is not what the others do
+                voice: Any = brain.surface_registry.get("voice:discord")
                 if voice is not None and hasattr(voice, "perceive"):
                     voice.perceive(transcript, username, user_id=user_id,
                                    whitelisted=whitelisted, listeners=listeners)
@@ -959,7 +961,10 @@ async def test_llm():
     brain = get_brain()
     try:
         started = time.perf_counter()
-        result = brain.llm.chat("Reply with the single word: ok.", system_prompt="You are a test probe.")
+        # `chat` is the one-shot helper the openai-compatible client adds on top
+        # of the port; a backend without it fails here and is reported as such
+        probe: Any = brain.llm
+        result = probe.chat("Reply with the single word: ok.", system_prompt="You are a test probe.")
         if inspect.isawaitable(result):
             result = await result
         elapsed = int((time.perf_counter() - started) * 1000)

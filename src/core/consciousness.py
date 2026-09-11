@@ -3,6 +3,7 @@ import datetime
 import time
 from typing import Any, Dict, List, Optional
 
+from src.core.agent.llm_client import LLMClient
 from src.core.agent.messages import assistant_to_message, tool_result_message
 from src.core.agent.streaming import SpokenCall, spoken_call
 from src.core.agent.tools import Tool
@@ -53,7 +54,7 @@ class Consciousness:
         self._get_operating = operating_getter
         # what scrolled out of the rolling context, in one line she keeps
         self.recap = SessionRecap()
-        self.background_llm = None
+        self.background_llm: Optional[LLMClient] = None
         self._recap_task: Optional[asyncio.Task] = None
 
         cc = config.consciousness

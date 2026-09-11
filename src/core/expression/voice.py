@@ -391,12 +391,17 @@ class Expression:
 
     async def _push(self, line: LiveLine, item: Rendered) -> None:
         """One rendered piece into the live call."""
+        # taken once rather than read per piece: she can be pulled out of the
+        # call between two sentences, and half a line should not raise
+        call = self.call
+        if call is None:
+            return
         state = line.state
         for audio, rate in item.parts:
             pcm = to_call_pcm(audio, rate)
             if not pcm:
                 continue
-            await self.call.play(pcm, utterance_id=state["id"],
+            await call.play(pcm, utterance_id=state["id"],
                                  text=line.caption or line.written,
                                  seq=state["seq"], last=False)
             state["frames"].extend(envelope(audio, rate, self._lipsync_fps))
@@ -453,10 +458,13 @@ class Expression:
         Barge-in lands while the later sentences are still being generated:
         without this she keeps paying for words the room already stopped hearing.
         """
+        call = self.call
+        if call is None or not call.live:
+            return True
         if seq == 0:
-            return not self.call_is_live
-        current = self.call.current
-        return not self.call_is_live or current is None or current.id != utterance_id
+            return False
+        current = call.current
+        return current is None or current.id != utterance_id
 
     @property
     def _lipsync_fps(self) -> int:
@@ -509,8 +517,9 @@ class Expression:
         if line is not None:
             await line.cancel()
 
-        if self.call_is_live:
-            self.interrupted = await self.call.stop(ramp_ms=ramp_ms)
+        call = self.call
+        if call is not None and call.live:
+            self.interrupted = await call.stop(ramp_ms=ramp_ms)
 
         if self.is_speaking and self.current_audio_buffer is not None:
             try:

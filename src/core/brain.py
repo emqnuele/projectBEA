@@ -1,6 +1,6 @@
 import asyncio
 import threading
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from src.core.affect.state import AffectState
 from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
@@ -385,8 +385,9 @@ class AIVtuberBrain:
         self.config.skills.setdefault(name, {})["enabled"] = state
         self.config.save_to_file()
 
-        if self.consciousness_active:
-            await self.consciousness.set_surface_active(skill.name, state)
+        mind = self.consciousness
+        if mind is not None and mind.alive:
+            await mind.set_surface_active(skill.name, state)
         return True
 
     def reload_configuration(self):
@@ -437,8 +438,7 @@ class AIVtuberBrain:
         self.stage.publish({"config": public_config(self.config)})
 
     def _obs_connect(self):
-        if hasattr(self.obs, "source_name"):
-            self.obs.source_name = self.config.obs_avatar_source
+        self.obs.source_name = self.config.obs_avatar_source
         self.obs.connect()
 
     def list_sessions(self):
@@ -466,11 +466,18 @@ class AIVtuberBrain:
     # --- input entrypoints: deposit a perception, await Bea's reply ----------
 
     async def _perceive_and_wait(self, putter, route: str):
-        """Deposits a perception (via `putter(correlation_id)`) and waits for the reply."""
-        cid, fut = self.consciousness.register_correlation(route)
+        """Deposits a perception (via `putter(correlation_id)`) and waits for the reply.
+
+        Nothing to wait on before there is a mind: this is reachable from the
+        HTTP entrypoints, which answer the moment the server binds.
+        """
+        mind = self.consciousness
+        if mind is None:
+            return None
+        cid, fut = mind.register_correlation(route)
         putter(cid)
         try:
-            return await asyncio.wait_for(fut, timeout=self.consciousness.correlation_timeout)
+            return await asyncio.wait_for(fut, timeout=mind.correlation_timeout)
         except asyncio.TimeoutError:
             logger.info("Correlation timed out (Bea did not respond).")
             return None
@@ -488,11 +495,16 @@ class AIVtuberBrain:
         self.history_manager.add_message("system", "[Interrupted by User]")
         return result
 
-    def _surface(self, name: str):
+    def _surface(self, name: str) -> Any:
         """A skill by name, or None when the brain has not been initialized yet.
 
         The HTTP entrypoints are reachable the moment the server binds; without
         this guard an early request raises AttributeError instead of a 503.
+
+        Deliberately untyped beyond `Any`: the registry is keyed by name and
+        every name has its own interface — what `chat:ui` accepts to perceive
+        is not what `voice:discord` does. The caller knows which one it asked
+        for; the registry cannot.
         """
         return self.surface_registry.get(name) if self.surface_registry else None
 
@@ -578,8 +590,11 @@ class AIVtuberBrain:
         the 'one mind' path: no synchronous request-reply, full autonomy."""
         surface = self._surface("voice:discord")
         if surface:
-            surface.perceive_text(text, username, channel_id, message_id=message_id,
-                                  user_id=user_id, is_dm=is_dm, whitelisted=whitelisted)
+            surface.perceive_text(
+                text, author=surface.build_author(user_id or username, username),
+                channel_id=channel_id, message_id=message_id, is_dm=is_dm,
+                meta={"whitelisted": whitelisted},
+            )
 
     async def run_loop(self):
         logger.info("Starting interactive loop. Type 'exit' to quit.")

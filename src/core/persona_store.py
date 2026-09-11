@@ -154,7 +154,7 @@ def apply(config, payload: Dict[str, Any]) -> Dict[str, Any]:
         attention["trigger_words"] = [str(w).strip().lower() for w in words if str(w).strip()]
         config.attention = attention
 
-    if target is not None:
+    if target is not None and soul is not None:
         target.write(soul)
 
     return describe(config)

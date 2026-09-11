@@ -9,11 +9,16 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, List, Optional
+from typing import Any, Iterable, List, Mapping, Optional, Sequence, Union
 
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.memory.db")
+
+# what sqlite3 will actually bind. Deliberately not `Iterable`: a generator
+# satisfies that and then fails at the driver, which has to be able to count
+# the parameters before it runs the statement.
+Params = Union[Sequence[Any], Mapping[str, Any]]
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
@@ -107,29 +112,30 @@ class Database:
             finally:
                 cur.close()
 
-    def execute(self, sql: str, params: Iterable[Any] = ()) -> int:
-        """Runs a write; returns lastrowid."""
+    def execute(self, sql: str, params: Params = ()) -> int:
+        """Runs a write; returns the new rowid, or 0 when the statement made none."""
         with self.cursor() as cur:
             cur.execute(sql, params)
-            return cur.lastrowid
+            # only an INSERT has one; an UPDATE or a DELETE leaves it undefined
+            return cur.lastrowid or 0
 
-    def executemany(self, sql: str, seq: Iterable[Iterable[Any]]) -> int:
+    def executemany(self, sql: str, seq: Iterable[Params]) -> int:
         """Bulk write: one commit for the whole batch."""
         with self.cursor() as cur:
             cur.executemany(sql, seq)
             return cur.rowcount
 
-    def query(self, sql: str, params: Iterable[Any] = ()) -> List[sqlite3.Row]:
+    def query(self, sql: str, params: Params = ()) -> List[sqlite3.Row]:
         with self.cursor() as cur:
             cur.execute(sql, params)
             return cur.fetchall()
 
-    def query_one(self, sql: str, params: Iterable[Any] = ()) -> Optional[sqlite3.Row]:
+    def query_one(self, sql: str, params: Params = ()) -> Optional[sqlite3.Row]:
         with self.cursor() as cur:
             cur.execute(sql, params)
             return cur.fetchone()
 
-    def scalar(self, sql: str, params: Iterable[Any] = (), default: Any = 0) -> Any:
+    def scalar(self, sql: str, params: Params = (), default: Any = 0) -> Any:
         row = self.query_one(sql, params)
         if row is None:
             return default

@@ -12,9 +12,10 @@ class HistoryManager:
     def __init__(self, storage_dir: str = "data/conversations"):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.current_session_file = None
+        self.current_session_file: Optional[Path] = None
         self.history: List[Dict[str, Any]] = []
-        self.session_id = None
+        # set by `create_session`, which every entry point calls before use
+        self.session_id: str = ""
         self.title = ""
 
     def create_session(self):

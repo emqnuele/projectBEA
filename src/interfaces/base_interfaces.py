@@ -70,6 +70,11 @@ class TTSInterface(ABC):
         pass
 
 class OBSInterface(ABC):
+    # which OBS source her body is drawn into. The brain sets it from config
+    # before connecting, so renaming the source in the UI takes effect without
+    # a restart — which is why it is an attribute and not a constructor argument.
+    source_name: str = ""
+
     @abstractmethod
     def connect(self):
         pass

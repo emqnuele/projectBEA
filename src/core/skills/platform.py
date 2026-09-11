@@ -172,7 +172,15 @@ class PlatformSkill(Skill):
                 ))
         return tools
 
-    supports_reactions: bool = True
+    @property
+    def supports_reactions(self) -> bool:
+        """Whether this platform has reactions at all.
+
+        A property rather than a class attribute because for some platforms the
+        answer is a setting somebody can change while she is running, and a
+        subclass cannot narrow one of those into the other.
+        """
+        return True
 
     async def _tool_send(self, channel_id: str, text: str,
                          reply_to: Optional[str] = None) -> str:

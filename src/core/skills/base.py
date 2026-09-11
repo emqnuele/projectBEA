@@ -1,9 +1,33 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from src.core.agent.tools import Tool
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills")
+
+
+@runtime_checkable
+class SkillContext(Protocol):
+    """The brain, as much of it as a skill is allowed to reach for.
+
+    A protocol rather than the class itself: skills are built by the brain and
+    hold a reference back to it, so naming the concrete type here would be a
+    cycle. This also says plainly what that reference is for — everything a
+    skill reads is on this list, and anything that is not is a skill reaching
+    past what it was given.
+    """
+
+    memory: Any
+    history_manager: Any
+    event_manager: Any
+    skill_registry: Any
+    surface_registry: Any
+    consciousness: Any
+    stt: Any
+    llm: Any
+
+    def model_for(self, role: str) -> Any:
+        ...
 
 
 # not an ABC: every hook below is optional, a skill overrides only what it supports
@@ -25,12 +49,26 @@ class Skill:
     name: str = "skill"
     skill_name: Optional[str] = None  # config.skills[...] toggle key; None = core/always-on
 
-    def __init__(self, config, bus, expression, context=None):
+    def __init__(self, config, bus, expression, context: Optional[SkillContext] = None):
         self.config = config
         self.bus = bus
         self.expression = expression
         self.context = context
         self.active = False
+
+    @property
+    def brain(self) -> SkillContext:
+        """The brain this skill belongs to, for the skills that cannot work without one.
+
+        Most of what a skill reads off `context` is optional and asked for with
+        `getattr`. Memory is not: a skill built around it is broken without one,
+        and saying so here is better than the `NoneType has no attribute` four
+        lines later that names neither the skill nor what it was missing.
+        """
+        if self.context is None:
+            raise RuntimeError(
+                f"skill '{self.name}' needs the brain it is part of, and was built without one")
+        return self.context
 
     @property
     def enabled(self) -> bool:
@@ -54,13 +92,18 @@ class Skill:
 
     # --- output sinks (override the ones this skill supports) ---------------
 
-    async def emit_text(self, text: str, meta: Optional[Dict[str, Any]] = None) -> None:
+    async def emit_text(self, text: str, meta: Optional[Dict[str, Any]] = None) -> List[str]:
         """Send a text message out on this skill (discord/twitch/telegram).
+
+        Returns the id of each message that went out — one line of hers can
+        become several — so a caller can reply into the thread it just started.
+        Nothing sent, nothing returned.
 
         There is deliberately no `emit_voice` beside it: audio leaves the brain
         in exactly one place, `Expression`, which is what lets ducking, stopping
         and knowing how far a sentence got live together.
         """
+        return []
 
     # --- context contributed while this skill is active --------------------
 

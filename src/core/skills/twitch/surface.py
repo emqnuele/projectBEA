@@ -53,12 +53,16 @@ class TwitchSkill(PlatformSkill):
     name = "chat:twitch"
     skill_name = "twitch"
     platform = "twitch"
-    supports_reactions = False
     # chat is the audience in the room with her: she answers it out loud
     scoped_conversations = False
     message_limit = 500
     # whispers are a separate, heavily rate-limited api she does not speak
     supports_dm = False
+
+    @property
+    def supports_reactions(self) -> bool:
+        """Twitch chat has none."""
+        return False
 
     def initialize(self) -> None:
         super().initialize()
