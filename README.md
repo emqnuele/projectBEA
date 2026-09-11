@@ -1,8 +1,8 @@
-<h1 align="center">ProjectBEA</h1>
-
 <p align="center">
   <img src="assets/hero.png" alt="ProjectBEA Hero" />
 </p>
+
+<h1 align="center">ProjectBEA</h1>
 
 <p align="center"><b>She talks, plays, and remembers you.</b></p>
 
