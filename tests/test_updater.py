@@ -88,9 +88,12 @@ def commit(cwd: Path, message: str) -> str:
 
 
 def write(root: Path, relative: str, text: str) -> None:
+    # bytes, so the fixture is the same repository on every platform: text mode
+    # on windows writes CRLF, which quietly made these tests build a different
+    # repository there than the one they describe
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_bytes(text.encode("utf-8"))
 
 
 def read(root: Path, relative: str) -> str:
