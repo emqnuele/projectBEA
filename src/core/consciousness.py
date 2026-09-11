@@ -295,27 +295,32 @@ class Consciousness:
         if not self.stream_speech:
             return await self.llm.complete(self.context, tools=self._tool_schemas())
 
-        reader: Optional[SpokenCall] = None
-        watched = True
+        # one reader per tool call, because a provider may write two of them at
+        # once. Sharing one meant a second call's arguments were read as more of
+        # the first's message — she said the brace and lost the rest of the line.
+        readers: Dict[int, Optional[SpokenCall]] = {}
         line: Optional[LiveLine] = None
+        spoken: Optional[int] = None
 
-        def on_delta(name: str, delta: str) -> None:
-            nonlocal reader, watched, line
-            if not watched:
+        def on_delta(index: int, name: str, delta: str) -> None:
+            nonlocal line, spoken
+            if index not in readers:
+                readers[index] = spoken_call(name)
+            reader = readers[index]
+            # only one line can be on its way out at a time: a second `speak` in
+            # the same turn is said the ordinary way, once this one has finished
+            if reader is None or (spoken is not None and spoken != index):
                 return
-            if reader is None:
-                reader = spoken_call(name)
-                if reader is None:
-                    watched = False
-                    return
+
             words = reader.push(delta)
             if not words:
                 return
             if line is None:
                 line = self._open_line(reader.mood)
                 if line is None:
-                    watched = False
+                    readers[index] = None
                     return
+                spoken = index
             line.say(words)
 
         try:

@@ -39,6 +39,8 @@ class JsonFieldStream:
         self._escape = False
         self._hex = ""
         self._collecting_hex = False
+        self._high = ""
+        self._arrays = 0
         self._expect_key = False
         self._is_key = False
         self._current: list = []
@@ -74,12 +76,8 @@ class JsonFieldStream:
             if len(self._hex) < 4:
                 return ""
             self._collecting_hex = False
-            try:
-                decoded = chr(int(self._hex, 16))
-            except ValueError:
-                decoded = ""
-            self._hex = ""
-            return self._take(decoded)
+            code, self._hex = self._hex, ""
+            return self._take(self._decode(code))
 
         if self._escape:
             self._escape = False
@@ -87,6 +85,9 @@ class JsonFieldStream:
                 self._collecting_hex = True
                 self._hex = ""
                 return ""
+            # anything but another `\u` settles it: a high surrogate with no low
+            # one behind it is not waiting for one that turns up three words later
+            self._high = ""
             return self._take(_ESCAPES.get(ch, ch))
 
         if ch == "\\":
@@ -103,7 +104,36 @@ class JsonFieldStream:
             self._current = []
             return ""
 
+        self._high = ""
         return self._take(ch)
+
+    def _decode(self, code: str) -> str:
+        r"""One `\uXXXX`, or nothing while it is the first half of a pair.
+
+        Everything outside the basic plane — every emoji she is likely to write
+        — is escaped as two of these, and decoding them one at a time yields two
+        lone surrogates instead of the character. That string cannot be encoded
+        as utf-8 at all, so the piece holding it died on the way to the engine
+        and the sentence was simply never spoken.
+        """
+        try:
+            value = int(code, 16)
+        except ValueError:
+            self._high = ""
+            return ""
+
+        if 0xD800 <= value <= 0xDBFF:
+            self._high = code
+            return ""
+
+        if self._high and 0xDC00 <= value <= 0xDFFF:
+            high, self._high = int(self._high, 16), ""
+            return chr(0x10000 + ((high - 0xD800) << 10) + (value - 0xDC00))
+
+        # a low surrogate with no high one in front of it, or anything at all
+        # after an unpaired high one: neither can be encoded, so neither is kept
+        self._high = ""
+        return "" if 0xDC00 <= value <= 0xDFFF else chr(value)
 
     def _take(self, text: str) -> str:
         """One decoded character: out to the caller, or kept for a key."""
@@ -125,8 +155,16 @@ class JsonFieldStream:
             self._expect_key = True
         elif ch == "}":
             self._depth -= 1
+        elif ch == "[":
+            # inside an array a comma separates values, not pairs. Without this
+            # an element could be taken for the key of whatever comes after it.
+            self._arrays += 1
+            self._expect_key = False
+        elif ch == "]":
+            self._arrays = max(0, self._arrays - 1)
+            self._expect_key = False
         elif ch == ",":
-            self._expect_key = True
+            self._expect_key = not self._arrays
         elif ch == ":":
             self._expect_key = False
         return ""

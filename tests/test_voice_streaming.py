@@ -133,6 +133,22 @@ def test_a_breathless_stream_is_cut_at_a_comma_rather_than_never():
     assert " ".join(pieces) == line
 
 
+def test_the_comma_a_forced_cut_lands_on_is_measured_in_words():
+    """A window full of direction is not a longer window.
+
+    The comma a forced cut falls back to has to be far enough in to sound like
+    a pause rather than a stumble, and "far enough" is how much would be said —
+    counting the tags towards it accepts a comma that is really much too early.
+    """
+    tags = "<mood:bored>" * 12
+    line = f"{tags}si, " + ("e poi continua a parlare senza fermarsi mai " * 6).strip()
+    pieces = drip(line)
+
+    assert pieces, "nothing was ever cut"
+    assert not pieces[0].endswith("si,"), (
+        f"cut after two spoken characters: {pieces[0]!r}")
+
+
 def test_nothing_arrives_until_there_is_a_whole_thought_to_say():
     chunker = SpeechChunker()
     assert chunker.push("Ma tu guarda") == []

@@ -5,7 +5,10 @@ from src.core.agent.types import AssistantMessage
 
 # (tool name, the new characters of its arguments). Called as a tool call is
 # being written, so the arguments are a JSON fragment and not yet an object.
-ToolDelta = Callable[[str, str], None]
+# (index, tool name, raw argument delta). The index is which of the turn's tool
+# calls this belongs to: a provider may write two of them at once, and without
+# it one call's arguments end up inside another's.
+ToolDelta = Callable[[int, str, str], None]
 
 
 class LLMClient(ABC):

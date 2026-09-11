@@ -279,3 +279,53 @@ async def test_a_turn_she_said_nothing_in_is_written_down_too():
 async def test_it_can_be_switched_off_entirely():
     mind, _ = build(StreamingLLMClient(), turn_log=False)
     assert mind.turns is None
+
+
+# --- two tool calls being written at the same time ---------------------------
+
+
+class InterleavingLLMClient(StreamingLLMClient):
+    """A provider that writes two tool calls at once rather than one after it.
+
+    Which is allowed, and is the reason every delta carries the index of the
+    call it belongs to. One reader for the whole turn meant the second call's
+    JSON was read as more of the first call's message: she said the brace and
+    the rest of the line was never spoken at all.
+    """
+
+    async def stream_complete(self, messages, tools=None, *, on_tool_delta=None):
+        message = await self.complete(messages, tools=tools)
+        if on_tool_delta is None or len(message.tool_calls) < 2:
+            return message
+
+        first, second = message.tool_calls[0], message.tool_calls[1]
+        raw = json.dumps(first.arguments)
+        half = raw.index('"message"') + 24
+
+        on_tool_delta(0, first.name, raw[:half])
+        on_tool_delta(1, second.name, json.dumps(second.arguments))
+        on_tool_delta(0, first.name, raw[half:])
+        for _ in range(4):
+            await asyncio.sleep(0)
+        return message
+
+
+def speaks_and_remembers(message: str) -> AssistantMessage:
+    return AssistantMessage(tool_calls=[
+        ToolCall(id="a", name="speak", arguments={"mood": "happy", "message": message}),
+        ToolCall(id="b", name="remember", arguments={"fact": "marco likes pasta"}),
+    ])
+
+
+async def test_a_second_tool_call_does_not_end_up_inside_the_line():
+    line_text = "Ma tu guarda questa cosa, non ci posso credere davvero."
+    llm = InterleavingLLMClient([speaks_and_remembers(line_text)])
+    mind, bus = build(llm)
+
+    bus.put(said_to(mind))
+    await one_turn(mind, bus)
+
+    assert mind.expression.lines, "no line was ever opened"
+    written = mind.expression.lines[0].written
+    assert written == line_text, f"the line was corrupted: {written!r}"
+    assert "{" not in written and "fact" not in written

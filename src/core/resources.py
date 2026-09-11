@@ -7,9 +7,11 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.resources")
 
 def load_avatar_resources(avatar_map: Dict[str, Dict[str, str]]) -> Dict[str, Tuple[Path, Path]]:
-    """
-    Carica e valida le risorse avatar dalla mappa di configurazione.
-    Restituisce un dizionario mood -> (idle_path, talking_path).
+    """The configured avatar images, checked, as mood -> (idle, talking).
+
+    A mood with only one of the two, or with a file that is not there, is left
+    out rather than allowed to fail later: a missing image is a mood that does
+    not change on screen, and that is easier to explain at startup.
     """
     processed_map: Dict[str, Tuple[Path, Path]] = {}
 
@@ -35,7 +37,7 @@ def load_avatar_resources(avatar_map: Dict[str, Dict[str, str]]) -> Dict[str, Tu
     return processed_map
 
 def resolve_mood_paths(png_map: Dict[str, Tuple[Path, Path]], mood: str) -> Tuple[Path, Path]:
-    """Trova i PNG per il mood, con fallback al mood di default."""
+    """The pair of images for a mood, falling back rather than raising."""
     # 1. exact match
     if mood in png_map:
         return png_map[mood]

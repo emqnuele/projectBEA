@@ -197,3 +197,62 @@ def test_a_turn_she_said_nothing_in_is_still_a_turn():
     written = record(spoke=None, calls=[{"tool": "stay_silent", "result": "Staying silent."}])
     assert written["spoke"] is None
     assert written["tools"][0]["tool"] == "stay_silent"
+
+
+# --- what the file does not have to hold twice -------------------------------
+
+
+def test_the_prompt_is_written_once_and_pointed_at_after_that(tmp_path):
+    """It is thousands of characters and the same on almost every turn.
+
+    Writing it every time is most of the file, for a value that does not move.
+    """
+    log = TurnLog(str(tmp_path), clock=lambda: datetime.datetime(2026, 3, 1, 12, 0))
+    for _ in range(3):
+        log.write({"prompt": "you are bea" * 200, "steps": 1})
+
+    lines = [json.loads(line) for line in
+             (tmp_path / "2026-03-01.jsonl").read_text().splitlines()]
+
+    assert "prompt" in lines[0], "the first line of a day has to carry it"
+    assert all("prompt" not in line for line in lines[1:])
+    assert len({line["prompt_id"] for line in lines}) == 1, "every line names it"
+
+
+def test_a_prompt_that_changed_is_written_out_again(tmp_path):
+    """Which also makes an edit to it visible in the log rather than inferred."""
+    log = TurnLog(str(tmp_path), clock=lambda: datetime.datetime(2026, 3, 1, 12, 0))
+    log.write({"prompt": "you are bea", "steps": 1})
+    log.write({"prompt": "you are bea", "steps": 1})
+    log.write({"prompt": "you are someone else", "steps": 1})
+
+    lines = [json.loads(line) for line in
+             (tmp_path / "2026-03-01.jsonl").read_text().splitlines()]
+
+    assert [("prompt" in line) for line in lines] == [True, False, True]
+    assert lines[0]["prompt_id"] != lines[2]["prompt_id"]
+
+
+def test_each_day_carries_the_prompt_of_its_own(tmp_path):
+    """A file nobody can read without the one before it is not a log."""
+    day = {"at": datetime.datetime(2026, 3, 1, 12, 0)}
+    log = TurnLog(str(tmp_path), clock=lambda: day["at"])
+    log.write({"prompt": "you are bea", "steps": 1})
+    log.write({"prompt": "you are bea", "steps": 1})
+
+    day["at"] = datetime.datetime(2026, 3, 2, 12, 0)
+    log.write({"prompt": "you are bea", "steps": 1})
+
+    second = json.loads((tmp_path / "2026-03-02.jsonl").read_text().splitlines()[0])
+    assert "prompt" in second
+
+
+def test_a_long_string_buried_in_a_tool_call_is_capped_too(tmp_path):
+    """The longest string in a turn is usually what a tool came back with."""
+    log = TurnLog(str(tmp_path), clock=lambda: datetime.datetime(2026, 3, 1, 12, 0))
+    log.write({"tools": [{"name": "recall", "result": "x" * (MAX_FIELD_CHARS + 5000)}]})
+
+    line = json.loads((tmp_path / "2026-03-01.jsonl").read_text())
+    kept = line["tools"][0]["result"]
+    assert len(kept) < MAX_FIELD_CHARS + 100
+    assert kept.endswith("chars)")

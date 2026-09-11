@@ -130,7 +130,7 @@ def direction_help() -> str:
     edit: a tag renamed in the parser and not in the file is a tag she keeps
     writing and nobody keeps reading.
     """
-    mood, do = DIRECTIONS
+    mood, do = BeatKind.MOOD.value, BeatKind.DO.value
     return f"""\
 The mood you pass to `speak` is the face you start the line with. You can change it
 again *mid-line*, and move, by writing direction into the message itself — it is

@@ -88,13 +88,13 @@ class _Assembly:
         pending = call["arguments"][call["sent"]:]
         if pending:
             call["sent"] = len(call["arguments"])
-            self._tell(call["name"], pending)
+            self._tell(index, call["name"], pending)
 
-    def _tell(self, name: str, pending: str) -> None:
+    def _tell(self, index: int, name: str, pending: str) -> None:
         if self._on_delta is None:
             return
         try:
-            self._on_delta(name, pending)
+            self._on_delta(index, name, pending)
         except Exception as e:
             logger.error(f"Could not hand over the line as it was written: {e}")
             self._on_delta = None

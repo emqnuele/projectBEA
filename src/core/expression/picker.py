@@ -89,12 +89,32 @@ class Picker:
             self._cache[wanted] = chosen
         return chosen
 
+    @property
+    def ready(self) -> bool:
+        """Whether a word can be matched right now without loading anything."""
+        return self._vectors is not None
+
+    def warm(self) -> None:
+        """Load the model and embed the names, on whatever thread this is called on.
+
+        The only way a picker becomes able to match, and meant to be called once
+        at startup from a thread nobody is waiting on. Nothing below does this
+        work on demand, because the one moment it would otherwise happen is the
+        first word she invents — which lands in the middle of a line already
+        going out to the room, and costs the best part of a second on a machine
+        that has the model and a download on one that does not.
+
+        Until then `pick` still answers everything the tables know, which is
+        most of what she writes, and falls back for the rest.
+        """
+        self._candidates()
+
     # --- internals ----------------------------------------------------------
 
     def _nearest(self, wanted: str) -> str:
         if self.embedder is None:
             return self.fallback
-        vectors = self._candidates()
+        vectors = self._vectors
         if not vectors:
             return self.fallback
         try:
@@ -113,11 +133,7 @@ class Picker:
         return name
 
     def _candidates(self) -> List[List[float]]:
-        """The names, embedded once, on the first word the fast path missed.
-
-        Lazily rather than at construction: most sessions never invent a word,
-        and no startup should wait on a model it may not end up using.
-        """
+        """The names, embedded once. Only ever reached through `warm`."""
         if self._vectors is not None:
             return self._vectors
         if self.embedder is None or not self.names:

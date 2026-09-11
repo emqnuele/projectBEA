@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from typing import List, Optional, Tuple
 
 from src.core.affect.state import AffectState
@@ -210,10 +211,16 @@ class AIVtuberBrain:
         fall back to the fixed tables, which is where the project already was.
         """
         embedder = self.memory.embedder
-        self.expression.set_matchers(
-            mood=mood_picker(embedder).pick,
-            clip=clip_picker(installed_clips(self.config), embedder).pick,
-        )
+        pickers = [mood_picker(embedder),
+                   clip_picker(installed_clips(self.config), embedder)]
+        self.expression.set_matchers(mood=pickers[0].pick, clip=pickers[1].pick)
+
+        # loading the model is most of a second, and a download on a machine
+        # that has never run her. Both of those belong here, on a thread nobody
+        # is waiting on — not on the first word she invents, which lands in the
+        # middle of a line already going out to the room.
+        threading.Thread(target=lambda: [p.warm() for p in pickers],
+                         daemon=True, name="matchers-warm").start()
 
     def _load_operating_rules(self) -> str:
         """The operating manual, with a floor under it.

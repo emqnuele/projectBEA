@@ -19,6 +19,7 @@ carries on.
 """
 
 import datetime
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -47,6 +48,7 @@ class TurnLog:
         self.keep_days = max(0, int(keep_days))
         self._clock = clock or datetime.datetime.now
         self._day = ""
+        self._prompt = ""
         self._broken = False
 
     @property
@@ -63,12 +65,14 @@ class TurnLog:
         try:
             now = self._clock()
             day = now.strftime("%Y-%m-%d")
-            if day != self._day:
+            fresh = day != self._day
+            if fresh:
                 self.directory.mkdir(parents=True, exist_ok=True)
                 self._sweep(now)
                 self._day = day
 
-            line = json.dumps({"at": now.isoformat(timespec="seconds"), **_trim(record)},
+            body = self._fold(_trim(record), fresh)
+            line = json.dumps({"at": now.isoformat(timespec="seconds"), **body},
                               ensure_ascii=False, default=str)
             with self.path_for(day).open("a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
@@ -77,6 +81,27 @@ class TurnLog:
             # turn is worse than no log at all
             self._broken = True
             logger.warning(f"Turns are no longer being written down ({e}).")
+
+    def _fold(self, record: Dict[str, Any], fresh: bool) -> Dict[str, Any]:
+        """The system prompt written out once, and pointed at after that.
+
+        It is thousands of characters, it is identical on almost every turn, and
+        written every time it is most of the file. So `prompt_id` goes on every
+        line and the text itself goes on the first line of each day and on every
+        line where it changed — which also makes a change to it something you
+        can see in the log rather than something you have to diff for.
+        """
+        prompt = record.get("prompt")
+        if not isinstance(prompt, str) or not prompt:
+            return record
+
+        fingerprint = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
+        folded = dict(record, prompt_id=fingerprint)
+        # a new file carries it again: every day has to be readable on its own
+        if not fresh and fingerprint == self._prompt:
+            folded.pop("prompt", None)
+        self._prompt = fingerprint
+        return folded
 
     def _sweep(self, now: datetime.datetime) -> None:
         """Drops the days that have aged out. `keep_days` of 0 keeps everything."""
@@ -88,15 +113,22 @@ class TurnLog:
                 path.unlink(missing_ok=True)
 
 
-def _trim(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Caps the long strings, so one runaway retrieval cannot bury a whole day."""
-    out: Dict[str, Any] = {}
-    for key, value in record.items():
-        if isinstance(value, str) and len(value) > MAX_FIELD_CHARS:
-            out[key] = value[:MAX_FIELD_CHARS] + f"… (+{len(value) - MAX_FIELD_CHARS} chars)"
-        else:
-            out[key] = value
-    return out
+def _trim(value: Any) -> Any:
+    """Caps the long strings, so one runaway retrieval cannot bury a whole day.
+
+    All the way down, not just at the top: the longest string in a turn is
+    usually a tool's arguments or what one came back with, and both of those sit
+    inside a list of dicts.
+    """
+    if isinstance(value, str):
+        if len(value) <= MAX_FIELD_CHARS:
+            return value
+        return value[:MAX_FIELD_CHARS] + f"… (+{len(value) - MAX_FIELD_CHARS} chars)"
+    if isinstance(value, dict):
+        return {key: _trim(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_trim(item) for item in value]
+    return value
 
 
 def turn_record(*, context: List[Dict[str, Any]], perceptions: List[str],

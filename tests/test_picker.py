@@ -50,21 +50,37 @@ MOOD_MEANINGS = Meanings({
 
 
 def moods(embedder=MOOD_MEANINGS) -> Picker:
-    return mood_picker(embedder)
+    """A picker ready to answer, which is what `warm` is for.
+
+    Nothing loads a model on the thread a line is being spoken on, so a picker
+    is only able to match once somebody has warmed it — at startup, on a thread
+    of its own. Doing it here is doing what the brain does.
+    """
+    picker = mood_picker(embedder)
+    picker.warm()
+    return picker
+
+
+def clips(embedder=None) -> Picker:
+    picker = clip_picker(CLIPS, embedder)
+    picker.warm()
+    return picker
 
 
 # --- the fast path, which costs nothing --------------------------------------
 
 
 def test_a_mood_she_named_correctly_never_reaches_the_model():
+    # deliberately not warmed: the fast path has to work before anything loads,
+    # because on a cold start it is all she has
     embedder = Meanings({})
-    assert moods(embedder).pick("angry") == "angry"
+    assert mood_picker(embedder).pick("angry") == "angry"
     assert embedder.calls == []
 
 
 def test_a_near_miss_is_answered_from_the_table():
     embedder = Meanings({})
-    assert moods(embedder).pick("furious") == "angry"
+    assert mood_picker(embedder).pick("furious") == "angry"
     assert embedder.calls == []
 
 
@@ -96,7 +112,7 @@ def test_the_moods_are_embedded_by_what_they_cover_not_by_their_name():
     """`disgusted` alone is close to a handful of words; the row is close to
     most of the ways she would ever write it."""
     embedder = Meanings(dict(MOOD_MEANINGS.groups))
-    moods(embedder).pick("wistful")
+    moods(embedder)
 
     embedded = embedder.calls[0]
     assert len(embedded) == 7
@@ -149,20 +165,20 @@ def test_the_capitals_a_file_was_saved_with_do_not_have_to_be_guessed():
 
 def test_a_file_name_is_matched_by_what_it_is_of():
     """`shrug` is what she means; `003_dismissive_wave` is what is on disk."""
-    assert clip_picker(CLIPS, CLIP_MEANINGS).pick("shrug") == "003_dismissive_wave"
-    assert clip_picker(CLIPS, CLIP_MEANINGS).pick("agree") == "slow_nod"
+    assert clips(CLIP_MEANINGS).pick("shrug") == "003_dismissive_wave"
+    assert clips(CLIP_MEANINGS).pick("agree") == "slow_nod"
 
 
 def test_the_numbering_people_leave_on_exports_is_not_vocabulary():
     embedder = Meanings(dict(CLIP_MEANINGS.groups))
-    clip_picker(CLIPS, embedder).pick("shrug")
+    clips(embedder)
 
     assert embedder.calls[0] == ["dismissive wave", "slow nod", "point at you"]
 
 
 def test_a_behaviour_she_does_not_have_plays_nothing():
     """Playing the wrong one is worse than playing none: it is what is seen."""
-    assert clip_picker(CLIPS, CLIP_MEANINGS).pick("backflip") == ""
+    assert clips(CLIP_MEANINGS).pick("backflip") == ""
 
 
 def test_with_no_behaviours_installed_nothing_ever_plays():
@@ -199,3 +215,31 @@ def test_vtube_studio_reads_the_hotkeys_you_mapped():
     config = Config(avatar_backend="vtube_studio",
                     vts_clips={"wave": "hotkey-1", "nod": "hotkey-2"})
     assert installed_clips(config) == ["nod", "wave"]
+
+
+# --- what it refuses to do on the thread she is speaking on ------------------
+
+
+def test_a_cold_picker_falls_back_rather_than_loading_a_model():
+    """`pick` is called from inside a line already going out to the room.
+
+    Loading the model is most of a second on a machine that has it and a
+    download on one that does not, and either would land in the middle of a
+    sentence. So a picker nobody has warmed answers with the fallback.
+    """
+    embedder = Meanings(dict(MOOD_MEANINGS.groups))
+    picker = mood_picker(embedder)
+
+    assert picker.ready is False
+    assert picker.pick("wistful") == DEFAULT_MOOD
+    assert embedder.calls == [], "it went and loaded the model anyway"
+
+
+def test_warming_twice_costs_nothing_the_second_time():
+    embedder = Meanings(dict(MOOD_MEANINGS.groups))
+    picker = mood_picker(embedder)
+    picker.warm()
+    picker.warm()
+
+    assert len(embedder.calls) == 1
+    assert picker.ready is True

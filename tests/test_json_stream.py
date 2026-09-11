@@ -179,10 +179,10 @@ async def test_the_arguments_are_handed_over_as_they_are_written():
     raw = '{"mood": "happy", "message": "ciao a tutti quanti"}'
     seen = []
     reply = await client(_writes(raw)).stream_complete(
-        [], tools=[{}], on_tool_delta=lambda name, delta: seen.append((name, delta)))
+        [], tools=[{}], on_tool_delta=lambda index, name, delta: seen.append((index, name, delta)))
 
-    assert {name for name, _ in seen} == {"speak"}
-    assert "".join(delta for _, delta in seen) == raw
+    assert {name for _, name, _ in seen} == {"speak"}
+    assert "".join(delta for _, _, delta in seen) == raw
     assert reply.tool_calls[0].arguments == {"mood": "happy", "message": "ciao a tutti quanti"}
 
 
@@ -201,9 +201,9 @@ async def test_nothing_is_handed_over_before_the_tool_has_a_name():
     chunks = [_chunk(_part(arguments='{"mood": "happy"')),
               _chunk(_part(call_id="c1", name="speak", arguments=', "message": "ok"}'))]
     await client(chunks).stream_complete(
-        [], tools=[{}], on_tool_delta=lambda name, delta: seen.append((name, delta)))
+        [], tools=[{}], on_tool_delta=lambda index, name, delta: seen.append((index, name, delta)))
 
-    assert seen == [("speak", '{"mood": "happy", "message": "ok"}')]
+    assert seen == [(0, "speak", '{"mood": "happy", "message": "ok"}')]
 
 
 async def test_two_tool_calls_at_once_stay_apart():
@@ -213,9 +213,9 @@ async def test_two_tool_calls_at_once_stay_apart():
     ]
     seen = []
     reply = await client(chunks).stream_complete(
-        [], tools=[{}], on_tool_delta=lambda name, delta: seen.append((name, delta)))
+        [], tools=[{}], on_tool_delta=lambda index, name, delta: seen.append((index, name, delta)))
 
-    assert seen == [("speak", '{"message": "ciao"}'), ("go_to_sleep", "{}")]
+    assert seen == [(0, "speak", '{"message": "ciao"}'), (1, "go_to_sleep", "{}")]
     assert [c.name for c in reply.tool_calls] == ["speak", "go_to_sleep"]
 
 
@@ -294,3 +294,47 @@ async def test_with_nobody_listening_it_is_just_an_ordinary_call():
     reply = await c.stream_complete([])
     assert reply.content == "said all at once"
     assert not c.client.calls[0].get("stream")
+
+
+# --- characters that arrive as escapes ---------------------------------------
+
+
+def test_an_emoji_survives_being_written_as_two_escapes():
+    """Everything above the basic plane is escaped as a surrogate pair.
+
+    Decoded one half at a time it becomes two lone surrogates, which is a string
+    python cannot encode as utf-8 at all — so the piece holding it died on the
+    way to the engine and the sentence was simply never spoken.
+    """
+    stream = JsonFieldStream("message")
+    said = stream.push('{"message": "hi \\ud83d\\ude00 there"}')
+
+    assert said == "hi 😀 there"
+    assert said.encode("utf-8")  # the whole point: this used to raise
+
+
+def test_a_pair_split_across_three_deltas_still_arrives():
+    stream = JsonFieldStream("message")
+    said = "".join(stream.push(part) for part in
+                   ['{"message": "hi \\ud8', '3d\\ude0', '0 there"}'])
+    assert said == "hi 😀 there"
+
+
+def test_half_a_pair_is_dropped_rather_than_kept():
+    """A lone surrogate cannot be encoded either, and nothing can rescue it."""
+    stream = JsonFieldStream("message")
+    said = stream.push('{"message": "x \\ud83d y"}')
+
+    assert said.encode("utf-8")
+    assert "x" in said and "y" in said
+
+
+def test_a_string_in_an_array_is_not_taken_for_a_key():
+    """Inside an array a comma separates values, not pairs."""
+    stream = JsonFieldStream("message")
+    assert stream.push('{"tags": ["a", "message"], "other": "not the message"}') == ""
+
+
+def test_an_array_does_not_stop_the_real_field_being_found():
+    stream = JsonFieldStream("message")
+    assert stream.push('{"tags": ["a", "b"], "message": "ciao"}') == "ciao"

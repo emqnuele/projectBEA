@@ -15,6 +15,7 @@ from src.setup.doctor import (
     CHECKS,
     check_config,
     check_dashboard,
+    check_discord,
     check_keys,
     check_manual,
     check_python,
@@ -293,3 +294,40 @@ def test_a_warning_still_exits_zero():
 
 def test_something_in_the_way_exits_one():
     assert doctor._verdict(Quiet(), [("one", failed("no key"))]) == 1
+
+
+# --- the one part of her that is not python ----------------------------------
+
+
+async def test_a_discord_skill_nobody_turned_on_is_not_a_problem():
+    assert (await check_discord(config(skills={"discord": {"enabled": False}}))).ok
+
+
+async def test_the_bot_cannot_log_in_without_a_token(monkeypatch):
+    monkeypatch.delenv("DISCORD_TOKEN", raising=False)
+    found = await check_discord(config(skills={"discord": {"enabled": True}}))
+
+    assert not found.ok
+    assert "DISCORD_TOKEN" in found.fix
+    # her voice goes quiet; everything else about her still works
+    assert not found.blocking
+
+
+async def test_a_machine_without_node_is_told_so_and_told_what_to_install(monkeypatch):
+    monkeypatch.setenv("DISCORD_TOKEN", "x")
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    found = await check_discord(config(skills={"discord": {"enabled": True}}))
+
+    assert not found.ok
+    assert "node" in found.detail
+    assert "npm ci" in found.fix
+
+
+async def test_packages_that_were_never_installed_are_named(monkeypatch, tmp_path):
+    monkeypatch.setenv("DISCORD_TOKEN", "x")
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/node")
+    monkeypatch.chdir(tmp_path)  # no bot/node_modules anywhere here
+    found = await check_discord(config(skills={"discord": {"enabled": True}}))
+
+    assert not found.ok
+    assert "npm ci" in found.fix

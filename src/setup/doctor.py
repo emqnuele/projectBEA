@@ -333,6 +333,36 @@ async def check_stage(config: BrainConfig) -> Finding:
                   "Set `stage.avatar_backend` to png, model or vtube_studio.")
 
 
+async def check_discord(config: BrainConfig) -> Finding:
+    """The bot she talks through: node, its packages, and a token to log in with.
+
+    Checked because it is where her voice is mostly used and because it is the
+    one part of her that is not python — so it fails in ways nothing else does,
+    and it fails silently: the capability simply never comes up.
+    """
+    discord = config.skills.get("discord", {}) or {}
+    if not discord.get("enabled", False):
+        return passed("not enabled")
+
+    if not os.environ.get("DISCORD_TOKEN"):
+        return failed("the discord skill is on and DISCORD_TOKEN is not set",
+                      "Put DISCORD_TOKEN=… in .env — the bot's token from "
+                      "discord.com/developers, not an application id.",
+                      blocking=False)
+
+    if shutil.which("node") is None:
+        return failed("the bot is a node program and node is not installed",
+                      "Install node 20 or newer, then `npm ci` in "
+                      "src/core/skills/voice/bot.", blocking=False)
+
+    bot = Path("src/core/skills/voice/bot")
+    if not (bot / "node_modules" / "@discordjs" / "voice").is_dir():
+        return failed("the bot's packages have never been installed",
+                      f"cd {bot} && npm ci", blocking=False)
+
+    return passed("node, the bot's packages and a token are all in place")
+
+
 async def check_obs(config: BrainConfig) -> Finding:
     """Only asked when a backend she is actually using needs it."""
     from src.setup.wizard import needs_obs
@@ -381,6 +411,7 @@ CHECKS: List[Tuple[str, Callable]] = [
     ("Her memory", check_memory),
     ("Her body", check_stage),
     ("OBS", check_obs),
+    ("Discord", check_discord),
     ("The dashboard", check_dashboard),
 ]
 

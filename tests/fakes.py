@@ -74,10 +74,10 @@ class StreamingLLMClient(FakeLLMClient):
         message = await self.complete(messages, tools=tools)
         if on_tool_delta is None:
             return message
-        for call in message.tool_calls:
+        for index, call in enumerate(message.tool_calls):
             raw = json.dumps(call.arguments)
             for start in range(0, len(raw), self.chunk):
-                on_tool_delta(call.name, raw[start:start + self.chunk])
+                on_tool_delta(index, call.name, raw[start:start + self.chunk])
                 for _ in range(4):
                     await asyncio.sleep(0)
                 if self.after_delta:

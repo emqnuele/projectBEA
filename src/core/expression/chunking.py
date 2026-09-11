@@ -144,7 +144,10 @@ class SpeechChunker:
         """Cut an over-long stretch where a pause would sound deliberate."""
         window = self._buffer[:self._cut_ceiling()]
         cut = max(window.rfind(", "), window.rfind("; "))
-        if cut >= self.max_chars // _COMMA_FLOOR:
+        # how far back that comma is has to be measured in words, not in raw
+        # characters: a window with three tags in it is not a longer window, and
+        # counting them would accept a comma that is really much too early
+        if cut > 0 and visible_len(window[:cut]) >= self.max_chars // _COMMA_FLOOR:
             cut += 1  # the comma belongs to the pause, not to what comes after
         else:
             cut = window.rfind(" ")
