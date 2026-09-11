@@ -397,9 +397,13 @@ Settings*), and a virtual audio cable such as
 separate track.
 
 ```bash
-uv sync                # or: make install
-uv run bea --setup     # or: make setup  (writes config.json and .env for you)
+uv sync                    # or: make install
+uv run bea --install-node  # or: make node   (the dashboard and the discord bot)
+uv run bea --setup         # or: make setup  (writes config.json and .env for you)
 ```
+
+Both of those need Node 20+. The discord bot is a node program of its own, so
+turning the skill on without it leaves her looking enabled and never online.
 
 Or by hand, copy `.env.example` to `.env`:
 

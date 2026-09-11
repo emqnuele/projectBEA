@@ -39,6 +39,7 @@ from src.core.update.reconcile import (
 )
 from src.core.update.version import current_version
 from src.setup.node import PROJECTS as NODE_PROJECTS
+from src.setup.node import executable
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.update")
@@ -497,9 +498,14 @@ def _rebuild_node(root: Path, changed: List[str], step) -> None:
 
 def _command(cwd: Path, args: List[str]) -> tuple:
     """Runs one build command. Returns (ok, the last thing it said when it failed)."""
+    # under the name this machine gave it: npm is `npm.cmd` on windows, which
+    # subprocess cannot find by its bare name
+    program = executable(args[0])
+    if program is None:
+        return False, f"{args[0]} is not installed"
     try:
         result = subprocess.run(
-            args, cwd=str(cwd), capture_output=True, text=True,
+            [program, *args[1:]], cwd=str(cwd), capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=DEPENDENCY_TIMEOUT,
         )
     except FileNotFoundError:

@@ -20,8 +20,15 @@ permissions:
 
 jobs:
   test:
-    name: lint and tests
-    runs-on: ubuntu-latest
+    # she is installed on all three, so she is tested on all three. A date
+    # format that only windows rejects took her voice away on windows alone,
+    # and a green ubuntu run said nothing about it.
+    name: lint and tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +44,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      # lint and types read the code, not the machine: one platform is the
+      # whole answer, and three runs of it would be three of the same one
       - name: Lint
+        if: matrix.os == 'ubuntu-latest'
         run: uv run ruff check src tests
 
       # src only, and only because it is at zero: tests pass fakes and
@@ -45,6 +55,7 @@ jobs:
       # of the fakes. Added once it already passed — a gate that is red on the
       # day it lands is a gate people learn to ignore.
       - name: Types
+        if: matrix.os == 'ubuntu-latest'
         run: uvx pyright
 
       - name: Tests

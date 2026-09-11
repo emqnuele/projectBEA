@@ -531,6 +531,7 @@ arrives with its tests in the same commit.**
 
 ```bash
 make install        # uv sync
+make node           # uv run bea --install-node (dashboard + discord bot)
 make run            # CLI
 make web            # build the javascript + dashboard on :8000
 make update         # fast-forward, preserving edited prompts (see updating.md)

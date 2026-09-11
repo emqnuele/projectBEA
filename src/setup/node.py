@@ -46,11 +46,26 @@ PROJECTS: Tuple[NodeProject, ...] = (
 )
 
 
+def executable(name: str) -> Optional[str]:
+    """The program to actually run, under the name this machine gave it.
+
+    Windows ships npm as `npm.cmd`, and `CreateProcess` — which is what
+    subprocess uses without a shell — only ever looks for an `.exe` under a bare
+    name. It runs a `.cmd` quite happily once told the full name, which is what
+    `which` returns. Without this every npm step failed on windows saying npm
+    was not installed, on machines where it plainly was.
+    """
+    return shutil.which(name)
+
+
 def run(project: NodeProject, args: List[str], root: Optional[Path] = None) -> Tuple[bool, str]:
     """One npm command. Returns (ok, what it said when it did not work)."""
+    npm = executable("npm")
+    if npm is None:
+        return False, "npm is not installed"
     try:
         result = subprocess.run(
-            ["npm", *args], cwd=str(project.directory(root)), capture_output=True,
+            [npm, *args], cwd=str(project.directory(root)), capture_output=True,
             text=True, encoding="utf-8", errors="replace", timeout=TIMEOUT,
         )
     except FileNotFoundError:

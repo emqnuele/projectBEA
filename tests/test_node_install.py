@@ -69,3 +69,30 @@ def test_a_project_knows_whether_it_has_been_installed(project, tmp_path):
     assert not project.installed(tmp_path)
     (tmp_path / project.path / "node_modules").mkdir(parents=True)
     assert project.installed(tmp_path)
+
+
+# --- windows calls npm something else ----------------------------------------
+
+
+def test_npm_is_run_under_the_name_this_machine_gave_it(monkeypatch):
+    """On windows npm is `npm.cmd`, and subprocess will not find it by the
+    bare name — every npm step failed saying npm was not installed."""
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen["argv0"] = args[0]
+        raise RuntimeError("far enough: the name is what is being tested")
+
+    monkeypatch.setattr(node.shutil, "which", lambda name: r"C:\Program Files\nodejs\npm.cmd")
+    monkeypatch.setattr(node.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError):
+        node.run(node.PROJECTS[0], ["install"])
+    assert seen["argv0"].endswith("npm.cmd")
+
+
+def test_a_missing_npm_is_reported_rather_than_raised(monkeypatch):
+    monkeypatch.setattr(node.shutil, "which", lambda name: None)
+    ok, detail = node.run(node.PROJECTS[0], ["install"])
+    assert not ok
+    assert "npm is not installed" in detail

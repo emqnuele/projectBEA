@@ -19,6 +19,7 @@ the result and updates again.
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -67,10 +68,14 @@ ORIGINAL = "\n".join([
 
 
 def git(cwd: Path, *args: str) -> str:
+    # the developer's own git config is kept out of these fixtures, but the
+    # PATH is inherited: git lives somewhere else entirely on windows, and a
+    # hardcoded posix one made the suite unrunnable there
+    env = {**os.environ,
+           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+           "HOME": str(cwd), "USERPROFILE": str(cwd)}
     result = subprocess.run(
-        ["git", *args], cwd=str(cwd), capture_output=True, text=True,
-        env={"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
-             "HOME": str(cwd), "PATH": "/usr/bin:/bin:/usr/local/bin"},
+        ["git", *args], cwd=str(cwd), capture_output=True, text=True, env=env,
     )
     assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
     return result.stdout.strip()

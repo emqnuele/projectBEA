@@ -42,6 +42,7 @@ If you have `make` available, the same is wrapped in convenient targets:
 
 ```bash
 make install        # uv sync
+make node           # uv run bea --install-node (dashboard + discord bot)
 make help           # list every target
 ```
 
