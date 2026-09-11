@@ -82,7 +82,7 @@ class Expression:
 
         # a call line's visuals run in their own task; it must be held onto, or
         # the garbage collector can cancel it between two sentences
-        self._visual_task: Optional[asyncio.Task] = None
+        self._visual_tasks = set()
 
     def set_state(self, state: str, mood: Optional[str] = None) -> None:
         """A visible state that is not speech: sleeping, listening, idle.
@@ -442,8 +442,8 @@ class Expression:
                 line.mood, line.caption or line.spoken,
                 state["spoken_ms"] / 1000.0, state["frames"],
             ))
-            task.add_done_callback(lambda done: setattr(self, "_visual_task", None))
-            self._visual_task = task
+            self._visual_tasks.add(task)
+            task.add_done_callback(self._visual_tasks.discard)
             return self.call.utterances.get(state["id"])
 
         if self.current_typing_task and not self.current_typing_task.done():
