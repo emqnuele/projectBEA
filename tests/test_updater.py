@@ -764,3 +764,67 @@ def test_a_missing_npm_names_the_one_command_that_fixes_it(world, monkeypatch):
     bot = [s for s in report.steps if s.id == "discord bot"][0]
     assert bot.status == "failed"
     assert "--install-node" in bot.detail
+
+
+# --- the same file, written the way windows writes it -------------------------
+
+
+def write_crlf(root: Path, relative: str, text: str) -> None:
+    """A file as an editor on windows leaves it."""
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
+
+
+def test_a_prompt_stored_with_windows_line_endings_still_merges(world):
+    """The three sides used to be read two different ways.
+
+    The user's file came through python's text mode, which turns CRLF into LF;
+    the other two came out of git as bytes, which does not. Every line then
+    differed from itself, so a clean merge was reported as a collision and the
+    engine's own improvements were dropped.
+    """
+    upstream, clone = world
+    write_crlf(upstream, OPERATING, ORIGINAL)
+    commit(upstream, "as windows wrote it")
+    git(clone, "pull", "-q", "origin", "main")
+
+    write_crlf(clone, OPERATING, ORIGINAL.replace("She is curious.", "She is sarcastic and tired."))
+    write_crlf(upstream, OPERATING,
+               ORIGINAL.replace("Use the speak tool.", "Use the speak tool, never narrate."))
+    commit(upstream, "improve the manual")
+
+    report = update(clone)
+
+    merged = read(clone, OPERATING)
+    assert "She is sarcastic and tired." in merged, "the user's character was dropped"
+    assert "Use the speak tool, never narrate." in merged, "the engine improvement was dropped"
+    assert [o.state for o in report.prompts] == [MERGED]
+
+
+def test_an_identical_edit_is_not_a_conflict_because_of_line_endings(world):
+    upstream, clone = world
+    write_crlf(upstream, OPERATING, ORIGINAL)
+    commit(upstream, "as windows wrote it")
+    git(clone, "pull", "-q", "origin", "main")
+
+    changed = ORIGINAL.replace("She is curious.", "She is curious and blunt.")
+    write_crlf(clone, OPERATING, changed)
+    write_crlf(upstream, OPERATING, changed)
+    commit(upstream, "same change")
+
+    assert [o.state for o in update(clone).prompts] == [UNTOUCHED]
+
+
+def test_a_merge_hands_the_file_back_written_the_way_it_was_found(world):
+    """Rewriting somebody's line endings behind their back is its own bug."""
+    upstream, clone = world
+    write_crlf(clone, OPERATING, ORIGINAL.replace("She is curious.", "She is sarcastic."))
+    replace(upstream, OPERATING, "Use the speak tool.", "Use the speak tool, briefly.")
+    commit(upstream, "an easy change")
+
+    update(clone)
+
+    raw = (clone / OPERATING).read_bytes()
+    assert b"\r\n" in raw
+    assert raw.count(b"\n") == raw.count(b"\r\n"), "half the file was converted"

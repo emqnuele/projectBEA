@@ -76,9 +76,13 @@ class Reach:
 
     def channels(self, person_id: str) -> List[Channel]:
         """Every account of theirs, most recently seen first."""
+        # the tie-break is not decoration: the clock on windows moves in steps
+        # of about 15ms, so two sightings in the same moment carry the same
+        # timestamp and the order sqlite returns them in is its own business.
+        # Later row wins, which is the same answer the timestamps would give.
         rows = self.memory.db.query(
             "SELECT platform, native_id, display_name, last_seen FROM identities "
-            "WHERE person_id = ? ORDER BY last_seen DESC",
+            "WHERE person_id = ? ORDER BY last_seen DESC, rowid DESC",
             (person_id,),
         )
         return [

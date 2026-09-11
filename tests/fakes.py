@@ -30,10 +30,12 @@ class FakeLLMClient(LLMClient):
         return len(self.calls)
 
     async def complete(self, messages, tools=None, response_format=None) -> AssistantMessage:
-        if self.fail_with:
-            raise self.fail_with
+        # recorded before it fails: a call that raised is still a call that was
+        # made, and a test waiting for one would otherwise wait forever
         # deep enough to survive the caller mutating its context afterwards
         self.calls.append([dict(m) for m in messages])
+        if self.fail_with:
+            raise self.fail_with
         self.tools_seen.append([t["function"]["name"] for t in (tools or [])])
         if self.script:
             return self.script.pop(0)

@@ -523,8 +523,11 @@ def _command(cwd: Path, args: List[str]) -> tuple:
 
 
 def _read(path: Path) -> Optional[str]:
+    # newline="" so the file arrives written the way the user wrote it: the
+    # reconciler needs to know, to hand it back in the same shape
     try:
-        return path.read_text(encoding="utf-8")
+        with path.open(encoding="utf-8", newline="") as handle:
+            return handle.read()
     except (OSError, UnicodeDecodeError):
         return None
 
