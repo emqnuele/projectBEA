@@ -80,6 +80,7 @@ export async function createAvatar(root, config = {}) {
     const mixer = new THREE.AnimationMixer(vrm.scene);
     const clips = new Map();
     let current = null;
+    let playGeneration = 0;
 
     mixer.addEventListener('finished', (event) => {
         // the body is handed back the moment the gesture ends; the clip fades
@@ -127,6 +128,10 @@ export async function createAvatar(root, config = {}) {
 
     async function play(name) {
         if (!name) return;
+        // two behaviours asked for fifty milliseconds apart race through the
+        // loader; the one that finishes second is the newer one, but the one
+        // that *started* second is what belongs on stage
+        const generation = ++playGeneration;
         try {
             if (!clips.has(name)) {
                 const loaded = await loader.loadAsync(`/stage/clips/${encodeURIComponent(name)}`);
@@ -134,6 +139,9 @@ export async function createAvatar(root, config = {}) {
                 if (!animation) throw new Error('no animation inside it');
                 clips.set(name, createVRMAnimationClip(animation, vrm));
             }
+            // a newer request won the race while this one was loading: cached
+            // for next time, but not played on top of it
+            if (generation !== playGeneration) return;
             const action = mixer.clipAction(clips.get(name));
             // a behaviour is a gesture, not a loop. Left on the default the
             // first shrug of the stream repeats until the page is reloaded —

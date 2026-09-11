@@ -85,6 +85,9 @@ export function createLife(vrm, camera, scene) {
 
     let blinkIn = 1 + Math.random() * 3;
     let blinking = 0;
+    // how far the eyes are shut by sleeping; eased both ways so waking up is a
+    // lid slowly lifting, not a snap to a resting face
+    let lids = 0;
 
     // 0 while a behaviour owns the body, easing back to 1 when it lets go
     let sway = 1;
@@ -114,7 +117,16 @@ export function createLife(vrm, camera, scene) {
         if (!manager) return;
 
         if (state.eyesShut) {
-            manager.setValue('blink', ease(manager.getValue('blink') ?? 0, 1, 4, dt));
+            lids = ease(lids, 1, 4, dt);
+            manager.setValue('blink', lids);
+            return;
+        }
+
+        // a waking pair of eyelids still holds the sleep value; let it open
+        // slowly, and keep voluntary blinks off it until it has
+        if (lids > 0) {
+            lids = ease(lids, 0, 3, dt);
+            manager.setValue('blink', lids);
             return;
         }
 

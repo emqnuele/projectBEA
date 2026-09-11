@@ -19,6 +19,10 @@ const OPENERS = [
     'What do you want to do on stream?',
 ];
 
+// Date.now() can collide for two takes in the same millisecond, and the
+// placeholder key must be unique or both recordings would edit the same message
+let takeSequence = 0;
+
 /** MediaRecorder does not produce WAV — send what it actually made. */
 function pickRecordingType() {
     const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
@@ -111,7 +115,8 @@ export default function ChatPage() {
     };
 
     const sendAudio = useCallback(async (blob, extension) => {
-        const placeholder = { role: 'user', content: 'Transcribing…', pending: true, id: Date.now() };
+        takeSequence += 1;
+        const placeholder = { role: 'user', content: 'Transcribing…', pending: true, id: takeSequence };
         setMessages((prev) => [...(prev || []), placeholder]);
         setThinking(true);
         try {
@@ -136,9 +141,10 @@ export default function ChatPage() {
     }, [toast]);
 
     // --- voice mode: she listens continuously and you can talk over her ---
+    const interruptOnSpeech = useCallback(() => { api.interrupt().catch(() => { }); }, []);
     const { startVAD, stopVAD, isSpeaking: userSpeaking, volume } = useVAD({
-        onSpeechStart: () => { api.interrupt().catch(() => { }); },
-        onSpeechEnd: (blob, extension) => sendAudio(blob, extension),
+        onSpeechStart: interruptOnSpeech,
+        onSpeechEnd: sendAudio,
     });
 
     useEffect(() => {
@@ -148,8 +154,9 @@ export default function ChatPage() {
     // --- push to talk: pointer events, so it works on a phone too ---
     const startRecording = async () => {
         if (voiceMode || recording) return;
+        let stream = null;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const { type, extension } = pickRecordingType();
             const recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
             recorderRef.current = { recorder, extension };
@@ -164,6 +171,9 @@ export default function ChatPage() {
             recorder.start();
             setRecording(true);
         } catch (e) {
+            // a recorder that never started is not about to stop a mic that
+            // was granted and then abandoned on the floor
+            stream?.getTracks().forEach((track) => track.stop());
             toast.error('No microphone', e.message || 'The browser refused access to the microphone.');
         }
     };
@@ -247,6 +257,7 @@ export default function ChatPage() {
                         onPointerDown={startRecording}
                         onPointerUp={stopRecording}
                         onPointerCancel={stopRecording}
+                        onBlur={stopRecording}
                         onKeyDown={(e) => { if (e.key === ' ' && !recording) { e.preventDefault(); startRecording(); } }}
                         onKeyUp={(e) => { if (e.key === ' ') { e.preventDefault(); stopRecording(); } }}
                         className={cn(recording && 'animate-[bea-pulse_1.2s_ease-in-out_infinite]')}
@@ -428,7 +439,9 @@ function ThinkingBubble({ label = 'Thinking' }) {
 }
 
 function VoiceMeter({ volume, userSpeaking, beaSpeaking, name }) {
-    const level = Math.min(1, volume || 0);
+    // the VAD reports a byte-mean over the speech band, so ordinary speech
+    // lands around 40-160 and would pin a 0-1 meter solid
+    const level = Math.min(1, (volume || 0) / 80);
     const state = beaSpeaking ? `${name} is talking` : userSpeaking ? 'Hearing you' : 'Listening';
     const color = beaSpeaking ? 'var(--vital)' : userSpeaking ? 'var(--flux-act)' : 'var(--flux-mute)';
 

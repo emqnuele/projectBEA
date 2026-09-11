@@ -47,6 +47,20 @@ export const useVAD = ({ onSpeechStart, onSpeechEnd } = {}) => {
     const tickRef = useRef(null);
     // set while a take is being kept; cleared when one is abandoned unheard
     const wantedRef = useRef(false);
+    // flipped by stopVAD so a getUserMedia still pending when the mic was
+    // asked to close cannot come back up and leave it hot
+    const closingRef = useRef(false);
+    // startVAD has to stay referentially stable (see below), so the live
+    // listening flag lives in a ref instead of a closure
+    const listeningRef = useRef(false);
+
+    // handlers live in refs because the caller is allowed to pass inline
+    // arrows: a new identity every render must not be able to tear the
+    // microphone down, which is what a changing stopVAD used to do
+    const onSpeechStartRef = useRef(onSpeechStart);
+    const onSpeechEndRef = useRef(onSpeechEnd);
+    useEffect(() => { onSpeechStartRef.current = onSpeechStart; }, [onSpeechStart]);
+    useEffect(() => { onSpeechEndRef.current = onSpeechEnd; }, [onSpeechEnd]);
 
     // --- recording, declared before the loop that drives it ---
 
@@ -73,16 +87,23 @@ export const useVAD = ({ onSpeechStart, onSpeechEnd } = {}) => {
             if (!keep) return;
             const type = recorder.mimeType || 'audio/webm';
             const blob = new Blob(audioChunksRef.current, { type });
-            if (blob.size > MIN_TAKE_BYTES && onSpeechEnd) onSpeechEnd(blob, extensionFor(type));
+            const cb = onSpeechEndRef.current;
+            if (blob.size > MIN_TAKE_BYTES && cb) cb(blob, extensionFor(type));
         };
         recorder.stop();
-    }, [onSpeechEnd]);
+    }, []);
 
     const startVAD = useCallback(async () => {
-        if (isListening) return;
+        if (listeningRef.current) return;
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // the mic was closed while the browser was deciding whether to
+            // grant it: give the tracks straight back and do not come up
+            if (closingRef.current) {
+                stream.getTracks().forEach((track) => track.stop());
+                return;
+            }
             streamRef.current = stream;
 
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -99,6 +120,7 @@ export const useVAD = ({ onSpeechStart, onSpeechEnd } = {}) => {
             });
 
             setIsListening(true);
+            listeningRef.current = true;
             setRecordingStatus('listening');
             wantedRef.current = false;
 
@@ -116,7 +138,7 @@ export const useVAD = ({ onSpeechStart, onSpeechEnd } = {}) => {
                     wantedRef.current = true;
                     setIsSpeaking(true);
                     setRecordingStatus('recording');
-                    if (onSpeechStart) onSpeechStart();
+                    if (onSpeechStartRef.current) onSpeechStartRef.current();
                     return;
                 }
 
@@ -138,19 +160,28 @@ export const useVAD = ({ onSpeechStart, onSpeechEnd } = {}) => {
             console.error('VAD Setup Error:', err);
             setRecordingStatus('error');
         }
-    }, [isListening, onSpeechStart, startRecordingInternal, stopRecordingInternal]);
+        // both helpers below are referentially stable, so this list never
+        // grows or shrinks; it exists to keep the linter honest
+    }, [startRecordingInternal, stopRecordingInternal]);
 
     const stopVAD = useCallback(() => {
+        closingRef.current = true;
         if (tickRef.current) clearInterval(tickRef.current);
         // whatever was being captured when the microphone was closed was never
         // a finished sentence
         stopRecordingInternal(false);
-        if (audioContextRef.current) audioContextRef.current.close();
+        // close() resolves its own promise; rejecting that promise is not a
+        // reason for the mic to stay open, and an unhandled rejection would be
+        if (audioContextRef.current) {
+            audioContextRef.current.close().catch(() => {});
+            audioContextRef.current = null;
+        }
         if (streamRef.current) {
             streamRef.current.getTracks().forEach((track) => track.stop());
             streamRef.current = null;
         }
 
+        listeningRef.current = false;
         setIsListening(false);
         setIsSpeaking(false);
         setRecordingStatus('idle');
@@ -158,7 +189,8 @@ export const useVAD = ({ onSpeechStart, onSpeechEnd } = {}) => {
         wantedRef.current = false;
     }, [stopRecordingInternal]);
 
-    // cleanup
+    // cleanup on unmount only: stopVAD never changes identity, so running it
+    // on every commit would be the very mic-teardown this hook exists to stop
     useEffect(() => () => stopVAD(), [stopVAD]);
 
     return {

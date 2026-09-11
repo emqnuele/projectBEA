@@ -101,7 +101,7 @@ function PngPreview({ map }) {
     );
 }
 
-function ModelPreview({ hasModel }) {
+function ModelPreview({ hasModel, modelPath }) {
     if (!hasModel) {
         return (
             <Frame>
@@ -119,6 +119,7 @@ function ModelPreview({ hasModel }) {
                 own opaque white underneath it */}
             <div className="overflow-hidden rounded-b2 border border-line" style={CHECKS}>
                 <iframe
+                    key={modelPath}
                     title="The browser source"
                     src="/stage?hud=0"
                     className="block h-[420px] w-full border-0"
@@ -155,7 +156,7 @@ export function StagePreview({ config, vtsStatus }) {
     return (
         <Group title="Preview" description="What the stream sees, before you go looking in OBS.">
             {backend === 'png' && <PngPreview map={config.avatar_map || {}} />}
-            {backend === 'model' && <ModelPreview hasModel={Boolean(stage.model_path)} />}
+            {backend === 'model' && <ModelPreview hasModel={Boolean(stage.model_path)} modelPath={stage.model_path} />}
             {backend === 'vtube_studio' && <VtsPreview status={vtsStatus} />}
         </Group>
     );
