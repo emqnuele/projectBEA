@@ -13,6 +13,9 @@ setup: install ## interactive first-run setup: writes .env and config.json
 update: ## pull the new version, keeping your prompts, config and memory
 	uv run bea --update
 
+doctor: ## check this machine: keys, voice, ears, body, and what to fix
+	uv run bea --doctor
+
 docker: ## build the image and run the setup wizard inside it
 	@# a missing bind-mount target makes docker create a directory in its place
 	@test -f config.json || cp config.example.json config.json

@@ -420,6 +420,7 @@ uv run bea --llm-provider openrouter --tts-provider kokoro --web
 **Tests and diagnostics:**
 
 ```bash
+uv run bea --doctor  # or: make doctor
 make test          # uv run pytest -q
 make lint          # uv run ruff check src tests
 ```
@@ -429,7 +430,7 @@ client, surface and transport is faked. CI runs exactly `make test` and `make li
 
 > [!TIP]
 > **Something broken?** If she stops answering, you lose audio, or the avatar
-> breaks, run `uv run bea --doctor` — or open **Maintenance** in the dashboard
+> breaks, run `uv run bea --doctor` (or `make doctor`) — or open **Maintenance** in the dashboard
 > and press the button. Thirteen checks in the order the pieces depend on each
 > other, stopping at the first thing that would stop her, each failure carrying
 > the exact command that fixes it.
