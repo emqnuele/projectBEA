@@ -197,7 +197,7 @@ class AIVtuberBrain:
         if store.rag is not None and embedder is not None:
             # vectors from two models are not comparable: a change re-embeds
             try:
-                store.rag.ensure_model(embedder.model_name)
+                store.rag.ensure_model(embedder.identity)
             except Exception as e:
                 logger.error(f"Could not verify the embedding model: {e}")
         return store
