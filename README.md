@@ -91,6 +91,10 @@ untouched and the new one is left beside it to compare.
 The dashboard does the same with a button, tells you when there is something
 new, and shows you the two versions side by side when a file needs your call.
 
+Updating in place is the only thing here that needs `git` installed. Without it
+she runs exactly the same, and `uv run bea --doctor` tells you what you are
+missing.
+
 **[What it does, and what it refuses to do →](docs/updating.md)**
 
 ---
@@ -420,7 +424,7 @@ make test          # uv run pytest -q
 make lint          # uv run ruff check src tests
 ```
 
-1696 tests, and they run without network access or API keys: every model
+1707 tests, and they run without network access or API keys: every model
 client, surface and transport is faked. CI runs exactly `make test` and `make lint`.
 
 > [!TIP]

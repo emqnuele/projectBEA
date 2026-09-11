@@ -326,6 +326,10 @@ The dashboard's **Maintenance** screen does the same thing with a button, shows
 the changelog before you commit to it, and gives you a side-by-side diff for
 anything that needs a decision.
 
+Updating in place needs `git` — it is the only feature that does. Without it
+she runs exactly the same and `bea --doctor` tells you what you are missing;
+nothing installs it for you, because doing so needs root.
+
 **[How it works, and what it refuses to do →](updating.md)**
 
 ---

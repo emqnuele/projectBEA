@@ -228,6 +228,27 @@ the log.
 
 ---
 
+## Without git
+
+Nothing in the engine shells out to git. `src/core/update/gitrepo.py` is the
+only module that runs it, so on a machine without git she starts, thinks,
+speaks, remembers and serves the dashboard exactly as she does anywhere else —
+the suite proves it: 1668 pass, and the 39 that skip are the updater's own,
+which build real repositories to test against.
+
+What is lost is updating in place. `runner.supported()` returns the reason,
+`GET /update` reports `supported: false` with it, the Maintenance screen
+explains instead of going blank, and `bea --doctor`'s **Updates** check says so
+non-blockingly with the install command for the platform.
+
+git is not installed for the user by anything here. Every package manager that
+could do it wants root, there is no portable way to do it across macOS, Linux
+and Windows, and `install.sh` is a script people pipe from `curl` — one that
+silently escalates to `sudo` is not one worth trusting. The installers refuse
+with the exact command instead.
+
+---
+
 ## What it does not do
 
 * **Restart her.** The new code is on disk; the running process keeps the old
