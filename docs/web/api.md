@@ -627,7 +627,7 @@ What the OBS browser source reads, and what the dashboard asks about the avatar.
 None of it is authenticated, so none of it ever carries a secret.
 
 #### `GET /stage`
-The page to point an OBS **Browser Source** at. `404` with "run `make frontend`"
+The page to point an OBS **Browser Source** at. `404` with "run `uv run bea --install-node`"
 when the frontend has not been built.
 
 #### `GET /stage/stream`

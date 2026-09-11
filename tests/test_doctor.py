@@ -299,7 +299,7 @@ async def test_an_unbuilt_dashboard_is_fatal_when_her_stage_needs_it(monkeypatch
     monkeypatch.setattr(doctor, "DASHBOARD", tmp_path / "never-built.html")
     found = await check_dashboard(config(stage={"avatar_backend": "model",
                                                 "caption_backend": "obs"}))
-    assert found.stops and found.fix == "make frontend"
+    assert found.stops and found.fix == "uv run bea --install-node"
 
 
 async def test_an_unbuilt_dashboard_is_only_a_warning_otherwise(monkeypatch, tmp_path):
@@ -403,7 +403,7 @@ async def test_a_machine_without_node_is_told_so_and_told_what_to_install(monkey
 
     assert not found.ok
     assert "node" in found.detail
-    assert "npm ci" in found.fix
+    assert "--install-node" in found.fix
 
 
 async def test_packages_that_were_never_installed_are_named(monkeypatch, tmp_path):
@@ -413,4 +413,4 @@ async def test_packages_that_were_never_installed_are_named(monkeypatch, tmp_pat
     found = await check_discord(config(skills={"discord": {"enabled": True}}))
 
     assert not found.ok
-    assert "npm ci" in found.fix
+    assert "--install-node" in found.fix

@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install setup update docker docker-up docker-down run web frontend lock clean test lint migrate model
+.PHONY: help install setup update docker docker-up docker-down run web node lock clean test lint migrate model doctor
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -39,11 +39,11 @@ migrate: ## one-shot: move the old json/chroma stores into data/bea.db
 run: ## start the engine in CLI mode
 	uv run bea
 
-web: frontend ## build the frontend and start the web dashboard
+web: node ## build the javascript and start the web dashboard
 	uv run bea --web
 
-frontend: ## install deps and build the react dashboard
-	cd src/web/frontend && npm install && npm run build
+node: ## install the dashboard and the discord bot (needs node 20+)
+	uv run bea --install-node
 
 test: ## run the test suite
 	uv run pytest -q

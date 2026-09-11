@@ -244,7 +244,7 @@ Type messages at the `You >` prompt. Type `exit` to quit.
 ### Web Dashboard mode
 
 ```bash
-uv run bea --web    # or: make web  (also builds the frontend)
+uv run bea --web    # or: make web  (also builds the javascript)
 ```
 
 Opens the FastAPI server at `http://localhost:8000`. The React frontend (built
@@ -361,6 +361,6 @@ costs a handful of provider requests and never runs on its own.
 | A model in `mind` "does not support tool calling" | Remove it from the pool. Bea speaks only through tools, so a model without them never says anything |
 | She never starts anything in Minecraft | Give her objectives on the dashboard's Stream Plan page — with an empty plan she only ever reacts |
 | OBS avatar source not updating after config migration | If your `config.json` still contains the old key `obs_image_source`, it is silently renamed to `obs_avatar_source` by `load_from_file()`. Delete the old key from your `config.json` and re-save to avoid ambiguity. |
-| `make update` says you have local changes to the engine | You have edited a tracked file outside `data/prompts/`. Commit, stash or revert it — the updater merges prompts, not source |
-| The dashboard looks unchanged after an update | The build is gitignored. Run `make frontend`, or check whether the `dashboard` step reported a missing `npm` |
+| The update says you have local changes to the engine | You have edited a tracked file outside `data/prompts/`. Commit, stash or revert it — the updater merges prompts, not source |
+| The dashboard looks unchanged after an update | The build is gitignored. Run `uv run bea --install-node`, or check whether the `dashboard` step reported a missing `npm` |
 | A prompt has a `.new` beside it | An update changed the same lines you had. Yours is in use; compare them in Maintenance, or with `diff data/prompts/operating.md data/prompts/operating.md.new` |

@@ -67,18 +67,18 @@ Write-Host "  this downloads a few hundred MB the first time" -ForegroundColor D
 uv sync
 Ok "dependencies ready"
 
-# --- 4. the dashboard -------------------------------------------------------
+# --- 4. the javascript ------------------------------------------------------
+# the dashboard is not the only javascript she has: her discord voice is a node
+# program of its own, and installing only the dashboard left the skill switched
+# on in the UI and dead in the process
 
-Step "Building the dashboard"
+Step "Building the dashboard and the discord bot"
 if (Get-Command npm -ErrorAction SilentlyContinue) {
-    Push-Location src\web\frontend
-    npm install --silent
-    npm run build | Out-Null
-    Pop-Location
-    Ok "dashboard built"
+    uv run bea --install-node
+    Ok "dashboard and discord bot ready"
 } else {
-    Warn "Node.js not found - skipping the dashboard."
-    Warn "Install Node 18+ from https://nodejs.org, then run: make frontend"
+    Warn "Node.js not found - skipping the dashboard and the discord bot."
+    Warn "Install Node 20+ from https://nodejs.org, then run: uv run bea --install-node"
 }
 
 # --- 5. configuration -------------------------------------------------------

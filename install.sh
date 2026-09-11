@@ -74,13 +74,16 @@ ok "dependencies ready"
 
 # --- 4. the dashboard -------------------------------------------------------
 
-step "Building the dashboard"
+# the dashboard is not the only javascript she has: her discord voice is a node
+# program of its own, and installing only the dashboard left the skill switched
+# on in the UI and dead in the process
+step "Building the dashboard and the discord bot"
 if command -v npm >/dev/null 2>&1; then
-  (cd src/web/frontend && npm install --silent && npm run build >/dev/null)
-  ok "dashboard built"
+  uv run bea --install-node
+  ok "dashboard and discord bot ready"
 else
-  warn "Node.js not found — skipping the dashboard."
-  warn "Install Node 18+ from https://nodejs.org, then run: make frontend"
+  warn "Node.js not found — skipping the dashboard and the discord bot."
+  warn "Install Node 20+ from https://nodejs.org, then run: uv run bea --install-node"
 fi
 
 # --- 5. configuration -------------------------------------------------------

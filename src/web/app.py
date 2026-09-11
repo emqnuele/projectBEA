@@ -1173,7 +1173,7 @@ def stage_page():
     if not page.is_file():
         raise HTTPException(
             status_code=404,
-            detail="The stage page is not built. Run `make frontend`.",
+            detail="The stage page is not built. Run `uv run bea --install-node`.",
         )
     return FileResponse(page)
 

@@ -707,3 +707,55 @@ def test_docker_is_told_to_rebuild_the_image(world, monkeypatch):
     status = runner.check(root=clone, force=True)
     assert not status.supported
     assert "Docker" in status.reason
+
+
+# --- the javascript she has that is not the dashboard -------------------------
+
+
+def test_an_update_to_the_discord_bot_installs_it(world, monkeypatch):
+    """The bot was left out of the rebuild for as long as it existed.
+
+    An update that changed its packages left the discord toggle on in the UI
+    and the bot unable to start, saying so nowhere but its own stderr.
+    """
+    upstream, clone = world
+    write(upstream, "src/core/skills/voice/bot/package.json", '{"name": "bea-discord-bot"}\n')
+    commit(upstream, "bump the bot")
+
+    ran = []
+
+    def record(cwd, args):
+        ran.append((cwd, args))
+        return True, ""
+
+    monkeypatch.setattr(runner.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(runner, "_command", record)
+
+    report = update(clone)
+
+    statuses = {s.id: s.status for s in report.steps}
+    assert statuses["discord bot"] == "done"
+    assert any("bot" in str(cwd) and args[:1] == ["npm"] for cwd, args in ran)
+
+
+def test_the_bot_is_left_alone_when_it_did_not_change(world):
+    upstream, clone = world
+    replace(upstream, SOUL, "She is the one we ship.", "changed")
+    commit(upstream, "prompt only")
+
+    report = update(clone)
+
+    assert {s.id: s.status for s in report.steps}["discord bot"] == "skipped"
+
+
+def test_a_missing_npm_names_the_one_command_that_fixes_it(world, monkeypatch):
+    upstream, clone = world
+    write(upstream, "src/core/skills/voice/bot/package.json", '{"name": "bea-discord-bot"}\n')
+    commit(upstream, "bump the bot")
+    monkeypatch.setattr(runner.shutil, "which", lambda name: None if name == "npm" else "/usr/bin/x")
+
+    report = update(clone)
+
+    bot = [s for s in report.steps if s.id == "discord bot"][0]
+    assert bot.status == "failed"
+    assert "--install-node" in bot.detail

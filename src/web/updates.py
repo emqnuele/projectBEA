@@ -105,7 +105,7 @@ def start_update() -> Dict[str, Any]:
     if not _config_flag("allow_web_apply"):
         raise HTTPException(
             status_code=403,
-            detail="Updating from the dashboard is switched off. Run `make update` in a terminal.",
+            detail="Updating from the dashboard is switched off. Run `uv run bea --update` in a terminal.",
         )
 
     global _run
