@@ -170,9 +170,7 @@ machinery.
    without a single model call. The rest goes into the digest, which appears in
    the next system message as `[WHILE YOU WERE BUSY]`.
 4. **Rebuild the system message** (`_build_system_message`):
-   `CURRENT DATE + soul + operating manual + context_section of every active
-   skill + live_state + dynamic_context(batch)`. The dynamic part (RAG, person
-   cards) runs in `asyncio.to_thread` so a slow retrieval never stalls the loop.
+   The static part (soul + operating manual) is deliberately split from the dynamic part (RAG, person cards, live state) so providers can cache the static prompt. The dynamic part runs in `asyncio.to_thread` so a slow retrieval never stalls the loop.
 5. **Append the perception frame** as a `user` message.
 6. **Reasoning burst**, up to `burst_steps` (6) steps:
    - `bus.drain_nowait()` folds anything that arrived *during* reasoning in as a

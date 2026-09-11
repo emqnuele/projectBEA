@@ -45,18 +45,19 @@ out to matter, and conclusions she reaches about herself overnight.
 
 ## Try it in five minutes
 
-One command. It installs `uv` if you don't have it, pulls the dependencies,
-builds the dashboard and then asks you five questions.
-
-**macOS / Linux**
-```bash
-curl -LsSf https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.sh | bash
-```
-
-**Windows (PowerShell)**
-```powershell
-irm https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.ps1 | iex
-```
+> [!IMPORTANT]
+> One command. It installs `uv` if you don't have it, pulls the dependencies,
+> builds the dashboard and then asks you five questions.
+> 
+> **macOS / Linux**
+> ```bash
+> curl -LsSf https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.sh | bash
+> ```
+> 
+> **Windows (PowerShell)**
+> ```powershell
+> irm https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.ps1 | iex
+> ```
 
 The default profile is **Solo chat**: the dashboard and her voice, one API key,
 nothing else. No OBS, no Discord bot, no Minecraft server, no virtual audio
@@ -65,6 +66,7 @@ a time from the Abilities screen.
 
 Already cloned the repo? `make setup` does the same thing.
 
+> [!NOTE]
 > She needs an API key from OpenRouter, OpenAI or Groq.
 
 ---
@@ -389,13 +391,15 @@ uv run bea --llm-provider openrouter --tts-provider kokoro --web
 **Tests and diagnostics:**
 
 ```bash
-uv run bea doctor  # finds out what is broken and tells you how to fix it
 make test          # uv run pytest -q
 make lint          # uv run ruff check src tests
 ```
 
 1302 tests, and they run without network access or API keys: every model
 client, surface and transport is faked. CI runs exactly `make test` and `make lint`.
+
+> [!TIP]
+> **Something broken?** If she stops answering, you lose audio, or the avatar breaks, run `uv run bea doctor`. It runs a full diagnostic of your environment and tells you exactly what to type to fix it.
 
 **[Setup guide →](docs/setup.md)** · **[Configuration →](docs/configuration.md)**
 
