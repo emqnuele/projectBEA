@@ -12,6 +12,7 @@ import { useBrain } from '../state/BrainProvider';
 import { useToast } from '../state/ToastProvider';
 import { usePresence } from '../components/TopBar';
 import { AttentionFlux } from '../components/AttentionFlux';
+import { StarNudge } from '../components/StarNudge';
 import { Glass } from '../components/glass/Glass';
 import { Button } from '../components/ui/controls';
 import { Badge, EmptyState, Skeleton } from '../components/ui/feedback';
@@ -293,6 +294,7 @@ export default function HomePage() {
                     </div>
                 </Tile>
             </div>
+            <StarNudge />
         </div>
     );
 }

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowRight, Check, Loader2, X } from 'lucide-react';
 import { api } from '../api';
-import { VERSION } from '../lib/nav';
 import { cn } from '../lib/cn';
 import { Glass } from '../components/glass/Glass';
 import { Button } from '../components/ui/controls';
@@ -27,6 +26,9 @@ const CHECKS = [
 export default function BootPage() {
     const navigate = useNavigate();
     const [state, setState] = useState({ phase: 'checking', overview: null, error: null });
+    // the version is whatever is actually installed, asked for rather than
+    // hardcoded — two numbers that can disagree is the same as having none
+    const [version, setVersion] = useState('');
     const [probing, setProbing] = useState(true);
     const entered = useRef(false);
 
@@ -37,6 +39,7 @@ export default function BootPage() {
         try {
             await api.health();
             const overview = await api.overview();
+            api.status().then((s) => setVersion(s.version || '')).catch(() => { /* chrome */ });
             setState({ phase: 'ready', overview, error: null });
         } catch (e) {
             setState({ phase: 'down', overview: null, error: e.message });
@@ -93,7 +96,7 @@ export default function BootPage() {
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}
                     className="font-mono text-[10px] uppercase tracking-[0.28em] text-faint"
                 >
-                    Control room {VERSION}
+                    Control room{version ? ` v${version}` : ''}
                 </motion.p>
 
                 <h1 className="mt-3 font-display text-5xl font-extrabold leading-none tracking-tight text-text">

@@ -40,6 +40,7 @@ from src.core.settings_schema import section as _section
 from src.core.stage import clips_dir, public_config
 from src.core.update.version import current_version
 from src.utils.logger import get_logger
+from src.web.health import router as doctor_router
 from src.web.updates import router as update_router
 
 logger = get_logger("bea.web")
@@ -116,6 +117,7 @@ def _merge_skills(current: Dict[str, Any], incoming: Dict[str, Any]) -> None:
 
 # before the SPA catch-all below, which answers every GET registered after it
 app.include_router(update_router)
+app.include_router(doctor_router)
 
 
 @app.get("/config")

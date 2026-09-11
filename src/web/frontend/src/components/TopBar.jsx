@@ -9,6 +9,7 @@ import { useToast } from '../state/ToastProvider';
 import { Glass } from './glass/Glass';
 import { Button, IconButton } from './ui/controls';
 import { AnimatedIcon, CountUp } from './motion/effects';
+import { UpdatePill } from './maintenance/UpdatePill';
 
 /** Sleeping · Speaking · Thinking · Listening — derived once, shown everywhere. */
 export function usePresence() {
@@ -80,6 +81,8 @@ export function TopBar({ onOpenMenu, onOpenPalette }) {
             </div>
 
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+                <UpdatePill />
+
                 {sessionTokens !== null && (
                     <span className="hidden items-center gap-1.5 rounded-full border border-line px-2.5 py-1 font-mono text-[10px] text-dim md:inline-flex">
                         <CountUp value={sessionTokens} format={compact} />

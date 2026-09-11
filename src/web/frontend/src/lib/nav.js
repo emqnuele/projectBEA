@@ -1,5 +1,5 @@
 import {
-    Activity, Blocks, BrainCircuit, Gauge, ListChecks, MessageSquare, Users,
+    Activity, Blocks, BrainCircuit, Gauge, ListChecks, MessageSquare, Users, Wrench,
 } from 'lucide-react';
 
 export const NAV = [
@@ -9,6 +9,7 @@ export const NAV = [
     { to: '/dashboard/activity', label: 'Activity', icon: Activity, hint: 'What she is perceiving and doing' },
     { to: '/dashboard/memory', label: 'Memory', icon: Users, hint: 'Who she knows and what she remembers' },
     { to: '/dashboard/skills', label: 'Abilities', icon: Blocks, hint: 'What she is able to do' },
+    { to: '/dashboard/maintenance', label: 'Maintenance', icon: Wrench, hint: 'Updates, and whether anything is broken' },
 ];
 
 export const SETTINGS_SECTIONS = [
@@ -30,4 +31,3 @@ export const SETTINGS_SECTIONS = [
 ];
 
 export const BRAND_ICON = BrainCircuit;
-export const VERSION = 'v2.0';

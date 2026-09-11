@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { cn } from '../lib/cn';
-import { NAV, VERSION } from '../lib/nav';
+import { NAV } from '../lib/nav';
 import { relativeTime } from '../lib/format';
 import { DESKTOP, useMediaQuery } from '../hooks/useMediaQuery';
 import { useToast } from '../state/ToastProvider';
@@ -309,7 +309,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                     </NavLink>
                     {!rail && (
                         <p className="truncate px-2.5 pt-2 font-mono text-[10px] tracking-wider text-faint">
-                            {name} Control Room · {VERSION}
+                            {name} Control Room{status?.version ? ` · v${status.version}` : ''}
                         </p>
                     )}
                 </div>

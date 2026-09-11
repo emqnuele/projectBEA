@@ -115,6 +115,19 @@ export const api = {
     testVts: () => request('/test/vts', { method: 'POST' }),
     audioDevices: () => request('/audio/devices'),
 
+    // staying current: what is new, applying it, and settling a prompt the
+    // merge could not decide on its own
+    updateStatus: (force = false) => request(`/update${force ? '?force=true' : ''}`),
+    startUpdate: () => request('/update/apply', { method: 'POST' }),
+    updateRun: () => request('/update/run'),
+    review: (name) => request(`/update/reviews/${encodeURIComponent(name)}`),
+    resolveReview: (name, choice) =>
+        request(`/update/reviews/${encodeURIComponent(name)}`, { method: 'POST', body: { choice } }),
+
+    // the same checks `bea --doctor` runs
+    doctor: () => request('/doctor'),
+    runDoctor: () => request('/doctor/run', { method: 'POST' }),
+
     // the stage: what she is drawn with
     stageClips: () => request('/stage/clips'),
     vtsModel: () => request('/vts/model'),
