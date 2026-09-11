@@ -99,6 +99,10 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "text_font_step": 2,
     "typing_delay": 0.03,
     "text_min_duration": 2,
+    "updates": {
+        "check": true,
+        "allow_web_apply": true
+    },
     "skills": {
         "monologue": {
             "enabled": false,
@@ -408,6 +412,24 @@ back to `neutral`. `png_dir` (`data/pngs`) is where they live.
 | `text_font_step` | `2` | Shrink step |
 | `typing_delay` | `0.03` | Seconds per character |
 | `text_min_duration` | `2.0` | Minimum seconds a page stays up |
+
+---
+
+## Updates
+
+```json
+"updates": { "check": true, "allow_web_apply": true }
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `check` | `true` | Ask `origin` whether there is a newer commit. The only outbound call, and only to the remote this copy was cloned from. Off means the dashboard never asks and never shows the pill |
+| `allow_web_apply` | `true` | Whether `POST /update/apply` is open. Off leaves `make update` working and closes the button — the endpoint runs `git pull`, `uv sync` and `npm install`, so it is separately revocable |
+
+Neither affects the CLI. Docker installs are refused regardless: the source tree
+is the image.
+
+**[The updater →](updating.md)**
 
 ---
 
