@@ -53,6 +53,15 @@ data/vtube_studio_token.json
 data/embeddings_cache/
 data/turns/
 
+# the updater: what it puts aside, what it is tracking, and the new version of
+# a prompt it could not merge into yours
+data/.backups/
+data/.prompt_base.json
+data/.update.lock
+data/.update.journal.json
+data/prompts/*.new
+data/prompts/*.bak
+
 
 # Frontend
 node_modules/

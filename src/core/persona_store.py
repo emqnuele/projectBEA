@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.core.persona import DEFAULT_PRONOUNS, persona_of
+from src.utils.files import atomic_write_text
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.persona.store")
@@ -55,8 +56,10 @@ class SoulFile:
                 self.backup.write_text(self.read(), encoding="utf-8")
             except OSError as e:
                 logger.warning(f"Could not back up the soul: {e}")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(text, encoding="utf-8")
+        # atomically: the engine reads this file on every turn and the updater
+        # reads it to decide what to merge, so a truncate-then-write would give
+        # one of them half a persona
+        atomic_write_text(self.path, text)
 
 
 def soul_file(config) -> SoulFile:

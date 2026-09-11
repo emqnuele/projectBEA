@@ -130,6 +130,15 @@ class BrainConfig:
     typing_delay: float = 0.03
     text_min_duration: float = 2.0
 
+    # staying current. `check` is the only thing here that reaches the network,
+    # and it only ever talks to the remote this copy was cloned from; `apply`
+    # is a button that runs `git pull` and a build, so it is separately
+    # revocable for anyone who would rather update from a terminal.
+    updates: Dict[str, Any] = field(default_factory=lambda: {
+        "check": True,
+        "allow_web_apply": True,
+    })
+
     # who she is called. The prose lives in soul.md; this is the structured part
     # every other path needs — the gate's trigger words, the prompt placeholders,
     # the name her own messages are filed under, the dashboard chrome.
