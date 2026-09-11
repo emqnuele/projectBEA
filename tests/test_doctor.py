@@ -20,6 +20,7 @@ from src.setup.doctor import (
     check_manual,
     check_python,
     check_stage,
+    check_updates,
     diagnose,
     failed,
     passed,
@@ -306,6 +307,52 @@ async def test_an_unbuilt_dashboard_is_only_a_warning_otherwise(monkeypatch, tmp
     found = await check_dashboard(config(stage={"avatar_backend": "png",
                                                 "caption_backend": "obs"}))
     assert not found.ok and not found.stops
+
+
+# --- can this install update itself ------------------------------------------
+#
+# Nothing in the engine shells out to git, so none of this may ever block. It is
+# here because without it the failure is invisible: the update button is simply
+# absent, and an absent button explains nothing.
+
+
+async def test_a_working_checkout_says_updates_will_work(monkeypatch):
+    monkeypatch.setattr("src.core.update.supported", lambda: "")
+    found = await check_updates(config())
+    assert found.ok
+
+
+async def test_missing_git_is_a_warning_carrying_the_install_command(monkeypatch):
+    monkeypatch.setattr("src.core.update.supported",
+                        lambda: "git is not installed, so there is nothing to pull with.")
+    found = await check_updates(config())
+
+    assert not found.ok
+    assert not found.stops, "she runs without git; this must never stop the run"
+    assert "git" in found.fix
+
+
+async def test_a_zip_download_is_told_it_cannot_update_in_place(monkeypatch):
+    monkeypatch.setattr("src.core.update.supported",
+                        lambda: "This is not a git checkout — it was most likely downloaded as a zip.")
+    found = await check_updates(config())
+
+    assert not found.ok and not found.stops
+    assert "git clone" in found.fix
+
+
+async def test_docker_is_not_a_problem_to_report(monkeypatch):
+    """There the update is a rebuild of the image, which is not a fault."""
+    monkeypatch.setattr("src.core.update.supported",
+                        lambda: "She is running in Docker, where the update is a rebuild of the image.")
+    found = await check_updates(config())
+
+    assert found.ok
+
+
+async def test_the_update_check_is_the_last_thing_asked():
+    """It is about the install, not about her: everything that stops her comes first."""
+    assert CHECKS[-1][0] == "Updates"
 
 
 # --- the exit code a script would read ---------------------------------------

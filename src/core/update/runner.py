@@ -184,6 +184,15 @@ def _unsupported(repo: Repo) -> str:
     return ""
 
 
+def supported(root: Path = ROOT) -> str:
+    """Why this install cannot update itself, or an empty string when it can.
+
+    Public because the diagnostic asks the same question, and reaching into a
+    private helper to answer it is how the two end up disagreeing.
+    """
+    return _unsupported(Repo(root))
+
+
 def _target_ref(repo: Repo) -> str:
     """What we are updating towards: the tracking branch, or origin's main."""
     return repo.upstream() or "origin/main"

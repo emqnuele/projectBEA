@@ -27,7 +27,17 @@ if ((Test-Path "pyproject.toml") -and (Select-String -Path "pyproject.toml" -Pat
     Ok "already inside the repository"
 } else {
     Step "Downloading ProjectBEA"
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die "git is required. Install it and run this again." }
+    # not installed for you on purpose: it needs admin, and a script people pipe
+    # from irm should not be asking for it. A single-quoted here-string, so
+    # nothing in the message is read as an escape or a variable.
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Die @'
+git is required to download ProjectBEA.
+    winget install --id Git.Git -e
+  Then run this again. You can also download the repository as a zip, but then
+  "make update" cannot keep your prompts across a new version.
+'@
+    }
     if (Test-Path $TargetDir) { Die "$TargetDir already exists. Remove it, or run .\install.ps1 from inside it." }
     git clone --depth 1 $RepoUrl $TargetDir
     Set-Location $TargetDir

@@ -22,6 +22,7 @@ from src.core.update.runner import (
     check,
     in_docker,
     invalidate,
+    supported,
 )
 from src.core.update.version import current_version
 
@@ -34,4 +35,5 @@ __all__ = [
     "current_version",
     "in_docker",
     "invalidate",
+    "supported",
 ]
