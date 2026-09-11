@@ -54,7 +54,23 @@ def test_a_plain_directory_reports_why_it_cannot_update(client):
 
     assert body["supported"] is False
     assert body["can_apply"] is False
-    assert "not a git checkout" in body["reason"]
+    # which refusal it is depends on the machine running the suite — a box
+    # without git answers before the checkout is ever looked at
+    assert body["reason"]
+
+
+def test_a_machine_without_git_says_so_rather_than_failing(client, monkeypatch):
+    """Nothing in the engine needs git, so a box without it loses the updater
+    and nothing else. The screen has to explain that instead of going blank."""
+    from src.core.update.gitrepo import Repo
+
+    monkeypatch.setattr(Repo, "available", lambda self: False)
+    body = client.get("/update?force=true").json()
+
+    assert body["supported"] is False
+    assert body["can_apply"] is False
+    assert "git is not installed" in body["reason"]
+    assert body["reviews"] == []
 
 
 def test_the_check_can_be_switched_off(client):

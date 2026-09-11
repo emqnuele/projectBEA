@@ -19,6 +19,7 @@ the result and updates again.
 """
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -28,6 +29,15 @@ from src.core.update import backup, lock, runner, state
 from src.core.update.gitrepo import Repo
 from src.core.update.reconcile import CONFLICT, KEPT, MERGED, REMOVED, UNTOUCHED, new_file_for
 from src.core.update.runner import BLOCKED, CURRENT, UPDATED
+
+# these build real repositories to test against, so they are the one part of
+# the suite that cannot run without git. The engine can: nothing outside
+# `src/core/update` ever shells out to it, which is why the updater degrades
+# into a message instead of a failure.
+pytestmark = pytest.mark.skipif(
+    shutil.which("git") is None,
+    reason="git is not installed; the updater is unavailable, the engine is not",
+)
 
 SOUL = "data/prompts/soul.md"
 OPERATING = "data/prompts/operating.md"
