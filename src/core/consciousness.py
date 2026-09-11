@@ -26,6 +26,21 @@ from src.utils.sanitize import clean_model_output
 logger = get_logger("bea.consciousness")
 
 
+def _block(what: str, produce) -> str:
+    """One part of the briefing, or nothing when building it went wrong.
+
+    Her context is assembled from a dozen independent sources, and any one of
+    them raising used to cost the entire turn — she went silent, and the log
+    said only what the exception had said. Losing one block is a worse answer;
+    losing every turn is not an answer at all.
+    """
+    try:
+        return produce() or ""
+    except Exception as e:
+        logger.error(f"Leaving {what} out of the briefing: {e}", exc_info=True)
+        return ""
+
+
 class Consciousness:
     """The single, always-on mind.
 
@@ -476,12 +491,9 @@ class Consciousness:
         happens to feel — costs the whole prompt on every single turn. That is
         why the rest of it is a separate message further down: see `_briefing`.
         """
-        sections = [
-            s.context_section for s in self.surfaces.active()
-            # the monologue rules are only true on an idle turn, so they belong
-            # to the briefing rather than in here
-            if s.context_section and s.name != "idle"
-        ]
+        # the monologue rules are only true on an idle turn, so they belong to
+        # the briefing rather than in here
+        sections = self.surfaces.context_sections(exclude=("idle",))
         return {"role": "system",
                 "content": compose(self._get_soul(), self._get_operating(), *sections)}
 
@@ -503,18 +515,22 @@ class Consciousness:
             if idle is not None and idle.active and idle.context_section:
                 parts.append(idle.context_section)
 
-        parts.extend(x for x in (s.live_state() for s in self.surfaces.active()) if x)
+        parts.extend(self.surfaces.live_states())
 
         if dynamic is None:
             dynamic = self.surfaces.dynamic_context(batch) if batch else []
 
-        feeling = self.affect.render() if self.affect else ""
+        feeling = _block("how she feels", lambda: self.affect.render() if self.affect else "")
         if feeling:
             parts.append(feeling)
         parts.extend(dynamic)
-        for block in (self.recap.render(),
-                      self.attention.digest() if self.attention else "",
-                      self.conversations.recent_lines() if self.conversations else ""):
+        for what, produce in (
+            ("the session recap", self.recap.render),
+            ("what she missed", lambda: self.attention.digest() if self.attention else ""),
+            ("the other conversations",
+             lambda: self.conversations.recent_lines() if self.conversations else ""),
+        ):
+            block = _block(what, produce)
             if block:
                 parts.append(block)
 
