@@ -304,15 +304,52 @@ brain.
 
 ---
 
-## Troubleshooting
-
-The fastest way to figure out what is wrong is to run the built-in diagnostic tool:
+## Staying up to date
 
 ```bash
-uv run bea doctor
+make update          # or: uv run bea --update
 ```
 
-It checks the environment, API keys, audio devices, models, and dependencies, and tells you exactly what to type to fix any issue it finds.
+Not `git pull`. The prompts under `data/prompts/` are tracked *and* meant to be
+edited, so a pull either refuses to run or writes conflict markers into the file
+her personality is read from. `--update` backs up your prompts, config and
+database, fast-forwards, then puts your edits back through a three-way merge —
+so an edited `operating.md` keeps your changes *and* receives the engine's. Any
+file it cannot merge is left exactly as you wrote it, with the new version
+dropped beside it as `<name>.new`.
+
+It also runs `uv sync` and rebuilds the dashboard when the update touched them.
+`src/web/frontend/dist/` is gitignored, so a pull without that rebuild leaves
+the old dashboard on screen.
+
+The dashboard's **Maintenance** screen does the same thing with a button, shows
+the changelog before you commit to it, and gives you a side-by-side diff for
+anything that needs a decision.
+
+Updating in place needs `git` — it is the only feature that does. Without it
+she runs exactly the same and `bea --doctor` tells you what you are missing;
+nothing installs it for you, because doing so needs root.
+
+**[How it works, and what it refuses to do →](updating.md)**
+
+---
+
+## Troubleshooting
+
+The fastest way to figure out what is wrong is to run the built-in diagnostic:
+
+```bash
+uv run bea --doctor
+```
+
+Thirteen checks, run in the order the pieces depend on each other and stopped at
+the first blocking failure — there is no point testing the voice when there is
+no config file. Every failure carries the exact command that fixes it. The exit
+code is non-zero when something is blocking, so it works in a script.
+
+The same sequence runs from **Maintenance** in the dashboard, findings streamed
+as they land. It builds the voice, transcribes a line and calls the mind, so it
+costs a handful of provider requests and never runs on its own.
 
 | Problem | Solution |
 |---|---|
@@ -324,3 +361,6 @@ It checks the environment, API keys, audio devices, models, and dependencies, an
 | A model in `mind` "does not support tool calling" | Remove it from the pool. Bea speaks only through tools, so a model without them never says anything |
 | She never starts anything in Minecraft | Give her objectives on the dashboard's Stream Plan page — with an empty plan she only ever reacts |
 | OBS avatar source not updating after config migration | If your `config.json` still contains the old key `obs_image_source`, it is silently renamed to `obs_avatar_source` by `load_from_file()`. Delete the old key from your `config.json` and re-save to avoid ambiguity. |
+| `make update` says you have local changes to the engine | You have edited a tracked file outside `data/prompts/`. Commit, stash or revert it — the updater merges prompts, not source |
+| The dashboard looks unchanged after an update | The build is gitignored. Run `make frontend`, or check whether the `dashboard` step reported a missing `npm` |
+| A prompt has a `.new` beside it | An update changed the same lines you had. Yours is in use; compare them in Maintenance, or with `diff data/prompts/operating.md data/prompts/operating.md.new` |

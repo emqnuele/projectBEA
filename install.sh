@@ -20,6 +20,13 @@ warn() { printf '  %s!%s %s\n' "$YELLOW" "$RESET" "$1"; }
 die()  { printf '\n  %s✗%s %s\n\n' "$RED" "$RESET" "$1" >&2; exit 1; }
 
 REPO_URL="https://github.com/emqnuele/projectBEA.git"
+
+git_hint() {
+  case "$(uname -s)" in
+    Darwin) printf '  brew install git   (or: xcode-select --install)' ;;
+    *)      printf '  sudo apt install git   (or your distribution'\''s package manager)' ;;
+  esac
+}
 TARGET_DIR="${BEA_DIR:-projectBEA}"
 
 printf '\n%sProjectBEA%s %s— an AI persona engine%s\n' "$BOLD" "$RESET" "$DIM" "$RESET"
@@ -32,7 +39,12 @@ if [ -f "pyproject.toml" ] && grep -q 'name = "projectbea"' pyproject.toml 2>/de
   ok "already inside the repository"
 else
   step "Downloading ProjectBEA"
-  command -v git >/dev/null 2>&1 || die "git is required. Install it and run this again."
+  # not installed for you on purpose: every package manager that can do it
+  # wants root, and a script people pipe from curl should not be asking for it
+  command -v git >/dev/null 2>&1 || die "git is required to download ProjectBEA.
+    $(git_hint)
+  Then run this again. You can also download the repository as a zip, but then
+  \`make update\` cannot keep your prompts across a new version."
   [ -d "$TARGET_DIR" ] && die "$TARGET_DIR already exists. Remove it, or run ./install.sh from inside it."
   git clone --depth 1 "$REPO_URL" "$TARGET_DIR"
   cd "$TARGET_DIR"

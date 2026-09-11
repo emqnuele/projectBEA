@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install setup docker docker-up docker-down run web frontend lock clean test lint migrate model
+.PHONY: help install setup update docker docker-up docker-down run web frontend lock clean test lint migrate model
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -9,6 +9,9 @@ install: ## create the venv and install python deps
 
 setup: install ## interactive first-run setup: writes .env and config.json
 	uv run bea --setup
+
+update: ## pull the new version, keeping your prompts, config and memory
+	uv run bea --update
 
 docker: ## build the image and run the setup wizard inside it
 	@# a missing bind-mount target makes docker create a directory in its place

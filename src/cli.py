@@ -30,6 +30,10 @@ def parse_args():
                         help="Interactive first-run setup: writes .env and config.json")
     parser.add_argument("--doctor", action="store_true",
                         help="Check this machine: keys, voice, ears, body, and what to fix")
+    parser.add_argument("--update", action="store_true",
+                        help="Pull the new version without overwriting your prompts or your config")
+    parser.add_argument("--no-rebuild", action="store_true",
+                        help="With --update: skip `uv sync` and the dashboard build")
     parser.add_argument("--web", action="store_true", help="Start Web Interface (FastAPI + React)")
     parser.add_argument("--host", default="127.0.0.1",
                         help="Bind address for the web interface (default: loopback only)")
@@ -204,6 +208,11 @@ def run():
         config = BrainConfig()
         apply_cli_overrides(config, args)
         raise SystemExit(run_doctor(config=config))
+    # and again: an update exists to repair the tree everything below is
+    # imported from, so it must not import any of it
+    if args.update:
+        from src.core.update.console import run_update
+        raise SystemExit(run_update(rebuild=not args.no_rebuild))
     asyncio.run(main(args))
 
 

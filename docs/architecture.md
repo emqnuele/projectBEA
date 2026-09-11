@@ -85,6 +85,7 @@ ProjectBEA/
     │   ├── expression/     # the single output sink + humanizer + the face
     │   ├── stage.py        # fan-out to the OBS browser source
     │   ├── agent/          # LLMClient, role pools, tools, runner
+    │   ├── update/         # the in-place updater: git, three-way merge, backups
     │   └── skills/         # one package per capability
     ├── interfaces/         # TTS · STT · OBS · Avatar · Caption contracts
     ├── modules/            # llm · tts · stt · obs · avatar · caption implementations
@@ -92,6 +93,8 @@ ProjectBEA/
     ├── utils/
     └── web/
         ├── app.py          # FastAPI
+        ├── updates.py      # the updater over HTTP
+        ├── health.py       # `--doctor` over HTTP
         └── frontend/       # React + Vite + Tailwind
             ├── index.html  # the dashboard
             ├── stage.html  # the OBS browser source (separate bundle)
@@ -530,7 +533,8 @@ arrives with its tests in the same commit.**
 make install        # uv sync
 make run            # CLI
 make web            # build the frontend + dashboard on :8000
-uv run bea doctor   # diagnose and fix issues with the setup
+make update         # fast-forward, preserving edited prompts (see updating.md)
+uv run bea --doctor # diagnose and fix issues with the setup
 make test           # pytest
 make lint           # ruff
 make migrate        # one-shot: import a chroma/json store into data/bea.db

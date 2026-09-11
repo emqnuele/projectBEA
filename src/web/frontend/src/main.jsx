@@ -6,6 +6,7 @@ import { AppearanceProvider } from './state/AppearanceProvider';
 import { BrainProvider } from './state/BrainProvider';
 import { ToastProvider } from './state/ToastProvider';
 import { DialogProvider } from './state/DialogProvider';
+import { UpdateProvider } from './state/UpdateProvider';
 import { GlassFilters } from './components/glass/GlassFilters';
 import { DitherField } from './components/atmosphere/DitherField';
 import './index.css';
@@ -16,11 +17,13 @@ createRoot(document.getElementById('root')).render(
             <ToastProvider>
                 <DialogProvider>
                     <BrainProvider>
-                        <GlassFilters />
-                        <DitherField />
-                        <BrowserRouter>
-                            <App />
-                        </BrowserRouter>
+                        <UpdateProvider>
+                            <GlassFilters />
+                            <DitherField />
+                            <BrowserRouter>
+                                <App />
+                            </BrowserRouter>
+                        </UpdateProvider>
                     </BrainProvider>
                 </DialogProvider>
             </ToastProvider>

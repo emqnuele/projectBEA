@@ -52,7 +52,8 @@ src/web/frontend/
     │   ├── BrainProvider.jsx   the single SSE + status/overview + controls
     │   ├── AppearanceProvider  theme and the liquid-glass parameters
     │   ├── ToastProvider.jsx   non-blocking feedback
-    │   └── DialogProvider.jsx  confirmations only
+    │   ├── DialogProvider.jsx  confirmations only
+    │   └── UpdateProvider.jsx  is there a new version, and the run installing it
     ├── layouts/
     │   └── AppShell.jsx        sidebar + status bar + outlet + ⌘K
     ├── components/
@@ -61,6 +62,7 @@ src/web/frontend/
     │   ├── motion/             CountUp, SplitText, Magnetic, Spotlight, rings
     │   ├── ui/                 controls, fields, feedback, Modal
     │   ├── console/            the Minecraft cockpit
+    │   ├── maintenance/        the updater and the diagnostics, plus the prompt diff
     │   ├── AttentionFlux.jsx   the attention gate, live
     │   ├── Sidebar.jsx
     │   ├── TopBar.jsx          presence + global controls, on every page
@@ -73,6 +75,7 @@ src/web/frontend/
     │   ├── ActivityPage.jsx
     │   ├── MemoryPage.jsx
     │   ├── SkillsPage.jsx
+    │   ├── MaintenancePage.jsx updates and the health checks
     │   ├── SettingsPage.jsx
     │   └── settings/           one component per settings section
     └── hooks/
@@ -92,6 +95,7 @@ src/web/frontend/
 | `/dashboard/activity` | Attention gate and the event stream |
 | `/dashboard/memory` | People, roster, recall, her self-lore |
 | `/dashboard/skills` | Abilities on and off |
+| `/dashboard/maintenance` | The updater, and the `--doctor` checks |
 | `/dashboard/settings/:section` | `mind · engine · voice · hearing · stream · channels · world · appearance` |
 
 Every screen is a real URL: refreshing keeps you where you were, and the back

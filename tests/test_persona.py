@@ -237,3 +237,61 @@ def test_the_default_persona_leaves_the_shipped_experience_alone(tmp_path, monke
     p = persona_of(config)
     assert p.name == "Bea"
     assert set(p.trigger_words) >= {"bea"}
+
+
+# --- is she still the one we ship --------------------------------------------
+#
+# This used to read `data/prompts/soul.md` and compare it to
+# `data/prompts/soul.md`. In a normal install those are the same file, so the
+# answer could only ever be "unchanged": the banner asking people to set her up
+# never went away, not even for someone looking at the character they wrote.
+# The tests passed because their fixture ran from a temp directory, which put
+# the two paths on different files and hid the whole thing.
+
+
+def test_the_shipped_soul_hash_matches_the_file_we_ship():
+    """The guard on the constant. Changing soul.md without updating
+    SHIPPED_SOUL_SHA256 makes `customised` lie, and nothing else would notice."""
+    from pathlib import Path
+
+    from src.core.persona import SHIPPED_SOUL_SHA256
+    from src.core.persona_store import soul_digest
+
+    shipped = Path(__file__).parents[1] / "data/prompts/soul.md"
+    assert soul_digest(shipped.read_text(encoding="utf-8")) == SHIPPED_SOUL_SHA256, (
+        "data/prompts/soul.md changed. Update SHIPPED_SOUL_SHA256 in "
+        "src/core/persona.py to the value this test computed."
+    )
+
+
+def test_the_soul_we_ship_does_not_count_as_customised():
+    from pathlib import Path
+
+    from src.core.persona_store import is_customised
+
+    shipped = (Path(__file__).parents[1] / "data/prompts/soul.md").read_text(encoding="utf-8")
+    assert is_customised(shipped) is False
+
+
+def test_a_soul_somebody_wrote_counts_as_customised():
+    from src.core.persona_store import is_customised
+
+    assert is_customised("# SOUL\n\nShe is a gremlin who hates everyone.\n") is True
+
+
+def test_whitespace_alone_is_not_writing_a_character():
+    """Re-saving from the dashboard can add a newline. That is not authorship."""
+    from pathlib import Path
+
+    from src.core.persona_store import is_customised
+
+    shipped = (Path(__file__).parents[1] / "data/prompts/soul.md").read_text(encoding="utf-8")
+    assert is_customised(f"\n\n{shipped.strip()}  \n") is False
+
+
+def test_an_empty_soul_is_not_customised_either():
+    """An emptied file is a broken install, not a character."""
+    from src.core.persona_store import is_customised
+
+    assert is_customised("") is False
+    assert is_customised("   \n  ") is False

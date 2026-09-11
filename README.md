@@ -71,6 +71,34 @@ Already cloned the repo? `make setup` does the same thing.
 
 ---
 
+## Updating without losing her
+
+```bash
+make update
+```
+
+Not `git pull`. The files that hold who she is — her soul, her operating manual
+— ship with the engine *and* are yours to rewrite. A plain pull either refuses
+to run or writes conflict markers straight into the text her personality is read
+from, and nobody finds out until she starts talking like someone else.
+
+`make update` backs up your prompts, your config and your memory first, then
+merges the new version *into* your edits the way git merges a branch: you keep
+the character you wrote, and the engine still gets the improvements to its own
+instructions. If a change lands on the exact lines you rewrote, yours stays
+untouched and the new one is left beside it to compare.
+
+The dashboard does the same with a button, tells you when there is something
+new, and shows you the two versions side by side when a file needs your call.
+
+Updating in place is the only thing here that needs `git` installed. Without it
+she runs exactly the same, and `uv run bea --doctor` tells you what you are
+missing.
+
+**[What it does, and what it refuses to do →](docs/updating.md)**
+
+---
+
 ## She remembers you
 
 <img src="assets/remembers.png" align="right" width="290" alt="Bea" />
@@ -244,6 +272,7 @@ answering before it lets you in, then on a bento overview of everything at once.
 - **Activity.** The attention gate drawn live, over a filterable, freezable event stream, plus a full Turn Log of every decision she makes
 - **Memory.** Who she knows, everyone she has met, a search over what she remembers, and the things she has worked out about herself
 - **Abilities.** Every capability on or off at runtime, plus the Minecraft cockpit
+- **Maintenance.** Whether there is a new version and what is in it, with a button that installs it; and the same diagnostic `--doctor` runs, streamed as it goes
 - **Settings.** Eight sections with connection tests, and one save for all of them
 
 `⌘K` opens the command palette from anywhere.
@@ -395,11 +424,15 @@ make test          # uv run pytest -q
 make lint          # uv run ruff check src tests
 ```
 
-1302 tests, and they run without network access or API keys: every model
+1707 tests, and they run without network access or API keys: every model
 client, surface and transport is faked. CI runs exactly `make test` and `make lint`.
 
 > [!TIP]
-> **Something broken?** If she stops answering, you lose audio, or the avatar breaks, run `uv run bea doctor`. It runs a full diagnostic of your environment and tells you exactly what to type to fix it.
+> **Something broken?** If she stops answering, you lose audio, or the avatar
+> breaks, run `uv run bea --doctor` — or open **Maintenance** in the dashboard
+> and press the button. Thirteen checks in the order the pieces depend on each
+> other, stopping at the first thing that would stop her, each failure carrying
+> the exact command that fixes it.
 
 **[Setup guide →](docs/setup.md)** · **[Configuration →](docs/configuration.md)**
 
@@ -431,6 +464,7 @@ same source.
 | [Architecture](docs/architecture.md) | System design, data flow, the event system |
 | [Setup & Install](docs/setup.md) | Installation, OBS setup, audio routing |
 | [Configuration](docs/configuration.md) | Every config field, CLI arg and `.env` var |
+| [Updating](docs/updating.md) | How an update keeps the prompts you edited |
 | [Skills Overview](docs/skills/overview.md) | The `Skill` API, the registry, every tool |
 | [Modules](docs/modules/llm.md) | [LLM](docs/modules/llm.md) · [TTS](docs/modules/tts.md) · [STT](docs/modules/stt.md) · [Avatar](docs/modules/avatar.md) · [OBS](docs/modules/obs.md) |
 | [Skills](docs/skills/overview.md) | [Memory](docs/skills/memory.md) · [Social](docs/skills/social.md) · [Dream](docs/skills/dream.md) · [Plan](docs/skills/plan.md) · [Discord](docs/skills/discord.md) · [Telegram](docs/skills/telegram.md) · [Twitch](docs/skills/twitch.md) · [Minecraft](docs/skills/minecraft.md) · [Donations](docs/skills/donations.md) · [Monologue](docs/skills/monologue.md) |

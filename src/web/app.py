@@ -38,7 +38,10 @@ from src.core.settings_schema import ValidationError, apply_section, describe
 from src.core.settings_schema import restart_needed as _restart_needed
 from src.core.settings_schema import section as _section
 from src.core.stage import clips_dir, public_config
+from src.core.update.version import current_version
 from src.utils.logger import get_logger
+from src.web.health import router as doctor_router
+from src.web.updates import router as update_router
 
 logger = get_logger("bea.web")
 
@@ -111,6 +114,11 @@ def _merge_skills(current: Dict[str, Any], incoming: Dict[str, Any]) -> None:
             continue
         clean = {k: v for k, v in block.items() if v != MASK}
         current.setdefault(skill_key, {}).update(clean)
+
+# before the SPA catch-all below, which answers every GET registered after it
+app.include_router(update_router)
+app.include_router(doctor_router)
+
 
 @app.get("/config")
 def get_config():
@@ -342,6 +350,7 @@ def get_status():
         "active_skills": active_skills,
         "session_id": brain.history_manager.session_id,
         "uptime": time.time() - STARTED_AT,
+        "version": current_version(),
     }
 
 @app.post("/dream/run")

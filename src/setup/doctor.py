@@ -451,6 +451,39 @@ async def check_dashboard(config: BrainConfig) -> Finding:
     return passed(f"built, and port {DEFAULT_PORT} is free")
 
 
+async def check_updates(config: BrainConfig) -> Finding:
+    """Whether `make update` will work here, which is not the same as whether she will.
+
+    Nothing in the engine shells out to git — she runs perfectly without it —
+    so this can never block. It exists because the failure is otherwise
+    invisible: the update button is simply absent, and a missing button
+    explains nothing.
+    """
+    from src.core.update import supported
+
+    reason = supported()
+    if not reason:
+        return passed("`make update` will work here")
+
+    if "Docker" in reason:
+        return passed("in Docker — updating means rebuilding the image")
+
+    if "git is not installed" in reason:
+        return warned(reason, "Install git, then `make update` keeps your prompts, "
+                              "config and memory across a new version:\n" + _git_install_hint())
+
+    return warned(reason, "She runs fine. `make update` will not work — reinstall with "
+                          "`git clone` if you want in-place updates.")
+
+
+def _git_install_hint() -> str:
+    if sys.platform == "darwin":
+        return "  brew install git   (or: xcode-select --install)"
+    if sys.platform == "win32":
+        return "  winget install --id Git.Git -e"
+    return "  sudo apt install git   (or your distribution's package manager)"
+
+
 CHECKS: List[Tuple[str, Callable]] = [
     ("Python and uv", check_python),
     ("Config and secrets", check_config),
@@ -465,6 +498,7 @@ CHECKS: List[Tuple[str, Callable]] = [
     ("OBS", check_obs),
     ("Discord", check_discord),
     ("The dashboard", check_dashboard),
+    ("Updates", check_updates),
 ]
 
 

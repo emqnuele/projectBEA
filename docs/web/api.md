@@ -32,11 +32,15 @@ Returns the current brain state.
   "is_sleeping": false,
   "active_skills": ["memory", "discord"],
   "session_id": "session_1750000000",
-  "uptime": 1832.4
+  "uptime": 1832.4,
+  "version": "2.0.0"
 }
 ```
 
 `uptime` is seconds since the web process started, not since she was created.
+`version` comes from `src/core/update/version.py` — the installed package
+metadata, or `pyproject.toml` in a checkout that was never synced. It is the
+only version string in the system; the dashboard renders what it is told.
 
 ---
 
@@ -500,6 +504,102 @@ Returns a simple liveness check. Used to verify the server is running.
 ```json
 { "status": "ok" }
 ```
+
+---
+
+### Updating
+
+Implemented in `src/web/updates.py`, mounted before the SPA catch-all. See
+**[Updating](../updating.md)** for the merge semantics these endpoints expose.
+
+#### `GET /update`
+Everything the update screens need, in one request. Server-side cached for 30
+minutes; `?force=true` refetches.
+
+**Response:**
+```json
+{
+  "supported": true, "available": true, "reason": "",
+  "behind": 3, "current": "4523164a", "latest": "96f7125b", "version": "2.0.0",
+  "commits": [ { "sha": "96f7125b", "subject": "…", "author": "…", "date": "2026-09-10" } ],
+  "reviews": [ { "name": "operating.md", "path": "data/prompts/operating.md" } ],
+  "can_apply": true, "busy": false, "run": null
+}
+```
+
+`supported` is false with a populated `reason` for a zip download, a missing
+`origin`, a detached HEAD, a Docker container, or `updates.check` switched off.
+`reviews` lists prompts carrying a `.new` — an unresolved conflict from an
+earlier run.
+
+#### `POST /update/check`
+Forces a fetch and returns the same payload.
+
+#### `POST /update/apply` → `202`
+Starts the run on a worker thread and returns the initial step list. `409` while
+one is in flight, `403` when `updates.allow_web_apply` is false.
+
+> This endpoint runs `git pull`, `uv sync` and `npm install`, which is to say it
+> executes code. It is loopback-only like the rest of the API, the run refuses
+> to touch any tracked file modified outside `data/prompts/`, and the config
+> flag closes it entirely.
+
+#### `GET /update/run`
+Progress while it runs, the finished report afterwards.
+
+```json
+{
+  "state": "done",
+  "steps": [ { "id": "reconcile", "label": "Putting your edits back",
+               "status": "done", "detail": "1 file(s) need your eyes" } ],
+  "report": {
+    "status": "updated", "ok": true, "headline": "Updated — some prompts need a look",
+    "prompts": [ { "name": "operating.md", "state": "conflict",
+                   "detail": "your edits and the new version touch the same lines",
+                   "needs_review": true } ],
+    "backup": "20260911-104500", "restart_required": true, "needs_review": 1
+  }
+}
+```
+
+`report.status` is one of `updated`, `up-to-date`, `blocked`, `failed`. A
+`blocked` report carries `blocked_paths`. `restart_required` means the new code
+is on disk and the running process is still on the old one.
+
+#### `GET /update/reviews/{name}` · `POST /update/reviews/{name}`
+
+`GET` returns `{ "mine": "…", "theirs": "…" }` for the diff view. `POST` takes
+`{"choice": "mine" | "theirs"}`, advances that file's recorded base, deletes the
+`.new` and reloads the config so the decision is live without a restart.
+
+`{name}` is matched against the flagged list rather than joined onto a path, so
+a name from the browser never addresses a file the updater did not itself
+report.
+
+---
+
+### Diagnostics
+
+#### `GET /doctor` · `POST /doctor/run` → `202`
+
+The checks behind `bea --doctor`, in `src/web/health.py`. `POST` starts the run
+as an asyncio task; `GET` returns findings as they land, then a verdict.
+
+```json
+{
+  "state": "done", "total": 13,
+  "findings": [ { "title": "The mind", "ok": false, "detail": "…",
+                  "fix": "…", "blocking": true, "stops": true } ],
+  "verdict": { "level": "blocked", "headline": "The mind is in the way",
+               "detail": "9 check(s) below it never ran.",
+               "blocking": ["The mind"], "warnings": [] }
+}
+```
+
+The sequence stops at the first blocking failure, so `findings` is shorter than
+`total` on a `blocked` verdict and the checks that never ran must not be read as
+passes. `409` when a run is already going. It is never triggered automatically:
+the checks build a voice, transcribe a line and call the mind.
 
 ---
 

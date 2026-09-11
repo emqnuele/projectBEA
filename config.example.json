@@ -81,6 +81,10 @@
     "text_font_step": 2,
     "typing_delay": 0.03,
     "text_min_duration": 2,
+    "updates": {
+        "check": true,
+        "allow_web_apply": true
+    },
     "skills": {
         "monologue": {
             "enabled": false,

@@ -96,8 +96,16 @@ makes her behaviour testable. Keep them that way.
 | **A new TTS engine** | Implement `TTSInterface`, add the branch and the CLI choice in `src/cli.py` |
 | **A new skill** | Extend `Skill`, register it in `AIVtuberBrain._build_consciousness()` |
 | **A new text platform** | Extend `PlatformSkill`, and the roster, person cards, attention gate and scoped conversations then work with no extra code |
+| **A change to `data/prompts/soul.md`** | Update `SHIPPED_SOUL_SHA256` in `src/core/persona.py` to match. The test fails with the value to paste |
 
 [Skills Overview](skills/overview.md) has the full plugin API.
+
+The soul hash is the one thing in this repository that has to be edited in two
+places. It is what separates "still the character we ship" from "someone wrote
+their own", and it cannot be derived at runtime: reading the live file compares
+it to itself, a value in the database goes stale the next time an update changes
+the file, and reading it out of git assumes a `.git` that a tarball install does
+not have. So it travels with the code, and a test stops it drifting.
 
 ---
 
