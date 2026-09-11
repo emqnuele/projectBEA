@@ -534,7 +534,7 @@ make install        # uv sync
 make run            # CLI
 make web            # build the frontend + dashboard on :8000
 make update         # fast-forward, preserving edited prompts (see updating.md)
-uv run bea --doctor # diagnose and fix issues with the setup
+uv run bea --doctor # or: make doctor (diagnose and fix issues)
 make test           # pytest
 make lint           # ruff
 make migrate        # one-shot: import a chroma/json store into data/bea.db

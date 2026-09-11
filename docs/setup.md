@@ -339,7 +339,7 @@ nothing installs it for you, because doing so needs root.
 The fastest way to figure out what is wrong is to run the built-in diagnostic:
 
 ```bash
-uv run bea --doctor
+uv run bea --doctor    # or: make doctor
 ```
 
 Thirteen checks, run in the order the pieces depend on each other and stopped at
