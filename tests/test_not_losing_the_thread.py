@@ -149,12 +149,12 @@ def test_trimming_still_keeps_the_context_short():
 def test_the_recap_reaches_her_context():
     mind = _mind()
     mind.recap.set("You spent an hour on the stream setup.")
-    assert "stream setup" in mind._system_message([])["content"]
+    assert "stream setup" in mind._briefing([])["content"]
 
 
 def test_nothing_is_added_when_there_is_nothing_to_recap():
     mind = _mind()
-    assert "EARLIER THIS SESSION" not in mind._system_message([])["content"]
+    assert "EARLIER THIS SESSION" not in mind._briefing([])["content"]
 
 
 # --- what she is doing, for a written turn -----------------------------------

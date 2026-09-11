@@ -1,16 +1,40 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+/**
+ * The microphone half of voice mode: open it, watch it, and hand over a take.
+ *
+ * Everything about *deciding* whether somebody is talking lives in
+ * `voiceActivity.js`, which is pure and tested. This file owns only the parts
+ * that need a browser — getUserMedia, an analyser, a MediaRecorder — and the
+ * one trick that needs both:
+ *
+ * A recorder started once an onset is confirmed has already missed the first
+ * syllable, because confirming it took ninety milliseconds of hearing it. So
+ * recording starts on the *suspicion* of a voice and the take is thrown away if
+ * the suspicion does not hold. The cost is a few discarded blobs a minute; what
+ * it buys is that "hey" is no longer transcribed as "ey".
+ */
 
-// vad constants
-const DEFAULT_VAD_THRESHOLD = 30;
-const DEFAULT_SILENCE_DURATION = 1500;
-const REQUIRED_SPEECH_FRAMES = 3;
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-export const useVAD = ({
-    onSpeechStart,
-    onSpeechEnd,
-    threshold = DEFAULT_VAD_THRESHOLD,
-    silenceDuration = DEFAULT_SILENCE_DURATION
-} = {}) => {
+import { createVoiceActivity } from './voiceActivity.js';
+
+// how often the spectrum is read. Well under the shortest thing worth hearing.
+const FRAME_MS = 30;
+
+const FFT_SIZE = 256;
+
+// MediaRecorder does not produce WAV; take whatever this browser can make
+const PREFERRED = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+
+// under this, whatever was captured is a click and not a sentence
+const MIN_TAKE_BYTES = 1000;
+
+function extensionFor(mimeType) {
+    if (mimeType.includes('ogg')) return 'ogg';
+    if (mimeType.includes('mp4')) return 'm4a';
+    return 'webm';
+}
+
+export const useVAD = ({ onSpeechStart, onSpeechEnd } = {}) => {
     const [isListening, setIsListening] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [volume, setVolume] = useState(0);
@@ -18,25 +42,32 @@ export const useVAD = ({
 
     const streamRef = useRef(null);
     const audioContextRef = useRef(null);
-    const analyserRef = useRef(null);
     const mediaRecorderRef = useRef(null);
     const audioChunksRef = useRef([]);
-    const vadIntervalRef = useRef(null);
-    const silenceStartRef = useRef(null);
+    const tickRef = useRef(null);
+    // set while a take is being kept; cleared when one is abandoned unheard
+    const wantedRef = useRef(false);
+    // flipped by stopVAD so a getUserMedia still pending when the mic was
+    // asked to close cannot come back up and leave it hot
+    const closingRef = useRef(false);
+    // startVAD has to stay referentially stable (see below), so the live
+    // listening flag lives in a ref instead of a closure
+    const listeningRef = useRef(false);
 
-    // noise gate state
-    const speechFramesRef = useRef(0);
-    const isSpeakingRef = useRef(false);
+    // handlers live in refs because the caller is allowed to pass inline
+    // arrows: a new identity every render must not be able to tear the
+    // microphone down, which is what a changing stopVAD used to do
+    const onSpeechStartRef = useRef(onSpeechStart);
+    const onSpeechEndRef = useRef(onSpeechEnd);
+    useEffect(() => { onSpeechStartRef.current = onSpeechStart; }, [onSpeechStart]);
+    useEffect(() => { onSpeechEndRef.current = onSpeechEnd; }, [onSpeechEnd]);
 
     // --- recording, declared before the loop that drives it ---
 
     const startRecordingInternal = useCallback((stream) => {
         if (mediaRecorderRef.current?.state === 'recording') return;
 
-        // MediaRecorder does not produce WAV; ask for what the browser can make
-        const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
-        const mimeType = preferred.find((type) => MediaRecorder.isTypeSupported(type)) || '';
-
+        const mimeType = PREFERRED.find((type) => MediaRecorder.isTypeSupported(type)) || '';
         const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
         mediaRecorderRef.current = recorder;
         audioChunksRef.current = [];
@@ -47,123 +78,119 @@ export const useVAD = ({
         recorder.start();
     }, []);
 
-    const stopRecordingInternal = useCallback(() => {
+    const stopRecordingInternal = useCallback((keep) => {
         const recorder = mediaRecorderRef.current;
         if (!recorder || recorder.state === 'inactive') return;
 
-        // the handler has to be attached before stop(), or the event can be missed
+        // attached before stop(), or the event can be missed
         recorder.onstop = () => {
-            const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-            if (blob.size > 1000 && onSpeechEnd) onSpeechEnd(blob);
+            if (!keep) return;
+            const type = recorder.mimeType || 'audio/webm';
+            const blob = new Blob(audioChunksRef.current, { type });
+            const cb = onSpeechEndRef.current;
+            if (blob.size > MIN_TAKE_BYTES && cb) cb(blob, extensionFor(type));
         };
         recorder.stop();
-    }, [onSpeechEnd]);
+    }, []);
 
     const startVAD = useCallback(async () => {
-        if (isListening) return;
+        if (listeningRef.current) return;
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // the mic was closed while the browser was deciding whether to
+            // grant it: give the tracks straight back and do not come up
+            if (closingRef.current) {
+                stream.getTracks().forEach((track) => track.stop());
+                return;
+            }
             streamRef.current = stream;
 
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             audioContextRef.current = audioContext;
 
             const analyser = audioContext.createAnalyser();
-            analyser.fftSize = 256;
-            analyserRef.current = analyser;
+            analyser.fftSize = FFT_SIZE;
+            audioContext.createMediaStreamSource(stream).connect(analyser);
 
-            const microphone = audioContext.createMediaStreamSource(stream);
-            microphone.connect(analyser);
-
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            const spectrum = new Uint8Array(analyser.frequencyBinCount);
+            const vad = createVoiceActivity({
+                sampleRate: audioContext.sampleRate,
+                fftSize: FFT_SIZE,
+            });
 
             setIsListening(true);
+            listeningRef.current = true;
             setRecordingStatus('listening');
+            wantedRef.current = false;
 
-            // reset state
-            speechFramesRef.current = 0;
+            tickRef.current = setInterval(() => {
+                analyser.getByteFrequencyData(spectrum);
+                const frame = vad.push(spectrum, performance.now());
+                setVolume(frame.level);
 
-            // monitoring loop
-            vadIntervalRef.current = setInterval(() => {
-                analyser.getByteFrequencyData(dataArray);
-
-                // calculate average volume
-                let sum = 0;
-                for (let i = 0; i < dataArray.length; i++) {
-                    sum += dataArray[i];
+                // a sound started: begin capturing it before knowing what it is
+                if (frame.arming && mediaRecorderRef.current?.state !== 'recording') {
+                    startRecordingInternal(stream);
                 }
-                const avgVolume = sum / dataArray.length;
-                setVolume(avgVolume);
 
-                // logic
-                if (avgVolume > threshold) {
-                    // --- potential speech ---
-                    speechFramesRef.current += 1;
-
-                    if (speechFramesRef.current >= REQUIRED_SPEECH_FRAMES) {
-                        // confirmed speech (sustained for ~90ms)
-                        silenceStartRef.current = null; // reset silence timer
-
-                        if (!isSpeakingRef.current) {
-                            // rising edge: user started speaking
-                            isSpeakingRef.current = true;
-                            setIsSpeaking(true);
-                            setRecordingStatus('recording');
-                            if (onSpeechStart) onSpeechStart();
-
-                            // start recording
-                            startRecordingInternal(stream);
-                        }
-                    }
-                } else {
-                    // --- silence or brief noise ---
-                    // if we haven't reached confirmation yet, reset the counter
-                    if (!isSpeakingRef.current) {
-                        speechFramesRef.current = 0;
-                    }
-
-                    if (isSpeakingRef.current) {
-                        // user was speaking, now silent. check duration.
-                        if (!silenceStartRef.current) {
-                            silenceStartRef.current = Date.now();
-                        } else {
-                            if (Date.now() - silenceStartRef.current > silenceDuration) {
-                                // falling edge: speech ended
-                                isSpeakingRef.current = false;
-                                speechFramesRef.current = 0; // reset frame counter
-                                setIsSpeaking(false);
-                                setRecordingStatus('listening');
-
-                                stopRecordingInternal();
-                            }
-                        }
-                    }
+                if (frame.started) {
+                    wantedRef.current = true;
+                    setIsSpeaking(true);
+                    setRecordingStatus('recording');
+                    if (onSpeechStartRef.current) onSpeechStartRef.current();
+                    return;
                 }
-            }, 30); // 30ms interval
 
+                if (frame.ended) {
+                    wantedRef.current = false;
+                    setIsSpeaking(false);
+                    setRecordingStatus('listening');
+                    stopRecordingInternal(true);
+                    return;
+                }
+
+                // it was a door, not a voice: drop the take rather than send it
+                if (!frame.speaking && !frame.arming && !wantedRef.current
+                    && mediaRecorderRef.current?.state === 'recording') {
+                    stopRecordingInternal(false);
+                }
+            }, FRAME_MS);
         } catch (err) {
-            console.error("VAD Setup Error:", err);
+            console.error('VAD Setup Error:', err);
             setRecordingStatus('error');
         }
-    }, [isListening, onSpeechStart, threshold, silenceDuration, startRecordingInternal, stopRecordingInternal]);
+        // both helpers below are referentially stable, so this list never
+        // grows or shrinks; it exists to keep the linter honest
+    }, [startRecordingInternal, stopRecordingInternal]);
 
     const stopVAD = useCallback(() => {
-        if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
-        if (audioContextRef.current) audioContextRef.current.close();
+        closingRef.current = true;
+        if (tickRef.current) clearInterval(tickRef.current);
+        // whatever was being captured when the microphone was closed was never
+        // a finished sentence
+        stopRecordingInternal(false);
+        // close() resolves its own promise; rejecting that promise is not a
+        // reason for the mic to stay open, and an unhandled rejection would be
+        if (audioContextRef.current) {
+            audioContextRef.current.close().catch(() => {});
+            audioContextRef.current = null;
+        }
         if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current.getTracks().forEach((track) => track.stop());
             streamRef.current = null;
         }
 
+        listeningRef.current = false;
         setIsListening(false);
         setIsSpeaking(false);
         setRecordingStatus('idle');
         setVolume(0);
-        isSpeakingRef.current = false;
-    }, []);
+        wantedRef.current = false;
+    }, [stopRecordingInternal]);
 
-    // cleanup
+    // cleanup on unmount only: stopVAD never changes identity, so running it
+    // on every commit would be the very mic-teardown this hook exists to stop
     useEffect(() => () => stopVAD(), [stopVAD]);
 
     return {
@@ -172,6 +199,6 @@ export const useVAD = ({
         isListening,
         isSpeaking,
         volume,
-        recordingStatus
+        recordingStatus,
     };
 };

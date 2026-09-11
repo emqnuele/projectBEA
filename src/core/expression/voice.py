@@ -1,14 +1,15 @@
 import asyncio
+import contextlib
 import time
 import uuid
-from typing import Optional
+from typing import Any, List, Optional, Tuple
 
 from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
-from src.core.expression.chunking import split_for_speech
+from src.core.expression.live import LiveLine, Rendered
 from src.core.expression.pcm import ENVELOPE_FPS, duration_ms, envelope, to_call_pcm
 from src.core.expression.prosody import for_mood
-from src.core.mind.moods import DEFAULT_MOOD
+from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.interfaces.base_interfaces import AvatarInterface, CaptionInterface, TTSInterface
 from src.utils.logger import get_logger
 
@@ -71,6 +72,17 @@ class Expression:
         self.affect = None
         # the last utterance a barge-in cut short, for the mind to be told about
         self.interrupted = None
+        # the line being said right now, when there is one
+        self._line: Optional[LiveLine] = None
+        # how a word she wrote inline becomes something she actually has. The
+        # brain swaps these for ones that match by meaning; on their own they
+        # only recognise what is already spelled correctly.
+        self._match_mood = normalize_mood
+        self._match_clip = lambda word: word
+
+        # a call line's visuals run in their own task; it must be held onto, or
+        # the garbage collector can cancel it between two sentences
+        self._visual_tasks = set()
 
     def set_state(self, state: str, mood: Optional[str] = None) -> None:
         """A visible state that is not speech: sleeping, listening, idle.
@@ -125,6 +137,19 @@ class Expression:
         """Hands over what her standing mood is read from."""
         self.affect = affect
 
+    def set_matchers(self, mood=None, clip=None) -> None:
+        """How the words she writes inline are turned into things she has."""
+        if mood is not None:
+            self._match_mood = mood
+        if clip is not None:
+            self._match_clip = clip
+
+    def match_mood(self, word: str) -> str:
+        return self._match_mood(word)
+
+    def match_clip(self, word: str) -> str:
+        return self._match_clip(word)
+
     def _prosody(self, mood: str, feeling=None):
         """How this line should sound, or None when nothing should colour it.
 
@@ -145,10 +170,27 @@ class Expression:
 
     async def speak(self, mood: str, message: str, *, route: str = "local", feeling=None):
         """Renders a spoken turn. Returns the Utterance when route='call'."""
-        if route == "call":
-            return await self._speak_call(mood, message, feeling)
-        await self._speak_local(mood, message, feeling)
-        return None
+        line = self.open_line(mood, route=route, feeling=feeling, caption=message)
+        if line is None:
+            return None
+        line.say(message)
+        return await line.close()
+
+    def open_line(self, mood: str, *, route: str = "local", feeling=None,
+                  caption: Optional[str] = None) -> Optional[LiveLine]:
+        """A line she can start saying before it has finished being written.
+
+        `caption` is the whole line when the caller already has it: knowing it up
+        front is what lets the words on screen be typed once instead of starting
+        again at every sentence. Returns None when the route cannot be served —
+        there is no call to speak into — so a caller can fall back rather than
+        talk to nobody.
+        """
+        if route == "call" and self.call is None:
+            return None
+        line = LiveLine(self, mood, route=route, feeling=feeling)
+        line.caption = caption
+        return line
 
     async def _play_audio(self, audio_data, sample_rate, device_id):
         """Plays audio via sounddevice while tracking playback for barge-in."""
@@ -257,94 +299,164 @@ class Expression:
             return audio_data.mean(axis=1)
         return audio_data[:, :channels]
 
-    async def _speak_local(self, mood: str, message: str, feeling=None):
-        """Audio + visual output on the local device (stream/OBS)."""
+    # --- the sink one live line drives --------------------------------------
+    #
+    # `LiveLine` owns the order things happen in; everything below is what one
+    # beat actually does. Split that way so the ordering can be tested without
+    # a sound card and the rendering without a queue.
+
+    def prosody_for(self, mood: str, feeling=None):
+        """How a line in this mood should sound. The public half of `_prosody`."""
+        return self._prosody(mood, feeling)
+
+    def playback_lock(self, line: LiveLine):
+        """Only one line at a time may hold the local sound card."""
+        return self.audio_lock if line.route != "call" else contextlib.nullcontext()
+
+    def line_opened(self, line: LiveLine) -> None:
+        """She has started saying something: dress the stage for it."""
+        self._line = line
+        self._mood = line.mood
+        preview = (line.caption or "")[:50]
+
+        if line.route == "call":
+            line.state = {"id": uuid.uuid4().hex, "seq": 0, "spoken_ms": 0, "frames": []}
+            self.event_manager.publish(
+                EventCategory.OUTPUT, "tts", f"Speaking in the call: {preview}...",
+                metadata={"utterance_id": line.state["id"]},
+            )
+            return
+
         self.is_speaking = True
-        self._mood = mood
-        try:
-            logger.info(f"Mood: {mood}")
-            logger.info(f"Message: {message}")
+        logger.info(f"Mood: {line.mood}")
 
-            if self.current_typing_task and not self.current_typing_task.done():
-                logger.info("Interrupting previous typing task...")
-                self.current_typing_task.cancel()
+        if self.current_typing_task and not self.current_typing_task.done():
+            logger.info("Interrupting previous typing task...")
+            self.current_typing_task.cancel()
+        if self.current_speech_task and not self.current_speech_task.done():
+            logger.info("Interrupting previous speech task...")
+            self.current_speech_task.cancel()
 
-            if self.current_speech_task and not self.current_speech_task.done():
-                logger.info("Interrupting previous speech task...")
-                self.current_speech_task.cancel()
+        self.caption.clear()
+        self.avatar.show(line.mood, "talking")
+        self.event_manager.publish(
+            EventCategory.OUTPUT, "tts", f"Speaking: {preview}...",
+            metadata={"device_id": self.config.audio_device_id},
+        )
+        if line.caption:
+            self.current_typing_task = asyncio.create_task(self.caption.say(line.caption))
 
-            self.caption.clear()
-            self.avatar.show(mood, "talking")
+    async def render(self, line: LiveLine, text: str,
+                     prosody) -> Optional[List[Tuple[Any, int]]]:
+        """What the engine makes of one piece, or None to abandon the line.
 
-            async with self.audio_lock:
-                self.current_typing_task = asyncio.create_task(self.caption.say(message))
-
-                self.event_manager.publish(
-                    EventCategory.OUTPUT, "tts", f"Speaking: {message[:50]}...",
-                    metadata={"device_id": self.config.audio_device_id},
-                )
-
-                if message:
-                    audio_data, fs = await self.tts.generate_audio(
-                        message, self._prosody(mood, feeling))
-                    # the mouth is told before playback starts, so the page has
-                    # the whole shape of the line and can run it off its own clock
-                    self._move_mouth(audio_data, fs)
-                    self.current_speech_task = asyncio.create_task(
-                        self._play_audio(audio_data, fs, self.config.audio_device_id)
-                    )
-
-                    try:
-                        await asyncio.gather(self.current_typing_task, self.current_speech_task)
-                    except asyncio.CancelledError:
-                        logger.info("Output tasks cancelled (Interruption).")
-
-            self.caption.clear()
-            self.avatar.show(mood, self._resting)
-        finally:
-            self.is_speaking = False
-
-    async def _speak_call(self, mood: str, message: str, feeling=None):
-        """Synthesises piece by piece and pushes each one as it is ready.
-
-        The room hears the first sentence while the second is still being
-        generated, so the time to first sound stops depending on how much she
-        had to say. The seams sit on sentence boundaries, where a person would
-        breathe anyway.
+        Abandoning is not an error: it is the room having moved on while the
+        rest of the line was still being made, and every piece not rendered
+        after that is one nobody was going to hear anyway.
         """
-        if self.call is None:
+        if line.route != "call":
+            logger.info(f"Message: {text}")
+            return [await self.tts.generate_audio(text, prosody)]
+
+        state = line.state
+        if self._call_moved_on(state["id"], state["seq"]):
             return None
 
-        utterance_id = uuid.uuid4().hex
-        self.event_manager.publish(
-            EventCategory.OUTPUT, "tts", f"Speaking in the call: {message[:50]}...",
-            metadata={"utterance_id": utterance_id},
-        )
+        parts: List[Tuple[Any, int]] = []
+        async for audio, rate in self.tts.generate_stream(text, prosody):
+            # against what has actually been pushed, never against what is only
+            # rendered: nothing is playing yet while the first piece is made
+            if self._call_moved_on(state["id"], state["seq"]):
+                return None
+            parts.append((audio, rate))
+        return parts
 
-        seq = 0
-        spoken_ms = 0
-        # the shape of the whole line, gathered sentence by sentence as it is
-        # synthesised, so the mouth can run once the room starts hearing her
-        frames: list = []
-        # read once per turn: the second half of a sentence must not drift into
-        # a different mood from the first
-        prosody = self._prosody(mood, feeling)
-        for sentence in split_for_speech(message):
-            async for audio_data, sample_rate in self.tts.generate_stream(sentence, prosody):
-                if self._call_moved_on(utterance_id, seq):
-                    return self.call.utterances.get(utterance_id)
-                pcm = to_call_pcm(audio_data, sample_rate)
-                if not pcm:
-                    continue
-                await self.call.play(pcm, utterance_id=utterance_id, text=message,
-                                     seq=seq, last=False)
-                frames.extend(envelope(audio_data, sample_rate, self._lipsync_fps))
-                spoken_ms += duration_ms(pcm)
-                seq += 1
+    async def play(self, line: LiveLine, item: Rendered) -> None:
+        """One rendered piece, out loud, now."""
+        if line.route == "call":
+            await self._push(line, item)
+            return
 
-        await self.call.end(utterance_id)
-        asyncio.create_task(self._visual_only(mood, message, spoken_ms / 1000.0, frames))
-        return self.call.utterances.get(utterance_id)
+        if line.caption is None:
+            # a line still being written has no whole caption to type, so the
+            # words follow the voice one sentence at a time
+            if self.current_typing_task and not self.current_typing_task.done():
+                self.current_typing_task.cancel()
+            self.current_typing_task = asyncio.create_task(self.caption.say(item.beat.value))
+
+        for audio, rate in item.parts:
+            # the mouth is told before playback starts, so the page has the whole
+            # shape of the piece and can run it off its own clock
+            self._move_mouth(audio, rate)
+            self.current_speech_task = asyncio.create_task(
+                self._play_audio(audio, rate, self.config.audio_device_id)
+            )
+            await self.current_speech_task
+
+    async def _push(self, line: LiveLine, item: Rendered) -> None:
+        """One rendered piece into the live call."""
+        # taken once rather than read per piece: she can be pulled out of the
+        # call between two sentences, and half a line should not raise
+        call = self.call
+        if call is None:
+            return
+        state = line.state
+        for audio, rate in item.parts:
+            pcm = to_call_pcm(audio, rate)
+            if not pcm:
+                continue
+            await call.play(pcm, utterance_id=state["id"],
+                                 text=line.caption or line.written,
+                                 seq=state["seq"], last=False)
+            state["frames"].extend(envelope(audio, rate, self._lipsync_fps))
+            state["spoken_ms"] += duration_ms(pcm)
+            state["seq"] += 1
+
+    def wear(self, line: LiveLine, word: str) -> None:
+        """Direction inside the line: her face changes from this word on."""
+        mood = self.match_mood(word)
+        line.mood = mood
+        self._mood = mood
+        self.avatar.show(mood, "talking")
+
+    def behave(self, line: LiveLine, word: str) -> None:
+        """Direction inside the line: she does something while she says it."""
+        clip = self.match_clip(word)
+        if clip:
+            self.avatar.perform(clip)
+
+    async def line_closed(self, line: LiveLine):
+        """The line is over. Returns the Utterance when it went to a call."""
+        # a line that was interrupted is closed after the one that replaced it
+        # has already started: it must not put that one's face away
+        mine = self._line is line
+        if mine:
+            self._line = None
+
+        if line.route == "call":
+            state = line.state
+            if line.abandoned or self.call is None:
+                return self.call.utterances.get(state["id"]) if self.call else None
+            await self.call.end(state["id"])
+            task = asyncio.create_task(self._visual_only(
+                line.mood, line.caption or line.spoken,
+                state["spoken_ms"] / 1000.0, state["frames"],
+            ))
+            self._visual_tasks.add(task)
+            task.add_done_callback(self._visual_tasks.discard)
+            return self.call.utterances.get(state["id"])
+
+        if self.current_typing_task and not self.current_typing_task.done():
+            try:
+                await self.current_typing_task
+            except asyncio.CancelledError:
+                logger.info("Output tasks cancelled (Interruption).")
+
+        if mine:
+            self.caption.clear()
+            self.avatar.show(self._mood, self._resting)
+            self.is_speaking = False
+        return None
 
     def _call_moved_on(self, utterance_id: str, seq: int) -> bool:
         """Whether it is still worth synthesising the rest of this line.
@@ -352,10 +464,13 @@ class Expression:
         Barge-in lands while the later sentences are still being generated:
         without this she keeps paying for words the room already stopped hearing.
         """
+        call = self.call
+        if call is None or not call.live:
+            return True
         if seq == 0:
-            return not self.call_is_live
-        current = self.call.current
-        return not self.call_is_live or current is None or current.id != utterance_id
+            return False
+        current = call.current
+        return current is None or current.id != utterance_id
 
     @property
     def _lipsync_fps(self) -> int:
@@ -402,8 +517,15 @@ class Expression:
         """
         logger.info("Interruption Signal Received!")
 
-        if self.call_is_live:
-            self.interrupted = await self.call.stop(ramp_ms=ramp_ms)
+        # stop making the rest of the line before stopping the sound: whatever
+        # is still being synthesised is already words nobody will hear
+        line, self._line = self._line, None
+        if line is not None:
+            await line.cancel()
+
+        call = self.call
+        if call is not None and call.live:
+            self.interrupted = await call.stop(ramp_ms=ramp_ms)
 
         if self.is_speaking and self.current_audio_buffer is not None:
             try:

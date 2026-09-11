@@ -37,7 +37,7 @@ from src.core.persona_store import describe as persona_describe
 from src.core.settings_schema import ValidationError, apply_section, describe
 from src.core.settings_schema import restart_needed as _restart_needed
 from src.core.settings_schema import section as _section
-from src.core.stage import public_config
+from src.core.stage import clips_dir, public_config
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.web")
@@ -555,7 +555,9 @@ async def buffer_voice_transcript(
 
         if transcript and transcript.strip() and transcript != "[Unintelligible]":
             if brain.surface_registry is not None:
-                voice = brain.surface_registry.get("voice:discord")
+                # the registry is keyed by name, and each name has its own
+                # interface: what this one perceives is not what the others do
+                voice: Any = brain.surface_registry.get("voice:discord")
                 if voice is not None and hasattr(voice, "perceive"):
                     voice.perceive(transcript, username, user_id=user_id,
                                    whitelisted=whitelisted, listeners=listeners)
@@ -959,7 +961,10 @@ async def test_llm():
     brain = get_brain()
     try:
         started = time.perf_counter()
-        result = brain.llm.chat("Reply with the single word: ok.", system_prompt="You are a test probe.")
+        # `chat` is the one-shot helper the openai-compatible client adds on top
+        # of the port; a backend without it fails here and is reported as such
+        probe: Any = brain.llm
+        result = probe.chat("Reply with the single word: ok.", system_prompt="You are a test probe.")
         if inspect.isawaitable(result):
             result = await result
         elapsed = int((time.perf_counter() - started) * 1000)
@@ -1069,11 +1074,6 @@ def stage_config():
     return public_config(get_brain().config)
 
 
-def _clips_dir(config) -> Path:
-    stage = getattr(config, "stage", {}) or {}
-    return Path(stage.get("clips_dir") or "data/clips")
-
-
 @app.get("/stage/model")
 def stage_model():
     """The .vrm the browser source draws.
@@ -1094,7 +1094,7 @@ def stage_model():
 @app.get("/stage/clips")
 def stage_clips():
     """The behaviours installed, by name — what the dashboard offers you."""
-    folder = _clips_dir(get_brain().config)
+    folder = clips_dir(get_brain().config)
     if not folder.is_dir():
         return []
     return sorted(p.stem for p in folder.glob("*.vrma"))
@@ -1103,7 +1103,7 @@ def stage_clips():
 @app.get("/stage/clips/{name}")
 def stage_clip(name: str):
     """One .vrma behaviour, by the name `/stage/clips` listed."""
-    folder = _clips_dir(get_brain().config).resolve()
+    folder = clips_dir(get_brain().config).resolve()
     path = (folder / f"{name}.vrma").resolve()
     # the name comes from a page: it must not be able to walk out of the folder
     if not path.is_relative_to(folder) or not path.is_file():

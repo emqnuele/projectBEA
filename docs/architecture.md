@@ -170,27 +170,25 @@ machinery.
    without a single model call. The rest goes into the digest, which appears in
    the next system message as `[WHILE YOU WERE BUSY]`.
 4. **Rebuild the system message** (`_build_system_message`):
-   `CURRENT DATE + soul + operating manual + context_section of every active
-   skill + live_state + dynamic_context(batch)`. The dynamic part (RAG, person
-   cards) runs in `asyncio.to_thread` so a slow retrieval never stalls the loop.
+   The static part (soul + operating manual) is deliberately split from the dynamic part (RAG, person cards, live state) so providers can cache the static prompt. The dynamic part runs in `asyncio.to_thread` so a slow retrieval never stalls the loop.
 5. **Append the perception frame** as a `user` message.
 6. **Reasoning burst**, up to `burst_steps` (6) steps:
    - `bus.drain_nowait()` folds anything that arrived *during* reasoning in as a
      **steering** frame with an explicit header;
-   - `llm.complete(context, tools=…)`;
+   - `llm.complete(context, tools=…)`; the LLM **streams** its response back;
    - free assistant text is **inner monologue** (published as
      `EventCategory.THOUGHT`) and is never spoken;
    - tools run; if the only tools called were `speak`/`stay_silent` the turn ends
      without burning another model call.
-7. **Resolve** any dangling correlations and **trim** the context to
+7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **trim** the context to
    `history_limit` (30 messages).
 
 Details that matter:
 
-- **`speak` is non-blocking** locally (`create_task`), and blocking on the
-  `discord` route because it must hand back the WAV bytes.
+- **`speak` is streamed:** The model streams its text line by line. Voice synthesis and chunking happen while she is still writing, reducing latency.
 - **Body actions** (`long_running=True`) run in a single-slot task that preempts
   the previous one; the result comes back as a perception.
+- **The Turn Log:** Every turn she takes is recorded, capturing her exact context, perceptions, and tool calls.
 
 ---
 
@@ -248,8 +246,9 @@ call.
 - **Text** answers only when whitelisted *and* (mention | reply to Bea | DM).
   It deposits a perception and returns immediately: Bea decides on her own
   whether and how to answer, using the discord tools.
-- **Voice in** decodes Opus → PCM 48k stereo → mono 16k WAV, with an
-  RMS-threshold VAD and a two-stage barge-in: duck first, stop only if they
+- **Voice in** decodes Opus → PCM 48k stereo → mono 16k WAV, with a
+  robust Voice Activity Detection (VAD) layer that accurately hears a sentence out
+  to its end. It uses a two-stage barge-in: duck first, stop only if they
   keep going.
 - **Voice out** is pushed over the socket as 48 kHz stereo PCM, sentence by
   sentence, so the room hears the first one while the next is still being
@@ -390,8 +389,8 @@ lived on the scale of the last half hour, which is the scale on which people
 read someone's mood.
 
 There is **no new sense and no new tool**. She already picks a mood for every
-line she speaks, and until now that mood only ever reached a PNG. It is the
-signal, so this costs no extra model call and no extra prompt.
+line she speaks. A semantic picker maps whatever expression she names to the nearest
+one the avatar actually has. It is the signal, so this costs no extra model call and no extra prompt.
 
 - `rules.py` is **pure** — `Affect` is `(valence, arousal, updated_at)`, and
   the two axes are two rather than one because angry and sad are both negative
@@ -531,6 +530,7 @@ arrives with its tests in the same commit.**
 make install        # uv sync
 make run            # CLI
 make web            # build the frontend + dashboard on :8000
+uv run bea doctor   # diagnose and fix issues with the setup
 make test           # pytest
 make lint           # ruff
 make migrate        # one-shot: import a chroma/json store into data/bea.db

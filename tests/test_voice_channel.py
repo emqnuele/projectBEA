@@ -209,20 +209,20 @@ def mind(call=None) -> Consciousness:
 async def test_in_a_call_both_sentences_of_a_turn_go_to_the_room():
     """The whole reason the push channel exists."""
     c = mind(call=LiveCall())
-    await c._speak("normal", "aspetta")
-    await c._speak("normal", "no davvero, aspetta")
+    await c._speak("neutral", "aspetta")
+    await c._speak("neutral", "no davvero, aspetta")
     await settle()
 
-    assert c.expression.spoken == [("normal", "aspetta", "call"),
-                                   ("normal", "no davvero, aspetta", "call")]
+    assert c.expression.spoken == [("neutral", "aspetta", "call"),
+                                   ("neutral", "no davvero, aspetta", "call")]
 
 
 async def test_with_no_call_she_still_speaks_out_of_the_speakers():
     c = mind(call=None)
-    await c._speak("normal", "ma che vuoi")
+    await c._speak("neutral", "ma che vuoi")
     await settle()
 
-    assert c.expression.spoken == [("normal", "ma che vuoi", "local")]
+    assert c.expression.spoken == [("neutral", "ma che vuoi", "local")]
 
 
 # --- the samples themselves --------------------------------------------------

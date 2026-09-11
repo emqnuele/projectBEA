@@ -27,7 +27,15 @@
     "kokoro_speed": 1,
     "kokoro_lang": "en-us",
     "avatar_map": {
-        "normal": {
+        "neutral": {
+            "idle": "",
+            "talking": ""
+        },
+        "happy": {
+            "idle": "",
+            "talking": ""
+        },
+        "sad": {
             "idle": "",
             "talking": ""
         },
@@ -35,23 +43,15 @@
             "idle": "",
             "talking": ""
         },
+        "surprised": {
+            "idle": "",
+            "talking": ""
+        },
+        "disgusted": {
+            "idle": "",
+            "talking": ""
+        },
         "bored": {
-            "idle": "",
-            "talking": ""
-        },
-        "cry": {
-            "idle": "",
-            "talking": ""
-        },
-        "ew": {
-            "idle": "",
-            "talking": ""
-        },
-        "love": {
-            "idle": "",
-            "talking": ""
-        },
-        "shock": {
             "idle": "",
             "talking": ""
         }
@@ -66,11 +66,13 @@
         "shot": "bust",
         "mood_clips": {},
         "background": "",
+        "max_fps": 0,
         "vts_host": "127.0.0.1",
         "vts_port": 8001,
         "vts_expressions": {},
         "vts_clips": {},
-        "vts_mouth_param": "MouthOpen"
+        "vts_mouth_param": "MouthOpen",
+        "vts_mouth_form_param": ""
     },
     "text_line_width": 40,
     "text_lines": 4,
@@ -143,7 +145,10 @@
         "correlation_timeout": 90.0,
         "conversation_history": 16,
         "conversation_steps": 3,
-        "max_coalesced_runs": 3
+        "max_coalesced_runs": 3,
+        "turn_log": true,
+        "turn_log_dir": "data/turns",
+        "turn_log_days": 14
     },
     "models": {
         "mind": [

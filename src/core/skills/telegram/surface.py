@@ -39,7 +39,7 @@ class TelegramSkill(PlatformSkill):
 
     def initialize(self) -> None:
         super().initialize()
-        self.app = None
+        self.app: Optional[Any] = None
         self._task: Optional[asyncio.Task] = None
         self._me: Any = None
         # set by the brain; a voice note without it is just "[voice note]"
@@ -107,7 +107,9 @@ class TelegramSkill(PlatformSkill):
             await self.app.initialize()
             await self.app.start()
             self._me = await self.app.bot.get_me()
-            await self.app.updater.start_polling(drop_pending_updates=True)
+            # built without one only when polling is disabled, which it is not here
+            if self.app.updater is not None:
+                await self.app.updater.start_polling(drop_pending_updates=True)
         except Exception as e:
             logger.error(f"Telegram failed to start: {e}")
             await self._shutdown()
@@ -132,7 +134,7 @@ class TelegramSkill(PlatformSkill):
         except Exception as e:
             logger.error(f"Error stopping telegram: {e}")
         finally:
-            self.app = None
+            self.app: Optional[Any] = None
 
     # --- senses -------------------------------------------------------------
 

@@ -46,7 +46,7 @@ def test_a_page_that_connects_is_told_how_she_looks_now():
 def test_a_reconnecting_page_gets_no_backlog_to_act_out():
     """The whole reason this is not EventManager."""
     channel = StageChannel()
-    for mood in ("love", "cry", "angry"):
+    for mood in ("happy", "sad", "angry"):
         channel.publish({"mood": mood})
 
     queue = channel.subscribe()
@@ -58,10 +58,10 @@ def test_a_reconnecting_page_gets_no_backlog_to_act_out():
 def test_a_moment_is_not_remembered_as_a_state():
     """An envelope kept in the snapshot would mouth a sentence long finished."""
     channel = StageChannel()
-    channel.publish({"mood": "love", "envelope": [0.1, 0.2], "perform": "wave"})
+    channel.publish({"mood": "happy", "envelope": [0.1, 0.2], "perform": "wave"})
 
     snapshot = channel.snapshot()
-    assert snapshot["mood"] == "love"
+    assert snapshot["mood"] == "happy"
     assert "envelope" not in snapshot
     assert "perform" not in snapshot
 
@@ -70,9 +70,9 @@ def test_subscribers_are_handed_the_patch_and_not_the_whole_state():
     channel = StageChannel()
     queue = channel.subscribe()
 
-    channel.publish({"mood": "shock"})
+    channel.publish({"mood": "surprised"})
 
-    assert queue.get_nowait() == {"mood": "shock"}
+    assert queue.get_nowait() == {"mood": "surprised"}
 
 
 def test_a_page_that_stopped_reading_is_dropped_not_waited_for():
@@ -197,7 +197,7 @@ async def test_the_stream_opens_with_a_snapshot_before_any_patch(client):
     from src.web import app as web
 
     _api, stub = client
-    stub.stage.publish({"mood": "cry", "state": "talking"})
+    stub.stage.publish({"mood": "sad", "state": "talking"})
 
     class Disconnected:
         async def is_disconnected(self):
@@ -208,7 +208,7 @@ async def test_the_stream_opens_with_a_snapshot_before_any_patch(client):
 
     payload = json.loads(first[len("data: "):])
     assert payload["type"] == "snapshot"
-    assert payload["mood"] == "cry"
+    assert payload["mood"] == "sad"
     assert payload["state"] == "talking"
 
 
@@ -242,9 +242,9 @@ def test_the_preview_only_serves_images_the_avatar_map_names(client, tmp_path):
     api, stub = client
     secret = tmp_path / "id_rsa"
     secret.write_text("not an avatar")
-    stub.config.avatar_map = {"normal": {"idle": "", "talking": ""}}
+    stub.config.avatar_map = {"neutral": {"idle": "", "talking": ""}}
 
-    assert api.get("/stage/preview", params={"mood": "normal"}).status_code == 404
+    assert api.get("/stage/preview", params={"mood": "neutral"}).status_code == 404
     assert api.get("/stage/preview", params={"mood": str(secret)}).status_code == 404
 
 

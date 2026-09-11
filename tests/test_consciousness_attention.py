@@ -50,7 +50,7 @@ def build(llm, **attention):
         soul_getter=lambda: "you are bea", operating_getter=lambda: "call speak to talk",
         attention=Attention(config, rng=rng, clock=lambda: NOON),
     )
-    mind.context = [mind._system_message([])]
+    mind.context = [mind._system_message()]
     return mind, bus, events
 
 
@@ -100,7 +100,7 @@ async def test_being_named_always_gets_through():
 
     await run_until_quiet(mind, bus)
     assert llm.call_count == 1
-    assert mind.expression.spoken == [("normal", "che vuoi", "local")]
+    assert mind.expression.spoken == [("neutral", "che vuoi", "local")]
 
 
 async def test_a_named_message_buried_in_game_noise_still_lands():
@@ -182,7 +182,7 @@ async def test_an_awaited_caller_is_freed_even_when_ignored():
 
     await run_until_quiet(mind, bus)
     assert future.done()
-    assert future.result() == {"mood": "normal", "message": ""}
+    assert future.result() == {"mood": "neutral", "message": ""}
     assert llm.call_count == 0
 
 

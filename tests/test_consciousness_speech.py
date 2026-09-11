@@ -24,7 +24,7 @@ def mind() -> Consciousness:
         soul_getter=lambda: "soul", operating_getter=lambda: "rules",
         attention=Attention(config),
     )
-    c.context = [c._system_message([])]
+    c.context = [c._system_message()]
     return c
 
 
@@ -37,37 +37,37 @@ async def speak(c, mood: str, message: str) -> str:
 
 async def test_a_clean_line_is_spoken_as_is():
     c = mind()
-    await speak(c, "normal", "ma che vuoi")
-    assert c.expression.spoken == [("normal", "ma che vuoi", "local")]
+    await speak(c, "neutral", "ma che vuoi")
+    assert c.expression.spoken == [("neutral", "ma che vuoi", "local")]
 
 
 async def test_a_leaked_think_block_is_never_pronounced():
     c = mind()
-    await speak(c, "normal", "<think>should I be mean</think>ovviamente no")
-    assert c.expression.spoken == [("normal", "ovviamente no", "local")]
+    await speak(c, "neutral", "<think>should I be mean</think>ovviamente no")
+    assert c.expression.spoken == [("neutral", "ovviamente no", "local")]
 
 
 async def test_special_tokens_never_reach_the_tts():
     c = mind()
-    await speak(c, "normal", "eccomi<|endoftext|>")
-    assert c.expression.spoken == [("normal", "eccomi", "local")]
+    await speak(c, "neutral", "eccomi<|endoftext|>")
+    assert c.expression.spoken == [("neutral", "eccomi", "local")]
 
 
 async def test_an_all_scaffolding_output_makes_her_stay_silent():
     """Better silence than pronouncing the model's inner monologue."""
     c = mind()
-    result = await speak(c, "normal", "<think>only thinking here</think>")
+    result = await speak(c, "neutral", "<think>only thinking here</think>")
     assert c.expression.spoken == []
     assert result == "Staying silent."
 
 
 async def test_only_what_was_really_said_enters_the_history():
     c = mind()
-    await speak(c, "normal", "<think>hmm</think>ciao")
+    await speak(c, "neutral", "<think>hmm</think>ciao")
     assert [m["content"] for m in c.history.messages] == ["ciao"]
 
 
 async def test_a_missing_mood_falls_back_to_normal():
     c = mind()
     await speak(c, "", "eccomi")
-    assert c.expression.spoken[0][0] == "normal"
+    assert c.expression.spoken[0][0] == "neutral"

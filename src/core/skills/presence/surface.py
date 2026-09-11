@@ -31,11 +31,11 @@ class PresenceSkill(Skill):
     skill_name = None  # core: without it she can only ever answer
 
     def initialize(self) -> None:
-        memory = self.context.memory
+        memory = self.brain.memory
         self.agenda = memory.agenda
         # the registry itself, not a snapshot: skills register one after another
         # and this one is built in the middle of that loop
-        self.reach = Reach(memory=memory, surfaces=self.context.surface_registry,
+        self.reach = Reach(memory=memory, surfaces=self.brain.surface_registry,
                            persona=persona_of(self.config))
 
     @property

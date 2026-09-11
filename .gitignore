@@ -51,6 +51,7 @@ data/bea.db-wal
 data/bea.db-shm
 data/vtube_studio_token.json
 data/embeddings_cache/
+data/turns/
 
 
 # Frontend

@@ -662,6 +662,11 @@ class MemoryStore:
         self.plan = StreamPlan(self.db)
         self.agenda = Agenda(self.db)
 
+        # kept rather than only handed to `Rag`: it is the one loaded embedding
+        # model in the process, and matching a word she wrote to a mood or a
+        # behaviour has no business loading a second copy of it
+        self.embedder = embedder
+
         self.rag = None
         if embedder is not None:
             from src.core.memory.rag import Rag

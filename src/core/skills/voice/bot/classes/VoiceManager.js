@@ -16,6 +16,25 @@ const config = require('../config');
 const whitelist = require('../whitelist');
 const { BrainLink } = require('./BrainLink');
 const { PcmGain } = require('./PcmGain');
+const { createSpeechBuffer } = require('./SpeechBuffer');
+const { pcmToWav } = require('./Pcm');
+
+// discord closes a receive stream this long after a client stops transmitting.
+// It is kept short on purpose: what a turn is now gets decided by the hangover
+// in SpeechBuffer, so there is no reason to hold a subscription open waiting.
+const STREAM_END_MS = 200;
+
+// how often a turn that has gone quiet is checked for being over. The hangover
+// is half a second, so this costs at most a tenth of one on top of it.
+const TICK_MS = 100;
+
+// the fade-down while someone talks over her, the fade-back-up once they stop,
+// and what she stops at. 0.25 is audible but gone quickly, and 200ms is short
+// enough to feel immediate on both ramps
+const DUCK_GAIN = 0.25;
+const DUCK_RAMP_MS = 250;
+const UNDUCK_RAMP_MS = 200;
+const STOP_RAMP_MS = 200;
 
 class VoiceManager {
     constructor(client) {
@@ -26,6 +45,11 @@ class VoiceManager {
         // two stages of being talked over: turn down, then stop
         this.DUCK_THRESHOLD_MS = config.DUCK_THRESHOLD_MS;
         this.INTERRUPT_THRESHOLD_MS = config.INTERRUPT_THRESHOLD_MS;
+
+        // everyone currently leaning on her. She comes back up when it empties,
+        // not when the first of them stops — in a call with three people the
+        // other two are still talking
+        this.ducking = new Set();
 
         // her voice arrives here, whenever she decides to speak
         this.link = new BrainLink(this);
@@ -66,7 +90,9 @@ class VoiceManager {
                 channelId,
                 isSpeaking: false, // true when bea is actively playing audio
                 speech: null,      // the utterance currently on the wire
-                subscriptions: new Map() // userid -> opusstream
+                subscriptions: new Map(), // userid -> opusstream
+                speakers: new Map(),      // userid -> the turn they are taking
+                tick: null,               // the sweep that notices one ending
             };
 
             this.connections.set(guildId, connectionData);
@@ -117,10 +143,17 @@ class VoiceManager {
         if (data) {
             this.finishUtterance(guildId, 'stopped');
             if (data.player) data.player.stop();
-            // stop all streams
-            for (const [userId, stream] of data.subscriptions) {
+            if (data.tick) clearInterval(data.tick);
+            for (const stream of data.subscriptions.values()) {
                 stream.destroy();
             }
+            // whatever anybody was halfway through saying was said to a call
+            // that no longer exists
+            for (const speaker of data.speakers.values()) {
+                speaker.buffer.abandon();
+            }
+            data.speakers.clear();
+            this.ducking.clear();
             this.connections.delete(guildId);
         }
         this.announceCall();
@@ -128,16 +161,50 @@ class VoiceManager {
 
     listenToUsers(guildId) {
         const data = this.connections.get(guildId);
-        if (!data) return;
+        // Ready fires again on a reconnect, and a second subscription would
+        // hand every packet over twice
+        if (!data || data.tick) return;
 
         const receiver = data.connection.receiver;
 
-        // monitor who is speaking
+        // discord opens a stream per burst of transmission, not per sentence,
+        // so this fires again every time somebody takes a breath. What it opens
+        // is a subscription; the turn it belongs to is decided elsewhere.
         receiver.speaking.on('start', (userId) => {
             if (data.subscriptions.has(userId)) return;
-            console.log(`[VoiceManager] User ${userId} started speaking`);
             this.createStream(guildId, userId);
         });
+
+        data.tick = setInterval(() => this.sweep(guildId), TICK_MS);
+    }
+
+    /** The turn of somebody who is talking, or about to be. */
+    speakerFor(data, userId) {
+        let speaker = data.speakers.get(userId);
+        if (!speaker) {
+            speaker = {
+                buffer: createSpeechBuffer({
+                    duckMs: this.DUCK_THRESHOLD_MS,
+                    interruptMs: this.INTERRUPT_THRESHOLD_MS,
+                }),
+            };
+            data.speakers.set(userId, speaker);
+        }
+        return speaker;
+    }
+
+    /**
+     * Nothing arrived from anyone this tick, or not from everyone. A turn ends
+     * on a silence, and a silence is the absence of packets — so it can only be
+     * noticed by looking, never by being told.
+     */
+    sweep(guildId) {
+        const data = this.connections.get(guildId);
+        if (!data) return;
+        const now = Date.now();
+        for (const [userId, speaker] of data.speakers) {
+            this.act(guildId, userId, speaker.buffer.gap(now));
+        }
     }
 
     createStream(guildId, userId) {
@@ -145,156 +212,104 @@ class VoiceManager {
         if (!data) return;
 
         const opusStream = data.connection.receiver.subscribe(userId, {
-            end: {
-                behavior: EndBehaviorType.AfterSilence,
-                duration: 100, // fast but safe: opus frames are 20ms, need margin to not clip words
-            },
+            end: { behavior: EndBehaviorType.AfterSilence, duration: STREAM_END_MS },
         });
-
-        // save stream
         data.subscriptions.set(userId, opusStream);
 
         // decode opus to pcm (signed 16-bit little endian, 48khz, stereo)
         const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 });
         const pcmStream = opusStream.pipe(decoder);
-
-        const chunks = [];
-
-        // vad state: noise gate
-        let speechFrameCount = 0;
-        const VAD_THRESHOLD = 800; // ignore typing clicks / background noise
-        const MIN_SPEECH_FRAMES = 6; // require 120ms of sustained volume (6 * 20ms)
-
-        // talking over her happens in two stages, because people do two
-        // different things with the same energy: a short "sì sì" is agreement
-        // and she should keep going, a long one is an interruption and she
-        // should stop. each frame is ~20ms.
-        const duckFrameThreshold = Math.floor(this.DUCK_THRESHOLD_MS / 20);
-        const interruptFrameThreshold = Math.floor(this.INTERRUPT_THRESHOLD_MS / 20);
-        let didDuck = false;
-        let didInterrupt = false;
-
-        const beaWasSpeaking = data.isSpeaking;
+        const speaker = this.speakerFor(data, userId);
 
         pcmStream.on('data', (chunk) => {
-            chunks.push(chunk);
-
-            // analyze energy
-            const rms = this.calculateRMS(chunk);
-            if (rms > VAD_THRESHOLD) {
-                speechFrameCount++;
-                if (!data.isSpeaking) return;
-
-                // stage one: get out of their way without giving up the floor
-                if (!didDuck && speechFrameCount >= duckFrameThreshold) {
-                    console.log('[VoiceManager] Someone is talking over her — ducking');
-                    this.duck(0.25, 250);
-                    didDuck = true;
-                }
-
-                // stage two: they meant it. fade out and tell the brain
-                if (!didInterrupt && speechFrameCount >= interruptFrameThreshold) {
-                    console.log(`[VoiceManager] Sustained speech (${(speechFrameCount * 20 / 1000).toFixed(1)}s) — INTERRUPTING Bea`);
-                    this.stopSpeaking(200);
-                    axios.post(`${this.apiBaseUrl}/interrupt`).catch(e => { });
-                    didInterrupt = true;
-                }
-            }
+            // read her speaking state per chunk rather than once when the stream
+            // opened: she can start or stop in the middle of somebody's sentence
+            this.act(guildId, userId, speaker.buffer.push(chunk, {
+                now: Date.now(),
+                beaSpeaking: data.isSpeaking,
+            }));
         });
 
-        pcmStream.on('end', async () => {
-            // clean up
-            data.subscriptions.delete(userId);
-            const speechDurationMs = speechFrameCount * 20;
-
-            // it was a "sì sì", not an interruption: come back up and carry on
-            if (didDuck && !didInterrupt) {
-                console.log('[VoiceManager] Short overlap — she picks the sentence back up');
-                this.duck(1, 200);
-            }
-            console.log(`[VoiceManager] Stream ended. Speech: ${speechDurationMs}ms (${speechFrameCount} frames), beaWasSpeaking=${beaWasSpeaking}, isSpeaking=${data.isSpeaking}`);
-
-            // 1. noise filter: if audio was too short or too quiet
-            if (speechFrameCount < MIN_SPEECH_FRAMES) {
-                console.log("[VoiceManager] Discarding noise (Keyboard/Background).");
-                return;
-            }
-
-            // 2. valid speech — determine how to handle it
-            if (chunks.length === 0) return;
-
-            const totalBuffer = Buffer.concat(chunks);
-
-            // key logic: behavior depends on whether bea was speaking
-            if (!beaWasSpeaking && !data.isSpeaking) {
-                // bea is idle → process all valid speech immediately, no threshold needed
-                console.log(`[VoiceManager] Bea is idle → sending to full LLM pipeline`);
-                await this.processAudio(guildId, userId, totalBuffer);
-            } else if (speechDurationMs >= this.INTERRUPT_THRESHOLD_MS || didInterrupt) {
-                // bea was speaking but user talked long enough to interrupt
-                console.log(`[VoiceManager] Sustained speech interrupted Bea → full LLM pipeline`);
-                await this.processAudio(guildId, userId, totalBuffer);
-            } else {
-                // bea is speaking and user speech was short → buffer only
-                console.log(`[VoiceManager] Short speech while Bea talks → buffering transcript`);
-                await this.bufferTranscript(guildId, userId, totalBuffer);
-            }
+        opusStream.on('error', (err) => {
+            // `pipe` does not forward errors, so a stream that dies mid-burst
+            // without this would take the whole process down
+            console.error(`[VoiceManager] Receive stream error for ${userId}:`, err.message);
+            close();
         });
-
+        const close = () => {
+            if (data.subscriptions.get(userId) === opusStream) data.subscriptions.delete(userId);
+        };
+        pcmStream.on('end', close);
         pcmStream.on('error', (err) => {
-            console.error(`[VoiceManager] Stream error for ${userId}:`, err);
-            data.subscriptions.delete(userId);
+            console.error(`[VoiceManager] Stream error for ${userId}:`, err.message);
+            close();
         });
     }
 
-    calculateRMS(buffer) {
-        let sum = 0;
-        const len = buffer.length / 2;
-        if (len === 0) return 0;
-
-        for (let i = 0; i < buffer.length; i += 2) {
-            const int16 = buffer.readInt16LE(i);
-            sum += int16 * int16;
+    /** What the call does about one answer from somebody's turn. */
+    act(guildId, userId, report) {
+        if (report.duck) {
+            this.ducking.add(userId);
+            console.log('[VoiceManager] Someone is talking over her — ducking');
+            this.duck(DUCK_GAIN, DUCK_RAMP_MS);
         }
-        return Math.sqrt(sum / len);
-    }
 
-    /**
-     * buffer a short transcript without triggering llm.
-     * transcribes locally then sends to /voice/transcript for accumulation.
-     */
-    async bufferTranscript(guildId, userId, pcmBuffer) {
-        const username = await this.displayNameOf(guildId, userId);
+        if (report.interrupt) {
+            console.log('[VoiceManager] Sustained speech — interrupting her');
+            this.stopSpeaking(STOP_RAMP_MS);
+            this.tellBrain('/interrupt');
+        }
 
-        // downsample to mono 16khz and wrap as wav (smaller, enough for stt)
-        const wavBuffer = this.pcmToWav(this.downsampleMono16k(pcmBuffer), 16000, 1);
+        if (report.released) {
+            this.ducking.delete(userId);
+            // only once the last of them has stopped: coming back up while
+            // somebody else is still going would just duck her again
+            if (this.ducking.size === 0) this.duck(1, UNDUCK_RAMP_MS);
+        }
 
-        try {
-            const form = this.speechForm(wavBuffer, guildId, userId, username);
-            const response = await axios.post(`${this.apiBaseUrl}/voice/transcript`, form,
-                { headers: form.getHeaders() });
-            console.log(`[VoiceManager] Overheard from ${username}: ${response.data.transcript || '(empty)'}`);
-        } catch (error) {
-            console.error("[VoiceManager] Overheard transcript error:", error.message);
+        // nothing above this is awaited, and an unhandled rejection here would
+        // take the whole bot down over one turn that could not be delivered
+        if (report.ended) {
+            this.sendTurn(guildId, userId).catch((e) => {
+                console.error('[VoiceManager] Could not deliver a turn:', e.message);
+            });
         }
     }
 
-    async processAudio(guildId, userId, pcmBuffer) {
-        const username = await this.displayNameOf(guildId, userId);
+    /** A turn that is over: transcribe it, or throw it away as room noise. */
+    async sendTurn(guildId, userId) {
+        const data = this.connections.get(guildId);
+        const speaker = data && data.speakers.get(userId);
+        if (!speaker) return;
 
-        console.log(`[VoiceManager] Processing audio from ${username} (${pcmBuffer.length} bytes)`);
-
-        // downsample to mono 16khz and wrap as wav
-        const wavBuffer = this.pcmToWav(this.downsampleMono16k(pcmBuffer), 16000, 1);
-
-        // nothing comes back from here: whatever she decides to say arrives on
-        // the push channel, on her clock rather than on this request's
-        try {
-            const form = this.speechForm(wavBuffer, guildId, userId, username);
-            await axios.post(`${this.apiBaseUrl}/discord/audio`, form, { headers: form.getHeaders() });
-        } catch (error) {
-            console.error("[VoiceManager] API Error:", error.message);
+        const turn = speaker.buffer.take();
+        if (!turn) {
+            console.log(`[VoiceManager] Nothing said by ${userId} — dropping the noise`);
+            return;
         }
+
+        const username = await this.displayNameOf(guildId, userId);
+        const wav = pcmToWav(turn.pcm);
+
+        // something said over her that never took the floor is something she
+        // overheard, and overhearing must not start the clock on an answer
+        const route = turn.overheard && !turn.interrupted ? '/voice/transcript' : '/discord/audio';
+        console.log(`[VoiceManager] ${username}: ${turn.voicedMs}ms of speech -> ${route}`);
+
+        try {
+            const form = this.speechForm(wav, guildId, userId, username);
+            await axios.post(`${this.apiBaseUrl}${route}`, form, { headers: form.getHeaders() });
+        } catch (error) {
+            console.error(`[VoiceManager] ${route} failed:`, error.message);
+        }
+    }
+
+    // the brain is on the other end of a socket that can be down; a turn that
+    // cannot be delivered is lost, and that must not take the call with it
+    tellBrain(path) {
+        axios.post(`${this.apiBaseUrl}${path}`).catch((e) => {
+            console.error(`[VoiceManager] ${path} failed:`, e.message);
+        });
     }
 
     // what the brain needs to weigh a voice perception: who said it, whether it
@@ -397,15 +412,19 @@ class VoiceManager {
 
     /** fades her out and stops. the ramp is the difference between trailing off
      *  and being cut mid-word, and the report says how much the room actually got. */
-    stopSpeaking(rampMs = 200) {
+    stopSpeaking(rampMs = STOP_RAMP_MS) {
         const guildId = this.currentGuild();
         const data = guildId ? this.connections.get(guildId) : null;
         if (!data || !data.speech) return;
 
-        data.speech.gain.rampTo(0, rampMs);
+        const speech = data.speech;
+        speech.gain.rampTo(0, rampMs);
+        // a new utterance can start inside the fade and must not be the one
+        // this times out. It finishes only the utterance it faded, and only if
+        // that utterance is still the one on the wire.
         setTimeout(() => {
             const still = this.connections.get(guildId);
-            if (!still || !still.speech) return;
+            if (!still || still.speech !== speech) return;
             this.finishUtterance(guildId, 'stopped');
             still.player.stop();
         }, rampMs);
@@ -428,49 +447,6 @@ class VoiceManager {
 
     report(utteranceId, playedMs, state) {
         this.link.send({ type: 'playback', utterance_id: utteranceId, played_ms: playedMs, state });
-    }
-
-    // stereo 48khz s16le -> mono 16khz s16le. simple average + 3x decimation:
-    // good enough for speech-to-text and roughly halves the bytes we ship.
-    downsampleMono16k(pcmData) {
-        const groupBytes = 12; // 3 stereo frames (3 * 2ch * 2 bytes)
-        const outLen = Math.floor(pcmData.length / groupBytes) * 2;
-        const out = Buffer.alloc(outLen);
-        let oi = 0;
-        for (let i = 0; i + 4 <= pcmData.length && oi + 2 <= outLen; i += groupBytes) {
-            const l = pcmData.readInt16LE(i);
-            const r = pcmData.readInt16LE(i + 2);
-            out.writeInt16LE((l + r) >> 1, oi);
-            oi += 2;
-        }
-        return out;
-    }
-
-    // helper: add wav header
-    pcmToWav(pcmData, sampleRate, numChannels) {
-        const header = Buffer.alloc(44);
-        const byteRate = sampleRate * numChannels * 2; // 16-bit = 2 bytes
-        const blockAlign = numChannels * 2;
-        const subChunk2Size = pcmData.length;
-        const chunkSize = 36 + subChunk2Size;
-
-        header.write('RIFF', 0);
-        header.writeUInt32LE(chunkSize, 4);
-        header.write('WAVE', 8);
-
-        header.write('fmt ', 12);
-        header.writeUInt32LE(16, 16);
-        header.writeUInt16LE(1, 20);
-        header.writeUInt16LE(numChannels, 22);
-        header.writeUInt32LE(sampleRate, 24);
-        header.writeUInt32LE(byteRate, 28);
-        header.writeUInt16LE(blockAlign, 32);
-        header.writeUInt16LE(16, 34);
-
-        header.write('data', 36);
-        header.writeUInt32LE(subChunk2Size, 40);
-
-        return Buffer.concat([header, pcmData]);
     }
 }
 

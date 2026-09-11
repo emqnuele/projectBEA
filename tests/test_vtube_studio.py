@@ -218,7 +218,7 @@ async def test_the_mouth_and_the_face_share_one_socket_without_colliding(tmp_pat
     client = client_with(socket, tmp_path)
     avatar._connected = client
 
-    mouth = asyncio.get_running_loop().create_task(avatar._run_mouth([0.2] * 20, fps=1000))
+    mouth = asyncio.get_running_loop().create_task(avatar._run_mouth([[0.2, 0.5]] * 20, fps=1000))
     await avatar._apply_expression(client, "furious.exp3.json")
     await mouth
 
@@ -235,7 +235,7 @@ def test_nothing_blocks_when_vtube_studio_is_not_there():
 
     avatar.show("angry", "talking")
     avatar.perform("wave")
-    avatar.mouth([0.2, 0.9], 30)
+    avatar.mouth([[0.2, 0.5], [0.9, 0.7]], 30)
     avatar.close()
 
 
@@ -270,25 +270,25 @@ async def test_an_unmapped_behaviour_is_passed_through_as_a_hotkey_name(tmp_path
 
 async def test_a_mood_can_carry_a_behaviour_the_way_the_3d_body_does(tmp_path):
     """`vts_clips` is keyed by mood: what the dashboard writes is what fires."""
-    avatar = VTubeStudioAvatar(config(vts_clips={"love": "hk-42"}), tmp_path / "token.json")
+    avatar = VTubeStudioAvatar(config(vts_clips={"happy": "hk-42"}), tmp_path / "token.json")
 
-    avatar.show("love", "talking")
+    avatar.show("happy", "talking")
 
     assert avatar._commands.get_nowait() == ("expression", None)
     assert avatar._commands.get_nowait() == ("hotkey", "hk-42")
 
 
 async def test_a_behaviour_plays_when_she_starts_talking_and_not_while_idle(tmp_path):
-    avatar = VTubeStudioAvatar(config(vts_clips={"love": "hk-42"}), tmp_path / "token.json")
+    avatar = VTubeStudioAvatar(config(vts_clips={"happy": "hk-42"}), tmp_path / "token.json")
 
-    avatar.show("love", "idle")
+    avatar.show("happy", "idle")
 
     assert avatar._commands.get_nowait() == ("expression", None)
     assert avatar._commands.empty(), "an idle face must not replay the behaviour"
 
 
 async def test_a_mood_with_no_behaviour_just_changes_face(tmp_path):
-    avatar = VTubeStudioAvatar(config(vts_clips={"love": "hk-42"}), tmp_path / "token.json")
+    avatar = VTubeStudioAvatar(config(vts_clips={"happy": "hk-42"}), tmp_path / "token.json")
 
     avatar.show("angry", "talking")
 
@@ -360,7 +360,7 @@ async def test_the_mouth_is_paced_here_because_vtube_studio_has_no_clock(tmp_pat
     avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
     avatar._connected = client_with(socket, tmp_path)
 
-    await avatar._run_mouth([0.1, 0.5, 0.9], fps=1000)
+    await avatar._run_mouth([[0.1, 0.5], [0.5, 0.5], [0.9, 0.5]], fps=1000)
 
     values = [m["data"]["parameterValues"][0]["value"]
               for m in socket.of_type("InjectParameterDataRequest")]
@@ -373,7 +373,7 @@ async def test_an_interrupted_line_closes_her_mouth(tmp_path):
     avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
     avatar._connected = client_with(socket, tmp_path)
 
-    task = asyncio.get_running_loop().create_task(avatar._run_mouth([0.5] * 100, fps=50))
+    task = asyncio.get_running_loop().create_task(avatar._run_mouth([[0.5, 0.5]] * 100, fps=50))
     await asyncio.sleep(0.03)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -386,7 +386,7 @@ async def test_an_interrupted_line_closes_her_mouth(tmp_path):
 
 async def test_a_mouth_with_nowhere_to_go_is_not_an_error(tmp_path):
     avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
-    await avatar._run_mouth([0.5], fps=1000)
+    await avatar._run_mouth([[0.5, 0.5]], fps=1000)
 
 
 async def test_the_mouth_parameter_is_configurable(tmp_path):
@@ -394,7 +394,7 @@ async def test_the_mouth_parameter_is_configurable(tmp_path):
     avatar = VTubeStudioAvatar(config(vts_mouth_param="ParamMouthOpenY"), tmp_path / "token.json")
     avatar._connected = client_with(socket, tmp_path)
 
-    await avatar._run_mouth([0.4], fps=1000)
+    await avatar._run_mouth([[0.4, 0.5]], fps=1000)
 
     assert socket.sent[0]["data"]["parameterValues"][0]["id"] == "ParamMouthOpenY"
 
@@ -510,3 +510,31 @@ def test_the_connection_test_counts_what_the_model_offers(client, monkeypatch):
 
     assert body["ok"] is True
     assert body["detail"] == "1 expressions, 1 hotkeys"
+
+
+async def test_the_shape_of_her_mouth_is_only_driven_when_the_model_has_one(tmp_path):
+    """Every Live2D model has a mouth that opens; only some have one that
+    changes shape, so nothing is written to a parameter nobody configured."""
+    socket = FakeSocket()
+    avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
+    avatar._connected = client_with(socket, tmp_path)
+
+    await avatar._run_mouth([[0.4, 0.8]], fps=1000)
+
+    written = {m["data"]["parameterValues"][0]["id"]
+               for m in socket.of_type("InjectParameterDataRequest")}
+    assert written == {"MouthOpen"}
+
+
+async def test_a_model_with_a_mouth_that_changes_shape_is_given_the_shape(tmp_path):
+    socket = FakeSocket()
+    avatar = VTubeStudioAvatar(config(vts_mouth_form_param="MouthForm"),
+                               tmp_path / "token.json")
+    avatar._connected = client_with(socket, tmp_path)
+
+    await avatar._run_mouth([[0.4, 0.8]], fps=1000)
+
+    written = [(m["data"]["parameterValues"][0]["id"],
+                m["data"]["parameterValues"][0]["value"])
+               for m in socket.of_type("InjectParameterDataRequest")]
+    assert ("MouthOpen", 0.4) in written and ("MouthForm", 0.8) in written

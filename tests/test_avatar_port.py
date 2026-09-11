@@ -55,7 +55,7 @@ class Config:
 
     def __init__(self, **avatar_map):
         self.avatar_map = avatar_map or {
-            "normal": {"idle": "n/idle.png", "talking": "n/talk.png"},
+            "neutral": {"idle": "n/idle.png", "talking": "n/talk.png"},
             "angry": {"idle": "a/idle.png", "talking": "a/talk.png"},
         }
 
@@ -221,7 +221,7 @@ async def test_a_line_ends_in_the_state_she_was_resting_in():
     e = Expression(Config(), SilentTTS(), avatar, caption, Events())
 
     e.set_state("listening")
-    await e.speak("normal", "ci sono")
+    await e.speak("neutral", "ci sono")
 
     assert avatar.states == ["listening", "talking", "listening"]
 
@@ -231,7 +231,7 @@ async def test_falling_asleep_survives_a_line_talked_in_her_sleep():
     e = Expression(Config(), SilentTTS(), avatar, caption, Events())
 
     e.set_state("sleeping")
-    await e.speak("normal", "mh")
+    await e.speak("neutral", "mh")
 
     assert avatar.states[-1] == "sleeping"
 
@@ -241,8 +241,8 @@ async def test_waking_up_puts_her_back_to_idle():
     e = Expression(Config(), SilentTTS(), avatar, caption, Events())
 
     e.set_state("sleeping")
-    e.set_state("idle", mood="normal")
-    await e.speak("normal", "eccomi")
+    e.set_state("idle", mood="neutral")
+    await e.speak("neutral", "eccomi")
 
     assert avatar.states[-1] == "idle"
 
@@ -258,7 +258,7 @@ async def test_someone_joining_the_call_does_not_take_her_face_mid_word():
     assert avatar.shown == [], "her talking face was replaced halfway through a line"
 
     e.is_speaking = False
-    await e.speak("normal", "dicevo")
+    await e.speak("neutral", "dicevo")
     assert avatar.states[-1] == "listening", "and she still goes back to it after"
 
 
@@ -270,7 +270,7 @@ async def test_swapping_backends_keeps_the_state_she_is_in():
     fresh = FakeAvatar()
     e.set_ports(fresh, FakeCaption())
 
-    assert fresh.shown == [("normal", "listening")]
+    assert fresh.shown == [("neutral", "listening")]
 
 
 async def test_expression_drives_the_ports_and_never_a_file_path():
@@ -294,7 +294,7 @@ async def test_a_resumed_line_keeps_the_mood_it_was_cut_off_in():
     e.resume_buffer = np.zeros(24000, dtype=np.float32)
     await e.resume()
 
-    assert ("normal", "talking") not in avatar.shown
+    assert ("neutral", "talking") not in avatar.shown
     assert avatar.shown[-2:] == [("angry", "talking"), ("angry", "idle")]
 
 
@@ -312,22 +312,22 @@ def test_waking_up_is_allowed_to_reset_the_mood_because_it_says_so():
     avatar, caption = FakeAvatar(), FakeCaption()
     e = Expression(Config(), SilentTTS(), avatar, caption, Events())
 
-    e.set_state("sleeping", mood="cry")
-    e.set_state("idle", mood="normal")
+    e.set_state("sleeping", mood="sad")
+    e.set_state("idle", mood="neutral")
 
-    assert avatar.shown[-1] == ("normal", "idle")
+    assert avatar.shown[-1] == ("neutral", "idle")
 
 
 async def test_an_interruption_clears_the_caption_and_settles_the_avatar():
     avatar, caption = FakeAvatar(), FakeCaption()
     e = Expression(Config(), SilentTTS(), avatar, caption, Events())
 
-    await e.speak("shock", "aspetta")
+    await e.speak("surprised", "aspetta")
     caption.clears = 0
     await e.interrupt()
 
     assert caption.clears == 1
-    assert avatar.shown[-1] == ("shock", "idle")
+    assert avatar.shown[-1] == ("surprised", "idle")
 
 
 def test_reloading_the_config_reaches_both_ports():
@@ -347,7 +347,7 @@ def test_reloading_the_config_reaches_both_ports():
 @pytest.mark.parametrize("state", ["idle", "talking", "listening", "sleeping"])
 def test_every_state_the_engine_uses_resolves_to_something_showable(state):
     obs = RecordingObs()
-    PngAvatar(Config(), obs).show("normal", state)
+    PngAvatar(Config(), obs).show("neutral", state)
     assert obs.images, f"the '{state}' state showed nothing at all"
 
 

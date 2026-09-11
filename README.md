@@ -39,23 +39,25 @@ room costs almost nothing.
 **She remembers.** Not a context window. A diary, a card for everyone who turns
 out to matter, and conclusions she reaches about herself overnight.
 **She acts.** One mind, one set of tools, one place everything leaves from.
+**She lives.** She streams her thoughts line by line, speaks them while she writes them, and her avatar breathes, blinks and reacts to the room in real time.
 
 ---
 
 ## Try it in five minutes
 
-One command. It installs `uv` if you don't have it, pulls the dependencies,
-builds the dashboard and then asks you five questions.
-
-**macOS / Linux**
-```bash
-curl -LsSf https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.sh | bash
-```
-
-**Windows (PowerShell)**
-```powershell
-irm https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.ps1 | iex
-```
+> [!IMPORTANT]
+> One command. It installs `uv` if you don't have it, pulls the dependencies,
+> builds the dashboard and then asks you five questions.
+> 
+> **macOS / Linux**
+> ```bash
+> curl -LsSf https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.sh | bash
+> ```
+> 
+> **Windows (PowerShell)**
+> ```powershell
+> irm https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.ps1 | iex
+> ```
 
 The default profile is **Solo chat**: the dashboard and her voice, one API key,
 nothing else. No OBS, no Discord bot, no Minecraft server, no virtual audio
@@ -64,6 +66,7 @@ a time from the Abilities screen.
 
 Already cloned the repo? `make setup` does the same thing.
 
+> [!NOTE]
 > She needs an API key from OpenRouter, OpenAI or Groq.
 
 ---
@@ -153,9 +156,10 @@ per mood — and reads out the licence the file carries, so you know what you ar
 allowed to stream with it. Her gestures are `.vrma` clips: drop them in
 `data/clips` and assign one per mood.
 
-Whichever you pick, the mood she chooses for a line drives all of it — her
-expression, her gesture, and her mouth, which follows the audio she is about to
-say.
+Whichever you pick, the mood she chooses for a line drives all of it. A semantic
+picker maps whatever expression she names to the nearest one your model actually
+has. Her avatar blinks, breathes, and looks around on its own, and her mouth
+follows the audio as it plays.
 
 **[How it works, and how to add a backend →](docs/modules/avatar.md)**
 
@@ -237,7 +241,7 @@ answering before it lets you in, then on a bento overview of everything at once.
 - **Overview.** Is she awake, what she last said, today's progress, the attention gate, spend, abilities and the live feed, on one screen
 - **Talk.** The private line to her: streams voice in and out, and shows it plainly when she hears you and chooses not to answer
 - **Today.** The orders she reads every turn, plus objectives you can reorder, edit and close; she closes them herself as she goes
-- **Activity.** The attention gate drawn live, over a filterable, freezable event stream
+- **Activity.** The attention gate drawn live, over a filterable, freezable event stream, plus a full Turn Log of every decision she makes
 - **Memory.** Who she knows, everyone she has met, a search over what she remembers, and the things she has worked out about herself
 - **Abilities.** Every capability on or off at runtime, plus the Minecraft cockpit
 - **Settings.** Eight sections with connection tests, and one save for all of them
@@ -384,15 +388,18 @@ uv run bea --web                 # or: make web   (dashboard on :8000)
 uv run bea --llm-provider openrouter --tts-provider kokoro --web
 ```
 
-**Tests and lint:**
+**Tests and diagnostics:**
 
 ```bash
-make test        # uv run pytest -q
-make lint        # uv run ruff check src tests
+make test          # uv run pytest -q
+make lint          # uv run ruff check src tests
 ```
 
 1302 tests, and they run without network access or API keys: every model
-client, surface and transport is faked. CI runs exactly these two commands.
+client, surface and transport is faked. CI runs exactly `make test` and `make lint`.
+
+> [!TIP]
+> **Something broken?** If she stops answering, you lose audio, or the avatar breaks, run `uv run bea doctor`. It runs a full diagnostic of your environment and tells you exactly what to type to fix it.
 
 **[Setup guide →](docs/setup.md)** · **[Configuration →](docs/configuration.md)**
 

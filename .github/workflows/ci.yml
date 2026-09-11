@@ -40,8 +40,32 @@ jobs:
       - name: Lint
         run: uv run ruff check src tests
 
+      # src only, and only because it is at zero: tests pass fakes and
+      # deliberately wrong values on purpose, so checking them fights the point
+      # of the fakes. Added once it already passed — a gate that is red on the
+      # day it lands is a gate people learn to ignore.
+      - name: Types
+        run: uvx pyright
+
       - name: Tests
         run: uv run pytest -q
+
+  frontend:
+    name: browser source tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # deliberately no `npm ci`: what is tested here is pure — a spectrum in,
+      # a decision out — so it needs neither three.js nor react to run
+      - name: Tests
+        working-directory: src/web/frontend
+        run: npm test
 
   bot:
     name: discord bot tests

@@ -37,7 +37,7 @@ class StreamPlanSkill(Skill):
 
     @property
     def plan(self):
-        return self.context.memory.plan
+        return self.brain.memory.plan
 
     @property
     def context_section(self) -> Optional[str]:

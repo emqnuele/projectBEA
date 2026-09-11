@@ -3,16 +3,20 @@ import datetime
 import time
 from typing import Any, Dict, List, Optional
 
+from src.core.agent.llm_client import LLMClient
 from src.core.agent.messages import assistant_to_message, tool_result_message
+from src.core.agent.streaming import SpokenCall, spoken_call
 from src.core.agent.tools import Tool
-from src.core.agent.types import ToolCall, Usage
+from src.core.agent.types import AssistantMessage, ToolCall, Usage
 from src.core.events import EventCategory
 from src.core.expression.chunking import spoken_prefix
+from src.core.expression.live import LiveLine
 from src.core.mind.correlation import CorrelationRegistry
-from src.core.mind.moods import normalize_mood
+from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.core.mind.recap import SessionRecap
 from src.core.mind.routing import route
 from src.core.mind.tools import MindTools
+from src.core.mind.turnlog import TurnLog, turn_record
 from src.core.perception.types import Perception, PerceptionKind
 from src.core.skills.voice.latency import MIND, TTS
 from src.utils.logger import get_logger
@@ -50,7 +54,7 @@ class Consciousness:
         self._get_operating = operating_getter
         # what scrolled out of the rolling context, in one line she keeps
         self.recap = SessionRecap()
-        self.background_llm = None
+        self.background_llm: Optional[LLMClient] = None
         self._recap_task: Optional[asyncio.Task] = None
 
         cc = config.consciousness
@@ -59,6 +63,8 @@ class Consciousness:
         self.burst_steps = cc.get("burst_steps", 6)
         self.history_limit = cc.get("history_limit", 30)
         self.correlation_timeout = cc.get("correlation_timeout", 30.0)
+        # whether a line starts being spoken while the model is still writing it
+        self.stream_speech = bool(cc.get("stream_speech", True))
 
         self.context: List[Dict[str, Any]] = []
         # what provoked the turn in flight: `speak` needs it to know who to pin
@@ -70,6 +76,16 @@ class Consciousness:
         self.sleeping = False
         self._loop_task: Optional[asyncio.Task] = None
         self._body_task: Optional[asyncio.Task] = None
+        # a line already on its way out while the tool call that asked for it is
+        # still being written
+        self._live: Optional[LiveLine] = None
+
+        # what this turn has done so far, for the record written at the end of it
+        self._acted: List[Dict[str, Any]] = []
+        self._said: Optional[Dict[str, Any]] = None
+        self.turns = TurnLog(
+            cc.get("turn_log_dir", "data/turns"), cc.get("turn_log_days", 14),
+        ) if cc.get("turn_log", True) else None
 
         # a request lifecycle, not part of thinking
         self.correlations = CorrelationRegistry()
@@ -81,7 +97,7 @@ class Consciousness:
 
     async def start(self):
         self.alive = True
-        self.context = [self._system_message([])]
+        self.context = [self._system_message()]
         for s in self.surfaces.all():
             try:
                 await s.start()
@@ -109,7 +125,7 @@ class Consciousness:
             return
         self.sleeping = False
         try:
-            self.expression.set_state("idle", mood="normal")
+            self.expression.set_state("idle", mood=DEFAULT_MOOD)
         except Exception as e:
             logger.error(f"Failed to restore avatar on wake: {e}")
         self.events.publish(EventCategory.SYSTEM, "consciousness", "Bea woke up.")
@@ -152,6 +168,7 @@ class Consciousness:
 
     async def run(self):
         while self.alive:
+            briefing: Optional[Dict[str, Any]] = None
             try:
                 idle = self.surfaces.get("idle")
                 if idle and idle.active:
@@ -186,15 +203,19 @@ class Consciousness:
                                 f"{', '.join(p.surface for p in batch)}")
 
                 t_ctx = time.perf_counter()
-                self.context[0] = await self._build_system_message(batch, is_idle=is_idle)
+                self.context[0] = self._system_message()
+                briefing = await self._build_briefing(batch, is_idle=is_idle)
                 if not is_idle:
                     logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
+                if briefing:
+                    self.context.append(briefing)
                 self.context.append(self._frame(batch))
                 self._batch = list(batch)
 
                 t_turn = time.perf_counter()
                 steps = 0
                 spent = Usage()
+                self._acted, self._said = [], None
                 for _ in range(self.burst_steps):
                     steer = self.bus.drain_nowait()
                     if steer:
@@ -211,7 +232,7 @@ class Consciousness:
 
                     steps += 1
                     t_llm = time.perf_counter()
-                    assistant = await self.llm.complete(self.context, tools=self._tool_schemas())
+                    assistant = await self._think()
                     spent = spent + assistant.usage
                     if not is_idle:
                         logger.info(f"llm step {steps} took {(time.perf_counter() - t_llm) * 1000:.0f}ms"
@@ -226,6 +247,9 @@ class Consciousness:
                     for call in assistant.tool_calls:
                         obs = await self._dispatch(call)
                         self.context.append(tool_result_message(call, obs))
+                    # she started a line and then did something else with the
+                    # turn: nobody is going to finish it
+                    await self._drop_unspoken()
 
                     # she spoke or chose silence: the turn is over, and a new
                     # message becomes its own next turn
@@ -239,6 +263,8 @@ class Consciousness:
                     logger.info(f"turn done: {steps} llm call(s), {spent.total} tokens, "
                                 f"in {elapsed_ms:.0f}ms")
                     self._publish_cost(steps, spent, elapsed_ms)
+                    self._write_down(batch, steps, spent, elapsed_ms)
+                self._drop(briefing)
                 self._trim()
             except asyncio.CancelledError:
                 break
@@ -249,6 +275,82 @@ class Consciousness:
                 # a turn that raised must not leave its caller hanging for the
                 # whole correlation timeout
                 self.correlations.release()
+                self._drop(briefing)
+                await self._drop_unspoken()
+
+    # --- one model step -----------------------------------------------------
+
+    async def _think(self) -> AssistantMessage:
+        """One model step, with the line already on its way out as it is written.
+
+        A spoken turn used to exist all at once: the model finished the whole
+        tool call, and only then did anything reach the engine. The words are
+        there long before that — sitting inside a JSON string with no closing
+        quote — so the first sentence leaves as soon as it is a whole sentence.
+
+        Everything here is best-effort. A provider that cannot stream, a model
+        that writes the message before the mood, an engine that is busy: any of
+        those simply means no line was opened, and the turn is spoken by
+        `_speak` exactly as it was before.
+        """
+        if not self.stream_speech:
+            return await self.llm.complete(self.context, tools=self._tool_schemas())
+
+        # one reader per tool call, because a provider may write two of them at
+        # once. Sharing one meant a second call's arguments were read as more of
+        # the first's message — she said the brace and lost the rest of the line.
+        readers: Dict[int, Optional[SpokenCall]] = {}
+        line: Optional[LiveLine] = None
+        spoken: Optional[int] = None
+
+        def on_delta(index: int, name: str, delta: str) -> None:
+            nonlocal line, spoken
+            if index not in readers:
+                readers[index] = spoken_call(name)
+            reader = readers[index]
+            # only one line can be on its way out at a time: a second `speak` in
+            # the same turn is said the ordinary way, once this one has finished
+            if reader is None or (spoken is not None and spoken != index):
+                return
+
+            words = reader.push(delta)
+            if not words:
+                return
+            if line is None:
+                line = self._open_line(reader.mood)
+                if line is None:
+                    readers[index] = None
+                    return
+                spoken = index
+            line.say(words)
+
+        try:
+            return await self.llm.stream_complete(
+                self.context, tools=self._tool_schemas(), on_tool_delta=on_delta)
+        finally:
+            self._live = line
+
+    def _open_line(self, mood: str) -> Optional[LiveLine]:
+        """A line to start speaking into, or None when speaking early cannot work."""
+        try:
+            route = "call" if self.expression.call_is_live else "local"
+            feeling = self.affect.current if self.affect else None
+            return self.expression.open_line(
+                normalize_mood(mood), route=route, feeling=feeling)
+        except Exception as e:
+            logger.error(f"Could not start speaking early: {e}")
+            return None
+
+    async def _drop_unspoken(self) -> None:
+        """Throws away a line she started and then decided against."""
+        line, self._live = self._live, None
+        if line is None:
+            return
+        logger.info("A line was started and never spoken; dropping it.")
+        try:
+            await line.cancel()
+        except Exception as e:
+            logger.error(f"Could not drop the unspoken line: {e}")
 
     # --- attention ----------------------------------------------------------
 
@@ -275,19 +377,65 @@ class Consciousness:
         """What the turn cost, for the dashboard: the gate cannot be tuned blind."""
         self.total_tokens += spent.total
         self.total_calls += steps
+        cached = f", {round(spent.cache_hit * 100)}% cached" if spent.cached_tokens else ""
         self.events.publish(
             EventCategory.SYSTEM, "cost",
-            f"turn: {steps} call(s), {spent.total} tokens, {elapsed_ms:.0f}ms",
+            f"turn: {steps} call(s), {spent.total} tokens, {elapsed_ms:.0f}ms{cached}",
             metadata={
                 "steps": steps,
                 "prompt_tokens": spent.prompt_tokens,
                 "completion_tokens": spent.completion_tokens,
+                "cached_tokens": spent.cached_tokens,
                 "tokens": spent.total,
                 "ms": round(elapsed_ms),
                 "session_tokens": self.total_tokens,
                 "session_calls": self.total_calls,
             },
         )
+
+    def _write_down(self, batch: List[Perception], steps: int, spent: Usage,
+                    elapsed_ms: float) -> None:
+        """Files the turn away, for the questions that only come up afterwards."""
+        if self.turns is None or not self.turns.enabled:
+            return
+        try:
+            self.turns.write(turn_record(
+                context=self.context,
+                perceptions=[p.render() for p in batch],
+                calls=self._acted,
+                spoke=self._heard(),
+                usage=spent,
+                steps=steps,
+                ms=elapsed_ms,
+                model=getattr(self.llm, "model_name", "") or "",
+            ))
+        except Exception as e:
+            # writing down is for later, and must never cost the turn it describes
+            logger.warning(f"Could not write the turn down: {e}")
+
+    def _heard(self) -> Optional[Dict[str, Any]]:
+        """What the room actually heard, not what the whole sentence was.
+
+        An interruption from the call is proof the tail never reached the room:
+        the log claiming it did is how she ends up referred to a second half
+        nobody heard. `_interruption_note` reads the same record next turn.
+        """
+        heard = dict(self._said) if self._said else None
+        if not heard or "message" not in heard:
+            return heard
+        utterance = getattr(self.expression, "interrupted", None)
+        if utterance is None or getattr(utterance, "complete", True):
+            return heard
+        if getattr(utterance, "text", None) != heard["message"]:
+            return heard
+        cut = spoken_prefix(utterance.text, utterance.played_ms, utterance.sent_ms)
+        if cut:
+            heard["message"] = cut
+        else:
+            # the sentence was cut off before a single word of it landed
+            heard.pop("message", None)
+            heard["cut_off"] = True
+        return heard
 
     def now_line(self) -> str:
         """One line for a scoped turn: what she is doing on stage right now.
@@ -311,42 +459,62 @@ class Consciousness:
 
     # --- context building ---------------------------------------------------
 
-    async def _build_system_message(self, batch: List[Perception], is_idle: bool = False) -> Dict[str, Any]:
+    async def _build_briefing(self, batch: List[Perception],
+                              is_idle: bool = False) -> Optional[Dict[str, Any]]:
         """Builds it off the loop: a slow retrieval must not stall speech."""
         dynamic = await asyncio.to_thread(self.surfaces.dynamic_context, batch) if batch else []
-        return self._system_message(batch, is_idle=is_idle, dynamic=dynamic)
+        return self._briefing(batch, is_idle=is_idle, dynamic=dynamic)
 
-    def _system_message(self, batch: List[Perception], is_idle: bool = False,
-                        dynamic: Optional[List[str]] = None) -> Dict[str, Any]:
-        soul = self._get_soul()
-        operating = self._get_operating()
+    def _system_message(self) -> Dict[str, Any]:
+        """Who she is and how she works: the half that does not move.
 
-        # monologue rules only on a pure-idle frame
+        Everything a provider can cache lives here, and it is worth keeping it
+        that way. Caching matches on the longest common prefix of a request, so
+        one volatile line at the top — the date, a retrieved memory, how she
+        happens to feel — costs the whole prompt on every single turn. That is
+        why the rest of it is a separate message further down: see `_briefing`.
+        """
         sections = [
             s.context_section for s in self.surfaces.active()
-            if s.context_section and (s.name != "idle" or is_idle)
+            # the monologue rules are only true on an idle turn, so they belong
+            # to the briefing rather than in here
+            if s.context_section and s.name != "idle"
+        ]
+        return {"role": "system",
+                "content": compose(self._get_soul(), self._get_operating(), *sections)}
+
+    def _briefing(self, batch: List[Perception], is_idle: bool = False,
+                  dynamic: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+        """Everything that is only true right now, as one block she is told once.
+
+        It sits directly above the perceptions it describes and is taken back out
+        at the end of the turn: what she was told about this moment is not part
+        of the conversation, and leaving it in would have her answering a memory
+        retrieved for a question somebody asked ten minutes ago.
+        """
+        parts: List[str] = [
+            f"CURRENT DATE: {datetime.datetime.now().strftime('%Y-%m-%d')}"
         ]
 
-        live = [s.live_state() for s in self.surfaces.active()]
-        live = [x for x in live if x]
+        if is_idle:
+            idle = self.surfaces.get("idle")
+            if idle is not None and idle.active and idle.context_section:
+                parts.append(idle.context_section)
 
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        parts.extend(x for x in (s.live_state() for s in self.surfaces.active()) if x)
+
         if dynamic is None:
             dynamic = self.surfaces.dynamic_context(batch) if batch else []
-        digest = self.attention.digest() if self.attention else ""
-        elsewhere = self.conversations.recent_lines() if self.conversations else ""
+
         feeling = self.affect.render() if self.affect else ""
-        parts = [f"CURRENT DATE: {today}", soul, operating, *sections, *live]
         if feeling:
             parts.append(feeling)
         parts.extend(dynamic)
-        recap = self.recap.render()
-        if recap:
-            parts.append(recap)
-        if digest:
-            parts.append(digest)
-        if elsewhere:
-            parts.append(elsewhere)
+        for block in (self.recap.render(),
+                      self.attention.digest() if self.attention else "",
+                      self.conversations.recent_lines() if self.conversations else ""):
+            if block:
+                parts.append(block)
 
         return {"role": "system", "content": compose(*parts)}
 
@@ -390,6 +558,11 @@ class Consciousness:
 
     async def _dispatch(self, call: ToolCall) -> str:
         self.events.publish(EventCategory.TOOL, "consciousness", f"{call.name}({call.arguments})")
+        result = await self._run_tool(call)
+        self._acted.append({"tool": call.name, "arguments": call.arguments, "result": result})
+        return result
+
+    async def _run_tool(self, call: ToolCall) -> str:
         registry = self.tools.registry()
         tool = registry.get(call.name)
         if tool is None:
@@ -425,6 +598,15 @@ class Consciousness:
     # --- speaking (non-blocking) -------------------------------------------
 
     async def _speak(self, mood: str, message: str) -> str:
+        # whatever of this line is already on its way out. Taken here rather than
+        # in the loop so the two can never both own it.
+        line, self._live = self._live, None
+        if line is not None and line.spoiled:
+            # she met her own scaffolding before a word was heard: throw the
+            # line away and say the finished message, which cleans whole
+            await line.cancel()
+            line = None
+
         # the model invents moods; an avatar that silently fails to change is
         # worse than landing on the nearest one she actually has
         mood = normalize_mood(mood)
@@ -432,17 +614,31 @@ class Consciousness:
         message = clean_model_output(message)
         if not message:
             logger.warning("speak() had nothing left after sanitizing; staying silent.")
+            if line is not None:
+                await line.cancel()
             return await self._stay_silent("nothing sayable")
         if self.attention:
             self.attention.mark_spoke()
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
+        self._said = {"mood": mood, "message": message}
 
         latency = self._voice_latency
         # how she felt when she decided on this line, before it moves her
         feeling = self.affect.current if self.affect else None
 
-        if self.expression.call_is_live:
+        if line is not None:
+            # she is already saying it: all that is left is the end of the line
+            if latency:
+                latency.mark(MIND)
+            if line.route == "call":
+                await line.close()
+                if latency:
+                    latency.mark(TTS)
+            else:
+                # fire-and-forget so reasoning keeps going
+                asyncio.create_task(self._finish_line(line))
+        elif self.expression.call_is_live:
             # every sentence of a turn goes to the room, not just the first: the
             # call is a sink she pushes into, not one reply she hands back
             if latency:
@@ -469,6 +665,13 @@ class Consciousness:
         """The stopwatch of the voice turn in flight, when there is a call."""
         return getattr(self.surfaces.get("voice:discord"), "latency", None)
 
+    async def _finish_line(self, line: LiveLine) -> None:
+        """Waits out a line that is already being heard, without holding the mind."""
+        try:
+            await line.close()
+        except Exception as e:
+            logger.error(f"Local speech failed: {e}")
+
     async def _speak_local_safe(self, mood: str, message: str, feeling=None) -> None:
         """Local speech in a task: a playback error must not go unretrieved."""
         try:
@@ -481,8 +684,22 @@ class Consciousness:
         latency = self._voice_latency
         if latency:
             latency.abandon()
-        self.correlations.resolve(lambda r: True, {"mood": "normal", "message": ""})
+        self.correlations.resolve(lambda r: True, {"mood": DEFAULT_MOOD, "message": ""})
         return "Staying silent."
+
+    def _drop(self, message: Optional[Dict[str, Any]]) -> None:
+        """Takes a per-turn message back out of the context.
+
+        By identity, not by value: two briefings a minute apart can be the same
+        text, and removing the wrong one would leave a stale retrieval in the
+        conversation for the rest of the session.
+        """
+        if message is None:
+            return
+        for index, existing in enumerate(self.context):
+            if existing is message:
+                del self.context[index]
+                return
 
     def _trim(self):
         if len(self.context) <= self.history_limit + 1:

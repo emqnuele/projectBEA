@@ -107,7 +107,7 @@ async def test_a_neutral_line_from_a_calm_mind_leaves_the_voice_alone():
     tts = RecordingTTS()
     e = expression(tts)
     e.set_affect(Affects())
-    await e.speak("normal", "ok")
+    await e.speak("neutral", "ok")
     assert tts.moods[0].neutral is True
 
 

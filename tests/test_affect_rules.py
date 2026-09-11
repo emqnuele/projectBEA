@@ -22,8 +22,8 @@ from src.core.mind.moods import MOODS, VECTORS, vector_for
 T0 = 1_000_000.0
 
 ANGRY = VECTORS["angry"]
-LOVE = VECTORS["love"]
-NORMAL = VECTORS["normal"]
+HAPPY = VECTORS["happy"]
+NEUTRAL = VECTORS["neutral"]
 
 
 # --- the mood table ---------------------------------------------------------
@@ -33,20 +33,20 @@ def test_every_mood_has_a_vector():
     assert set(VECTORS) == set(MOODS)
 
 
-def test_normal_is_the_origin():
-    assert vector_for("normal") == (0.0, 0.0)
+def test_the_neutral_mood_is_the_origin():
+    assert vector_for("neutral") == (0.0, 0.0)
 
 
 def test_an_invented_mood_lands_on_a_real_vector():
     assert vector_for("furious") == VECTORS["angry"]
-    assert vector_for("nonsense") == VECTORS["normal"]
+    assert vector_for("nonsense") == VECTORS["neutral"]
 
 
 def test_angry_and_sad_are_told_apart_by_arousal():
     # both negative; if they collapsed onto one axis prosody could not separate
     # a shout from a sulk
-    assert VECTORS["angry"][0] < 0 and VECTORS["cry"][0] < 0
-    assert VECTORS["angry"][1] > 0 > VECTORS["cry"][1]
+    assert VECTORS["angry"][0] < 0 and VECTORS["sad"][0] < 0
+    assert VECTORS["angry"][1] > 0 > VECTORS["sad"][1]
 
 
 # --- decay ------------------------------------------------------------------
@@ -89,19 +89,19 @@ def test_two_in_a_row_are_a_mood():
 def test_a_neutral_line_does_not_scrub_the_mood():
     """The additive-vs-slide property, and the reason it is additive."""
     angry = stir(stir(Affect(), ANGRY, now=T0), ANGRY, now=T0 + 1)
-    after = stir(angry, NORMAL, now=T0 + 2)
+    after = stir(angry, NEUTRAL, now=T0 + 2)
     assert after.valence == pytest.approx(angry.valence, abs=0.01)
     assert after.felt is True
 
 
 def test_time_is_what_clears_a_mood_not_talking():
     angry = stir(stir(Affect(), ANGRY, now=T0), ANGRY, now=T0 + 1)
-    assert stir(angry, NORMAL, now=T0 + HALF_LIFE_SECONDS * 4).felt is False
+    assert stir(angry, NEUTRAL, now=T0 + HALF_LIFE_SECONDS * 4).felt is False
 
 
 def test_the_opposite_mood_pulls_her_back_faster():
     angry = stir(stir(Affect(), ANGRY, now=T0), ANGRY, now=T0 + 1)
-    assert stir(angry, LOVE, now=T0 + 2).valence > angry.valence
+    assert stir(angry, HAPPY, now=T0 + 2).valence > angry.valence
 
 
 def test_it_never_leaves_the_unit_range():
@@ -114,19 +114,19 @@ def test_it_never_leaves_the_unit_range():
 
 def test_stirring_ages_what_was_already_there():
     old = Affect(-0.8, 0.0, T0)
-    fresh = stir(old, NORMAL, now=T0 + HALF_LIFE_SECONDS)
+    fresh = stir(old, NEUTRAL, now=T0 + HALF_LIFE_SECONDS)
     assert fresh.valence == pytest.approx(-0.4)
 
 
 # --- is_strong --------------------------------------------------------------
 
 
-@pytest.mark.parametrize("mood", ["angry", "love", "cry"])
+@pytest.mark.parametrize("mood", ["angry", "happy", "sad"])
 def test_the_moods_that_mean_someone_got_to_her(mood):
     assert is_strong(VECTORS[mood]) is True
 
 
-@pytest.mark.parametrize("mood", ["normal", "shock", "ew", "bored"])
+@pytest.mark.parametrize("mood", ["neutral", "surprised", "disgusted", "bored"])
 def test_the_moods_that_are_not_about_a_person(mood):
     # shock is loud but a surprise is not somebody doing something to her
     assert is_strong(VECTORS[mood]) is False

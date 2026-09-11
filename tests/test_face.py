@@ -55,8 +55,8 @@ def test_a_face_is_handed_every_emotion_so_none_is_left_behind():
 
 
 def test_whatever_the_model_invents_still_lands_on_a_real_face():
-    assert weights_for("happy") == weights_for("love")
-    assert weights_for("nonsense-the-model-made-up") == weights_for("normal")
+    assert weights_for("smug") == weights_for("happy")
+    assert weights_for("nonsense-the-model-made-up") == weights_for("neutral")
 
 
 # --- agreement with how she actually feels ----------------------------------
@@ -80,15 +80,15 @@ def test_a_mood_does_not_look_the_opposite_of_how_it_feels(mood):
 
 def test_the_only_neutral_face_is_the_neutral_mood():
     for mood, weights in WEIGHTS.items():
-        if mood == "normal":
+        if mood == "neutral":
             assert weights == {"neutral": 1.0}
         else:
             assert "neutral" not in weights, f"{mood} would sit under a neutral face"
 
 
 def test_the_two_moods_vrm_has_no_preset_for_are_blends():
-    """`ew` and `bored` are the only judgement calls in the table."""
-    assert len(WEIGHTS["ew"]) > 1
+    """`disgusted` and `bored` are the only judgement calls in the table."""
+    assert len(WEIGHTS["disgusted"]) > 1
     assert len(WEIGHTS["bored"]) > 1
 
 
@@ -122,3 +122,35 @@ def test_the_sample_model_has_a_mouth_the_lip_sync_can_move():
     preset = gltf_json(SAMPLE)["extensions"]["VRMC_vrm"]["expressions"]["preset"]
     assert "aa" in preset, "no 'aa' viseme: her mouth cannot move while she talks"
     assert set(VRM_VISEMES) <= set(preset)
+
+
+@pytest.mark.skipif(not SAMPLE.is_file(), reason="run `make model` to fetch the sample")
+def test_the_sample_model_can_close_its_eyes():
+    """Without a blink she stares through the whole stream."""
+    preset = gltf_json(SAMPLE)["extensions"]["VRMC_vrm"]["expressions"]["preset"]
+    assert "blink" in preset and preset["blink"].get("morphTargetBinds")
+
+
+# --- the vowel axis -----------------------------------------------------------
+
+
+def test_the_visemes_are_ordered_dark_to_bright():
+    """The order is a contract with the page, which blends between neighbours:
+    `pcm.envelope` hands it one number, and this tuple is what that number
+    indexes into. Sorted alphabetically, she would say the wrong vowels
+    perfectly in time."""
+    assert VRM_VISEMES == ("ou", "oh", "aa", "ee", "ih")
+
+
+def test_the_page_blends_across_the_same_axis_in_the_same_order():
+    """One list in Python, one in the renderer, and no way to check them at
+    runtime — so they are checked here."""
+    import re
+    from pathlib import Path
+
+    page = Path("src/web/frontend/src/stage/avatar.js").read_text(encoding="utf-8")
+    declared = re.search(r"const VISEMES = \[(.*?)\];", page, re.DOTALL)
+    assert declared, "the renderer no longer declares a viseme axis"
+
+    names = tuple(re.findall(r"'([a-z]+)'", declared.group(1)))
+    assert names == VRM_VISEMES

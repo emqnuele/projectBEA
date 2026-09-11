@@ -1,5 +1,6 @@
 import asyncio
-from typing import List, Optional, Tuple
+import threading
+from typing import Any, List, Optional, Tuple
 
 from src.core.affect.state import AffectState
 from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
@@ -8,9 +9,11 @@ from src.core.config import BrainConfig
 from src.core.consciousness import Consciousness
 from src.core.events import EventCategory, EventManager
 from src.core.expression import Expression
+from src.core.expression.picker import clip_picker, mood_picker
 from src.core.memory.profiler import Profiler
 from src.core.memory.store import MemoryStore
 from src.core.mind import ConversationMind, ConversationScheduler
+from src.core.mind.moods import DEFAULT_MOOD
 from src.core.mind.operating import BUILTIN_OPERATING, missing_tools
 from src.core.mind.spontaneous import SpontaneousPresence
 from src.core.perception.bus import PerceptionBus
@@ -33,7 +36,7 @@ from src.core.skills.voice.surface import VoiceSurface
 from src.core.social.agenda import AgendaRunner
 from src.core.social.reach import Reach
 from src.core.social.rhythm import RhythmTick
-from src.core.stage import StageChannel, public_config
+from src.core.stage import StageChannel, installed_clips, public_config
 from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
 from src.modules.avatar import build_avatar
 from src.modules.avatar.factory import backend_name as avatar_backend
@@ -99,6 +102,9 @@ class AIVtuberBrain:
 
         # everything Bea remembers, in one transactional file
         self.memory = self._build_memory()
+
+        # how a word she writes inline becomes something she actually has
+        self._install_matchers()
 
         # unified consciousness (built in initialize, started only if enabled)
         self.perception_bus: Optional[PerceptionBus] = None
@@ -195,6 +201,26 @@ class AIVtuberBrain:
             except Exception as e:
                 logger.error(f"Could not verify the embedding model: {e}")
         return store
+
+    def _install_matchers(self) -> None:
+        """Teaches the sink to read the direction she writes inside a line.
+
+        Both matchers share the embedder the memory already loaded — a mood is
+        one short word, so the cost of a miss is one `embed` of it and nothing
+        after that, since the answer is remembered. Without an embedder they
+        fall back to the fixed tables, which is where the project already was.
+        """
+        embedder = self.memory.embedder
+        pickers = [mood_picker(embedder),
+                   clip_picker(installed_clips(self.config), embedder)]
+        self.expression.set_matchers(mood=pickers[0].pick, clip=pickers[1].pick)
+
+        # loading the model is most of a second, and a download on a machine
+        # that has never run her. Both of those belong here, on a thread nobody
+        # is waiting on — not on the first word she invents, which lands in the
+        # middle of a line already going out to the room.
+        threading.Thread(target=lambda: [p.warm() for p in pickers],
+                         daemon=True, name="matchers-warm").start()
 
     def _load_operating_rules(self) -> str:
         """The operating manual, with a floor under it.
@@ -359,8 +385,9 @@ class AIVtuberBrain:
         self.config.skills.setdefault(name, {})["enabled"] = state
         self.config.save_to_file()
 
-        if self.consciousness_active:
-            await self.consciousness.set_surface_active(skill.name, state)
+        mind = self.consciousness
+        if mind is not None and mind.alive:
+            await mind.set_surface_active(skill.name, state)
         return True
 
     def reload_configuration(self):
@@ -403,13 +430,15 @@ class AIVtuberBrain:
             self.expression.set_ports(self.avatar, self.caption)
             self._backends = wanted
         self.expression.reload_config(self.config)
+        # a behaviour dropped into the folder, or a different backend, changes
+        # what `<do:…>` can land on
+        self._install_matchers()
         # the browser source is told rather than left to be reloaded by hand,
         # so a shot or a model changed mid-stream takes effect where it shows
         self.stage.publish({"config": public_config(self.config)})
 
     def _obs_connect(self):
-        if hasattr(self.obs, "source_name"):
-            self.obs.source_name = self.config.obs_avatar_source
+        self.obs.source_name = self.config.obs_avatar_source
         self.obs.connect()
 
     def list_sessions(self):
@@ -437,11 +466,18 @@ class AIVtuberBrain:
     # --- input entrypoints: deposit a perception, await Bea's reply ----------
 
     async def _perceive_and_wait(self, putter, route: str):
-        """Deposits a perception (via `putter(correlation_id)`) and waits for the reply."""
-        cid, fut = self.consciousness.register_correlation(route)
+        """Deposits a perception (via `putter(correlation_id)`) and waits for the reply.
+
+        Nothing to wait on before there is a mind: this is reachable from the
+        HTTP entrypoints, which answer the moment the server binds.
+        """
+        mind = self.consciousness
+        if mind is None:
+            return None
+        cid, fut = mind.register_correlation(route)
         putter(cid)
         try:
-            return await asyncio.wait_for(fut, timeout=self.consciousness.correlation_timeout)
+            return await asyncio.wait_for(fut, timeout=mind.correlation_timeout)
         except asyncio.TimeoutError:
             logger.info("Correlation timed out (Bea did not respond).")
             return None
@@ -459,11 +495,16 @@ class AIVtuberBrain:
         self.history_manager.add_message("system", "[Interrupted by User]")
         return result
 
-    def _surface(self, name: str):
+    def _surface(self, name: str) -> Any:
         """A skill by name, or None when the brain has not been initialized yet.
 
         The HTTP entrypoints are reachable the moment the server binds; without
         this guard an early request raises AttributeError instead of a 503.
+
+        Deliberately untyped beyond `Any`: the registry is keyed by name and
+        every name has its own interface — what `chat:ui` accepts to perceive
+        is not what `voice:discord` does. The caller knows which one it asked
+        for; the registry cannot.
         """
         return self.surface_registry.get(name) if self.surface_registry else None
 
@@ -472,14 +513,14 @@ class AIVtuberBrain:
         chat = self._surface("chat:ui")
         if not chat or not self.consciousness:
             logger.warning("generate_response called before initialize().")
-            return "normal", ""
+            return DEFAULT_MOOD, ""
         payload = await self._perceive_and_wait(
             lambda cid: chat.perceive(user_text, meta={"correlation_id": cid}),
             route="local",
         )
         if not payload:
-            return "normal", ""
-        return payload.get("mood", "normal"), payload.get("message", "")
+            return DEFAULT_MOOD, ""
+        return payload.get("mood", DEFAULT_MOOD), payload.get("message", "")
 
     async def generate_audio_response(self, audio_path: str) -> Tuple[str, str, str]:
         """Transcribes audio, deposits a voice perception, waits for the reply."""
@@ -487,14 +528,14 @@ class AIVtuberBrain:
         text = transcript or "[Audio Message]"
         voice = self._surface("voice:discord")
         if not voice or not self.consciousness:
-            return "normal", "", transcript
+            return DEFAULT_MOOD, "", transcript
         payload = await self._perceive_and_wait(
             lambda cid: voice.perceive(text, "user", meta={"correlation_id": cid}),
             route="local",
         )
         if not payload:
-            return "normal", "", transcript
-        return payload.get("mood", "normal"), payload.get("message", ""), transcript
+            return DEFAULT_MOOD, "", transcript
+        return payload.get("mood", DEFAULT_MOOD), payload.get("message", ""), transcript
 
     async def process_text_input(self, user_text: str):
         mood, message = await self.generate_response(user_text)
@@ -549,8 +590,11 @@ class AIVtuberBrain:
         the 'one mind' path: no synchronous request-reply, full autonomy."""
         surface = self._surface("voice:discord")
         if surface:
-            surface.perceive_text(text, username, channel_id, message_id=message_id,
-                                  user_id=user_id, is_dm=is_dm, whitelisted=whitelisted)
+            surface.perceive_text(
+                text, author=surface.build_author(user_id or username, username),
+                channel_id=channel_id, message_id=message_id, is_dm=is_dm,
+                meta={"whitelisted": whitelisted},
+            )
 
     async def run_loop(self):
         logger.info("Starting interactive loop. Type 'exit' to quit.")

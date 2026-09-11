@@ -12,6 +12,7 @@ import contextlib
 from pathlib import Path
 from typing import Any, Dict, List
 
+from src.core.mind.moods import DEFAULT_MOOD
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stage")
@@ -35,6 +36,33 @@ def _model_id(raw: str) -> str:
         return path.name
 
 
+def clips_dir(config) -> Path:
+    """Where the .vrma behaviours live."""
+    stage = getattr(config, "stage", None) or {}
+    return Path(stage.get("clips_dir") or "data/clips")
+
+
+def installed_clips(config) -> List[str]:
+    """Every behaviour she can actually play, by name.
+
+    Which is a different question per backend, and asking it in one place is
+    what stops the dashboard from offering a behaviour she does not have and
+    the mind from writing `<do:…>` for one that was never installed. A still
+    image has no behaviours at all; adding one to the folder is enough for the
+    `model` backend, which is the point of a folder.
+    """
+    stage = getattr(config, "stage", None) or {}
+    backend = stage.get("avatar_backend", "png")
+    if backend == "vtube_studio":
+        return sorted(name for name in (stage.get("vts_clips") or {}) if name)
+    if backend != "model":
+        return []
+    folder = clips_dir(config)
+    if not folder.is_dir():
+        return []
+    return sorted(path.stem for path in folder.glob("*.vrma"))
+
+
 def public_config(config) -> Dict[str, Any]:
     """What the browser source needs to draw her, and nothing else.
 
@@ -47,6 +75,7 @@ def public_config(config) -> Dict[str, Any]:
         "shot": stage.get("shot", "bust"),
         "background": stage.get("background", ""),
         "lipsync_fps": stage.get("lipsync_fps", 30),
+        "max_fps": stage.get("max_fps", 0),
         "has_model": bool(stage.get("model_path")),
         "model_id": _model_id(stage.get("model_path") or ""),
         "typing_delay": config.typing_delay,
@@ -61,7 +90,7 @@ class StageChannel:
 
     def __init__(self) -> None:
         self._subscribers: List["asyncio.Queue[Dict[str, Any]]"] = []
-        self._state: Dict[str, Any] = {"mood": "normal", "state": "idle", "caption": ""}
+        self._state: Dict[str, Any] = {"mood": DEFAULT_MOOD, "state": "idle", "caption": ""}
 
     # --- writing ------------------------------------------------------------
 

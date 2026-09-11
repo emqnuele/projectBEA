@@ -6,12 +6,10 @@ That split is deliberate — it is what lets the renderer be replaced without th
 engine noticing, and what keeps this testable without a browser.
 """
 
-from typing import Sequence
-
 from src.core.expression.face import weights_for
 from src.core.expression.pcm import ENVELOPE_FPS
 from src.core.stage import StageChannel
-from src.interfaces.base_interfaces import AvatarInterface
+from src.interfaces.base_interfaces import AvatarInterface, MouthFrames
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.avatar.model")
@@ -63,7 +61,7 @@ class Model3DAvatar(AvatarInterface):
             return
         self.channel.publish({"perform": clip})
 
-    def mouth(self, envelope: Sequence[float], fps: int = ENVELOPE_FPS) -> None:
+    def mouth(self, envelope: MouthFrames, fps: int = ENVELOPE_FPS) -> None:
         if not len(envelope):
             return
         self.channel.publish({"envelope": list(envelope), "envelope_fps": int(fps)})

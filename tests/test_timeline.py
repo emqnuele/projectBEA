@@ -192,7 +192,7 @@ def _live_mind(memory=None):
 
 def test_the_live_loop_is_told_what_time_it_is():
     mind = _live_mind()
-    assert "[RIGHT NOW]" in mind._system_message([])["content"]
+    assert "[RIGHT NOW]" in mind._briefing([])["content"]
 
 
 def test_the_live_loop_is_told_how_long_she_has_been_up():
@@ -201,7 +201,7 @@ def test_the_live_loop_is_told_how_long_she_has_been_up():
     memory = MemoryStore(":memory:")
     memory.sessions.record("s1", started_at=__import__("time").time() - 8100)
     mind = _live_mind(memory)
-    assert "up for 2h" in mind._system_message([])["content"]
+    assert "up for 2h" in mind._briefing([])["content"]
 
 
 def test_a_batch_that_spans_time_says_so():

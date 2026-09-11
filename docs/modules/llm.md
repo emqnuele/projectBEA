@@ -86,12 +86,15 @@ pre-pool `llm_provider` + `<provider>_model` fields, so old configs keep working
 ```python
 class LLMClient(ABC):
     async def complete(messages, tools=None, response_format=None) -> AssistantMessage
+    async def complete_stream(messages, tools=None) -> AsyncGenerator[str | ToolCall, None]
     async def complete_json(user_input, system_prompt=None, history=None) -> dict | list
     def reload_config(config) -> None
 ```
 
 `AssistantMessage` carries `.content`, `.tool_calls`, `.usage` and `.model`;
 `.is_final` is simply "no tool calls".
+
+`complete_stream` returns an async generator yielding partial text blocks (for inner monologue or speech) or complete `ToolCall`s. The consciousness loop uses streaming to start Voice Synthesis (TTS) while the LLM is still writing, drastically reducing latency.
 
 `complete_json` is awaitable because background work runs inside the same event
 loop as the consciousness. A blocking call there freezes the loop for its whole

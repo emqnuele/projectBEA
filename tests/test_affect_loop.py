@@ -63,7 +63,7 @@ class Mind:
             attention=Attention(config, rng=rng),
             affect=AffectState(config, store, events=RecordingEvents()) if affect else None,
         )
-        self.consciousness.context = [self.consciousness._system_message([])]
+        self.consciousness.context = [self.consciousness._system_message()]
 
     async def hears(self, *perceptions, timeout: float = 1.0):
         """Puts them on the bus and lets the loop chew through them."""
@@ -125,7 +125,7 @@ async def test_the_mood_is_in_the_prompt_of_the_next_turn(store):
 
 
 async def test_a_calm_mind_says_nothing_about_how_it_feels(store):
-    mind = Mind(store, [speaks("ciao", mood="normal")] * 3)
+    mind = Mind(store, [speaks("ciao", mood="neutral")] * 3)
     for _ in range(3):
         await mind.hears(said())
 
@@ -174,7 +174,7 @@ async def test_a_mind_with_no_affect_at_all_still_speaks(store):
     mind = Mind(store, [speaks("ciao")], affect=False)
     await mind.hears(said())
 
-    assert mind.consciousness.expression.spoken == [("normal", "ciao", "local")]
+    assert mind.consciousness.expression.spoken == [("neutral", "ciao", "local")]
 
 
 async def test_a_line_is_never_amplified_by_its_own_mood(store):

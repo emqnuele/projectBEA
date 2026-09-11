@@ -8,7 +8,7 @@ worth a synthesis, a barge-in that keeps paying for words nobody will hear.
 import numpy as np
 import pytest
 
-from src.core.expression.chunking import split_for_speech
+from src.core.expression.chunking import SpeechChunker, split_for_speech
 from src.core.expression.pcm import duration_ms
 from src.core.expression.voice import Expression
 from src.core.skills.voice.channel import VoiceChannel, unframe
@@ -71,6 +71,95 @@ def test_nothing_to_say_produces_nothing_to_synthesise():
 def test_the_pieces_always_add_back_up_to_the_line():
     line = "Guarda che non è vero! Davvero, te lo giuro. Poi fai come vuoi."
     assert " ".join(split_for_speech(line)) == line
+
+
+def test_a_closing_quote_stays_with_the_sentence_it_closes():
+    """A lone `"` stranded on the next piece is how a seam becomes audible."""
+    pieces = split_for_speech('Mi ha detto "va bene così." Poi se ne è andato senza salutare.')
+    assert pieces == ['Mi ha detto "va bene così."', "Poi se ne è andato senza salutare."]
+
+
+# --- cutting a line that is still being written ------------------------------
+
+
+def drip(text: str, size: int = 4) -> list:
+    """Feed a line to the chunker the way a model writes it."""
+    chunker = SpeechChunker()
+    pieces = []
+    for start in range(0, len(text), size):
+        pieces += chunker.push(text[start:start + size])
+    return pieces + chunker.flush()
+
+
+def test_the_first_sentence_leaves_before_the_rest_of_the_line_exists():
+    """The whole reason any of this exists."""
+    chunker = SpeechChunker()
+    assert chunker.push("Ma tu guarda questa cosa. ") == ["Ma tu guarda questa cosa."]
+
+
+def test_the_first_piece_goes_earlier_than_the_ones_behind_it():
+    """Nothing is waiting on piece four; the room is waiting on piece one."""
+    chunker = SpeechChunker()
+    assert chunker.push("Ah davvero? ") == ["Ah davvero?"]
+    # the same length, later in the line, is not worth a round trip of its own
+    assert chunker.push("Ma dai. ") == []
+
+
+def test_a_line_cut_while_it_arrives_says_the_same_words_as_one_cut_whole():
+    line = ("Ma tu guarda questa cosa. Non ci posso credere davvero. "
+            "Comunque va bene così, tanto lo sapevo.")
+    assert " ".join(drip(line)) == line
+
+
+def test_a_direction_is_never_cut_in_half():
+    chunker = SpeechChunker()
+    assert chunker.push("Ma tu guarda questa cosa. <mood:sm") == ["Ma tu guarda questa cosa."]
+    assert chunker.push("ug> e adesso che si fa, secondo te?") == []
+    assert chunker.flush() == ["<mood:smug> e adesso che si fa, secondo te?"]
+
+
+def test_direction_does_not_count_towards_being_worth_a_round_trip():
+    """Otherwise three tags and two words would go out as their own synthesis."""
+    chunker = SpeechChunker()
+    assert chunker.push("<mood:extremely pleased with herself><do:shrug>Ok. ") == []
+
+
+def test_a_breathless_stream_is_cut_at_a_comma_rather_than_never():
+    line = ("allora ti spiego per bene come stanno le cose, " * 8).strip()
+    pieces = drip(line)
+
+    assert len(pieces) > 1
+    assert all(p.endswith(",") for p in pieces[:-1])
+    assert " ".join(pieces) == line
+
+
+def test_the_comma_a_forced_cut_lands_on_is_measured_in_words():
+    """A window full of direction is not a longer window.
+
+    The comma a forced cut falls back to has to be far enough in to sound like
+    a pause rather than a stumble, and "far enough" is how much would be said —
+    counting the tags towards it accepts a comma that is really much too early.
+    """
+    tags = "<mood:bored>" * 12
+    line = f"{tags}si, " + ("e poi continua a parlare senza fermarsi mai " * 6).strip()
+    pieces = drip(line)
+
+    assert pieces, "nothing was ever cut"
+    assert not pieces[0].endswith("si,"), (
+        f"cut after two spoken characters: {pieces[0]!r}")
+
+
+def test_nothing_arrives_until_there_is_a_whole_thought_to_say():
+    chunker = SpeechChunker()
+    assert chunker.push("Ma tu guarda") == []
+    assert chunker.push(" questa cosa") == []
+
+
+def test_a_full_stop_at_the_edge_of_the_stream_may_still_be_a_decimal_point():
+    """"Il ping sta a 3." is not a sentence; the next delta says so."""
+    chunker = SpeechChunker()
+    assert chunker.push("Il ping sta a 3.") == []
+    assert chunker.push("14 e non scende. ") == ["Il ping sta a 3.14 e non scende."]
 
 
 # --- the engine contract -----------------------------------------------------
@@ -150,7 +239,7 @@ async def test_an_engine_that_only_renders_whole_lines_still_streams_by_sentence
     channel, socket = live_channel()
     e.set_call(channel)
 
-    await e.speak("normal", "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.",
+    await e.speak("neutral", "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.",
                   route="call")
 
     assert tts.rendered == ["Prima frase, abbastanza lunga.", "Seconda frase, altrettanto lunga."]
@@ -166,7 +255,7 @@ async def test_an_engine_with_a_chunked_source_sends_sooner_still():
     channel, socket = live_channel()
     e.set_call(channel)
 
-    await e.speak("normal", "Una frase sola ma abbastanza lunga da contare.", route="call")
+    await e.speak("neutral", "Una frase sola ma abbastanza lunga da contare.", route="call")
 
     # three pieces of one sentence, then the close
     assert len(socket.binary) == 4
@@ -178,7 +267,7 @@ async def test_the_whole_line_is_what_the_room_ends_up_hearing():
     channel, socket = live_channel()
     e.set_call(channel)
 
-    await e.speak("normal", "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.",
+    await e.speak("neutral", "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.",
                   route="call")
 
     played = b"".join(unframe(f)[1] for f in socket.binary)
@@ -196,8 +285,8 @@ async def test_a_barge_in_stops_her_paying_for_words_nobody_will_hear():
         async def generate_audio(self, text, prosody=None):
             self.rendered.append(text)
             channel = self.channel_getter()
-            # the first piece is already playing when someone talks over her
-            if len(self.rendered) == 2 and channel.current is not None:
+            # somebody talks over her as soon as the first piece is playing
+            if channel.current is not None:
                 channel.on_message({"type": "playback", "utterance_id": channel.current.id,
                                     "played_ms": 120, "state": "stopped"})
             return np.zeros(2400, dtype=np.float32), 24000
@@ -209,15 +298,17 @@ async def test_a_barge_in_stops_her_paying_for_words_nobody_will_hear():
     holder["channel"] = channel
     e.set_call(channel)
 
-    await e.speak("normal", "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga. "
-                            "Terza frase, ancora lunga assai.", route="call")
+    await e.speak("neutral", "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga. "
+                            "Terza frase, ancora lunga assai. Quarta frase, la piu lunga di tutte.",
+                  route="call")
 
-    # the third was never synthesised: nobody was going to hear it
-    assert tts.rendered == ["Prima frase, abbastanza lunga.", "Seconda frase, altrettanto lunga."]
+    # she stopped once the room had moved on, rather than paying to the end
+    assert "Quarta frase, la piu lunga di tutte." not in tts.rendered
+    assert len(tts.rendered) < 4
 
 
 async def test_with_no_call_nothing_is_synthesised_for_one():
     tts = OneShotTTS()
     e = expression(tts)
-    assert await e.speak("normal", "ciao a tutti quanti voi", route="call") is None
+    assert await e.speak("neutral", "ciao a tutti quanti voi", route="call") is None
     assert tts.rendered == []

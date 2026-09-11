@@ -111,13 +111,13 @@ Populate `data/pngs/` with avatar assets organized by mood. Each mood folder con
 
 ```
 data/pngs/
-├── normal/
+├── neutral/
 │   ├── idle.mp4       (or .png, .gif)
 │   └── talking.mp4
 ├── angry/
 │   ├── idle.mp4
 │   └── talking.mp4
-├── bored/  cry/  ew/  love/  shock/   (same structure)
+├── happy/  sad/  surprised/  disgusted/  bored/   (same structure)
 ```
 
 The `obs_source_type` config key controls whether OBS uses an **image** source (`image`) or a **media** source (`media`).
@@ -126,7 +126,7 @@ Then map the files in `config.json` under the `avatar_map` key:
 
 ```json
 "avatar_map": {
-  "normal": { "idle": "data/pngs/normal/idle.mp4", "talking": "data/pngs/normal/talking.mp4" },
+  "neutral": { "idle": "data/pngs/neutral/idle.mp4", "talking": "data/pngs/neutral/talking.mp4" },
   "angry":  { "idle": "data/pngs/angry/idle.mp4",  "talking": "data/pngs/angry/talking.mp4"  }
 }
 ```
@@ -305,6 +305,14 @@ brain.
 ---
 
 ## Troubleshooting
+
+The fastest way to figure out what is wrong is to run the built-in diagnostic tool:
+
+```bash
+uv run bea doctor
+```
+
+It checks the environment, API keys, audio devices, models, and dependencies, and tells you exactly what to type to fix any issue it finds.
 
 | Problem | Solution |
 |---|---|

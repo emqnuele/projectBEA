@@ -197,7 +197,7 @@ async def test_barge_in_stops_the_caption_a_call_line_was_still_typing():
     channel.on_message({"type": "joined", "channel_id": "c1", "listeners": 1})
     e.set_call(channel)
 
-    await e.speak("normal", "una frase lunga che viene interrotta a meta", route="call")
+    await e.speak("neutral", "una frase lunga che viene interrotta a meta", route="call")
     utterance_id = channel.current.id
     await asyncio.sleep(0.01)
     assert caption.said, "the caption never started, so there is nothing to interrupt"
@@ -222,7 +222,7 @@ async def test_an_interruption_reaches_the_call_and_not_only_the_speakers():
     channel.on_message({"type": "joined", "channel_id": "c1", "listeners": 1})
     e.set_call(channel)
 
-    await e.speak("normal", "una frase abbastanza lunga da poter essere tagliata", route="call")
+    await e.speak("neutral", "una frase abbastanza lunga da poter essere tagliata", route="call")
     utterance_id = channel.current.id
 
     async def bot_answers():

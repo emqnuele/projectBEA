@@ -330,7 +330,7 @@ async def test_the_nudge_reaches_the_mind_with_the_plan_in_hand():
         soul_getter=lambda: "you are bea", operating_getter=lambda: "call speak to talk",
         attention=Attention(config),
     )
-    mind.context = [mind._system_message([])]
+    mind.context = [mind._system_message()]
 
     mc._idle_since = time.time() - 200
     bus.put(mc._idle_nudge())

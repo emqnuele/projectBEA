@@ -378,11 +378,14 @@ class ConversationMind:
             return
         identities = {p.author.identity for p in incoming if p.author}
 
+        # captured now: this runs later, and by then she may have been torn down
+        profiler = self.profiler
+
         async def work():
             try:
-                await self.profiler.maybe_summarize(key)
+                await profiler.maybe_summarize(key)
                 for identity in identities:
-                    await self.profiler.maybe_profile(identity)
+                    await profiler.maybe_profile(identity)
             except asyncio.CancelledError:
                 raise
             except Exception as e:

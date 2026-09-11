@@ -5,10 +5,11 @@ source, so nothing above the port has to ask.
 """
 
 from pathlib import Path
-from typing import Dict, Sequence, Tuple, Union
+from typing import Dict, Tuple, Union
 
+from src.core.mind.moods import DEFAULT_MOOD
 from src.core.resources import load_avatar_resources, resolve_mood_paths
-from src.interfaces.base_interfaces import AvatarInterface, OBSInterface
+from src.interfaces.base_interfaces import AvatarInterface, MouthFrames, OBSInterface
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.avatar.png")
@@ -53,7 +54,7 @@ class PngAvatar(AvatarInterface):
     def perform(self, clip: str) -> None:
         """A still image has no behaviours."""
 
-    def mouth(self, envelope: Sequence[float], fps: int) -> None:
+    def mouth(self, envelope: MouthFrames, fps: int) -> None:
         """A still image has no mouth: the talking frame already stands in for it."""
 
     def close(self) -> None:
@@ -71,8 +72,8 @@ class PngAvatar(AvatarInterface):
         try:
             return resolve_mood_paths(self.png_map, mood)
         except KeyError:
-            logger.warning(f"Could not resolve mood {mood}, falling back to 'normal'.")
-            return self.png_map.get("normal", (Path("placeholder.png"), Path("placeholder.png")))
+            logger.warning(f"Could not resolve mood {mood}, falling back to '{DEFAULT_MOOD}'.")
+            return self.png_map.get(DEFAULT_MOOD, (Path("placeholder.png"), Path("placeholder.png")))
 
     def _swap(self, path: Union[str, Path]) -> None:
         if self.config.obs_source_type == "media":

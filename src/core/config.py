@@ -4,7 +4,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.core.mind.moods import default_avatar_map
+from src.core.mind.moods import default_avatar_map, rename_legacy
 from src.core.persona import DEFAULT_NAME, DEFAULT_PRONOUNS
 from src.utils.logger import get_logger
 
@@ -110,6 +110,7 @@ class BrainConfig:
         "shot": "bust",                # bust | half | full, framed off the head bone
         "mood_clips": {},              # mood -> clip name, all optional
         "background": "",              # a colour behind her, or empty for transparent
+        "max_fps": 0,                  # cap the browser source; 0 follows the display
 
         # the `vtube_studio` backend: nothing is bundled, it talks to yours
         "vts_host": "127.0.0.1",
@@ -117,6 +118,7 @@ class BrainConfig:
         "vts_expressions": {},         # mood -> expression file in the user's model
         "vts_clips": {},               # clip name -> hotkey id in the user's model
         "vts_mouth_param": "MouthOpen",
+        "vts_mouth_form_param": "",    # a mouth that also changes shape, if yours has one
     })
 
     # typing animation
@@ -212,6 +214,11 @@ class BrainConfig:
         "conversation_history": 16,   # past messages of that channel in the turn
         "conversation_steps": 3,      # a reply is not an expedition
         "max_coalesced_runs": 3,      # cap on re-runs when messages keep arriving
+        # one jsonl a day of every turn she takes: the prompt in force, what she
+        # was shown, what she did and what it cost. Nothing leaves the machine.
+        "turn_log": True,
+        "turn_log_dir": "data/turns",
+        "turn_log_days": 14,          # 0 keeps them forever
     })
 
     # "provider:model" pools per role: round-robin spreads rate limits, the rest
@@ -282,6 +289,16 @@ class BrainConfig:
                 # migration: image to avatar source
                 if "obs_image_source" in data and "obs_avatar_source" not in data:
                     data["obs_avatar_source"] = data.pop("obs_image_source")
+
+                # migration: the moods were renamed to the plain names of the
+                # feelings, and every one of these dicts is keyed by mood
+                if "avatar_map" in data:
+                    data["avatar_map"] = rename_legacy(data["avatar_map"])
+                stage = data.get("stage")
+                if isinstance(stage, dict):
+                    for key in ("mood_clips", "vts_expressions", "vts_clips"):
+                        if key in stage:
+                            stage[key] = rename_legacy(stage[key])
 
                 # update fields
                 for key, value in data.items():

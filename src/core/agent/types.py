@@ -13,18 +13,32 @@ class ToolCall:
 
 @dataclass
 class Usage:
-    """What one model call cost. Zero when the provider did not report it."""
+    """What one model call cost. Zero when the provider did not report it.
+
+    `cached_tokens` is the part of the prompt the provider recognised from a
+    previous call and did not charge full price for. It is reported because it
+    is the only way to tell whether the prompt is still shaped the way caching
+    wants it: a change that quietly puts something volatile near the top drives
+    it to zero, and nothing else about the turn looks any different.
+    """
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    cached_tokens: int = 0
 
     @property
     def total(self) -> int:
         return self.prompt_tokens + self.completion_tokens
 
+    @property
+    def cache_hit(self) -> float:
+        """How much of the prompt came out of the cache, 0 to 1."""
+        return self.cached_tokens / self.prompt_tokens if self.prompt_tokens else 0.0
+
     def __add__(self, other: "Usage") -> "Usage":
         return Usage(self.prompt_tokens + other.prompt_tokens,
-                     self.completion_tokens + other.completion_tokens)
+                     self.completion_tokens + other.completion_tokens,
+                     self.cached_tokens + other.cached_tokens)
 
 
 @dataclass

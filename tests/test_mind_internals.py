@@ -20,7 +20,7 @@ async def test_a_caller_is_answered():
     registry = CorrelationRegistry()
     cid, future = registry.register("local")
     registry.start_batch([waiting(cid)])
-    registry.resolve(lambda r: True, {"mood": "normal", "message": "eccomi"})
+    registry.resolve(lambda r: True, {"mood": "neutral", "message": "eccomi"})
     assert future.result()["message"] == "eccomi"
 
 
@@ -30,7 +30,7 @@ async def test_a_caller_is_always_freed_even_when_ignored():
     cid, future = registry.register("local")
     registry.start_batch([waiting(cid)])
     registry.release()
-    assert future.result() == {"mood": "normal", "message": ""}
+    assert future.result() == {"mood": "neutral", "message": ""}
 
 
 async def test_only_the_matching_route_is_answered():
@@ -169,10 +169,10 @@ def test_an_empty_answer_still_has_content():
 
 
 def test_tool_calls_are_serialized_as_the_api_expects():
-    msg = AssistantMessage(tool_calls=[ToolCall("c1", "speak", {"mood": "normal"})])
+    msg = AssistantMessage(tool_calls=[ToolCall("c1", "speak", {"mood": "neutral"})])
     out = assistant_to_message(msg)
     assert out["tool_calls"][0]["function"]["name"] == "speak"
-    assert out["tool_calls"][0]["function"]["arguments"] == '{"mood": "normal"}'
+    assert out["tool_calls"][0]["function"]["arguments"] == '{"mood": "neutral"}'
     assert out["tool_calls"][0]["type"] == "function"
 
 

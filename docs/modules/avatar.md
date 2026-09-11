@@ -108,7 +108,7 @@ Keys are moods, plus optionally the two non-speech **states**, `sleeping` and
 
 1. `avatar_map[state]` if `state` is `sleeping` or `listening` and has an entry
 2. `avatar_map[mood]`, taking `talking` or `idle`
-3. `avatar_map["normal"]`
+3. `avatar_map["neutral"]`
 4. any entry at all
 
 A missing state entry logs one warning per state, not per frame.
@@ -176,6 +176,7 @@ than kept. A file already at that path is never overwritten — it is yours.
 
 `src/web/frontend/src/stage/avatar.js`:
 
+- **The Live Loop:** `src/web/frontend/src/stage/life.js` manages procedural animations. It adds natural breathing, blinking, and subtle look-around motions, so the avatar looks alive even when the engine is not actively sending expressions.
 - Turning the model 180° is correct for **VRM 0.x only**. `VRMUtils.rotateVRM0`
   applies it conditionally; an unconditional `rotation.y = Math.PI` faces every
   VRM 1.0 model away from the camera.
@@ -199,7 +200,7 @@ model and the software are the user's.
   "vts_host": "127.0.0.1",
   "vts_port": 8001,
   "vts_expressions": { "angry": "furious.exp3.json" },
-  "vts_clips": { "love": "hotkey-id-or-name" },
+  "vts_clips": { "happy": "hotkey-id-or-name" },
   "vts_mouth_param": "MouthOpen"
 }
 ```
@@ -239,6 +240,12 @@ can offer a list.
 
 ---
 
+## Semantic Picker
+
+The moods and clips are no longer hardcoded strict matches. A semantic picker (`src/core/expression/picker.py`) uses a small local embedding model to map whatever expression she names to the closest valid mood or installed clip. This means if she decides to write `<do:shrug>` and the file is named `003_dismissive_wave.vrma`, the picker understands the meaning and plays the right clip, rather than failing silently. It is extremely fast, cached in memory, and prevents her natural vocabulary from breaking the visual output.
+
+---
+
 ## Mood → expression
 
 `src/core/expression/face.py`. `weights_for(mood)` returns a weight for every VRM
@@ -246,15 +253,15 @@ emotion, zeros included, so a face is never left wearing part of the last mood.
 
 | mood | (valence, arousal) | weights |
 |---|---|---|
-| `normal` | (0.00, 0.00) | `neutral 1.0` |
-| `shock` | (-0.15, 0.85) | `surprised 0.9` |
-| `love` | (0.90, 0.50) | `happy 1.0` |
-| `cry` | (-0.70, -0.25) | `sad 1.0` |
+| `neutral` | (0.00, 0.00) | `neutral 1.0` |
+| `happy` | (0.90, 0.50) | `happy 1.0` |
+| `sad` | (-0.70, -0.25) | `sad 1.0` |
 | `angry` | (-0.80, 0.85) | `angry 1.0` |
-| `ew` | (-0.50, 0.15) | `angry 0.45` + `sad 0.35` |
+| `surprised` | (-0.15, 0.85) | `surprised 0.9` |
+| `disgusted` | (-0.50, 0.15) | `angry 0.45` + `sad 0.35` |
 | `bored` | (-0.30, -0.70) | `relaxed 0.25` + `sad 0.35` |
 
-VRM standardises five emotions; `MOODS` has seven. `ew` and `bored` are blends.
+VRM standardises five emotions; `MOODS` has seven. `disgusted` and `bored` are blends.
 
 `tests/test_face.py` asserts that the weights agree with the valence/arousal
 vectors in `moods.py`: a mood below -0.2 valence must weigh `sad`/`angry` above

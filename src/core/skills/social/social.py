@@ -34,7 +34,7 @@ class SocialMemory(Skill):
 
     def initialize(self) -> None:
         # one store: promoting someone is a single transaction
-        memory = self.context.memory
+        memory = self.brain.memory
         self.roster = memory.roster
         self.people = memory.people
 

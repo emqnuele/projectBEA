@@ -27,4 +27,19 @@ def get_logger(name: str) -> logging.Logger:
     return logger
 
 
+def quieten(level: int = logging.WARNING) -> None:
+    """Turns the engine's running commentary down, and keeps it down.
+
+    For the commands whose output *is* the point: a diagnostic that reports
+    twelve findings, with forty lines of INFO about loading models threaded
+    between them, is a diagnostic nobody can read.
+    """
+    global _level
+    _level = level
+    for logger in _loggers.values():
+        logger.setLevel(level)
+        for handler in logger.handlers:
+            handler.setLevel(level)
+
+
 logger = get_logger("bea")

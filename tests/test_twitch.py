@@ -203,7 +203,7 @@ async def test_thirty_messages_a_minute_stay_under_four_model_calls(twitch):
         soul_getter=lambda: "soul", operating_getter=lambda: "rules",
         attention=Attention(config, roster=store.roster, rng=rng),
     )
-    mind.context = [mind._system_message([])]
+    mind.context = [mind._system_message()]
 
     for i in range(30):
         await skill._on_message(line(text=f"messaggio numero {i}",
@@ -237,7 +237,7 @@ async def test_being_named_in_a_busy_chat_always_gets_through(twitch):
         soul_getter=lambda: "soul", operating_getter=lambda: "rules",
         attention=Attention(config, roster=store.roster, rng=rng),
     )
-    mind.context = [mind._system_message([])]
+    mind.context = [mind._system_message()]
 
     await skill._on_message(line(text="bea guarda questo", nick="marco"))
 
@@ -252,4 +252,4 @@ async def test_being_named_in_a_busy_chat_always_gets_through(twitch):
         pass
 
     assert llm.call_count == 1
-    assert mind.expression.spoken == [("normal", "che c'e'", "local")]
+    assert mind.expression.spoken == [("neutral", "che c'e'", "local")]

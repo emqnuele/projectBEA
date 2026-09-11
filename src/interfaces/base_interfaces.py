@@ -70,6 +70,11 @@ class TTSInterface(ABC):
         pass
 
 class OBSInterface(ABC):
+    # which OBS source her body is drawn into. The brain sets it from config
+    # before connecting, so renaming the source in the UI takes effect without
+    # a restart — which is why it is an attribute and not a constructor argument.
+    source_name: str = ""
+
     @abstractmethod
     def connect(self):
         pass
@@ -114,6 +119,10 @@ class OBSInterface(ABC):
         """
         pass
 
+# what a mouth is told, per frame: how open it is and what shape it is in
+MouthFrames = Sequence[Sequence[float]]
+
+
 class AvatarInterface(ABC):
     """How Bea looks. Knows nothing about files, OBS or three.js.
 
@@ -134,13 +143,18 @@ class AvatarInterface(ABC):
         pass
 
     @abstractmethod
-    def mouth(self, envelope: Sequence[float], fps: int) -> None:
-        """Per-frame loudness of the line about to be heard, in [0, 1].
+    def mouth(self, envelope: MouthFrames, fps: int) -> None:
+        """What her mouth does over the line about to be heard.
+
+        One `[how open, what shape]` pair per frame, both in [0, 1]: how open
+        comes from loudness, what shape from where the sound sits between a
+        dark vowel and a bright one. A backend with one mouth parameter uses
+        the first and ignores the second.
 
         Deliberately the whole utterance at once rather than a value per frame:
         a page can replay it against its own clock, and a backend that needs a
         stream (VTube Studio wants one message per frame) can pace it itself.
-        A backend with no mouth ignores it.
+        A backend with no mouth ignores it entirely.
         """
         pass
 

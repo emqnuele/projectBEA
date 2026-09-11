@@ -62,7 +62,7 @@ class World:
             now_line=self.mind.now_line,
         )
         self.mind.conversations = self.conversations
-        self.mind.context = [self.mind._system_message([])]
+        self.mind.context = [self.mind._system_message()]
 
     async def run(self, timeout: float = 1.0):
         self.mind.alive = True
@@ -140,7 +140,7 @@ async def test_a_game_burst_does_not_hold_up_a_discord_reply():
     world.bus.put(message("bea?", channel="1"))
 
     await world.run()
-    assert world.mind.expression.spoken == [("normal", "che palle sto zombie", "local")]
+    assert world.mind.expression.spoken == [("neutral", "che palle sto zombie", "local")]
     assert [t for _, t, _ in world.discord.sent] == ["dimmi"]
     world.close()
 

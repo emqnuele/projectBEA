@@ -337,6 +337,10 @@ class MinecraftSurface(Skill):
         if not self.active or self.client is None:
             return []
 
+        # bound now rather than read when a tool fires: she can be disconnected
+        # from the world between being handed a tool and reaching for it
+        client = self.client
+
         def body(action: str, rename: Optional[dict] = None):
             """Binds a mod action, renaming arguments where the mod calls them
             something else (LookSkill takes `player`, not `name`)."""
@@ -344,7 +348,7 @@ class MinecraftSurface(Skill):
 
             async def handler(**kwargs):
                 args = {rename.get(k, k): v for k, v in kwargs.items()}
-                return await self.client.execute(action, args)
+                return await client.execute(action, args)
             return handler
 
         return [

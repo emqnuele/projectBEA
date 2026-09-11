@@ -93,10 +93,12 @@ class VoiceSurface(PlatformSkill):
     async def stop(self) -> None:
         self.active = False
         self.channel.detach()
-        if getattr(self, "_monitor", None):
+        # both are set in `initialize`, so there is nothing here `getattr` was
+        # protecting against — and reading them straight says what they are
+        if self._monitor is not None:
             self._monitor.cancel()
             self._monitor = None
-        if getattr(self, "_floor_task", None):
+        if self._floor_task is not None:
             self._floor_task.cancel()
             self._floor_task = None
         self.transport.stop()
@@ -245,29 +247,44 @@ class VoiceSurface(PlatformSkill):
         self.bus.put(p)
         return p
 
-    def perceive_text(self, text: str, user: str, channel_id: str,
-                      message_id: Optional[str] = None, meta: Optional[Dict[str, Any]] = None,
-                      user_id: Optional[str] = None, is_dm: bool = False,
-                      whitelisted: bool = True) -> Perception:
-        # text from discord flows through the same single consciousness as voice;
-        # the ids are rendered inline so Bea can act on them (reply/react/send)
+    def perceive_text(self, text: str, *, author: Author, channel_id: Any,
+                      message_id: Optional[str] = None, is_dm: bool = False,
+                      mentions_self: bool = False, reply_to_self: bool = False,
+                      salience: Optional[float] = None,
+                      meta: Optional[Dict[str, Any]] = None) -> Perception:
+        """Discord text, shaped the way discord text has to be.
+
+        Same contract as every other platform — it took a different one for a
+        long time, which meant nothing could hand a message to whichever surface
+        it came from. What is discord's own is the body: the ids go *into the
+        sentence* rather than only into the metadata, because acting on a
+        message here means naming its channel back to a tool, and a stranger
+        arrives quieter than someone she knows.
+        """
+        whitelisted = bool((meta or {}).get("whitelisted", True))
         kind = "dm" if is_dm else "text"
         route = f"channel_id={channel_id}"
         if message_id:
             route += f", message_id={message_id}"
-        p = Perception(
-            kind=PerceptionKind.CHAT,
-            surface=self.name,
-            content=f"[{user}] (discord {kind}, {route}): {text}",
+
+        if salience is None:
             # a stranger is heard, just not loudly: she notices them without
             # them interrupting whatever she is doing. That is what lets the
             # roster promote someone over time instead of never seeing them
-            salience=(0.9 if is_dm else 0.8) * (1.0 if whitelisted else STRANGER_DAMPING),
-            meta={**(meta or {}), "user": user, "user_id": user_id,
-                  "channel_id": channel_id, "message_id": message_id, "is_dm": is_dm,
-                  "whitelisted": whitelisted,
+            salience = (0.9 if is_dm else 0.8) * (1.0 if whitelisted else STRANGER_DAMPING)
+
+        p = Perception(
+            kind=PerceptionKind.CHAT,
+            surface=self.name,
+            content=f"[{author.display_name}] (discord {kind}, {route}): {text}",
+            salience=salience,
+            meta={**(meta or {}), "user": author.display_name,
+                  "user_id": author.native_id,
+                  "channel_id": str(channel_id), "message_id": message_id,
+                  "is_dm": is_dm, "mentions_self": mentions_self,
+                  "reply_to_self": reply_to_self, "whitelisted": whitelisted,
                   "conversation_key": self.conversation_key(channel_id)},
-            author=self._author(user, user_id),
+            author=author,
         )
         self.bus.put(p)
         return p

@@ -1,9 +1,6 @@
 const { Transform } = require('stream');
 
-// what discord plays and the only thing the brain sends: 48khz stereo s16le
-const SAMPLE_RATE = 48000;
-const BYTES_PER_FRAME = 4; // 2 channels * 2 bytes
-const BYTES_PER_MS = (SAMPLE_RATE * BYTES_PER_FRAME) / 1000;
+const { SAMPLE_RATE, BYTES_PER_FRAME, BYTES_PER_MS } = require('./Pcm');
 
 /**
  * volume, with a ramp, on the way to the player — plus a running count of what
@@ -45,7 +42,9 @@ class PcmGain extends Transform {
     _transform(chunk, _enc, done) {
         const buffer = this.rest.length ? Buffer.concat([this.rest, chunk]) : chunk;
         const usable = buffer.length - (buffer.length % BYTES_PER_FRAME);
-        this.rest = buffer.subarray(usable);
+        // a subarray keeps a live view into `chunk`, which the stream owns and
+        // may reuse for the next call; the leftover bytes must be copied out
+        this.rest = Buffer.from(buffer.subarray(usable));
 
         const out = this.applyGain(buffer.subarray(0, usable));
         this.bytesOut += out.length;

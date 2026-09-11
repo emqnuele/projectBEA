@@ -6,6 +6,7 @@ becomes an assertion.
 """
 
 import asyncio
+import json
 from typing import Any, Dict, List, Optional, Union
 
 from src.core.agent.llm_client import LLMClient
@@ -47,13 +48,44 @@ class FakeLLMClient(LLMClient):
 
     @property
     def last_system_prompt(self) -> str:
+        """Everything she was told as system on the last call, in order.
+
+        More than one message, since the stable half of the prompt and the
+        briefing for this particular moment are deliberately kept apart.
+        """
         if not self.calls:
             return ""
-        first = self.calls[-1][0]
-        return first.get("content", "") if first.get("role") == "system" else ""
+        return "\n\n".join(m.get("content", "") for m in self.calls[-1]
+                            if m.get("role") == "system")
 
 
-def speaks(message: str, mood: str = "normal", call_id: str = "c1") -> AssistantMessage:
+class StreamingLLMClient(FakeLLMClient):
+    """Replays a scripted turn the way a provider writes one: a few characters
+    at a time, with the loop given a chance to breathe between them."""
+
+    def __init__(self, script: Optional[List[AssistantMessage]] = None, chunk: int = 6):
+        super().__init__(script)
+        self.chunk = chunk
+        # called after every delta, so a test can look at what has happened so
+        # far while the line is still being written
+        self.after_delta = None
+
+    async def stream_complete(self, messages, tools=None, *, on_tool_delta=None):
+        message = await self.complete(messages, tools=tools)
+        if on_tool_delta is None:
+            return message
+        for index, call in enumerate(message.tool_calls):
+            raw = json.dumps(call.arguments)
+            for start in range(0, len(raw), self.chunk):
+                on_tool_delta(index, call.name, raw[start:start + self.chunk])
+                for _ in range(4):
+                    await asyncio.sleep(0)
+                if self.after_delta:
+                    self.after_delta()
+        return message
+
+
+def speaks(message: str, mood: str = "neutral", call_id: str = "c1") -> AssistantMessage:
     return AssistantMessage(tool_calls=[
         ToolCall(id=call_id, name="speak", arguments={"mood": mood, "message": message})
     ])
@@ -69,6 +101,33 @@ def thinks(content: str) -> AssistantMessage:
     return AssistantMessage(content=content)
 
 
+class FakeLine:
+    """A line she is saying while it is written, recorded rather than heard."""
+
+    def __init__(self, mood: str, route: str, feeling=None):
+        self.mood = mood
+        self.route = route
+        self.feeling = feeling
+        self.said: List[str] = []
+        self.closed = False
+        self.cancelled = False
+        self.spoiled = False
+
+    def say(self, text: str) -> None:
+        self.said.append(text)
+
+    async def close(self):
+        self.closed = True
+        return None
+
+    async def cancel(self) -> None:
+        self.cancelled = True
+
+    @property
+    def written(self) -> str:
+        return "".join(self.said)
+
+
 class FakeExpression:
     """Records what was spoken; never touches audio, OBS or the network."""
 
@@ -80,9 +139,23 @@ class FakeExpression:
         self.interrupts = 0
         self.state: Optional[tuple] = None
         self.call = None
+        # every line she started, finished or not
+        self.lines: List[FakeLine] = []
+        # None means the route cannot be served, the way the real one answers
+        self.opens_lines = True
+        # a line that meets the model's own scaffolding before a word is heard
+        self.spoils_lines = False
 
     def set_call(self, call):
         self.call = call
+
+    def open_line(self, mood, *, route="local", feeling=None, caption=None):
+        if not self.opens_lines:
+            return None
+        line = FakeLine(mood, route, feeling)
+        line.spoiled = self.spoils_lines
+        self.lines.append(line)
+        return line
 
     @property
     def call_is_live(self) -> bool:
