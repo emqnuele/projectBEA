@@ -28,6 +28,14 @@ const STREAM_END_MS = 200;
 // is half a second, so this costs at most a tenth of one on top of it.
 const TICK_MS = 100;
 
+// the fade-down while someone talks over her, the fade-back-up once they stop,
+// and what she stops at. 0.25 is audible but gone quickly, and 200ms is short
+// enough to feel immediate on both ramps
+const DUCK_GAIN = 0.25;
+const DUCK_RAMP_MS = 250;
+const UNDUCK_RAMP_MS = 200;
+const STOP_RAMP_MS = 200;
+
 class VoiceManager {
     constructor(client) {
         this.client = client;
@@ -222,6 +230,12 @@ class VoiceManager {
             }));
         });
 
+        opusStream.on('error', (err) => {
+            // `pipe` does not forward errors, so a stream that dies mid-burst
+            // without this would take the whole process down
+            console.error(`[VoiceManager] Receive stream error for ${userId}:`, err.message);
+            close();
+        });
         const close = () => {
             if (data.subscriptions.get(userId) === opusStream) data.subscriptions.delete(userId);
         };
@@ -237,12 +251,12 @@ class VoiceManager {
         if (report.duck) {
             this.ducking.add(userId);
             console.log('[VoiceManager] Someone is talking over her — ducking');
-            this.duck(0.25, 250);
+            this.duck(DUCK_GAIN, DUCK_RAMP_MS);
         }
 
         if (report.interrupt) {
             console.log('[VoiceManager] Sustained speech — interrupting her');
-            this.stopSpeaking(200);
+            this.stopSpeaking(STOP_RAMP_MS);
             this.tellBrain('/interrupt');
         }
 
@@ -250,7 +264,7 @@ class VoiceManager {
             this.ducking.delete(userId);
             // only once the last of them has stopped: coming back up while
             // somebody else is still going would just duck her again
-            if (this.ducking.size === 0) this.duck(1, 200);
+            if (this.ducking.size === 0) this.duck(1, UNDUCK_RAMP_MS);
         }
 
         // nothing above this is awaited, and an unhandled rejection here would
@@ -398,15 +412,19 @@ class VoiceManager {
 
     /** fades her out and stops. the ramp is the difference between trailing off
      *  and being cut mid-word, and the report says how much the room actually got. */
-    stopSpeaking(rampMs = 200) {
+    stopSpeaking(rampMs = STOP_RAMP_MS) {
         const guildId = this.currentGuild();
         const data = guildId ? this.connections.get(guildId) : null;
         if (!data || !data.speech) return;
 
-        data.speech.gain.rampTo(0, rampMs);
+        const speech = data.speech;
+        speech.gain.rampTo(0, rampMs);
+        // a new utterance can start inside the fade and must not be the one
+        // this times out. It finishes only the utterance it faded, and only if
+        // that utterance is still the one on the wire.
         setTimeout(() => {
             const still = this.connections.get(guildId);
-            if (!still || !still.speech) return;
+            if (!still || still.speech !== speech) return;
             this.finishUtterance(guildId, 'stopped');
             still.player.stop();
         }, rampMs);

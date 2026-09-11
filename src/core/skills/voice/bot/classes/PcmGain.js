@@ -42,7 +42,9 @@ class PcmGain extends Transform {
     _transform(chunk, _enc, done) {
         const buffer = this.rest.length ? Buffer.concat([this.rest, chunk]) : chunk;
         const usable = buffer.length - (buffer.length % BYTES_PER_FRAME);
-        this.rest = buffer.subarray(usable);
+        // a subarray keeps a live view into `chunk`, which the stream owns and
+        // may reuse for the next call; the leftover bytes must be copied out
+        this.rest = Buffer.from(buffer.subarray(usable));
 
         const out = this.applyGain(buffer.subarray(0, usable));
         this.bytesOut += out.length;
