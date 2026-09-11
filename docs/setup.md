@@ -306,6 +306,14 @@ brain.
 
 ## Troubleshooting
 
+The fastest way to figure out what is wrong is to run the built-in diagnostic tool:
+
+```bash
+uv run bea doctor
+```
+
+It checks the environment, API keys, audio devices, models, and dependencies, and tells you exactly what to type to fix any issue it finds.
+
 | Problem | Solution |
 |---|---|
 | `OBS not connected` warning on start | OBS is not running or WebSocket creds are wrong — the engine continues without it |

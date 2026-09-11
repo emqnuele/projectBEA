@@ -176,6 +176,7 @@ than kept. A file already at that path is never overwritten — it is yours.
 
 `src/web/frontend/src/stage/avatar.js`:
 
+- **The Live Loop:** `src/web/frontend/src/stage/life.js` manages procedural animations. It adds natural breathing, blinking, and subtle look-around motions, so the avatar looks alive even when the engine is not actively sending expressions.
 - Turning the model 180° is correct for **VRM 0.x only**. `VRMUtils.rotateVRM0`
   applies it conditionally; an unconditional `rotation.y = Math.PI` faces every
   VRM 1.0 model away from the camera.
@@ -236,6 +237,12 @@ only backend that paces the envelope itself.
 **Discovery.** Expression files and hotkey ids are defined by whoever rigged the
 model. `GET /vts/model` returns both from the connected instance so the dashboard
 can offer a list.
+
+---
+
+## Semantic Picker
+
+The moods and clips are no longer hardcoded strict matches. A semantic picker (`src/core/expression/picker.py`) uses a small local embedding model to map whatever expression she names to the closest valid mood or installed clip. This means if she decides to write `<do:shrug>` and the file is named `003_dismissive_wave.vrma`, the picker understands the meaning and plays the right clip, rather than failing silently. It is extremely fast, cached in memory, and prevents her natural vocabulary from breaking the visual output.
 
 ---
 
