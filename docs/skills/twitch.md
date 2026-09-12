@@ -95,7 +95,7 @@ every Twitch message on the stage.
 |---|---|
 | `channel` | Channel to join, without the `#` |
 | `nick` | Her account name. Leave empty to read anonymously |
-| `oauth_token` | Only needed to write. Prefer the `TWITCH_OAUTH_TOKEN` env var |
+| `oauth_token` | Only needed to write. Lives in `.env` as `TWITCH_OAUTH_TOKEN`; typing it in the dashboard writes it there |
 
 Trigger words come from `attention.trigger_words`.
 

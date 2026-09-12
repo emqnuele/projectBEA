@@ -99,6 +99,56 @@ string clears it.
 
 ---
 
+### Settings
+
+The schema in `src/core/settings_schema.py` declares every setting once — its
+type, its bounds, whether it needs a restart — and the dashboard renders forms
+from it rather than hard-coding one per skill. A section lives either inside
+`config.skills[key]` or in a top-level dict on the config.
+
+#### `GET /settings`
+The whole schema plus the current values. Secrets read back as `********`.
+
+```json
+{
+  "sections": [
+    {
+      "key": "discord", "label": "Discord", "scope": "skills",
+      "toggleable": true, "blurb": "Voice and text…",
+      "settings": [
+        {"key": "api_port", "type": "int", "min": 1024, "max": 65535,
+         "default": 3030, "restart": true, "label": "Bot API port", "help": "…"}
+      ],
+      "values": {"api_port": 3030, "token": "********"}
+    }
+  ]
+}
+```
+
+#### `GET /settings/{key}`
+One section, in the same shape. `404` for a section that does not exist.
+
+#### `POST /settings/{key}`
+Validates the payload against the section's declared rules, writes it, saves and
+hot-reloads. A value outside its bounds or a key the section does not declare is
+a `422` naming the field — and nothing is written, so a rejected form leaves the
+running config exactly as it was.
+
+Flipping `enabled` on a `toggleable` section also starts or stops the live
+connection, which a config reload alone does not do.
+
+**Response:**
+```json
+{
+  "status": "success",
+  "changed": {"api_port": 3040},
+  "secrets_written_to_env": [],
+  "restart_required": true
+}
+```
+
+---
+
 ### Chat
 
 #### `POST /chat`
