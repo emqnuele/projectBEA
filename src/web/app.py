@@ -24,17 +24,19 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
+from src.core import secrets as secret_store
 from src.core.affect.rules import warmth_phrase
 from src.core.agent.registry import BACKGROUND
 from src.core.brain import AIVtuberBrain
-from src.core.config import MASK, SECRET_SKILL_FIELDS
+from src.core.config import SECRET_SKILL_FIELDS
+from src.core.config_write import WriteRejected, plan_config, section_secrets
 from src.core.memory.plan import STATUSES
 from src.core.onboarding import QUESTIONS, draft_soul
 from src.core.onboarding import needed as onboarding_needed
 from src.core.persona_store import PersonaRefused, mark_onboarding_completed, onboarding_completed
 from src.core.persona_store import apply as persona_apply
 from src.core.persona_store import describe as persona_describe
-from src.core.settings_schema import ValidationError, apply_section, describe
+from src.core.settings_schema import ValidationError, describe, plan_section, write_section
 from src.core.settings_schema import restart_needed as _restart_needed
 from src.core.settings_schema import section as _section
 from src.core.stage import clips_dir, public_config
@@ -102,18 +104,21 @@ def _safe_session_id(session_id: str) -> str:
     return clean
 
 
-def _merge_skills(current: Dict[str, Any], incoming: Dict[str, Any]) -> None:
-    """Folds a (possibly partial) skills payload into the live config.
+def _store_secrets(values: Dict[str, str]) -> List[str]:
+    """Secrets to `.env`, the only place they survive a restart.
 
-    The UI reads secrets back as `MASK`; writing that value would replace a real
-    token with asterisks, so masked fields are dropped instead of applied.
+    Called before anything is applied: an unwritable `.env` has to fail the
+    whole save, rather than leave a token live until the next start drops it.
     """
-    for skill_key, block in incoming.items():
-        if not isinstance(block, dict):
-            current[skill_key] = block
-            continue
-        clean = {k: v for k, v in block.items() if v != MASK}
-        current.setdefault(skill_key, {}).update(clean)
+    if not values:
+        return []
+    try:
+        return secret_store.persist(values)
+    except OSError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Nothing was saved: the secrets could not be written to .env ({e.strerror}).",
+        ) from e
 
 # before the SPA catch-all below, which answers every GET registered after it
 app.include_router(update_router)
@@ -129,48 +134,25 @@ def get_config():
 def update_config(request: ConfigUpdateRequest):
     brain = get_brain()
     try:
-        current_tts = brain.config.tts_provider
-        current_stt = brain.config.stt_provider
-        restart_required = False
+        plan = plan_config(brain.config, request.config)
+    except WriteRejected as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
-        # uppdate config object
-        for key, value in request.config.items():
-            if hasattr(brain.config, key):
-                if key == "skills" and isinstance(value, dict):
-                    # merge, so a partial post never drops the skills it omitted
-                    # (and a masked secret never overwrites the real one)
-                    _merge_skills(brain.config.skills, value)
-                    continue
-                if key == "stage" and isinstance(value, dict):
-                    # same reason: a post carrying only the backend choice must
-                    # not wipe the model path and the maps it said nothing about
-                    brain.config.stage = {**brain.config.stage, **value}
-                    continue
-                setattr(brain.config, key, value)
+    stored = _store_secrets(plan.secrets)
+    plan.apply(brain.config)
+    brain.config.save_to_file()
+    brain.reload_configuration()
 
-                # check for critical changes
-                if key == "tts_provider" and value != current_tts:
-                    restart_required = True
-                if key == "stt_provider" and value != current_stt:
-                    restart_required = True
+    msg = "Configuration updated."
+    if plan.restart_required:
+        msg += " RESTART REQUIRED to apply new provider settings."
 
-        # save to file
-        brain.config.save_to_file()
-
-        # hot reload
-        brain.reload_configuration()
-
-        msg = "Configuration updated."
-        if restart_required:
-            msg += " RESTART REQUIRED to apply new provider settings."
-
-        return {
-            "status": "success",
-            "message": msg,
-            "restart_required": restart_required
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {
+        "status": "success",
+        "message": msg,
+        "restart_required": plan.restart_required,
+        "secrets_written_to_env": stored,
+    }
 
 # --- persona: who she is, and the one file that says so ---------------------
 
@@ -255,10 +237,12 @@ async def update_settings_section(key: str, payload: Dict[str, Any]):
         raise HTTPException(status_code=404, detail=f"Unknown settings section: {key}") from e
 
     try:
-        changed = apply_section(brain.config, key, payload)
+        changed = plan_section(brain.config, key, payload)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
+    stored = _store_secrets(section_secrets(key, changed))
+    write_section(brain.config, key, changed)
     brain.config.save_to_file()
 
     # a platform's on/off switch is the skill registry's business: it starts and
@@ -274,6 +258,7 @@ async def update_settings_section(key: str, payload: Dict[str, Any]):
     return {
         "status": "success",
         "changed": changed,
+        "secrets_written_to_env": stored,
         "restart_required": _restart_needed(key, changed),
     }
 

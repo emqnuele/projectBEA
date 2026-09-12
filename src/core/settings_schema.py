@@ -450,14 +450,14 @@ def describe(config) -> Dict[str, Any]:
     return {"sections": out}
 
 
-def apply_section(config, key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Validates the whole payload, then writes it. Raises ValidationError.
+def plan_section(config, key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Validates a section payload. Raises ValidationError, writes nothing.
 
-    All-or-nothing on purpose: a form that half-saves leaves the user unable to
-    tell what took effect.
+    Separate from writing because a caller may have something of its own that
+    can fail in between — the secrets, which go to `.env` — and a save that
+    reports failure must not have already moved the running config.
     """
     sec = section(key)
-    block = _block(config, sec)
 
     errors: Dict[str, str] = {}
     staged: Dict[str, Any] = {}
@@ -480,7 +480,22 @@ def apply_section(config, key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         detail = "; ".join(f"{k}: {v}" for k, v in sorted(errors.items()))
         raise ValidationError(detail)
 
-    block.update(staged)
+    return staged
+
+
+def write_section(config, key: str, staged: Dict[str, Any]) -> None:
+    """Writes what `plan_section` validated."""
+    _block(config, section(key)).update(staged)
+
+
+def apply_section(config, key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Validates the whole payload, then writes it. Raises ValidationError.
+
+    All-or-nothing on purpose: a form that half-saves leaves the user unable to
+    tell what took effect.
+    """
+    staged = plan_section(config, key, payload)
+    write_section(config, key, staged)
     return staged
 
 

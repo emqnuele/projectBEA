@@ -22,6 +22,21 @@ SECRET_SKILL_FIELDS: List[Tuple[str, str]] = [
 
 MASK = "********"
 
+# every secret in the config, and the environment variable the engine reads it
+# from. `save_to_file` strips all of them on the way to config.json, so this is
+# the map that says where one typed into the dashboard is actually written.
+# Keyed the way `GET /secrets` reports them: a bare field, or `skill.field`.
+SECRET_ENV_VARS: Dict[str, str] = {
+    "openrouter_key": "OPENROUTER_API_KEY",
+    "openai_key": "OPENAI_API_KEY",
+    "groq_key": "GROQ_API_KEY",
+    "orpheus_key": "ORPHEUS_API_KEY",
+    "orpheus_endpoint": "ORPHEUS_ENDPOINT",
+    "discord.token": "DISCORD_TOKEN",
+    "telegram.token": "TELEGRAM_TOKEN",
+    "twitch.oauth_token": "TWITCH_OAUTH_TOKEN",
+}
+
 
 def deep_merge(base: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
     """`incoming` over `base`, recursing into dicts. Lists replace wholesale.

@@ -41,13 +41,16 @@ def parse_env(text: str) -> Dict[str, str]:
     return values
 
 
-def merge_env(text: str, updates: Dict[str, str]) -> str:
+def merge_env(text: str, updates: Dict[str, str], *, empty_clears: bool = False) -> str:
     """`text` with `updates` applied: comments, order and untouched keys survive.
 
     Empty values are dropped rather than written as blank keys, so declining a
-    question never overwrites a key that is already set.
+    wizard question never overwrites a key that is already set. `empty_clears`
+    is the dashboard's case instead: a field the user emptied is an instruction
+    to forget the value, so the key is blanked where it sits — and a key that
+    was never in the file is not added just to say it is empty.
     """
-    pending = {key: value for key, value in updates.items() if value}
+    pending = dict(updates) if empty_clears else {k: v for k, v in updates.items() if v}
     lines = text.splitlines()
     rewritten = set()
 
@@ -62,7 +65,7 @@ def merge_env(text: str, updates: Dict[str, str]) -> str:
         lines[i] = f"{key}={_quote(pending[key])}"
         rewritten.add(key)
 
-    added = [key for key in pending if key not in rewritten]
+    added = [key for key in pending if key not in rewritten and pending[key]]
     if added:
         if lines and lines[-1].strip():
             lines.append("")
