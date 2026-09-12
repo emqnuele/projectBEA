@@ -166,8 +166,13 @@ async def discord_audio_interaction(
         )
         return {"status": "perceived", "transcript": transcript}
     except Exception as e:
-        logger.error(f"Discord Audio Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        # the whole exception goes to the log, where it is useful; what comes
+        # back over http is not the place for a stack of absolute paths and
+        # driver internals
+        logger.error(f"Discord Audio Error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail="Could not transcribe that. Check the engine log."
+        ) from e
     finally:
         # cleanup
         if temp_file.exists():
