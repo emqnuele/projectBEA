@@ -1,18 +1,10 @@
 import argparse
 import asyncio
+import dataclasses
 import faulthandler
 import os
 
-# the local embedding model runs in a subprocess; silence the noisy fork warning
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-
 from dotenv import load_dotenv
-
-# enable fault handler to catch segfaults/access violations
-faulthandler.enable()
-
-# load env
-load_dotenv()
 
 from src.core.agent.registry import ModelPoolError, ModelRegistry
 from src.core.brain import AIVtuberBrain
@@ -23,7 +15,21 @@ from src.utils.logger import get_logger
 logger = get_logger("bea")
 
 
-def parse_args():
+def bootstrap() -> None:
+    """The environment, before anything reads it. Idempotent.
+
+    Every one of these used to sit between the imports, which made the file's
+    behaviour depend on its import order — and made tidying the imports a
+    silent regression rather than a mistake anyone would catch.
+    """
+    # the local embedding model runs in a subprocess; silence the noisy fork warning
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    # segfaults and access violations get a traceback instead of a silent exit
+    faulthandler.enable()
+    load_dotenv()
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="ProjectBEA - AI Persona Engine")
 
     parser.add_argument("--setup", action="store_true",
@@ -42,7 +48,8 @@ def parse_args():
     parser.add_argument("--port", type=int, default=8000, help="Port for the web interface")
 
     # core config
-    parser.add_argument("--system-file", default=None, help="Path to system prompt file")
+    parser.add_argument("--system-file", dest="system_prompt_path", metavar="SYSTEM_FILE", default=None,
+                        help="Path to system prompt file")
     parser.add_argument("--png-dir", default=None, help="Directory for avatar PNGs")
 
     # llm selection
@@ -81,51 +88,37 @@ def parse_args():
     parser.add_argument("--orpheus-voice", default=None, help="Orpheus Voice")
 
     # kokoro
-    parser.add_argument("--kokoro-file", default=None, help="Kokoro Model File")
-    parser.add_argument("--kokoro-voices", default=None, help="Kokoro Voices File")
+    parser.add_argument("--kokoro-file", dest="kokoro_model", metavar="KOKORO_FILE", default=None,
+                        help="Kokoro Model File")
+    parser.add_argument("--kokoro-voices", dest="kokoro_voices_file", metavar="KOKORO_VOICES", default=None,
+                        help="Kokoro Voices File")
 
-    parser.add_argument("--device-id", type=int, default=None, help="Audio Output Device ID")
+    parser.add_argument("--device-id", dest="audio_device_id", metavar="DEVICE_ID", type=int, default=None,
+                        help="Audio Output Device ID")
 
     # text/typing
     parser.add_argument("--typing-delay", type=float, default=None, help="Typing animation delay")
 
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def apply_cli_overrides(config: BrainConfig, args) -> None:
-    """Only overrides where the flag was passed: CLI arg > config.json > default."""
-    cli_overrides = {
-        "system_prompt_path": args.system_file,
-        "png_dir":            args.png_dir,
-        "llm_provider":       args.llm_provider,
-        "openrouter_key":     args.openrouter_key,
-        "openrouter_model":   args.openrouter_model,
-        "openai_key":         args.openai_key,
-        "openai_model":       args.openai_model,
-        "groq_key":           args.groq_key,
-        "groq_model":         args.groq_model,
-        "stt_provider":       args.stt_provider,
-        "stt_model":          args.stt_model,
-        "obs_host":           args.obs_host,
-        "obs_port":           args.obs_port,
-        "obs_password":       args.obs_password,
-        "obs_avatar_source":  args.obs_avatar_source,
-        "obs_source_type":    args.obs_source_type,
-        "obs_text_source":    args.obs_text_source,
-        "tts_provider":       args.tts_provider,
-        "tts_voice":          args.tts_voice,
-        "orpheus_key":        args.orpheus_key,
-        "orpheus_endpoint":   args.orpheus_endpoint,
-        "orpheus_voice":      args.orpheus_voice,
-        "kokoro_model":       args.kokoro_file,
-        "kokoro_voices_file": args.kokoro_voices,
-        "audio_device_id":    args.device_id,
-        "typing_delay":       args.typing_delay,
-    }
-    for field_name, value in cli_overrides.items():
-        if value is not None:
-            setattr(config, field_name, value)
-            logger.info(f"CLI override: {field_name} = {value}")
+    """Only overrides where the flag was passed: CLI arg > config.json > default.
+
+    A flag overrides the config field its `dest` names — which is why the four
+    flags whose spelling diverges from their field carry an explicit `dest`.
+    The pairing used to be a hand-written table of every flag, so renaming a
+    field left the table still setting the old name on an object without it.
+    """
+    fields = {f.name for f in dataclasses.fields(config)}
+
+    for name, value in sorted(vars(args).items()):
+        # `is not None` and not truthiness: `--device-id 0` is the first audio
+        # device and `--obs-password ''` is a password being cleared
+        if value is None or name not in fields:
+            continue
+        setattr(config, name, value)
+        logger.info(f"CLI override: {name} = {value}")
 
 
 async def main(args=None):
@@ -196,6 +189,9 @@ async def main(args=None):
 
 
 def run():
+    # before parse_args: --doctor and --setup build a BrainConfig, whose secrets
+    # default off the environment `.env` carries
+    bootstrap()
     args = parse_args()
     # the wizard runs before anything heavy is imported: it exists precisely
     # for the case where config.json and .env do not exist yet

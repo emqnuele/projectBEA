@@ -1,26 +1,51 @@
 import logging
 import os
+from typing import Optional
 
 from rich.logging import RichHandler
 
 _loggers = {}
 
-# allow overriding log level without touching code
-_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+# set by quieten(): an explicit choice outranks the environment
+_override: Optional[int] = None
+
+
+def _level() -> int:
+    """The level in force right now.
+
+    Read per call rather than at import: `.env` is loaded by the entrypoint,
+    which cannot happen before this module is imported, and resolving it once
+    at import made LOG_LEVEL work or not work depending on import order.
+    """
+    if _override is not None:
+        return _override
+    return getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+
+
+def _apply(logger: logging.Logger, level: int) -> None:
+    logger.setLevel(level)
+    for handler in logger.handlers:
+        handler.setLevel(level)
 
 
 def get_logger(name: str) -> logging.Logger:
-    if name in _loggers:
-        return _loggers[name]
+    level = _level()
+
+    cached = _loggers.get(name)
+    if cached is not None:
+        # a logger built before `.env` was read must not keep the old level
+        if cached.level != level:
+            _apply(cached, level)
+        return cached
 
     logger = logging.getLogger(name)
-    logger.setLevel(_level)
+    logger.setLevel(level)
     # avoid duplicate output with uvicorn
     logger.propagate = False
 
     if not logger.handlers:
         handler = RichHandler(rich_tracebacks=True, markup=False, show_path=False)
-        handler.setLevel(_level)
+        handler.setLevel(level)
         logger.addHandler(handler)
 
     _loggers[name] = logger
@@ -34,12 +59,10 @@ def quieten(level: int = logging.WARNING) -> None:
     twelve findings, with forty lines of INFO about loading models threaded
     between them, is a diagnostic nobody can read.
     """
-    global _level
-    _level = level
+    global _override
+    _override = level
     for logger in _loggers.values():
-        logger.setLevel(level)
-        for handler in logger.handlers:
-            handler.setLevel(level)
+        _apply(logger, level)
 
 
 logger = get_logger("bea")
