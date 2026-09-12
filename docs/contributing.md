@@ -97,6 +97,8 @@ makes her behaviour testable. Keep them that way.
 | **A new skill** | Extend `Skill`, register it in `AIVtuberBrain._build_consciousness()` |
 | **A new text platform** | Extend `PlatformSkill`, and the roster, person cards, attention gate and scoped conversations then work with no extra code |
 | **A change to `data/prompts/soul.md`** | Update `SHIPPED_SOUL_SHA256` in `src/core/persona.py` to match. The test fails with the value to paste |
+| **A new endpoint** | Put it in the router it belongs to under `src/web/routers/`, or add a module and list it in `routers/__init__.py`. Take the brain as `Depends(get_brain)` rather than reaching for it |
+| **A new setting** | Declare it in `src/core/settings_schema.py`. The dashboard renders the schema, and the write path validates against it — a knob declared nowhere can still be saved, but nothing checks it |
 
 [Skills Overview](skills/overview.md) has the full plugin API.
 

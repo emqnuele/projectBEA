@@ -12,7 +12,7 @@ from src.core.skills.minecraft.notebook import Notebook
 from src.core.skills.minecraft.state import render_state
 from src.core.skills.minecraft.tools import build_minecraft_tools
 from src.utils.logger import get_logger
-from src.utils.prompts import load_text
+from src.utils.prompts import prompt_for
 
 logger = get_logger("bea.skills.minecraft")
 
@@ -35,10 +35,10 @@ class MinecraftSurface(Skill):
         cfg = self.skill_config
         persona = persona_of(self.config)
         self._rules = persona.fill(
-            load_text(cfg.get("system_prompt_path", "data/prompts/minecraft.md")))
+            prompt_for(cfg, "system_prompt", "data/prompts/minecraft.md"))
         # recipe trees belong to the body, not in her head
         self._body_rules = persona.fill(
-            load_text(cfg.get("body_prompt_path", "data/prompts/minecraft_body.md")))
+            prompt_for(cfg, "body_prompt", "data/prompts/minecraft_body.md"))
         self.client: Optional[MinecraftClient] = None
         self.notebook = Notebook()
         self._registry = None

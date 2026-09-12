@@ -177,6 +177,7 @@ def client(monkeypatch):
     from fastapi.testclient import TestClient
 
     from src.web import app as web
+    from src.web import deps
 
     class BrainStub:
         def __init__(self):
@@ -184,17 +185,17 @@ def client(monkeypatch):
             self.stage = StageChannel()
 
     stub = BrainStub()
-    previous = web.brain_instance
-    web.brain_instance = stub
+    previous = deps.brain_instance
+    deps.brain_instance = stub
     try:
         yield TestClient(web.app), stub
     finally:
-        web.brain_instance = previous
+        deps.brain_instance = previous
 
 
 async def test_the_stream_opens_with_a_snapshot_before_any_patch(client):
     """Driven directly: an SSE endpoint never ends, so a client would hang."""
-    from src.web import app as web
+    from src.web.routers import stage
 
     _api, stub = client
     stub.stage.publish({"mood": "sad", "state": "talking"})
@@ -203,7 +204,7 @@ async def test_the_stream_opens_with_a_snapshot_before_any_patch(client):
         async def is_disconnected(self):
             return True
 
-    response = await web.stage_stream(Disconnected())
+    response = await stage.stage_stream(Disconnected(), brain=stub)
     first = await response.body_iterator.__anext__()
 
     payload = json.loads(first[len("data: "):])
@@ -213,7 +214,7 @@ async def test_the_stream_opens_with_a_snapshot_before_any_patch(client):
 
 
 async def test_the_stream_lets_go_of_the_queue_when_the_page_leaves(client):
-    from src.web import app as web
+    from src.web.routers import stage
 
     _api, stub = client
 
@@ -221,7 +222,7 @@ async def test_the_stream_lets_go_of_the_queue_when_the_page_leaves(client):
         async def is_disconnected(self):
             return True
 
-    response = await web.stage_stream(Disconnected())
+    response = await stage.stage_stream(Disconnected(), brain=stub)
     async for _chunk in response.body_iterator:
         pass
 
@@ -273,7 +274,7 @@ def test_a_behaviour_name_cannot_walk_out_of_the_clips_folder(client, tmp_path):
     """
     from fastapi import HTTPException
 
-    from src.web import app as web
+    from src.web.routers import stage
 
     _api, stub = client
     (tmp_path / "clips").mkdir()
@@ -282,7 +283,7 @@ def test_a_behaviour_name_cannot_walk_out_of_the_clips_folder(client, tmp_path):
 
     for name in ("../secret", "../../etc/passwd", "/etc/passwd"):
         with pytest.raises(HTTPException) as raised:
-            web.stage_clip(name)
+            stage.stage_clip(name, brain=stub)
         assert raised.value.status_code == 404
 
 

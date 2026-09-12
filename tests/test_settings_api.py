@@ -20,6 +20,7 @@ def client(tmp_path, monkeypatch):
 
     from src.core import config as config_module
     from src.web import app as web
+    from src.web import deps
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config_module, "CONFIG_FILE", "config.json")
@@ -37,12 +38,12 @@ def client(tmp_path, monkeypatch):
             self.toggles.append((name, enable))
 
     stub = BrainStub()
-    previous = web.brain_instance
-    web.brain_instance = stub
+    previous = deps.brain_instance
+    deps.brain_instance = stub
     try:
         yield TestClient(web.app), stub
     finally:
-        web.brain_instance = previous
+        deps.brain_instance = previous
 
 
 def test_a_partial_save_keeps_the_rest_of_the_stage_block(client):
@@ -226,3 +227,136 @@ def test_the_menu_offers_every_platform():
         FRONTEND / "lib/nav.js", r"SETTINGS_SECTIONS = \[(.*?)\];",
     )))
     assert {"discord", "telegram", "twitch"} <= menu
+
+
+# --- the write path, through the endpoints -----------------------------------
+
+
+def test_a_class_attribute_cannot_be_written_through_the_config_endpoint(client):
+    """The old gate was `hasattr`, which is true for this one.
+
+    Emptying it made `save_to_file` stop stripping anything, so the next save
+    wrote every API key into config.json in clear text.
+    """
+    api, stub = client
+
+    res = api.post("/config", json={"config": {"SECRET_KEYS": []}})
+
+    assert res.status_code == 422
+    assert stub.config.SECRET_KEYS == BrainConfig.SECRET_KEYS
+
+
+def test_a_method_cannot_be_written_through_the_config_endpoint(client):
+    api, stub = client
+
+    res = api.post("/config", json={"config": {"public_dict": 1}})
+
+    assert res.status_code == 422
+    assert api.get("/config").status_code == 200
+
+
+def test_a_bad_type_is_refused_with_the_field_named(client):
+    api, stub = client
+
+    res = api.post("/config", json={"config": {"obs_port": "banana"}})
+
+    assert res.status_code == 422
+    assert "obs_port" in res.json()["detail"]
+    assert stub.config.obs_port == 4455
+
+
+def test_a_refused_config_save_writes_no_file(client, tmp_path):
+    api, _ = client
+
+    api.post("/config", json={"config": {"language": "it", "nonsense": 1}})
+
+    assert not (tmp_path / "config.json").exists()
+
+
+def test_a_refused_config_save_does_not_reload(client):
+    api, stub = client
+
+    api.post("/config", json={"config": {"nonsense": 1}})
+
+    assert stub.reloads == 0
+
+
+def test_an_ordinary_save_still_works(client, tmp_path):
+    api, stub = client
+
+    res = api.post("/config", json={"config": {"language": "it"}})
+
+    assert res.status_code == 200
+    assert stub.config.language == "it"
+    assert stub.reloads == 1
+    assert "it" in (tmp_path / "config.json").read_text(encoding="utf-8")
+
+
+# --- secrets go to .env, which is where they survive a restart ---------------
+
+
+def test_a_key_saved_in_the_dashboard_lands_in_the_env_file(client, tmp_path):
+    api, stub = client
+
+    res = api.post("/config", json={"config": {"groq_key": "gsk-typed"}})
+
+    assert res.status_code == 200
+    assert res.json()["secrets_written_to_env"] == ["GROQ_API_KEY"]
+    assert "GROQ_API_KEY=gsk-typed" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+def test_a_bot_token_saved_in_a_section_lands_in_the_env_file(client, tmp_path):
+    api, stub = client
+
+    res = api.post("/settings/discord", json={"token": "bot-token"})
+
+    assert res.status_code == 200
+    assert res.json()["secrets_written_to_env"] == ["DISCORD_TOKEN"]
+    assert "DISCORD_TOKEN=bot-token" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+def test_a_saved_secret_never_reaches_config_json(client, tmp_path):
+    api, _ = client
+
+    api.post("/config", json={"config": {"groq_key": "gsk-typed"}})
+
+    assert "gsk-typed" not in (tmp_path / "config.json").read_text(encoding="utf-8")
+
+
+def test_saving_an_ordinary_setting_writes_no_env_file(client, tmp_path):
+    api, _ = client
+
+    res = api.post("/config", json={"config": {"language": "it"}})
+
+    assert res.json()["secrets_written_to_env"] == []
+    assert not (tmp_path / ".env").exists()
+
+
+def test_a_masked_secret_coming_back_is_dropped(client, tmp_path):
+    api, stub = client
+    stub.config.skills["discord"]["token"] = "real-token"
+
+    api.post("/config", json={"config": {"skills": {"discord": {"token": MASK}}}})
+
+    assert stub.config.skills["discord"]["token"] == "real-token"
+    assert not (tmp_path / ".env").exists()
+
+
+def test_an_unwritable_env_file_fails_the_whole_save(client, tmp_path, monkeypatch):
+    """Nothing half-applied: the config must not move if the secret cannot.
+
+    Otherwise the token is live until the process stops and gone after it —
+    which is the bug this endpoint had in the first place.
+    """
+    api, stub = client
+
+    def refuse(*args, **kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr("pathlib.Path.write_text", refuse)
+
+    res = api.post("/config", json={"config": {"groq_key": "gsk", "language": "it"}})
+
+    assert res.status_code == 500
+    assert stub.config.language == "en"
+    assert stub.reloads == 0

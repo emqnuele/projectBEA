@@ -99,4 +99,4 @@ the server.
 
 | Key | Description |
 |---|---|
-| `secret` | Shared secret checked against the `?secret=` query param. Prefer the `DONATION_SECRET` env var |
+| `secret` | Shared secret checked against the `?secret=` query param. Read from the `DONATION_SECRET` env var |

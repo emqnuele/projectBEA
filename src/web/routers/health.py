@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 
 from src.utils.logger import get_logger
+from src.web.deps import current_brain
 
 logger = get_logger("bea.web.health")
 
@@ -25,12 +26,6 @@ router = APIRouter(prefix="/doctor", tags=["doctor"])
 
 _run: Optional[Dict[str, Any]] = None
 _task: Optional[asyncio.Task] = None
-
-
-def _brain():
-    from src.web.app import brain_instance
-
-    return brain_instance
 
 
 @router.get("")
@@ -46,7 +41,7 @@ async def run_doctor() -> Dict[str, Any]:
     if _run is not None and _run["state"] == "running":
         raise HTTPException(status_code=409, detail="The checks are already running.")
 
-    brain = _brain()
+    brain = current_brain()
     if brain is None:
         raise HTTPException(status_code=503, detail="Brain not initialized")
 

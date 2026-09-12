@@ -279,7 +279,7 @@ answering before it lets you in, then on a bento overview of everything at once.
 - **Memory.** Who she knows, everyone she has met, a search over what she remembers, and the things she has worked out about herself
 - **Abilities.** Every capability on or off at runtime, plus the Minecraft cockpit
 - **Maintenance.** Whether there is a new version and what is in it, with a button that installs it; and the same diagnostic `--doctor` runs, streamed as it goes
-- **Settings.** Eight sections with connection tests, and one save for all of them
+- **Settings.** Eight sections with connection tests, and one save for all of them. API keys and bot tokens typed here go to `.env`, never to `config.json`
 
 `⌘K` opens the command palette from anywhere.
 
@@ -435,7 +435,7 @@ make test          # uv run pytest -q
 make lint          # uv run ruff check src tests
 ```
 
-1707 tests, and they run without network access or API keys: every model
+1867 tests, and they run without network access or API keys: every model
 client, surface and transport is faked. CI runs exactly `make test` and `make lint`.
 
 > [!TIP]

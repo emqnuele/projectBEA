@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 from pathlib import Path
@@ -48,6 +49,24 @@ def isolated_config(monkeypatch, tmp_path):
     from src.core import config as config_module
 
     monkeypatch.setattr(config_module, "CONFIG_FILE", str(tmp_path / "config.json"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_env_file(monkeypatch, tmp_path):
+    """No test writes the `.env` of whoever is running it.
+
+    The dashboard persists secrets there now, so a test that saves one would
+    otherwise rewrite the developer's own keys — and `persist` moves the
+    process environment with the file, which would leak into the tests after
+    it. Both are pointed somewhere harmless and put back.
+    """
+    from src.core import secrets as secrets_module
+
+    monkeypatch.setattr(secrets_module, "ENV_FILE", str(tmp_path / ".env"))
+    before = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(before)
 
 
 @pytest.fixture(autouse=True)

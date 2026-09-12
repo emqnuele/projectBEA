@@ -21,6 +21,7 @@ def client(tmp_path, monkeypatch):
 
     from src.core import config as config_module
     from src.web import app as web
+    from src.web import deps
 
     prompts = tmp_path / "data" / "prompts"
     prompts.mkdir(parents=True)
@@ -59,12 +60,12 @@ def client(tmp_path, monkeypatch):
             pass
 
     stub = BrainStub()
-    previous = web.brain_instance
-    web.brain_instance = stub
+    previous = deps.brain_instance
+    deps.brain_instance = stub
     try:
         yield TestClient(web.app), stub, tmp_path
     finally:
-        web.brain_instance = previous
+        deps.brain_instance = previous
 
 
 # --- reading -----------------------------------------------------------------

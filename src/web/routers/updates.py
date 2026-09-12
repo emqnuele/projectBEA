@@ -26,6 +26,7 @@ from src.core.update.gitrepo import Repo
 from src.core.update.reconcile import new_file_for, pending_reviews, resolve
 from src.core.update.runner import ROOT
 from src.utils.logger import get_logger
+from src.web.deps import current_brain
 
 logger = get_logger("bea.web.update")
 
@@ -41,15 +42,8 @@ class Resolution(BaseModel):
     choice: str = Field(..., pattern="^(mine|theirs)$")
 
 
-def _brain():
-    """Imported here rather than at module load: app.py imports this module."""
-    from src.web.app import brain_instance
-
-    return brain_instance
-
-
 def _config_flag(name: str, default: bool = True) -> bool:
-    brain = _brain()
+    brain = current_brain()
     block = getattr(brain.config, "updates", None) if brain else None
     if not isinstance(block, dict):
         return default
@@ -58,7 +52,7 @@ def _config_flag(name: str, default: bool = True) -> bool:
 
 def _reload() -> None:
     """Re-reads the prompts from disk, so a merge is live without a restart."""
-    brain = _brain()
+    brain = current_brain()
     if brain is None:
         return
     try:

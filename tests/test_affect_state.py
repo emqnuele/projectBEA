@@ -279,6 +279,7 @@ def test_the_people_page_is_given_the_words_and_never_the_number(store):
     from fastapi.testclient import TestClient
 
     from src.web import app as web
+    from src.web import deps
 
     card = known(store)
     state = affect(store)
@@ -288,12 +289,12 @@ def test_the_people_page_is_given_the_words_and_never_the_number(store):
     class BrainStub:
         memory = store
 
-    previous = web.brain_instance
-    web.brain_instance = BrainStub()
+    previous = deps.brain_instance
+    deps.brain_instance = BrainStub()
     try:
         person = TestClient(web.app).get("/memory/people").json()[0]
     finally:
-        web.brain_instance = previous
+        deps.brain_instance = previous
 
     assert person["person_id"] == card.person_id
     assert "annoyed" in person["mood"]

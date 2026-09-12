@@ -148,8 +148,8 @@ function EngineSection({ config, update, secrets }) {
             <Group title="Credentials">
                 <Field
                     label="API key"
-                    action={<SecretState configured={secrets[keyField]} envHint="env wins" />}
-                    help="The environment variable always wins. Anything typed here is the fallback written to config.json."
+                    action={<SecretState configured={secrets[keyField]} envHint="saved to .env" />}
+                    help="Saved to .env, which is the only file keys are kept in — config.json never carries one. Empty the box to forget the key."
                 >
                     <SecretInput
                         value={config[keyField] || ''}

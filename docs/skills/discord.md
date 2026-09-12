@@ -193,7 +193,7 @@ restricted to `ADMIN_ID` and unauthorised calls are silently ignored.
 
 | Key | Description |
 |---|---|
-| `token` | Bot token. Prefer the `DISCORD_TOKEN` env var — env always wins |
+| `token` | Bot token. Lives in `.env` as `DISCORD_TOKEN`; typing it in the dashboard writes it there, never into `config.json` |
 | `api_port` | Port for the bot's Express API; passed to the subprocess as `PORT` |
 | `brain_api_url` | Where the bot calls back into the brain |
 | `admin_id` | Discord user id allowed to run `!wl` |

@@ -80,7 +80,7 @@ between them. Telegram reactions are not used (`supports_reactions = False`).
 
 | Key | Description |
 |---|---|
-| `token` | Bot token. Prefer the `TELEGRAM_TOKEN` env var — env always wins |
+| `token` | Bot token. Lives in `.env` as `TELEGRAM_TOKEN`; typing it in the dashboard writes it there, never into `config.json` |
 | `owner_id` | Your Telegram user id; messages from it count as the owner, which bypasses cooldown and quiet hours |
 | `allowed_chats` | Chat ids Bea may read. **Empty means every chat she is added to** |
 

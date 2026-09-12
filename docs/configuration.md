@@ -17,11 +17,18 @@ Secrets are the important row. **The environment always wins**: if the variable
 is set and non-empty, the `config.json` value is skipped entirely. A value in
 `config.json` is only ever a fallback for a variable that is not set.
 
-Secrets are also never written back: `save_to_file()` strips every key in
+Secrets never reach `config.json`: `save_to_file()` strips every key in
 `SECRET_KEYS` and every nested skill token before writing, and `GET /config`
 returns them dropped or masked as `********`. Posting the mask back is ignored,
 so editing an unrelated field in the dashboard cannot overwrite a real token
 with asterisks.
+
+A secret typed into the dashboard is written to **`.env`** instead, under the
+variable named in `SECRET_ENV_VARS` — which is the same file and the same
+variable the wizard writes, and the one the engine reads back at startup. The
+response names what it wrote in `secrets_written_to_env`. Emptying the field
+clears the variable; an unwritable `.env` fails the whole save rather than
+leaving a key that works until the next restart.
 
 `config.json` is gitignored. Copy `config.example.json` and edit that.
 
