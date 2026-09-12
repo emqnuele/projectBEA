@@ -28,3 +28,17 @@ def load_text(path: str, fallback: str = "") -> str:
 def compose(*parts: str) -> str:
     """Joins prompt fragments (soul + context rules) into one system prompt."""
     return "\n\n".join(p.strip() for p in parts if p and p.strip())
+
+
+def prompt_for(block: dict, name: str, default_path: str) -> str:
+    """A skill's instructions: what was written in the dashboard, else the file.
+
+    The editor in the dashboard saves prose under `<name>`, while the skill
+    only ever read the file at `<name>_path` — so everything typed into it was
+    stored and never used. An empty editor still means the shipped file, which
+    is what its own placeholder promises.
+    """
+    written = str(block.get(name) or "").strip()
+    if written:
+        return written
+    return load_text(block.get(f"{name}_path", default_path))

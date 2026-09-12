@@ -128,7 +128,7 @@ TELEGRAM = Section(
     settings=[
         Setting("enabled", "On", "bool", "Whether she is connected to Telegram at all.", False),
         Setting("token", "Bot token", "secret",
-                "From @BotFather. Prefer the TELEGRAM_TOKEN environment variable.",
+                "From @BotFather. Saved to `.env` as TELEGRAM_TOKEN, never to config.json.",
                 restart=True),
         Setting("owner_id", "Your Telegram id", "string",
                 "Your numeric id. Messages from it are treated as coming from her owner."),
@@ -160,7 +160,7 @@ DISCORD = Section(
     settings=[
         Setting("enabled", "On", "bool", "Whether the Discord bot runs at all.", False),
         Setting("token", "Bot token", "secret",
-                "From the Discord developer portal. Prefer the DISCORD_TOKEN variable.",
+                "From the Discord developer portal. Saved to `.env` as DISCORD_TOKEN.",
                 restart=True),
         Setting("admin_id", "Your Discord id", "string",
                 "Your numeric id. Admin commands answer to it and nobody else."),
@@ -220,7 +220,7 @@ TWITCH = Section(
         Setting("nick", "Bot nick", "string",
                 "The account she writes as. Empty reads anonymously and cannot write.", ""),
         Setting("oauth_token", "OAuth token", "secret",
-                "Only needed to write. Reading chat needs no credentials at all.",
+                "Only needed to write; reading chat needs none. Saved to `.env`.",
                 restart=True),
         Setting("say_rate_limit", "Messages per 30s", "int",
                 "Twitch times out an account that goes over 20. Stay under it.",
