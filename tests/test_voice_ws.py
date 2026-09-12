@@ -23,6 +23,7 @@ def client():
     from fastapi.testclient import TestClient
 
     from src.web import app as web
+    from src.web import deps
 
     class Transport:
         api_token = TOKEN
@@ -44,15 +45,15 @@ def client():
     class BrainStub:
         surface_registry = Registry(surface)
 
-    previous = web.brain_instance
-    web.brain_instance = BrainStub()
+    previous = deps.brain_instance
+    deps.brain_instance = BrainStub()
     try:
         # as a context manager the client owns a portal, which is how a test
         # thread reaches into the app's event loop to make her speak
         with TestClient(web.app) as api:
             yield api, surface
     finally:
-        web.brain_instance = previous
+        deps.brain_instance = previous
 
 
 def connect(api):

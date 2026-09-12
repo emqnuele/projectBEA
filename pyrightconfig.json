@@ -5,5 +5,30 @@
   "pythonVersion": "3.10",
   "include": ["src"],
   "exclude": ["**/node_modules", "**/__pycache__", ".venv", "data", "src/web/frontend"],
-  "reportMissingTypeStubs": false
+  "reportMissingTypeStubs": false,
+
+  // CI type-checks `src`, which is at zero. An editor checks whatever you
+  // happen to have open, so without these it reported four hundred findings in
+  // the suite — none of them defects. The tests pass fakes, attach counters to
+  // functions and read back values they have just set, all deliberately.
+  "executionEnvironments": [
+    {
+      "root": "tests",
+      "reportArgumentType": "none",
+      "reportAttributeAccessIssue": "none",
+      "reportOptionalMemberAccess": "none",
+      "reportOptionalSubscript": "none",
+      "reportOptionalIterable": "none",
+      "reportOperatorIssue": "none",
+      "reportFunctionMemberAccess": "none",
+      "reportIncompatibleMethodOverride": "none",
+      "reportMissingImports": "none"
+    },
+    {
+      // chromadb is only ever needed to read an old store: `make migrate`
+      // fetches it for the one command that uses it, so it is not a dependency.
+      "root": "tools",
+      "reportMissingImports": "none"
+    }
+  ]
 }

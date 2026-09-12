@@ -19,7 +19,8 @@ from src.core.update import runner
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     from src.web import app as web
-    from src.web import updates
+    from src.web import deps
+    from src.web.routers import updates
 
     prompts = tmp_path / "data" / "prompts"
     prompts.mkdir(parents=True)
@@ -38,7 +39,7 @@ def client(tmp_path, monkeypatch):
             self.reloads += 1
 
     brain = BrainStub()
-    monkeypatch.setattr(web, "brain_instance", brain)
+    monkeypatch.setattr(deps, "brain_instance", brain)
     monkeypatch.setattr(updates, "ROOT", tmp_path)
     monkeypatch.setattr(updates, "_run", None)
     monkeypatch.setattr(runner, "_cached", None)
@@ -99,7 +100,7 @@ def test_a_config_without_the_block_still_works(client):
 
 
 def test_a_second_apply_while_one_runs_is_refused(client, monkeypatch):
-    from src.web import updates
+    from src.web.routers import updates
 
     monkeypatch.setattr(updates, "_run", {"state": "running", "steps": [], "report": None})
 
@@ -125,7 +126,7 @@ def test_a_name_from_the_browser_never_becomes_a_path(client, name):
     """
     from fastapi import HTTPException
 
-    from src.web.updates import _review_path
+    from src.web.routers.updates import _review_path
 
     with pytest.raises(HTTPException) as refused:
         _review_path(name)

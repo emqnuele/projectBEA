@@ -458,18 +458,19 @@ def client(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 
     from src.web import app as web
+    from src.web import deps
 
     class BrainStub:
         def __init__(self):
             self.config = config()
 
     stub = BrainStub()
-    previous = web.brain_instance
-    web.brain_instance = stub
+    previous = deps.brain_instance
+    deps.brain_instance = stub
     try:
         yield TestClient(web.app), stub
     finally:
-        web.brain_instance = previous
+        deps.brain_instance = previous
 
 
 def test_the_connection_test_reports_a_failure_instead_of_blowing_up(client, monkeypatch):

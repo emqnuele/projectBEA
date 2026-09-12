@@ -6,7 +6,8 @@
 
 ## Overview
 
-The FastAPI server (`src/web/app.py`) starts with `uv run bea --web`. It serves
+The FastAPI server (`src/web/app.py`, one router per subject under
+`src/web/routers/`) starts with `uv run bea --web`. It serves
 both the REST API and the compiled React frontend from the same origin.
 
 Base URL: `http://localhost:8000`
@@ -74,11 +75,27 @@ Updates one or more config fields and hot-reloads the engine.
 {
   "status": "success",
   "message": "Configuration updated.",
-  "restart_required": false
+  "restart_required": false,
+  "secrets_written_to_env": []
 }
 ```
 
 > `restart_required: true` is returned when `tts_provider` changes, since the TTS object must be re-instantiated.
+
+A key has to be a declared field of `BrainConfig`, and its value has to fit the
+type that field declares — or, where `settings_schema` describes it, the
+stricter rule declared there. Anything else is a `422` naming every offending
+key, and the whole payload is refused: nothing is half-applied.
+
+Dict-valued fields (`skills`, `stage`, `avatar_map`, …) are merged rather than
+replaced, so a save carrying one knob never wipes the ones it said nothing
+about. `persona` is not writable here — it has its own endpoint, with guards of
+its own.
+
+Secrets are written to `.env`, never to config.json, and
+`secrets_written_to_env` names the variables that were written. Posting the
+mask the UI reads them back as leaves the stored value alone; posting an empty
+string clears it.
 
 ---
 
@@ -509,7 +526,7 @@ Returns a simple liveness check. Used to verify the server is running.
 
 ### Updating
 
-Implemented in `src/web/updates.py`, mounted before the SPA catch-all. See
+Implemented in `src/web/routers/updates.py`, mounted before the SPA catch-all. See
 **[Updating](../updating.md)** for the merge semantics these endpoints expose.
 
 #### `GET /update`
@@ -582,7 +599,7 @@ report.
 
 #### `GET /doctor` · `POST /doctor/run` → `202`
 
-The checks behind `bea --doctor`, in `src/web/health.py`. `POST` starts the run
+The checks behind `bea --doctor`, in `src/web/routers/health.py`. `POST` starts the run
 as an asyncio task; `GET` returns findings as they land, then a verdict.
 
 ```json

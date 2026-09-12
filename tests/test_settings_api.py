@@ -20,6 +20,7 @@ def client(tmp_path, monkeypatch):
 
     from src.core import config as config_module
     from src.web import app as web
+    from src.web import deps
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config_module, "CONFIG_FILE", "config.json")
@@ -37,12 +38,12 @@ def client(tmp_path, monkeypatch):
             self.toggles.append((name, enable))
 
     stub = BrainStub()
-    previous = web.brain_instance
-    web.brain_instance = stub
+    previous = deps.brain_instance
+    deps.brain_instance = stub
     try:
         yield TestClient(web.app), stub
     finally:
-        web.brain_instance = previous
+        deps.brain_instance = previous
 
 
 def test_a_partial_save_keeps_the_rest_of_the_stage_block(client):

@@ -181,7 +181,7 @@ everything else is imported from.
 
 ### HTTP
 
-All under `src/web/updates.py`, mounted before the SPA catch-all.
+All under `src/web/routers/updates.py`, mounted before the SPA catch-all.
 
 | Endpoint | Notes |
 |---|---|

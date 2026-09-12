@@ -92,9 +92,21 @@ ProjectBEA/
     ├── setup/              # the wizard behind `bea --setup`
     ├── utils/
     └── web/
-        ├── app.py          # FastAPI
-        ├── updates.py      # the updater over HTTP
-        ├── health.py       # `--doctor` over HTTP
+        ├── app.py          # the FastAPI app: cors, static files, the SPA catch-all
+        ├── deps.py         # the brain every router depends on
+        ├── routers/        # one module per thing the api is about
+        │   ├── settings.py # /config and /settings: the one validated write path
+        │   ├── persona.py  # who she is, and the six questions that draft her
+        │   ├── chat.py     # talking to her from the dashboard, and sessions
+        │   ├── voice.py    # uploaded audio, the call, the bot's audio link
+        │   ├── status.py   # state, skills, the event stream, the home screen
+        │   ├── plan.py     # the stream plan
+        │   ├── memory.py   # what she remembers, and recall
+        │   ├── stage.py    # what the OBS browser source draws
+        │   ├── probes.py   # does this actually work?
+        │   ├── donations.py# the donation webhook
+        │   ├── updates.py  # the updater over HTTP
+        │   └── health.py   # `--doctor` over HTTP
         └── frontend/       # React + Vite + Tailwind
             ├── index.html  # the dashboard
             ├── stage.html  # the OBS browser source (separate bundle)
@@ -232,10 +244,10 @@ Two processes, HTTP in both directions plus one socket that stays open:
    (transport.py)     /react,/dm,/summon,
                       /voice/join,/leave
 
-  app.py  ◀──POST /discord/chat──────── handlers/messages.js
-          ◀──POST /discord/audio─────── classes/VoiceManager.js
+  routers/ ◀──POST /discord/chat─────── handlers/messages.js
+   voice.py◀──POST /discord/audio────── classes/VoiceManager.js
           ◀──POST /voice/transcript──── classes/VoiceManager.js
-          ◀──POST /interrupt─────────── classes/VoiceManager.js
+   chat.py◀───POST /interrupt────────── classes/VoiceManager.js
 
   Expression ═══WS /voice/ws══════════▶ classes/BrainLink.js
    (her voice out)  ◀══ played_ms ════  (what the room really heard)
@@ -455,7 +467,9 @@ single 429 does not make her mute.
 
 ## Web and UI
 
-FastAPI (`src/web/app.py`) + React/Vite/Tailwind (`src/web/frontend`). Events
+FastAPI (`src/web/app.py`, one router per subject under `src/web/routers/`) +
+React/Vite/Tailwind (`src/web/frontend`). Every endpoint takes the brain as a
+dependency, so what it needs is declared rather than reached for. Events
 arrive over **SSE** (`GET /events/stream`) rather than a two-second poll, so the
 UI is current and the brain is not answering requests for nothing. Each turn
 publishes what it cost (calls, tokens, ms) — the point of the attention gate is
