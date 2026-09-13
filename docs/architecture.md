@@ -67,7 +67,7 @@ ProjectBEA/
 │   ├── pngs/               # avatars per mood (idle/talking)
 │   └── prompts/            # soul · operating · monologue · minecraft · chat
 ├── docs/                   # this documentation, rendered by the docs site
-├── tests/                  # 63 files, no network
+├── tests/                  # 91 files, no network
 └── src/
     ├── cli.py              # argument parsing and composition
     ├── core/

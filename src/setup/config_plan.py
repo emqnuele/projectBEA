@@ -21,9 +21,6 @@ PROVIDER_MODELS = {
     "groq": ("groq_model", "openai/gpt-oss-120b"),
 }
 
-# only these two can transcribe, so voice input needs a key for one of them
-STT_PROVIDERS = ("groq", "openrouter")
-
 # secrets that belong to a skill rather than to a provider
 SKILL_SECRETS = {
     "discord": "DISCORD_TOKEN",
@@ -56,6 +53,8 @@ def apply_answers(config, answers: Dict[str, Any]):
 
     if answers.get("stt_provider"):
         config.stt_provider = answers["stt_provider"]
+    if answers.get("stt_model"):
+        config.stt_model = answers["stt_model"]
 
     config.tts_provider = answers.get("tts_provider", "edge")
     if answers.get("tts_voice"):
@@ -103,8 +102,9 @@ def env_updates(answers: Dict[str, Any]) -> Dict[str, str]:
         updates[env_var] = answers["llm_key"]
 
     # voice input may use a provider the mind does not, so it carries its own key
+    # — a local transcriber has none, and is not in PROVIDER_KEYS at all
     stt = answers.get("stt_provider")
-    if stt and answers.get("stt_key"):
+    if stt in PROVIDER_KEYS and answers.get("stt_key"):
         updates[PROVIDER_KEYS[stt][1]] = answers["stt_key"]
 
     if answers.get("orpheus_key"):

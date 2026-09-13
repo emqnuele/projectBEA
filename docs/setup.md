@@ -193,6 +193,36 @@ To use a different path, update `kokoro_model` and `kokoro_voices_file` in `conf
 
 ---
 
+## 7b. Local Whisper Setup (optional)
+
+The same deal for her ears. `faster_whisper` transcribes on this machine, so
+voice input needs no key and no account, and nothing you say is uploaded
+anywhere to be turned into text.
+
+Set `stt_provider` to `faster_whisper` in `config.json` — or pick **Local
+Whisper** in the wizard or on the dashboard's Hearing page — and choose a size:
+
+| `stt_model` | On disk | Notes |
+|---|---|---|
+| `tiny` | ~75 MB | Instant, and it will mishear you |
+| `base` | ~145 MB | Usable on an old laptop |
+| `small` | ~480 MB | The default, and the balance most people want |
+| `large-v3-turbo` | ~1.6 GB | Best, and it wants a GPU |
+
+The weights download on first use into `data/models/whisper`, which is
+gitignored. The first transcription after a fresh install therefore takes as
+long as that download; `uv run bea --doctor` allows for it and will not call it
+a failure.
+
+On a machine with an NVIDIA GPU, set `faster_whisper_device` to `cuda` — this
+needs the CUDA and cuDNN runtimes on the system, which `uv sync` does not
+install. Leave it on `auto` if you would rather not deal with that; the CPU
+path runs `int8` and is fast enough for `small`.
+
+[STT module →](modules/stt.md)
+
+---
+
 ## 8. Orpheus TTS Setup (optional)
 
 Orpheus is a high-quality expressive voice API hosted on [Baseten](https://baseten.co). It requires a manual deployment step before use:
@@ -356,6 +386,9 @@ costs a handful of provider requests and never runs on its own.
 |---|---|
 | `OBS not connected` warning on start | OBS is not running or WebSocket creds are wrong — the engine continues without it |
 | `No audio device` error | Run the sounddevice query above and update `audio_device_id` |
+| Local Whisper: `Could not load local whisper` | `stt_model` is not a size it knows or a Hugging Face repo that exists, or `faster_whisper_download_root` is not writable. She keeps running; only voice input is lost |
+| Local Whisper: the first voice line takes minutes | The weights are being downloaded, once. Watch `data/models/whisper` grow |
+| Local Whisper on a GPU fails to load | `faster_whisper_device: "cuda"` needs the CUDA and cuDNN runtimes, which `uv sync` does not install. Set it back to `auto` |
 | Discord bot fails with `node_modules not found` | Run `npm install` in `src/core/skills/voice/bot/` |
 | `Embedder unavailable` on start | The embedding model could not be downloaded. Everything else keeps working — only long-term recall is lost until it can |
 | `No usable model for role 'mind'` | The `models.mind` pool is empty or none of its keys are set. Check `models` in `config.json` and the matching `*_API_KEY` |

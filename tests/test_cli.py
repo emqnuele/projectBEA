@@ -143,9 +143,17 @@ def test_no_flag_overrides_a_field_that_does_not_exist():
     assert dests - process_flags <= fields
 
 
+def test_the_stt_flag_offers_every_transcriber_the_factory_can_build():
+    """A backend you can configure but not pass on the command line is a trap."""
+    from src.modules.STT.factory import BUILDERS
+
+    for name in BUILDERS:
+        assert parsed("--stt-provider", name).stt_provider == name
+
+
 @pytest.mark.parametrize("flag,value,field", [
     ("--llm-provider", "groq", "llm_provider"),
-    ("--stt-provider", "groq", "stt_provider"),
+    ("--stt-provider", "faster_whisper", "stt_provider"),
     ("--obs-port", "4460", "obs_port"),
     ("--typing-delay", "0.5", "typing_delay"),
     ("--png-dir", "somewhere/else", "png_dir"),

@@ -68,7 +68,7 @@ def parse_args(argv=None):
     parser.add_argument("--groq-model", default=None, help="Groq Model")
 
     # stt
-    parser.add_argument("--stt-provider", choices=["groq", "openrouter"], default=None, help="STT Provider")
+    parser.add_argument("--stt-provider", choices=["groq", "openrouter", "faster_whisper"], default=None, help="STT Provider")
     parser.add_argument("--stt-model", default=None, help="STT Model")
 
     # obs

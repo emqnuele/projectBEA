@@ -22,6 +22,7 @@ dependencies = [
     "python-dotenv",
     "websocket-client",
     "kokoro-onnx",
+    "faster-whisper>=1.1",
     "groq",
     "fastembed>=0.3,<0.9",
     "sqlite-vec>=0.1.1",

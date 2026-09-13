@@ -18,11 +18,12 @@ from rich.panel import Panel
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
+# which transcribers need no account, asked of the one place that builds them
+from src.modules.STT.factory import LOCAL as STT_LOCAL
 from src.setup.config_plan import (
     PLATFORM_SKILLS,
     PROVIDER_KEYS,
     PROVIDER_MODELS,
-    STT_PROVIDERS,
     apply_answers,
     env_updates,
 )
@@ -53,6 +54,21 @@ CAPTIONS: List[Tuple[str, str, str]] = [
     ("stage", "Browser source", "Typed in the page. One message per line instead of one per letter."),
     ("obs", "OBS text source", "Typed into a text source over WebSocket."),
     ("off", "Nothing", "She speaks; nothing is written on screen."),
+]
+
+STT_ENGINES: List[Tuple[str, str, str]] = [
+    ("faster_whisper", "Local Whisper", "Runs on this machine. No key, no bill, nothing leaves the room."),
+    ("groq", "Groq Whisper", "Hosted and very fast. Needs a Groq key."),
+    ("openrouter", "OpenRouter", "The same Whisper models on your OpenRouter key."),
+]
+
+# what the local transcriber costs to run, smallest first. Anything huggingface
+# serves works in config.json; these are the four worth offering blind
+WHISPER_SIZES: List[Tuple[str, str, str]] = [
+    ("tiny", "tiny", "~75 MB. Instant, and it will mishear you."),
+    ("base", "base", "~145 MB. Usable on an old laptop."),
+    ("small", "small", "~480 MB. The balance most people want."),
+    ("large-v3-turbo", "large-v3-turbo", "~1.6 GB. Best, and it wants a GPU."),
 ]
 
 TTS_ENGINES: List[Tuple[str, str, str]] = [
@@ -248,23 +264,28 @@ def _ask_voice(console: Console, answers: Dict[str, Any]) -> None:
 
 def _ask_ears(console: Console, answers: Dict[str, Any]) -> None:
     _rule(console, "3/5", "Her ears")
-    console.print("  Voice input needs Whisper, which only Groq and OpenRouter serve here.\n")
+    console.print("  Voice input runs Whisper, either on this machine or on someone else's.\n")
 
     if not Confirm.ask("  Enable voice input?", default=True):
         return
 
-    provider = answers["llm_provider"]
-    if provider in STT_PROVIDERS:
-        answers["stt_provider"] = provider
-        console.print(f"  [green]✓[/green] Reusing your {provider} key.")
+    console.print()
+    engine = _choose(console, "Transcriber", STT_ENGINES, "faster_whisper")
+    answers["stt_provider"] = engine
+
+    if engine in STT_LOCAL:
+        console.print("\n  [dim]The weights are downloaded once into data/models/whisper, "
+                      "the first time she hears anything.[/dim]\n")
+        answers["stt_model"] = _choose(console, "Model size", WHISPER_SIZES, "small")
+        return
+
+    # the mind's key already covers it when both sides are the same provider
+    if engine == answers["llm_provider"]:
+        console.print(f"  [green]✓[/green] Reusing your {engine} key.")
         return
 
     console.print()
-    choices = [option for option in PROVIDERS if option[0] in STT_PROVIDERS]
-    stt_provider = _choose(console, "Transcription provider", choices, "groq")
-    console.print()
-    answers["stt_provider"] = stt_provider
-    answers["stt_key"] = _ask_key(console, "API key", PROVIDER_KEYS[stt_provider][1])
+    answers["stt_key"] = _ask_key(console, "API key", PROVIDER_KEYS[engine][1])
 
 
 def needs_obs(avatar: str, caption: str) -> bool:
@@ -398,7 +419,10 @@ def _summary(console: Console, answers: Dict[str, Any]) -> None:
 
     table.add_row("Mind", f"{answers['llm_provider']} · {answers['llm_model']}")
     table.add_row("Voice", answers.get("tts_voice") or answers.get("tts_provider", "edge"))
-    table.add_row("Ears", answers.get("stt_provider") or "off")
+    ears = answers.get("stt_provider") or "off"
+    if answers.get("stt_model"):
+        ears = f"{ears} · {answers['stt_model']}"
+    table.add_row("Ears", ears)
     stage = answers.get("stage", {})
     table.add_row("Avatar", dict((a[0], a[1]) for a in AVATARS).get(stage.get("avatar_backend", "png"), "Images"))
     table.add_row("Speech bubble", dict((c[0], c[1]) for c in CAPTIONS).get(stage.get("caption_backend", "obs"), "OBS text source"))

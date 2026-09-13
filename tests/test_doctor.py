@@ -202,6 +202,17 @@ async def test_the_stt_provider_gets_its_key_checked_too(monkeypatch):
     assert found.stops and "OPENROUTER_API_KEY" in found.fix
 
 
+async def test_a_local_transcriber_is_not_asked_for_a_key_it_cannot_have(monkeypatch):
+    """Nothing issues a key for whisper on your own laptop."""
+    monkeypatch.delenv("FASTER_WHISPER_API_KEY", raising=False)
+    settings = config(models={"mind": ["groq:a/model"], "background": []},
+                      llm_provider="groq", stt_provider="faster_whisper",
+                      groq_key="k")
+
+    found = await check_keys(settings)
+    assert found.ok and "faster_whisper" not in found.detail
+
+
 async def test_the_provider_is_checked_when_no_pool_names_one(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     settings = config(models={"mind": [], "background": []},

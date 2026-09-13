@@ -273,26 +273,81 @@ function VoiceSection({ config, update, secrets, devices }) {
 
 // --- how she hears ----------------------------------------------------------
 
+const STT_PLACEHOLDERS = {
+    groq: 'whisper-large-v3-turbo',
+    openrouter: 'openai/whisper-large-v3-turbo',
+    faster_whisper: 'small',
+};
+
 function HearingSection({ config, update }) {
+    const provider = config.stt_provider;
+    const local = provider === 'faster_whisper';
+
     return (
-        <Group title="Speech to text" description="Changing the provider needs the engine restarted.">
-            <ProviderChoice
-                value={config.stt_provider}
-                onChange={(id) => update('stt_provider', id)}
-                options={[
-                    { id: 'groq', label: 'Groq Whisper', blurb: 'whisper-large-v3-turbo, very fast.' },
-                    { id: 'openrouter', label: 'OpenRouter', blurb: 'openai/whisper-large-v3-turbo.' },
-                ]}
-            />
-            <Field label="Model" help="Leave empty to use the provider's default.">
-                <TextInput
-                    value={config.stt_model || ''}
-                    onChange={(e) => update('stt_model', e.target.value)}
-                    placeholder={config.stt_provider === 'openrouter' ? 'openai/whisper-large-v3-turbo' : 'whisper-large-v3-turbo'}
-                    className="font-mono"
+        <>
+            <Group title="Speech to text" description="Changing the provider needs the engine restarted.">
+                <ProviderChoice
+                    value={provider}
+                    onChange={(id) => update('stt_provider', id)}
+                    columns={3}
+                    options={[
+                        { id: 'faster_whisper', label: 'Local Whisper', blurb: 'Runs here. No key, nothing leaves the room.' },
+                        { id: 'groq', label: 'Groq Whisper', blurb: 'whisper-large-v3-turbo, very fast.' },
+                        { id: 'openrouter', label: 'OpenRouter', blurb: 'openai/whisper-large-v3-turbo.' },
+                    ]}
                 />
-            </Field>
-        </Group>
+                <Field
+                    label="Model"
+                    help={local
+                        ? 'tiny, base, small, medium, large-v3, large-v3-turbo — or any faster-whisper model on Hugging Face. Downloaded on first use.'
+                        : "Leave empty to use the provider's default."}
+                >
+                    <TextInput
+                        value={config.stt_model || ''}
+                        onChange={(e) => update('stt_model', e.target.value)}
+                        placeholder={STT_PLACEHOLDERS[provider] || ''}
+                        className="font-mono"
+                    />
+                </Field>
+            </Group>
+
+            {local && (
+                <Group title="Local Whisper" description="How it runs on this machine. Changing any of these reloads the model.">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Device" help="Auto uses the GPU when there is one.">
+                            <Select value={config.faster_whisper_device || 'auto'} onChange={(e) => update('faster_whisper_device', e.target.value)}>
+                                <option value="auto">Auto</option>
+                                <option value="cpu">CPU</option>
+                                <option value="cuda">CUDA</option>
+                            </Select>
+                        </Field>
+                        <Field label="Precision" help="Auto means int8 on a CPU and float16 on a GPU.">
+                            <Select value={config.faster_whisper_compute_type || 'auto'} onChange={(e) => update('faster_whisper_compute_type', e.target.value)}>
+                                <option value="auto">Auto</option>
+                                <option value="int8">int8</option>
+                                <option value="int8_float16">int8_float16</option>
+                                <option value="float16">float16</option>
+                                <option value="float32">float32</option>
+                            </Select>
+                        </Field>
+                    </div>
+                    <Field label="Where the weights live">
+                        <TextInput
+                            value={config.faster_whisper_download_root || ''}
+                            onChange={(e) => update('faster_whisper_download_root', e.target.value)}
+                            placeholder="data/models/whisper"
+                            className="font-mono"
+                        />
+                    </Field>
+                    <CheckRow
+                        checked={config.faster_whisper_vad ?? true}
+                        onChange={(value) => update('faster_whisper_vad', value)}
+                        title="Drop silence before transcribing"
+                        help="Whisper invents words for silence. Leave this on unless it is clipping quiet speech."
+                    />
+                </Group>
+            )}
+        </>
     );
 }
 

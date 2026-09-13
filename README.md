@@ -346,7 +346,7 @@ touching the core.
 |---|---|---|
 | **LLM** | `LLMClient` (tool-aware) | OpenRouter, OpenAI, Groq |
 | **TTS** | `TTSInterface` | EdgeTTS (free), Kokoro (local ONNX), Orpheus (API) |
-| **STT** | `STTInterface` | Groq, OpenRouter (Whisper) |
+| **STT** | `STTInterface` | Local Whisper (faster-whisper), Groq, OpenRouter |
 | **Avatar** | `AvatarInterface` | Images (OBS), 3D model (VRM), VTube Studio |
 | **Caption** | `CaptionInterface` | OBS text source, browser source, off |
 | **OBS** | `OBSInterface` | OBS WebSocket |
@@ -435,7 +435,7 @@ make test          # uv run pytest -q
 make lint          # uv run ruff check src tests
 ```
 
-1867 tests, and they run without network access or API keys: every model
+1886 tests, and they run without network access or API keys: every model
 client, surface and transport is faked. CI runs exactly `make test` and `make lint`.
 
 > [!TIP]

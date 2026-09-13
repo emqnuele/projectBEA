@@ -165,6 +165,10 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     },
     "stt_provider": "groq",
     "stt_model": "whisper-large-v3-turbo",
+    "faster_whisper_device": "auto",
+    "faster_whisper_compute_type": "auto",
+    "faster_whisper_download_root": "data/models/whisper",
+    "faster_whisper_vad": true,
     "consciousness": {
         "enabled": true,
         "idle_after": 240.0,
@@ -359,8 +363,18 @@ continues. [OBS module →](modules/obs.md)
 
 | Key | Default | Description |
 |---|---|---|
-| `stt_provider` | `"groq"` | `groq` or `openrouter`. Anything else disables speech input |
-| `stt_model` | `"whisper-large-v3-turbo"` | Rewritten to `openai/whisper-large-v3-turbo` on OpenRouter |
+| `stt_provider` | `"groq"` | `faster_whisper`, `groq` or `openrouter`. Anything else disables speech input |
+| `stt_model` | `"whisper-large-v3-turbo"` | Rewritten to `openai/whisper-large-v3-turbo` on OpenRouter, and to `large-v3-turbo` on `faster_whisper` |
+
+`faster_whisper` runs Whisper on this machine and needs no key. Its four extra
+knobs are only read when it is the chosen provider:
+
+| Key | Default | Description |
+|---|---|---|
+| `faster_whisper_device` | `"auto"` | `auto`, `cpu` or `cuda` |
+| `faster_whisper_compute_type` | `"auto"` | Auto is `int8` on a CPU, `float16` on a GPU |
+| `faster_whisper_download_root` | `"data/models/whisper"` | Where the weights are cached. Gitignored |
+| `faster_whisper_vad` | `true` | Drops silence, which Whisper otherwise invents words for |
 
 [STT module →](modules/stt.md)
 
@@ -492,7 +506,7 @@ uv run bea --web --llm-provider openrouter --tts-provider kokoro --device-id 22
 | `--host` / `--port` | Default `127.0.0.1:8000`. See below before changing the host |
 | `--llm-provider` | `openrouter`, `openai`, `groq`. Only affects the legacy single-model path |
 | `--openrouter-key` / `--openrouter-model` | and the same pair for `--openai-*` and `--groq-*` |
-| `--stt-provider` / `--stt-model` | `groq` or `openrouter` |
+| `--stt-provider` / `--stt-model` | `faster_whisper`, `groq` or `openrouter` |
 | `--tts-provider` / `--tts-voice` | `edge`, `kokoro`, `orpheus` |
 | `--orpheus-key` / `--orpheus-endpoint` / `--orpheus-voice` | |
 | `--kokoro-file` / `--kokoro-voices` | |
