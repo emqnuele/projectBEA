@@ -524,7 +524,9 @@ class AIVtuberBrain:
 
     async def generate_audio_response(self, audio_path: str) -> Tuple[str, str, str]:
         """Transcribes audio, deposits a voice perception, waits for the reply."""
-        transcript = self.stt.transcribe(audio_path) if self.stt else ""
+        # off the loop: whisper is hundreds of milliseconds, and holding the
+        # loop through it freezes playback and barge-in mid-sentence
+        transcript = await asyncio.to_thread(self.stt.transcribe, audio_path) if self.stt else ""
         text = transcript or "[Audio Message]"
         # the dashboard's own microphone, not discord's: handing it to the
         # discord surface made the owner arrive as a stranger in a call she was
