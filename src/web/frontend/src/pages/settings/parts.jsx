@@ -23,7 +23,10 @@ export function Group({ title, description, children, className }) {
 /** Choosing a provider is choosing a trade-off, so each card says what it costs. */
 export function ProviderChoice({ value, onChange, options, columns = 2 }) {
     return (
-        <div className={cn('grid gap-2.5', columns === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2')}>
+        <div className={cn(
+            'grid gap-2.5',
+            columns === 4 ? 'lg:grid-cols-4 sm:grid-cols-2' : columns === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+        )}>
             {options.map((option) => {
                 const active = option.id === value;
                 return (

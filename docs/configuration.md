@@ -49,6 +49,14 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "openrouter_model": "deepseek/deepseek-v4-flash",
     "openai_model": "gpt-5",
     "groq_model": "openai/gpt-oss-20b",
+    "google_ai_studio_model": "gemini-2.0-flash",
+    "openai_compat_base_url": "http://localhost:8000/v1",
+    "openai_compat_model": "gpt-4o-mini",
+    "local_base_url": "http://localhost:11434/v1",
+    "local_model": "llama3.2",
+    "claude_model": "claude-3-7-sonnet-latest",
+    "anthropic_compat_base_url": "https://api.anthropic.com/v1",
+    "anthropic_compat_model": "claude-3-7-sonnet-latest",
     "obs_text_source": "AIText",
     "obs_avatar_source": "BeaPNG",
     "obs_source_type": "image",
@@ -481,6 +489,11 @@ everywhere.
 | Variable | Used for |
 |---|---|
 | `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `GROQ_API_KEY` | LLM providers, and STT for Groq / OpenRouter |
+| `GOOGLE_AI_STUDIO_KEY` (or `GEMINI_API_KEY`) | Google AI Studio LLM provider |
+| `OPENAI_COMPAT_API_KEY` | OpenAI-compatible generic provider (optional) |
+| `LOCAL_API_KEY` | Local LLM provider (optional) |
+| `ANTHROPIC_API_KEY` (or `CLAUDE_API_KEY`) | Claude (Anthropic) LLM provider |
+| `ANTHROPIC_COMPAT_API_KEY` | Anthropic-compatible generic provider (optional) |
 | `ORPHEUS_API_KEY` / `ORPHEUS_ENDPOINT` | Orpheus TTS |
 | `DISCORD_TOKEN` | The Discord bot |
 | `DISCORD_ADMIN_ID` | Fallback for `skills.discord.admin_id` |
@@ -505,8 +518,11 @@ uv run bea --web --llm-provider openrouter --tts-provider kokoro --device-id 22
 |---|---|
 | `--web` | Serve the dashboard instead of the terminal loop |
 | `--host` / `--port` | Default `127.0.0.1:8000`. See below before changing the host |
-| `--llm-provider` | `openrouter`, `openai`, `groq`. Only affects the legacy single-model path |
-| `--openrouter-key` / `--openrouter-model` | and the same pair for `--openai-*` and `--groq-*` |
+| `--llm-provider` | `openrouter`, `openai`, `groq`, `google_ai_studio`, `openai_compat`, `local`, `claude`, `anthropic_compat` (and aliases). Only affects the legacy single-model path |
+| `--openrouter-key` / `--openrouter-model` | and the same pairs for `--openai-*`, `--groq-*`, `--google-ai-studio-*`, `--claude-*` |
+| `--openai-compat-key` / `--openai-compat-base-url` / `--openai-compat-model` | Generic OpenAI compatible provider flags |
+| `--local-key` / `--local-base-url` / `--local-model` | Local LLM provider flags |
+| `--anthropic-compat-key` / `--anthropic-compat-base-url` / `--anthropic-compat-model` | Generic Anthropic compatible provider flags |
 | `--stt-provider` / `--stt-model` | `faster_whisper`, `groq` or `openrouter` |
 | `--tts-provider` / `--tts-voice` | `edge`, `kokoro`, `orpheus` |
 | `--orpheus-key` / `--orpheus-endpoint` / `--orpheus-voice` | |

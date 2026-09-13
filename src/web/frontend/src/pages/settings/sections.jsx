@@ -126,9 +126,60 @@ function MindSection({ config, update, updateSkill }) {
 // --- what thinks for her ----------------------------------------------------
 
 function EngineSection({ config, update, secrets }) {
-    const provider = config.llm_provider;
-    const keyField = { openrouter: 'openrouter_key', openai: 'openai_key', groq: 'groq_key' }[provider];
-    const modelField = { openrouter: 'openrouter_model', openai: 'openai_model', groq: 'groq_model' }[provider];
+    const provider = config.llm_provider || 'openrouter';
+    const keyField = {
+        openrouter: 'openrouter_key',
+        openai: 'openai_key',
+        groq: 'groq_key',
+        google_ai_studio: 'google_ai_studio_key',
+        openai_compat: 'openai_compat_key',
+        local: 'local_key',
+        claude: 'claude_key',
+        anthropic_compat: 'anthropic_compat_key',
+    }[provider] || 'openrouter_key';
+
+    const modelField = {
+        openrouter: 'openrouter_model',
+        openai: 'openai_model',
+        groq: 'groq_model',
+        google_ai_studio: 'google_ai_studio_model',
+        openai_compat: 'openai_compat_model',
+        local: 'local_model',
+        claude: 'claude_model',
+        anthropic_compat: 'anthropic_compat_model',
+    }[provider] || 'openrouter_model';
+
+    const baseUrlField = {
+        openai_compat: 'openai_compat_base_url',
+        local: 'local_base_url',
+        anthropic_compat: 'anthropic_compat_base_url',
+    }[provider];
+
+    const keyPlaceholder = {
+        openrouter: 'sk-or-…',
+        openai: 'sk-…',
+        groq: 'gsk_…',
+        google_ai_studio: 'AIza…',
+        openai_compat: 'Optional (e.g. sk-…)',
+        local: 'Optional (defaults to not-needed)',
+        claude: 'sk-ant-…',
+        anthropic_compat: 'Optional (defaults to not-needed)',
+    }[provider] || 'sk-…';
+
+    const modelPlaceholder = {
+        openrouter: 'deepseek/deepseek-v4-flash',
+        openai: 'gpt-5',
+        groq: 'openai/gpt-oss-120b',
+        google_ai_studio: 'gemini-2.0-flash',
+        openai_compat: 'gpt-4o-mini',
+        local: 'llama3.2',
+        claude: 'claude-3-7-sonnet-latest',
+        anthropic_compat: 'claude-3-7-sonnet-latest',
+    }[provider] || 'model-name';
+
+    const isLocal = provider === 'local';
+    const hasBaseUrl = Boolean(baseUrlField);
+    const isOptionalKey = isLocal || provider === 'openai_compat' || provider === 'anthropic_compat';
 
     return (
         <>
@@ -136,25 +187,80 @@ function EngineSection({ config, update, secrets }) {
                 <ProviderChoice
                     value={provider}
                     onChange={(id) => update('llm_provider', id)}
-                    columns={3}
+                    columns={4}
                     options={[
                         { id: 'openrouter', label: 'OpenRouter', blurb: 'One endpoint, almost any model.' },
                         { id: 'openai', label: 'OpenAI', blurb: 'GPT models, called directly.' },
                         { id: 'groq', label: 'Groq', blurb: 'Fastest inference, fewer models.' },
+                        { id: 'google_ai_studio', label: 'Google AI Studio', blurb: 'Official Gemini API.' },
+                        { id: 'openai_compat', label: 'OpenAI Compat', blurb: 'Together, vLLM, custom proxy.' },
+                        { id: 'local', label: 'Local LLM', blurb: 'Ollama, LM Studio, no key required.' },
+                        { id: 'claude', label: 'Claude', blurb: 'Anthropic Messages API direct.' },
+                        { id: 'anthropic_compat', label: 'Anthropic Compat', blurb: 'Anthropic Messages proxy.' },
                     ]}
                 />
             </Group>
 
-            <Group title="Credentials">
+            <Group title="Configuration & Credentials">
+                {isLocal && (
+                    <div className="flex flex-wrap items-center gap-2 pb-1">
+                        <span className="text-[11px] font-medium text-faint">Presets:</span>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                                update('local_base_url', 'http://localhost:11434/v1');
+                                update('local_model', 'llama3.2');
+                            }}
+                        >
+                            🦙 Ollama
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                                update('local_base_url', 'http://localhost:1234/v1');
+                                update('local_model', 'local-model');
+                            }}
+                        >
+                            🧪 LM Studio
+                        </Button>
+                    </div>
+                )}
+
+                {hasBaseUrl && (
+                    <Field
+                        label="Base URL"
+                        help="The HTTP endpoint exposing the OpenAI/Anthropic compatible API."
+                    >
+                        <TextInput
+                            value={config[baseUrlField] || ''}
+                            onChange={(e) => update(baseUrlField, e.target.value)}
+                            placeholder={
+                                provider === 'local'
+                                    ? 'http://localhost:11434/v1'
+                                    : provider === 'openai_compat'
+                                    ? 'http://localhost:8000/v1'
+                                    : 'https://api.anthropic.com/v1'
+                            }
+                            className="font-mono"
+                        />
+                    </Field>
+                )}
+
                 <Field
-                    label="API key"
+                    label={isOptionalKey ? 'API key (optional)' : 'API key'}
                     action={<SecretState configured={secrets[keyField]} envHint="saved to .env" />}
-                    help="Saved to .env, which is the only file keys are kept in — config.json never carries one. Empty the box to forget the key."
+                    help={
+                        isOptionalKey
+                            ? 'Optional for this provider. Saved to .env if provided.'
+                            : 'Saved to .env, which is the only file keys are kept in — config.json never carries one. Empty the box to forget the key.'
+                    }
                 >
                     <SecretInput
                         value={config[keyField] || ''}
                         onChange={(e) => update(keyField, e.target.value)}
-                        placeholder={provider === 'openrouter' ? 'sk-or-…' : 'sk-…'}
+                        placeholder={keyPlaceholder}
                     />
                 </Field>
 
@@ -162,7 +268,7 @@ function EngineSection({ config, update, secrets }) {
                     <TextInput
                         value={config[modelField] || ''}
                         onChange={(e) => update(modelField, e.target.value)}
-                        placeholder={provider === 'openrouter' ? 'deepseek/deepseek-v4-flash' : 'gpt-4o-mini'}
+                        placeholder={modelPlaceholder}
                         className="font-mono"
                     />
                 </Field>

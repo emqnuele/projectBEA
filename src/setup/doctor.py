@@ -148,7 +148,15 @@ async def check_keys(config: BrainConfig) -> Finding:
     if config.stt_provider and config.stt_provider not in STT_LOCAL:
         wanted.add(config.stt_provider)
 
-    missing = [name for name in sorted(wanted) if not _key_for(config, name)]
+    optional_key_providers = {
+        "local", "ollama", "lmstudio",
+        "openai_compat", "openai_compatible",
+        "anthropic_compat", "anthropic_compatible",
+    }
+    missing = [
+        name for name in sorted(wanted)
+        if name not in optional_key_providers and not _key_for(config, name)
+    ]
     if missing:
         return failed(f"no key for {', '.join(missing)}",
                       f"Put {', '.join(_env_var(name) for name in missing)} in {ENV_FILE}, "
@@ -353,80 +361,6 @@ async def check_memory(config: BrainConfig) -> Finding:
     return passed("the database opens and the embedder answers")
 
 
-async def check_perf(config: BrainConfig) -> Finding:
-    """What the hot paths run on, and what one recall costs here.
-
-    Pure visibility: it never blocks the run, it just says the numbers out
-    loud. Everything slow happens on a worker thread — opening the store,
-    loading the embedder and the timed recall itself.
-    """
-    try:
-        detail = await asyncio.wait_for(
-            asyncio.to_thread(_collect_perf, config),
-            timeout=PROVIDER_CALL_TIMEOUT)
-    except asyncio.TimeoutError:
-        return warned("measuring recall took too long",
-                      "Recall may be slow on this machine. See docs/performance.md.")
-    if detail is None:
-        return warned("her memory will not open, so there is nothing to measure",
-                      "Check that `skills.memory.db_path` is writable.")
-    return passed(detail)
-
-
-def _collect_perf(config: BrainConfig) -> Optional[str]:
-    """The perf line, built off the loop. None when the store will not open."""
-    from src.core import perf as perf_module
-    from src.core.memory.store import MemoryStore
-
-    cfg = config.skills.get("memory", {}) or {}
-    try:
-        store = MemoryStore(cfg.get("db_path", "data/bea.db"))
-    except Exception:
-        return None
-    try:
-        if store.db.vec_enabled:
-            row = store.db.query_one(
-                "SELECT value FROM memory_meta WHERE key = 'vec_schema'")
-            schema = (row["value"] if row else "?").split(":")[0]
-            vec = f"on(schema={schema})"
-        else:
-            vec = "off"
-        try:
-            memories = store.db.scalar("SELECT COUNT(*) FROM memories")
-        except Exception:
-            memories = "?"
-        recall = _time_recall(store, cfg)
-        whisper = (f"{config.faster_whisper_device or 'auto'}"
-                   f"/{config.faster_whisper_compute_type or 'auto'}")
-        line = perf_module.describe(
-            vec=vec, providers=perf_module.onnx_providers(),
-            threads=perf_module.physical_cores(),
-            whisper=whisper, memories=memories)
-        if not perf_module.perf_enabled():
-            line += " perf=off"
-        return line + (f" recall={recall:.1f}ms" if recall is not None
-                       else " recall=n/a")
-    finally:
-        store.close()
-
-
-def _time_recall(store, cfg) -> Optional[float]:
-    """One recall, timed. None when there is no embedder to recall with."""
-    import time
-
-    try:
-        from src.core.memory.embedder import FastEmbedEmbedder
-        from src.core.memory.rag import Rag
-
-        rag = Rag(store.db, FastEmbedEmbedder(cfg.get("embedding_model"),
-                                             cfg.get("embedding_cache_dir")))
-        start = time.perf_counter()
-        rag.recall_split("the quick brown fox", scope="diary", k=5)
-        return (time.perf_counter() - start) * 1e3
-    except Exception:
-        return None
-
-
 async def check_stage(config: BrainConfig) -> Finding:
     """Whatever backend she is set to, the things it needs are there."""
     stage = config.stage or {}
@@ -577,7 +511,6 @@ CHECKS: List[Tuple[str, Callable]] = [
     ("Her voice", check_voice),
     ("Her ears", check_ears),
     ("Her memory", check_memory),
-    ("Performance", check_perf),
     ("Her body", check_stage),
     ("OBS", check_obs),
     ("Discord", check_discord),
@@ -670,11 +603,36 @@ def _verdict(console, found: List[Tuple[str, Finding]]) -> int:
 
 
 def _env_var(provider: str) -> str:
-    return {"openrouter": "OPENROUTER_API_KEY", "openai": "OPENAI_API_KEY",
-            "groq": "GROQ_API_KEY"}.get(provider, f"{provider.upper()}_API_KEY")
+    return {
+        "openrouter": "OPENROUTER_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "google_ai_studio": "GOOGLE_AI_STUDIO_KEY",
+        "google": "GOOGLE_AI_STUDIO_KEY",
+        "gemini": "GOOGLE_AI_STUDIO_KEY",
+        "openai_compat": "OPENAI_COMPAT_API_KEY",
+        "openai_compatible": "OPENAI_COMPAT_API_KEY",
+        "local": "LOCAL_API_KEY",
+        "ollama": "LOCAL_API_KEY",
+        "lmstudio": "LOCAL_API_KEY",
+        "claude": "ANTHROPIC_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "anthropic_compat": "ANTHROPIC_COMPAT_API_KEY",
+        "anthropic_compatible": "ANTHROPIC_COMPAT_API_KEY",
+    }.get(provider, f"{provider.upper()}_API_KEY")
 
 
 def _key_for(config: BrainConfig, provider: str) -> Optional[str]:
+    if provider in ("google_ai_studio", "google", "gemini"):
+        return getattr(config, "google_ai_studio_key", None) or os.getenv("GOOGLE_AI_STUDIO_KEY") or os.getenv("GEMINI_API_KEY")
+    if provider in ("claude", "anthropic"):
+        return getattr(config, "claude_key", None) or os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
+    if provider in ("local", "ollama", "lmstudio"):
+        return getattr(config, "local_key", None) or os.getenv("LOCAL_API_KEY") or "local"
+    if provider in ("openai_compat", "openai_compatible"):
+        return getattr(config, "openai_compat_key", None) or os.getenv("OPENAI_COMPAT_API_KEY") or "openai_compat"
+    if provider in ("anthropic_compat", "anthropic_compatible"):
+        return getattr(config, "anthropic_compat_key", None) or os.getenv("ANTHROPIC_COMPAT_API_KEY") or "anthropic_compat"
     return getattr(config, f"{provider}_key", None) or os.getenv(_env_var(provider))
 
 
