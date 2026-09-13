@@ -21,7 +21,6 @@ from rich.table import Table
 
 # which transcribers need no account, asked of the one place that builds them
 from src.modules.STT.factory import LOCAL as STT_LOCAL
-from src.modules.STT.faster_whisper_stt import download_hint
 from src.setup.config_plan import (
     PLATFORM_SKILLS,
     PROVIDER_KEYS,
@@ -38,6 +37,7 @@ from src.setup.prefetch import (
     fetch_whisper,
     whisper_here,
 )
+from src.utils.huggingface import download_hint
 
 ENV_FILE = Path(".env")
 CONFIG_FILE = Path("config.json")

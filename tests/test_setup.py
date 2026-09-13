@@ -5,7 +5,6 @@ did not ask for."""
 from pathlib import Path
 
 from src.core.config import BrainConfig
-from src.modules.STT.faster_whisper_stt import download_hint
 from src.setup.config_plan import apply_answers, env_updates
 from src.setup.env_file import merge_env, parse_env
 from src.setup.prefetch import (
@@ -17,6 +16,7 @@ from src.setup.prefetch import (
     whisper_here,
 )
 from src.setup.wizard import disk_size
+from src.utils.huggingface import download_hint
 
 
 def config(tmp_path, monkeypatch) -> BrainConfig:
