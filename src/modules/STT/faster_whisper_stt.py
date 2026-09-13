@@ -17,6 +17,18 @@ logger = get_logger("bea.stt.faster_whisper")
 
 DEFAULT_MODEL = "small"
 
+TOKEN_HINT = (
+    "Hugging Face refused the download. The weights are public, so this is "
+    "almost always a shared or office IP being rate-limited: wait a few minutes, "
+    "or put HF_TOKEN=<your token> in .env (https://huggingface.co/settings/tokens) "
+    "and it will be used for the download."
+)
+
+OFFLINE_HINT = (
+    "The weights could not be reached. Check the connection, then start her "
+    "again — the download resumes where it stopped."
+)
+
 # the hosted providers name the same weights differently, and a model id copied
 # from a groq or openrouter config is the most likely thing to arrive here
 ALIASES = {
@@ -63,6 +75,24 @@ def normalize_language(code: Optional[str]) -> Optional[str]:
     return code
 
 
+def download_hint(error: Exception) -> Optional[str]:
+    """A line the person reading the log can act on, for a download that failed.
+
+    The library raises whatever huggingface_hub raised, which says `401` at
+    someone who never knew an account was involved. Only the two cases with a
+    real answer get a hint; everything else is left to speak for itself.
+    """
+    text = f"{type(error).__name__}: {error}".lower()
+
+    if any(word in text for word in ("401", "403", "429", "gated", "rate limit",
+                                     "too many requests", "unauthorized")):
+        return TOKEN_HINT
+    if any(word in text for word in ("connection", "timeout", "timed out",
+                                     "network", "dns", "offline", "unreachable")):
+        return OFFLINE_HINT
+    return None
+
+
 class FasterWhisperSTT(STTInterface):
     def __init__(self, config: BrainConfig):
         self.config = config
@@ -96,6 +126,9 @@ class FasterWhisperSTT(STTInterface):
             logger.info(f"Local whisper ready: {self.model_name} on {self.device}")
         except Exception as e:
             logger.error(f"Could not load local whisper {self.model_name!r}: {e}")
+            hint = download_hint(e)
+            if hint:
+                logger.error(hint)
 
     def _compute_type(self) -> str:
         """`auto` means int8 on a cpu and float16 on a gpu, which is what you want.

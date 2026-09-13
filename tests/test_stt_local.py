@@ -150,3 +150,40 @@ def test_the_factory_builds_it(tmp_path, monkeypatch, loaded):
 
 def test_every_local_provider_is_one_the_factory_can_build():
     assert LOCAL <= set(BUILDERS)
+
+
+# --- a download that failed -------------------------------------------------
+
+
+def test_a_refusal_points_at_the_token_that_would_fix_it():
+    """`401` means nothing to someone who never knew an account was involved."""
+    from src.modules.STT.faster_whisper_stt import TOKEN_HINT, download_hint
+
+    assert download_hint(OSError("401 Client Error")) == TOKEN_HINT
+    assert download_hint(OSError("429 Too Many Requests")) == TOKEN_HINT
+
+
+def test_a_connection_that_died_says_so_instead():
+    from src.modules.STT.faster_whisper_stt import OFFLINE_HINT, download_hint
+
+    assert download_hint(OSError("Connection reset by peer")) == OFFLINE_HINT
+
+
+def test_an_error_with_no_answer_is_left_to_speak_for_itself():
+    from src.modules.STT.faster_whisper_stt import download_hint
+
+    assert download_hint(ValueError("Invalid model size 'nonsense'")) is None
+
+
+def test_the_hint_reaches_the_log_when_the_download_is_refused(tmp_path, monkeypatch, caplog):
+    import faster_whisper
+
+    from src.modules.STT.faster_whisper_stt import TOKEN_HINT
+
+    def refused(*args, **kwargs):
+        raise OSError("401 Client Error: Unauthorized")
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", refused)
+    with caplog.at_level("ERROR"):
+        FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base"))
+    assert TOKEN_HINT in caplog.text
