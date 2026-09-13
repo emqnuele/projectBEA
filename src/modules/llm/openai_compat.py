@@ -272,12 +272,8 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
 
     def chat(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, dict]:
         messages = self._build_messages(user_input, system_prompt, history)
-        try:
-            response = self._create(messages, json_mode=True)
-            return parse_llm_json(response.choices[0].message.content)
-        except Exception as e:
-            logger.error(f"API Error: {e}")
-            return "sad", "There's some problem with my AI", {}
+        response = self._create(messages, json_mode=True)
+        return parse_llm_json(response.choices[0].message.content)
 
     def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, dict]:
         if not self.stt:
@@ -289,13 +285,9 @@ class OpenAICompatibleClient(LLMClient, LLMInterface):
 
     def generate_json(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Union[Dict, list]:
         messages = self._build_messages(user_input, system_prompt, history)
-        try:
-            response = self._create(messages, json_mode=True)
-            _, _, data = parse_llm_json(response.choices[0].message.content)
-            return data
-        except Exception as e:
-            logger.error(f"JSON generation error: {e}")
-            return {}
+        response = self._create(messages, json_mode=True)
+        _, _, data = parse_llm_json(response.choices[0].message.content)
+        return data
 
     async def complete_json(self, user_input: str, system_prompt: Optional[str] = None,
                             history: Optional[list] = None) -> Union[Dict, list]:

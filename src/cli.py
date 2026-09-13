@@ -61,7 +61,19 @@ def parse_args(argv=None):
     parser.add_argument("--png-dir", default=None, help="Directory for avatar PNGs")
 
     # llm selection
-    parser.add_argument("--llm-provider", choices=["openrouter", "openai", "groq"], default=None, help="LLM Provider to use")
+    parser.add_argument(
+        "--llm-provider",
+        choices=[
+            "openrouter", "openai", "groq",
+            "google_ai_studio", "google", "gemini",
+            "openai_compat", "openai_compatible",
+            "local", "ollama", "lmstudio",
+            "claude", "anthropic",
+            "anthropic_compat", "anthropic_compatible",
+        ],
+        default=None,
+        help="LLM Provider to use",
+    )
 
     # openrouter
     parser.add_argument("--openrouter-key", default=None, help="OpenRouter API Key")
@@ -74,6 +86,29 @@ def parse_args(argv=None):
     # groq
     parser.add_argument("--groq-key", default=None, help="Groq API Key")
     parser.add_argument("--groq-model", default=None, help="Groq Model")
+
+    # google ai studio
+    parser.add_argument("--google-ai-studio-key", default=None, help="Google AI Studio API Key")
+    parser.add_argument("--google-ai-studio-model", default=None, help="Google AI Studio Model")
+
+    # openai compat
+    parser.add_argument("--openai-compat-key", default=None, help="OpenAI Compatible API Key")
+    parser.add_argument("--openai-compat-base-url", default=None, help="OpenAI Compatible Base URL")
+    parser.add_argument("--openai-compat-model", default=None, help="OpenAI Compatible Model")
+
+    # local
+    parser.add_argument("--local-key", default=None, help="Local LLM API Key")
+    parser.add_argument("--local-base-url", default=None, help="Local LLM Base URL")
+    parser.add_argument("--local-model", default=None, help="Local LLM Model")
+
+    # claude
+    parser.add_argument("--claude-key", default=None, help="Claude / Anthropic API Key")
+    parser.add_argument("--claude-model", default=None, help="Claude Model")
+
+    # anthropic compat
+    parser.add_argument("--anthropic-compat-key", default=None, help="Anthropic Compatible API Key")
+    parser.add_argument("--anthropic-compat-base-url", default=None, help="Anthropic Compatible Base URL")
+    parser.add_argument("--anthropic-compat-model", default=None, help="Anthropic Compatible Model")
 
     # stt
     parser.add_argument("--stt-provider", choices=["groq", "openrouter", "faster_whisper"], default=None, help="STT Provider")
