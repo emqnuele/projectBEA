@@ -27,6 +27,16 @@ _PROVIDERS = {
     "anthropic_compatible": ("anthropic_compat_key", "anthropic_compat_model"),
 }
 
+PROVIDER_ALIASES = {
+    "google": "google_ai_studio",
+    "gemini": "google_ai_studio",
+    "openai_compatible": "openai_compat",
+    "ollama": "local",
+    "lmstudio": "local",
+    "anthropic": "claude",
+    "anthropic_compatible": "anthropic_compat",
+}
+
 LEGACY_MODEL_FIELDS = {
     provider: model_field for provider, (_, model_field) in _PROVIDERS.items()
 }
@@ -42,6 +52,10 @@ class LLMConfigError(Exception):
     pass
 
 
+def canonical_provider(provider: str) -> str:
+    return PROVIDER_ALIASES.get(provider, provider)
+
+
 def build_client(provider: str, model: str, config,
                  stt: Optional[STTInterface] = None) -> LLMClient:
     """Builds one tool-aware client for an explicit provider/model pair.
@@ -50,6 +64,8 @@ def build_client(provider: str, model: str, config,
     calls it once per pool entry; `build_llm` calls it for the legacy single-model
     path.
     """
+    requested_provider = provider
+    provider = canonical_provider(provider)
     if provider not in _PROVIDERS:
         raise LLMConfigError(f"Unknown LLM provider: {provider!r}. Valid: {list(_PROVIDERS)}")
 
@@ -93,8 +109,19 @@ def build_client(provider: str, model: str, config,
 
     if provider in ("local", "ollama", "lmstudio"):
         from src.modules.llm.local_llm import LocalLLM
+        default_base_url = (
+            "http://localhost:1234/v1"
+            if requested_provider == "lmstudio"
+            else "http://localhost:11434/v1"
+        )
+        configured_base_url = getattr(config, "local_base_url", None)
+        if requested_provider == "lmstudio" and configured_base_url in (
+            None,
+            "http://localhost:11434/v1",
+        ):
+            configured_base_url = default_base_url
         return LocalLLM(
-            base_url=getattr(config, "local_base_url", "http://localhost:11434/v1"),
+            base_url=configured_base_url or default_base_url,
             api_key=api_key,
             model_name=model,
             stt_interface=stt,
@@ -125,7 +152,8 @@ def build_llm(config, stt: Optional[STTInterface] = None) -> LLMClient:
     Kept for callers that want one explicit model rather than a role pool.
     """
     provider = config.llm_provider
-    if provider not in _PROVIDERS:
+    canonical = canonical_provider(provider)
+    if canonical not in _PROVIDERS:
         raise LLMConfigError(f"Unknown LLM provider: {provider!r}. Valid: {list(_PROVIDERS)}")
-    _, model_field = _PROVIDERS[provider]
+    _, model_field = _PROVIDERS[canonical]
     return build_client(provider, getattr(config, model_field), config, stt=stt)

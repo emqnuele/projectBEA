@@ -147,6 +147,39 @@ def test_anthropic_compat_reload_config():
     assert client.model_name == "claude-3-7-sonnet"
 
 
+def test_openai_compat_sync_errors_propagate(monkeypatch):
+    client = build_client("openai_compat", "test-model", DummyConfig())
+    monkeypatch.setattr(
+        client,
+        "_create",
+        lambda messages, json_mode=False: (_ for _ in ()).throw(RuntimeError("429")),
+    )
+
+    with pytest.raises(RuntimeError, match="429"):
+        client.chat("hello")
+    with pytest.raises(RuntimeError, match="429"):
+        client.generate_json("hello")
+
+
+def test_anthropic_compat_sync_errors_propagate(monkeypatch):
+    client = build_client("anthropic_compat", "test-model", DummyConfig())
+    monkeypatch.setattr(
+        client,
+        "_create",
+        lambda messages, json_mode=False: (_ for _ in ()).throw(RuntimeError("503")),
+    )
+
+    with pytest.raises(RuntimeError, match="503"):
+        client.chat("hello")
+    with pytest.raises(RuntimeError, match="503"):
+        client.generate_json("hello")
+
+
+def test_lmstudio_alias_uses_lmstudio_default_endpoint():
+    client = build_client("lmstudio", "local-model", DummyConfig())
+    assert client.base_url == "http://localhost:1234/v1"
+
+
 # --- 4. Anthropic Messages API Conversion Helpers ---
 
 

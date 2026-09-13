@@ -126,7 +126,16 @@ function MindSection({ config, update, updateSkill }) {
 // --- what thinks for her ----------------------------------------------------
 
 function EngineSection({ config, update, secrets }) {
-    const provider = config.llm_provider || 'openrouter';
+    const providerAliases = {
+        google: 'google_ai_studio',
+        gemini: 'google_ai_studio',
+        openai_compatible: 'openai_compat',
+        ollama: 'local',
+        lmstudio: 'local',
+        anthropic: 'claude',
+        anthropic_compatible: 'anthropic_compat',
+    };
+    const provider = providerAliases[config.llm_provider] || config.llm_provider || 'openrouter';
     const poolsActive = Boolean(config.models?.mind?.length || config.models?.background?.length);
     const keyField = {
         openrouter: 'openrouter_key',

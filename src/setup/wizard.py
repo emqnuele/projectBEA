@@ -181,6 +181,7 @@ def _test_key(console: Console, provider: str, key: str) -> None:
             response = requests.get(
                 KEY_TEST_URLS[provider],
                 headers=headers,
+                params={"key": key} if provider == "google_ai_studio" else None,
                 timeout=15,
             )
         if response.ok:
