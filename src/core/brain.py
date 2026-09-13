@@ -679,6 +679,7 @@ class AIVtuberBrain:
             await self.consciousness.stop()
 
     def shutdown(self):
+        self.history_manager.flush()
         self.stage.close()
         self.avatar.close()
         self.obs.disconnect()

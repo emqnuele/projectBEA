@@ -5,6 +5,7 @@ are alive, skips the ones she just spoke in, stays out of quiet hours, and then
 only sometimes goes ahead. `rng` and `clock` are injected for the tests.
 """
 
+import asyncio
 import random
 import time
 from datetime import datetime
@@ -90,7 +91,8 @@ class SpontaneousPresence:
         hour = datetime.fromtimestamp(self._clock()).hour
         started = 0
 
-        for key in self.candidates():
+        # the scan over every recent message must not stall the loop
+        for key in await asyncio.to_thread(self.candidates):
             try:
                 now = self._clock()
                 since = self.memory.conversations.seconds_since_bea_spoke(key, now=now)
