@@ -45,6 +45,20 @@ DIM = 384
 
 DEFAULT_SIZES = (100, 1_000, 10_000)
 
+# distinct subjects the synthetic memories are about. A store is not a uniform
+# cloud: she talks about a few dozen things repeatedly, and a query is close to
+# one of them and far from the rest
+TOPICS = 40
+
+# how much of a memory is its subject and how much is everything else about it.
+# Tuned so similarity within a topic lands around 0.6-0.8 and across topics near
+# zero, which is roughly what the real model produces on real diary entries
+TOPIC_SHARE = 0.72
+
+# the engine's own default. Benchmarking with a lower one measures a threshold
+# nobody runs, and the threshold is what decides how much work retrieval does
+MIN_SIMILARITY = 0.35
+
 # discarded: sqlite pages, onnx arenas and the python bytecode all warm up, and
 # a first iteration measures the warming rather than the work
 WARMUP = 3
@@ -112,12 +126,16 @@ def skipped(name: str, detail: str, why: str) -> Result:
 class BenchEmbedder:
     """Deterministic vectors with no model behind them.
 
-    Derived from the text so a query is stable across runs and across the two
-    retrieval paths, which is what makes their timings comparable at all.
+    Queries land near one of the corpus topics rather than anywhere in the
+    space. Uniformly random vectors in 384 dimensions are all nearly orthogonal
+    to each other, so every similarity comes out near zero, nothing clears
+    `min_similarity`, and a retrieval benchmark built on them measures a case
+    that never happens. Real sentences cluster; so do these.
     """
 
-    def __init__(self, dim: int = DIM) -> None:
+    def __init__(self, dim: int = DIM, topics: int = TOPICS, seed: int = 7) -> None:
         self._dim = dim
+        self._topics = _centroids(dim, topics, seed)
         self.calls = 0
 
     def embed(self, texts):
@@ -127,7 +145,8 @@ class BenchEmbedder:
         for text in texts:
             seed = abs(hash(text)) % (2 ** 32)
             rng = np.random.default_rng(seed)
-            out.append(rng.normal(size=self._dim).astype(np.float32).tolist())
+            topic = self._topics[seed % len(self._topics)]
+            out.append(_near(topic, rng).tolist())
         return out
 
     @property
@@ -137,6 +156,21 @@ class BenchEmbedder:
     @property
     def identity(self) -> str:
         return f"bench@{self._dim}"
+
+
+def _centroids(dim: int, count: int, seed: int):
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    m = rng.normal(size=(count, dim)).astype(np.float32)
+    return m / np.linalg.norm(m, axis=1, keepdims=True)
+
+
+def _near(centroid, rng):
+    import numpy as np
+    noise = rng.normal(size=centroid.shape).astype(np.float32)
+    noise /= np.linalg.norm(noise)
+    v = TOPIC_SHARE * centroid + (1.0 - TOPIC_SHARE) * noise
+    return (v / np.linalg.norm(v)).astype(np.float32)
 
 
 def _blob(vec) -> bytes:
@@ -155,10 +189,11 @@ def build_corpus(path: str, rows: int, *, sessions: int = 50, seed: int = 7):
     from src.core.memory.rag import Rag
 
     db = Database(path).init()
-    rag = Rag(db, BenchEmbedder(), min_similarity=0.0)
+    rag = Rag(db, BenchEmbedder(), min_similarity=MIN_SIMILARITY)
 
     rng = np.random.default_rng(seed)
-    vectors = rng.normal(size=(rows, DIM)).astype(np.float32)
+    topics = _centroids(DIM, TOPICS, seed)
+    vectors = np.stack([_near(topics[i % TOPICS], rng) for i in range(rows)])
     now = time.time()
     payload = []
     for i in range(rows):

@@ -16,8 +16,9 @@ fast path, which is where the project already was.
 """
 
 import re
-from typing import Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Callable, Dict, Iterable, List, Optional
 
+from src.core.memory.vectors import cosine
 from src.core.mind.moods import COVERS, DEFAULT_MOOD, MOODS, known_mood
 from src.utils.logger import get_logger
 
@@ -29,15 +30,6 @@ DEFAULT_THRESHOLD = 0.45
 # how many distinct words are worth remembering the answer to. She repeats
 # herself far more than she invents, so this is almost always a hit.
 CACHE_LIMIT = 512
-
-
-def cosine(a: Sequence[float], b: Sequence[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b, strict=True))
-    na = sum(x * x for x in a) ** 0.5
-    nb = sum(y * y for y in b) ** 0.5
-    if na == 0 or nb == 0:
-        return 0.0
-    return dot / (na * nb)
 
 
 class Picker:
