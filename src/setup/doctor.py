@@ -353,6 +353,80 @@ async def check_memory(config: BrainConfig) -> Finding:
     return passed("the database opens and the embedder answers")
 
 
+async def check_perf(config: BrainConfig) -> Finding:
+    """What the hot paths run on, and what one recall costs here.
+
+    Pure visibility: it never blocks the run, it just says the numbers out
+    loud. Everything slow happens on a worker thread — opening the store,
+    loading the embedder and the timed recall itself.
+    """
+    try:
+        detail = await asyncio.wait_for(
+            asyncio.to_thread(_collect_perf, config),
+            timeout=PROVIDER_CALL_TIMEOUT)
+    except asyncio.TimeoutError:
+        return warned("measuring recall took too long",
+                      "Recall may be slow on this machine. See docs/performance.md.")
+    if detail is None:
+        return warned("her memory will not open, so there is nothing to measure",
+                      "Check that `skills.memory.db_path` is writable.")
+    return passed(detail)
+
+
+def _collect_perf(config: BrainConfig) -> Optional[str]:
+    """The perf line, built off the loop. None when the store will not open."""
+    import time
+
+    from src.core import perf as perf_module
+    from src.core.memory.store import MemoryStore
+
+    cfg = config.skills.get("memory", {}) or {}
+    try:
+        store = MemoryStore(cfg.get("db_path", "data/bea.db"))
+    except Exception:
+        return None
+    try:
+        if store.db.vec_enabled:
+            row = store.db.query_one(
+                "SELECT value FROM memory_meta WHERE key = 'vec_schema'")
+            schema = (row["value"] if row else "?").split(":")[0]
+            vec = f"on(schema={schema})"
+        else:
+            vec = "off"
+        try:
+            memories = store.db.scalar("SELECT COUNT(*) FROM memories")
+        except Exception:
+            memories = "?"
+        recall = _time_recall(store, cfg)
+        whisper = (f"{config.faster_whisper_device or 'auto'}"
+                   f"/{config.faster_whisper_compute_type or 'auto'}")
+        line = perf_module.describe(
+            vec=vec, providers=perf_module.onnx_providers(),
+            threads=perf_module.physical_cores(),
+            whisper=whisper, memories=memories)
+        return line + (f" recall={recall:.1f}ms" if recall is not None
+                       else " recall=n/a")
+    finally:
+        store.close()
+
+
+def _time_recall(store, cfg) -> Optional[float]:
+    """One recall, timed. None when there is no embedder to recall with."""
+    import time
+
+    try:
+        from src.core.memory.embedder import FastEmbedEmbedder
+        from src.core.memory.rag import Rag
+
+        rag = Rag(store.db, FastEmbedEmbedder(cfg.get("embedding_model"),
+                                             cfg.get("embedding_cache_dir")))
+        start = time.perf_counter()
+        rag.recall_split("the quick brown fox", scope="diary", k=5)
+        return (time.perf_counter() - start) * 1e3
+    except Exception:
+        return None
+
+
 async def check_stage(config: BrainConfig) -> Finding:
     """Whatever backend she is set to, the things it needs are there."""
     stage = config.stage or {}
@@ -503,6 +577,7 @@ CHECKS: List[Tuple[str, Callable]] = [
     ("Her voice", check_voice),
     ("Her ears", check_ears),
     ("Her memory", check_memory),
+    ("Performance", check_perf),
     ("Her body", check_stage),
     ("OBS", check_obs),
     ("Discord", check_discord),

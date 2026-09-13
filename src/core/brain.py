@@ -265,8 +265,39 @@ class AIVtuberBrain:
         self.history_manager.create_session()
         self.memory.sessions.record(self.history_manager.session_id)
         logger.info(f"Brain Initialized. Session ID: {self.history_manager.session_id}")
+        logger.info(f"perf: {self._perf_line()}")
 
         self._build_consciousness()
+
+    def _perf_line(self) -> str:
+        """The resolved performance configuration, in one log line.
+
+        Built defensively: the startup log must never be the thing that
+        breaks a startup.
+        """
+        from src.core import perf as perf_module
+
+        try:
+            db = self.memory.db
+            if db.vec_enabled:
+                row = db.query_one(
+                    "SELECT value FROM memory_meta WHERE key = 'vec_schema'")
+                schema = (row["value"] if row else "?").split(":")[0]
+                vec = f"on(schema={schema})"
+            else:
+                vec = "off"
+            try:
+                memories = db.scalar("SELECT COUNT(*) FROM memories")
+            except Exception:
+                memories = "?"
+            whisper = (f"{self.config.faster_whisper_device or 'auto'}"
+                       f"/{self.config.faster_whisper_compute_type or 'auto'}")
+            return perf_module.describe(
+                vec=vec, providers=perf_module.onnx_providers(),
+                threads=perf_module.physical_cores(),
+                whisper=whisper, memories=memories)
+        except Exception as e:
+            return f"unavailable ({e})"
 
     def _build_consciousness(self):
         """Wires the single-brain stack. Started later only if enabled in config."""
