@@ -55,7 +55,11 @@ export const api = {
     overview: (signal) => request('/overview', { signal }),
 
     config: () => request('/config'),
-    saveConfig: (config) => request('/config', { method: 'POST', body: { config } }),
+    saveConfig: (config) => {
+        const writableConfig = { ...config };
+        delete writableConfig.persona;
+        return request('/config', { method: 'POST', body: { config: writableConfig } });
+    },
 
     // who she is: the structured bits plus the one file that holds the prose
     persona: () => request('/persona'),
