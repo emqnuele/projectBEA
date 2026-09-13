@@ -27,6 +27,10 @@ _PROVIDERS = {
     "anthropic_compatible": ("anthropic_compat_key", "anthropic_compat_model"),
 }
 
+LEGACY_MODEL_FIELDS = {
+    provider: model_field for provider, (_, model_field) in _PROVIDERS.items()
+}
+
 OPTIONAL_KEY_PROVIDERS = {
     "local", "ollama", "lmstudio",
     "openai_compat", "openai_compatible",

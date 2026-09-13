@@ -127,6 +127,7 @@ function MindSection({ config, update, updateSkill }) {
 
 function EngineSection({ config, update, secrets }) {
     const provider = config.llm_provider || 'openrouter';
+    const poolsActive = Boolean(config.models?.mind?.length || config.models?.background?.length);
     const keyField = {
         openrouter: 'openrouter_key',
         openai: 'openai_key',
@@ -187,6 +188,7 @@ function EngineSection({ config, update, secrets }) {
                 <ProviderChoice
                     value={provider}
                     onChange={(id) => update('llm_provider', id)}
+                    disabled={poolsActive}
                     columns={4}
                     options={[
                         { id: 'openrouter', label: 'OpenRouter', blurb: 'One endpoint, almost any model.' },
@@ -199,6 +201,11 @@ function EngineSection({ config, update, secrets }) {
                         { id: 'anthropic_compat', label: 'Anthropic Compat', blurb: 'Anthropic Messages proxy.' },
                     ]}
                 />
+                {poolsActive && (
+                    <p className="text-[11px] leading-snug text-faint">
+                        Model pools are active, so they choose the running providers. Empty the mind and background pools in Models before selecting a legacy provider here.
+                    </p>
+                )}
             </Group>
 
             <Group title="Configuration & Credentials">

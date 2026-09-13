@@ -172,7 +172,10 @@ class ModelRegistry:
     def _legacy_specs(self, role: str) -> List[str]:
         """Falls back to the pre-pool `llm_provider` + `<provider>_model` fields."""
         provider = getattr(self.config, "llm_provider", "openrouter")
-        model = getattr(self.config, f"{provider}_model", "")
+        from src.modules.llm.factory import LEGACY_MODEL_FIELDS
+
+        model_field = LEGACY_MODEL_FIELDS.get(provider, f"{provider}_model")
+        model = getattr(self.config, model_field, "")
         if not model:
             return []
         logger.info(f"Role '{role}': no pool configured, using {provider}:{model}")
