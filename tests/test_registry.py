@@ -187,7 +187,7 @@ def test_a_malformed_spec_is_skipped():
 
 
 def test_an_unknown_provider_is_skipped():
-    registry = ModelRegistry(Config(models={"mind": ["ollama:llama3", "groq:openai/gpt-oss-20b"]}))
+    registry = ModelRegistry(Config(models={"mind": ["unknownprovider:llama3", "groq:openai/gpt-oss-20b"]}))
     assert registry.get("mind").model_name == "openai/gpt-oss-20b"
 
 

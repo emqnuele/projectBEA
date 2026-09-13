@@ -25,6 +25,18 @@ def _engine_summary(brain: AIVtuberBrain) -> Dict[str, Any]:
         "openrouter": config.openrouter_model,
         "openai": config.openai_model,
         "groq": config.groq_model,
+        "google_ai_studio": config.google_ai_studio_model,
+        "google": config.google_ai_studio_model,
+        "gemini": config.google_ai_studio_model,
+        "openai_compat": config.openai_compat_model,
+        "openai_compatible": config.openai_compat_model,
+        "local": config.local_model,
+        "ollama": config.local_model,
+        "lmstudio": config.local_model,
+        "claude": config.claude_model,
+        "anthropic": config.claude_model,
+        "anthropic_compat": config.anthropic_compat_model,
+        "anthropic_compatible": config.anthropic_compat_model,
     }.get(config.llm_provider, "")
     return {
         "llm_provider": config.llm_provider,

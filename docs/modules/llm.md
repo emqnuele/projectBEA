@@ -23,16 +23,20 @@ src/core/agent/
 └── runner.py       AgentRunner: the think → act → observe loop
 
 src/modules/llm/
-├── openai_compat.py  OpenAICompatibleClient — the shared base
-├── openai_llm.py     OpenAI
-├── groq_llm.py       Groq
-├── openrouter_llm.py OpenRouter
-└── factory.py        build_client(provider, model, config, stt)
+├── openai_compat.py              OpenAICompatibleClient — the shared OpenAI-compatible base
+├── openai_llm.py                 OpenAI
+├── groq_llm.py                   Groq
+├── openrouter_llm.py             OpenRouter
+├── google_ai_studio_llm.py       Google AI Studio (Gemini)
+├── openai_compat_generic_llm.py  OpenAI Compatible (generic)
+├── local_llm.py                  Local LLM (Ollama, LM Studio)
+├── anthropic_compat.py           AnthropicCompatibleClient — the shared Anthropic Messages base
+├── claude_llm.py                 Claude (Anthropic)
+├── anthropic_compat_llm.py       Anthropic Compatible (generic)
+└── factory.py                    build_client(provider, model, config, stt)
 ```
 
-All three providers speak the OpenAI Chat API, so they share
-`OpenAICompatibleClient`; a subclass only sets a base URL and key and implements
-`reload_config`.
+Providers speaking the OpenAI Chat API share `OpenAICompatibleClient`, while providers speaking the Anthropic Messages API share `AnthropicCompatibleClient`.
 
 ---
 
@@ -130,11 +134,16 @@ and that cannot be tuned unseen.
 
 ## Providers
 
-| Provider | Class | Key field | Env var |
-|---|---|---|---|
-| OpenRouter | `OpenRouterLLM` | `openrouter_key` | `OPENROUTER_API_KEY` |
-| OpenAI | `OpenAILLM` | `openai_key` | `OPENAI_API_KEY` |
-| Groq | `GroqLLM` | `groq_key` | `GROQ_API_KEY` |
+| Provider | Class | Key field | Env var | Key Required? |
+|---|---|---|---|---|
+| OpenRouter | `OpenRouterLLM` | `openrouter_key` | `OPENROUTER_API_KEY` | Yes |
+| OpenAI | `OpenAILLM` | `openai_key` | `OPENAI_API_KEY` | Yes |
+| Groq | `GroqLLM` | `groq_key` | `GROQ_API_KEY` | Yes |
+| Google AI Studio | `GoogleAIStudioLLM` | `google_ai_studio_key` | `GOOGLE_AI_STUDIO_KEY` | Yes |
+| OpenAI Compatible | `OpenAICompatibleGenericLLM` | `openai_compat_key` | `OPENAI_COMPAT_API_KEY` | No (optional) |
+| Local LLM | `LocalLLM` | `local_key` | `LOCAL_API_KEY` | No (optional) |
+| Claude API | `ClaudeLLM` | `claude_key` | `ANTHROPIC_API_KEY` | Yes |
+| Anthropic Compatible | `AnthropicCompatLLM` | `anthropic_compat_key` | `ANTHROPIC_COMPAT_API_KEY` | No (optional) |
 
 Keys come from the environment first; `config.json` only fills a variable that
 is not set. `GET /config` never returns them.

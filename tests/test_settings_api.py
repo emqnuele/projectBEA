@@ -292,6 +292,18 @@ def test_an_ordinary_save_still_works(client, tmp_path):
     assert "it" in (tmp_path / "config.json").read_text(encoding="utf-8")
 
 
+def test_saving_a_full_config_from_get_does_not_fail_on_persona(client):
+    api, stub = client
+
+    full = api.get("/config").json()
+    full["language"] = "it"
+
+    res = api.post("/config", json={"config": full})
+
+    assert res.status_code == 200
+    assert stub.config.language == "it"
+
+
 # --- secrets go to .env, which is where they survive a restart ---------------
 
 
