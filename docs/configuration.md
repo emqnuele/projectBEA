@@ -487,6 +487,7 @@ everywhere.
 | `TELEGRAM_TOKEN` | The Telegram bot |
 | `TWITCH_OAUTH_TOKEN` | Writing in Twitch chat. Reading needs nothing |
 | `DONATION_SECRET` | Shared secret on the donation webhook |
+| `HF_TOKEN` | Optional. Only for a refused Hugging Face download — the whisper and embedding models are public |
 | `BEA_ALLOWED_ORIGINS` | Extra CORS origins, comma-separated |
 | `LOG_LEVEL` | `DEBUG` for verbose output |
 

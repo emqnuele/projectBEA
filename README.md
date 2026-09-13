@@ -51,7 +51,8 @@ out to matter, and conclusions she reaches about herself overnight.
 
 > [!IMPORTANT]
 > One command. It installs `uv` if you don't have it, pulls the dependencies,
-> builds the dashboard and then asks you five questions.
+> builds the dashboard, asks you five questions and downloads the two models
+> that run on your own machine.
 > 
 > **macOS / Linux**
 > ```bash
@@ -435,7 +436,7 @@ make test          # uv run pytest -q
 make lint          # uv run ruff check src tests
 ```
 
-1886 tests, and they run without network access or API keys: every model
+1904 tests, and they run without network access or API keys: every model
 client, surface and transport is faked. CI runs exactly `make test` and `make lint`.
 
 > [!TIP]

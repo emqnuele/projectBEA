@@ -1,7 +1,8 @@
 """Local, in-process embeddings (fastembed / ONNX on CPU).
 
-Lazy: the model (~100MB) is fetched on the first `embed`, so startup does not
-wait for it. Two methods only, so a test can inject a deterministic fake.
+Lazy: the model (~220MB) is fetched on the first `embed`, so startup does not
+wait for it — `bea --setup` offers to get it out of the way beforehand. Two
+methods only, so a test can inject a deterministic fake.
 
 The default is multilingual: with an English-only model, non-English sentences
 collapse into the same region and retrieval becomes close to random.
