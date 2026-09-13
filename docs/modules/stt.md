@@ -17,8 +17,9 @@ entrypoints where audio arrives already decoded as WAV:
 
 ```
 src/modules/STT/
-├── groq_stt.py        Groq Whisper
-└── openrouter_stt.py  OpenRouter Whisper
+├── faster_whisper_stt.py  Whisper on this machine
+├── groq_stt.py            Groq Whisper
+└── openrouter_stt.py      OpenRouter Whisper
 ```
 
 The provider is chosen by `stt_provider` in config and instantiated in
@@ -40,6 +41,50 @@ Returns the transcript, or an empty string on failure. Both methods are
 
 `language` falls back to `config.language`, which measurably improves accuracy
 on non-English speech.
+
+---
+
+## Local Whisper (`faster_whisper_stt.py`)
+
+Whisper through [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
+running on the machine she runs on. No key, no account, no per-minute bill, and
+the audio never leaves the room — which is the whole reason to prefer it for a
+Discord call with people who did not agree to be sent anywhere.
+
+- **Config:** `stt_provider: "faster_whisper"`, `stt_model` (default `small`)
+- **Key:** none
+
+| Field | Default | What it does |
+|---|---|---|
+| `faster_whisper_device` | `"auto"` | `auto`, `cpu` or `cuda`. Auto takes the GPU when there is one |
+| `faster_whisper_compute_type` | `"auto"` | Auto is `int8` on a CPU and `float16` on a GPU. `int8_float16` and `float32` also work |
+| `faster_whisper_download_root` | `"data/models/whisper"` | Where the weights are cached. Gitignored |
+| `faster_whisper_vad` | `true` | Drops silence before transcribing. Whisper invents words for silence, so leave it on |
+
+The weights are downloaded on first use, not at install time:
+
+| `stt_model` | On disk | Notes |
+|---|---|---|
+| `tiny` | ~75 MB | Instant, and it will mishear you |
+| `base` | ~145 MB | Usable on an old laptop |
+| `small` | ~480 MB | The default, and the balance most people want |
+| `large-v3-turbo` | ~1.6 GB | Best, and it wants a GPU |
+
+Any faster-whisper model on Hugging Face works too — a repo id with a slash in
+it (`Systran/faster-distil-whisper-large-v3`) is passed through untouched.
+
+**Two things it normalises, so the same config.json works on every provider:**
+
+- `stt_model`. The hosted spelling `whisper-large-v3-turbo`, or
+  `openai/whisper-large-v3-turbo`, becomes `large-v3-turbo` — switching
+  `stt_provider` does not also mean editing the model.
+- `language`. Whisper raises on a code it does not know, where the hosted
+  providers shrug. `jp` — one of the dashboard's own choices — becomes `ja`, and
+  anything else it has never heard of falls back to auto-detection with a
+  warning, rather than taking the transcript down to an empty string.
+
+> Nothing else about her becomes local by choosing this. The mind is still a
+> hosted model, and it is still sent what she heard.
 
 ---
 
@@ -84,5 +129,10 @@ turn, one answer.
 `reload_config()` updates the model and re-creates the client if the key
 changed. Switching `stt_provider` itself needs a restart — the object type
 changes.
+
+Local Whisper compares the whole set — model, device, precision, cache — and
+rebuilds only when one of them actually moved. Loading it is seconds and
+possibly a download, and an unrelated save from the dashboard must not pay for
+that.
 
 [Discord Skill →](../skills/discord.md)
