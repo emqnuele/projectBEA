@@ -230,6 +230,46 @@ def test_recall_still_works_after_a_model_change(rag):
     assert len(rag.recall("minecraft", scope="diary", scope_key="s1")) == 1
 
 
+# --- writing is one transaction, and the text is what must survive ------------
+
+
+def test_a_broken_index_never_loses_the_memory(rag):
+    """The index is derived from the text. Losing the text to save it is backwards."""
+    if not rag.db.vec_enabled:
+        pytest.skip("sqlite-vec is not available here")
+    rag.db.execute("DROP TABLE IF EXISTS vec_memories")
+    assert remember(rag, "marco adora minecraft") is not None
+    assert rag.count() == 1
+
+
+def test_a_memory_and_its_vector_land_together(rag):
+    if not rag.db.vec_enabled:
+        pytest.skip("sqlite-vec is not available here")
+    mem_id = remember(rag, "marco adora minecraft")
+    indexed = rag.db.query("SELECT rowid FROM vec_memories WHERE rowid = ?", (mem_id,))
+    assert len(indexed) == 1
+
+
+def test_re_indexing_the_same_memory_replaces_it(rag):
+    """`INSERT OR REPLACE` raises on a vec0 table, so this was write-once."""
+    if not rag.db.vec_enabled:
+        pytest.skip("sqlite-vec is not available here")
+    mem_id = remember(rag, "marco adora minecraft")
+    rag._index_vector(mem_id, "diary", "s1", rag.db.query_one(
+        "SELECT embedding FROM memories WHERE id = ?", (mem_id,))["embedding"])
+    assert len(rag.db.query("SELECT rowid FROM vec_memories WHERE rowid = ?", (mem_id,))) == 1
+
+
+def test_forgetting_leaves_no_vectors_behind(rag):
+    """Nothing points the index back at `memories`; an orphan would just sit there."""
+    if not rag.db.vec_enabled:
+        pytest.skip("sqlite-vec is not available here")
+    remember(rag, "marco adora minecraft", scope_key="s1")
+    remember(rag, "luca parla di pizza", scope_key="s2")
+    rag.forget_scope("diary", "s1")
+    assert len(rag.db.query("SELECT rowid FROM vec_memories")) == 1
+
+
 # --- forgetting --------------------------------------------------------------
 
 
