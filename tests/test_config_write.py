@@ -80,10 +80,12 @@ def test_the_persona_keeps_its_own_door(config):
 def test_a_complete_save_with_unchanged_persona_is_allowed(config):
     payload = {"persona": dict(config.persona), "language": "it"}
 
-    apply_config(config, payload)
+    plan = plan_config(config, payload)
+    plan.apply(config)
 
     assert config.persona == payload["persona"]
     assert config.language == "it"
+    assert "persona" not in plan.changed
 
 
 # --- types ------------------------------------------------------------------
