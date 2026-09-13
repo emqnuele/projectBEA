@@ -7,6 +7,7 @@ import pytest
 
 from src.core.memory.db import Database
 from src.core.memory.rag import SOURCE_BEA, SOURCE_PERSON, Rag, cosine
+from src.core.perf import perf_enabled
 
 
 class WordEmbedder:
@@ -51,6 +52,11 @@ def remember(rag, text, **kwargs):
     kwargs.setdefault("scope", "diary")
     kwargs.setdefault("scope_key", "s1")
     return rag.remember(text=text, **kwargs)
+
+
+def index_active(rag):
+    """The index answers only when it exists and the perf switch allows it."""
+    return bool(rag.db.vec_enabled) and perf_enabled() and rag._vec_ready
 
 
 # --- cosine -----------------------------------------------------------------
@@ -235,16 +241,16 @@ def test_recall_still_works_after_a_model_change(rag):
 
 def test_a_broken_index_never_loses_the_memory(rag):
     """The index is derived from the text. Losing the text to save it is backwards."""
-    if not rag.db.vec_enabled:
-        pytest.skip("sqlite-vec is not available here")
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
     rag.db.execute("DROP TABLE IF EXISTS vec_memories")
     assert remember(rag, "marco adora minecraft") is not None
     assert rag.count() == 1
 
 
 def test_a_memory_and_its_vector_land_together(rag):
-    if not rag.db.vec_enabled:
-        pytest.skip("sqlite-vec is not available here")
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
     mem_id = remember(rag, "marco adora minecraft")
     indexed = rag.db.query("SELECT rowid FROM vec_memories WHERE rowid = ?", (mem_id,))
     assert len(indexed) == 1
@@ -252,8 +258,8 @@ def test_a_memory_and_its_vector_land_together(rag):
 
 def test_re_indexing_the_same_memory_replaces_it(rag):
     """`INSERT OR REPLACE` raises on a vec0 table, so this was write-once."""
-    if not rag.db.vec_enabled:
-        pytest.skip("sqlite-vec is not available here")
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
     mem_id = remember(rag, "marco adora minecraft")
     rag._index_vector(mem_id, "diary", "s1", rag.db.query_one(
         "SELECT embedding FROM memories WHERE id = ?", (mem_id,))["embedding"])
@@ -262,8 +268,8 @@ def test_re_indexing_the_same_memory_replaces_it(rag):
 
 def test_forgetting_leaves_no_vectors_behind(rag):
     """Nothing points the index back at `memories`; an orphan would just sit there."""
-    if not rag.db.vec_enabled:
-        pytest.skip("sqlite-vec is not available here")
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
     remember(rag, "marco adora minecraft", scope_key="s1")
     remember(rag, "luca parla di pizza", scope_key="s2")
     rag.forget_scope("diary", "s1")
@@ -355,8 +361,8 @@ def test_the_index_answers_a_recall_that_names_no_session(rag):
     is how this test can tell the difference: it only passes if the answer came
     from somewhere else.
     """
-    if not rag.db.vec_enabled:
-        pytest.skip("sqlite-vec is not available here")
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
     for text in ["marco adora minecraft", "luca parla di pizza"]:
         remember(rag, text)
 
@@ -430,8 +436,8 @@ def test_memories_from_another_model_are_skipped_not_fatal(rag):
 
 def test_an_old_index_is_rebuilt_from_the_vectors_already_stored(rag):
     """No re-embedding: every vector in the index is also in `memories`."""
-    if not rag.db.vec_enabled:
-        pytest.skip("sqlite-vec is not available here")
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
     for text in ["marco adora minecraft", "luca parla di pizza"]:
         remember(rag, text)
 
@@ -450,8 +456,8 @@ def test_an_old_index_is_rebuilt_from_the_vectors_already_stored(rag):
 
 def test_the_index_is_not_rebuilt_on_every_start(rag):
     """Rebuilding is cheap, not free; doing it each time is a startup cost."""
-    if not rag.db.vec_enabled:
-        pytest.skip("sqlite-vec is not available here")
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
     remember(rag, "marco adora minecraft")
     before = rag.db.query_one("SELECT value FROM memory_meta WHERE key = 'vec_schema'")
     again = Rag(rag.db, rag.embedder, min_similarity=0.2)

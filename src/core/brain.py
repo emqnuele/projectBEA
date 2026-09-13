@@ -290,12 +290,18 @@ class AIVtuberBrain:
                 memories = db.scalar("SELECT COUNT(*) FROM memories")
             except Exception:
                 memories = "?"
-            whisper = (f"{self.config.faster_whisper_device or 'auto'}"
-                       f"/{self.config.faster_whisper_compute_type or 'auto'}")
-            return perf_module.describe(
+            stt = getattr(self, "stt", None)
+            if stt is not None and getattr(stt, "device", None):
+                # resolved at load: cuda when the probe saw it, cpu otherwise
+                whisper = f"{stt.device}/{stt.compute_type}"
+            else:
+                whisper = (f"{self.config.faster_whisper_device or 'auto'}"
+                           f"/{self.config.faster_whisper_compute_type or 'auto'}")
+            line = perf_module.describe(
                 vec=vec, providers=perf_module.onnx_providers(),
                 threads=perf_module.physical_cores(),
                 whisper=whisper, memories=memories)
+            return line if perf_module.perf_enabled() else line + " perf=off"
         except Exception as e:
             return f"unavailable ({e})"
 

@@ -24,6 +24,14 @@ def bootstrap() -> None:
     """
     # the local embedding model runs in a subprocess; silence the noisy fork warning
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    # onnx and accelerate size their pools once, at first use: after that this
+    # is a comment. Set for the cores that exist, unless the owner opted out.
+    from src.core.perf import perf_enabled, physical_cores
+
+    if perf_enabled():
+        threads = str(physical_cores())
+        os.environ.setdefault("OMP_NUM_THREADS", threads)
+        os.environ.setdefault("MKL_NUM_THREADS", threads)
     # segfaults and access violations get a traceback instead of a silent exit
     faulthandler.enable()
     load_dotenv()

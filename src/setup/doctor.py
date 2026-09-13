@@ -402,6 +402,8 @@ def _collect_perf(config: BrainConfig) -> Optional[str]:
             vec=vec, providers=perf_module.onnx_providers(),
             threads=perf_module.physical_cores(),
             whisper=whisper, memories=memories)
+        if not perf_module.perf_enabled():
+            line += " perf=off"
         return line + (f" recall={recall:.1f}ms" if recall is not None
                        else " recall=n/a")
     finally:

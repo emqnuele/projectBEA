@@ -85,6 +85,19 @@ def test_renaming_the_open_session_keeps_pending_messages(tmp_path):
         hm.flush()
 
 
+def test_perf_off_writes_every_message_at_once(tmp_path, monkeypatch):
+    """The switch restores the old behaviour: no debouncing at all."""
+    monkeypatch.setenv("BEA_PERF", "off")
+    hm = HistoryManager(storage_dir=str(tmp_path))
+    try:
+        assert hm.debounce_seconds == 0.0
+        hm.add_message("user", "first")
+        hm.add_message("user", "second")
+        assert len(_read(hm.current_session_file)["messages"]) == 2
+    finally:
+        hm.flush()
+
+
 def test_the_deferred_write_arrives_on_its_own(tmp_path):
     hm = HistoryManager(storage_dir=str(tmp_path), debounce_seconds=0.05)
     try:

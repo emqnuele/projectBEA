@@ -50,6 +50,27 @@ async def test_the_perf_check_reports_the_store(tmp_path, monkeypatch):
         assert part in found.detail
 
 
+def test_the_switch_is_on_unless_asked_otherwise(monkeypatch):
+    monkeypatch.delenv("BEA_PERF", raising=False)
+    assert perf_module.perf_enabled() is True
+    for value in ("off", "OFF", "0", "false", "no"):
+        monkeypatch.setenv("BEA_PERF", value)
+        assert perf_module.perf_enabled() is False
+    monkeypatch.setenv("BEA_PERF", "on")
+    assert perf_module.perf_enabled() is True
+
+
+async def test_the_perf_line_says_when_it_is_off(monkeypatch, tmp_path):
+    """With the switch off the engine runs the old paths; the line must say so."""
+    import src.core.memory.embedder as embedder_module
+
+    monkeypatch.setattr(embedder_module, "FastEmbedEmbedder", FakeEmbedder)
+    monkeypatch.setenv("BEA_PERF", "off")
+    settings = _config(skills={"memory": {"db_path": str(tmp_path / "bea.db")}})
+    found = await check_perf(settings)
+    assert found.ok and "perf=off" in found.detail
+
+
 async def test_the_perf_check_never_blocks_the_run(tmp_path):
     """A store that will not open is a warning, not a wall."""
     settings = _config(skills={"memory": {"db_path": str(tmp_path)}})

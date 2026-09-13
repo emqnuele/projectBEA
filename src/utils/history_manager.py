@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from src.core.perf import perf_enabled
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.utils.history")
@@ -16,7 +17,7 @@ DEBOUNCE_SECONDS = 1.0
 
 class HistoryManager:
     def __init__(self, storage_dir: str = "data/conversations",
-                 debounce_seconds: float = DEBOUNCE_SECONDS):
+                 debounce_seconds: Optional[float] = None):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.current_session_file: Optional[Path] = None
@@ -24,6 +25,9 @@ class HistoryManager:
         # set by `create_session`, which every entry point calls before use
         self.session_id: str = ""
         self.title = ""
+        if debounce_seconds is None:
+            # the switch: off means every message hits the disk, as before
+            debounce_seconds = DEBOUNCE_SECONDS if perf_enabled() else 0.0
         self.debounce_seconds = max(0.0, float(debounce_seconds))
         self._lock = threading.Lock()
         self._dirty = False

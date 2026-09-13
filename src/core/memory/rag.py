@@ -33,6 +33,7 @@ from typing import List, Optional, Tuple
 
 from src.core.memory.db import Database
 from src.core.memory.vectors import DTYPE, cosine, cosine_batch, stack, to_blob
+from src.core.perf import perf_enabled
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.memory.rag")
@@ -103,7 +104,8 @@ class Rag:
         self._vec_ready = False
         # said once: a store mid-model-change would otherwise say it per recall
         self._warned_width = False
-        if self.db.vec_enabled:
+        # the switch: off means the python path, exactly like no sqlite-vec
+        if self.db.vec_enabled and perf_enabled():
             self._init_vec_table()
 
     def _init_vec_table(self) -> None:

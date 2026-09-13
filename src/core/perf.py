@@ -11,6 +11,17 @@ import subprocess
 import sys
 from typing import List
 
+# the one switch that turns every optimisation off again. Anything introduced
+# for performance checks this and only this; bisecting a regression is one
+# variable, and the suite runs with it set so the old paths never rot.
+PERF_ENV_VAR = "BEA_PERF"
+
+
+def perf_enabled() -> bool:
+    """False only when the owner asked for the pre-optimisation engine."""
+    return os.environ.get(PERF_ENV_VAR, "on").strip().lower() not in (
+        "off", "0", "false", "no")
+
 
 def physical_cores() -> int:
     """Cores with their own execution unit, not threads the os schedules.
