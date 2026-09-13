@@ -52,6 +52,11 @@ PROVIDERS: List[Tuple[str, str, str]] = [
     ("openrouter", "OpenRouter", "One key, virtually any model. https://openrouter.ai/keys"),
     ("openai", "OpenAI", "Called directly. https://platform.openai.com/api-keys"),
     ("groq", "Groq", "Fastest, smallest catalogue. https://console.groq.com/keys"),
+    ("google_ai_studio", "Google AI Studio", "Official Gemini models via OpenAI-compatible endpoint."),
+    ("openai_compat", "OpenAI Compatible", "Generic endpoint: Together, vLLM, local gateway."),
+    ("local", "Local LLM", "Ollama, LM Studio, or local servers (no key needed)."),
+    ("claude", "Claude (Anthropic)", "Direct Anthropic Messages API."),
+    ("anthropic_compat", "Anthropic Compatible", "Generic Anthropic Messages API proxy or gateway."),
 ]
 
 AVATARS: List[Tuple[str, str, str]] = [
@@ -115,6 +120,8 @@ KEY_TEST_URLS = {
     "openrouter": "https://openrouter.ai/api/v1/key",
     "openai": "https://api.openai.com/v1/models",
     "groq": "https://api.groq.com/openai/v1/models",
+    "google_ai_studio": "https://generativelanguage.googleapis.com/v1beta/openai/models",
+    "claude": "https://api.anthropic.com/v1/models",
 }
 
 
@@ -160,15 +167,20 @@ def _ask_key(console: Console, label: str, env_var: str) -> str:
 
 def _test_key(console: Console, provider: str, key: str) -> None:
     """Best effort: a failed check is a warning, never a reason to stop."""
-    if not key or not Confirm.ask("  Test the key now?", default=True):
+    if not key or provider not in KEY_TEST_URLS or not Confirm.ask("  Test the key now?", default=True):
         return
     try:
         import requests
 
         with console.status("  [dim]calling the provider…[/dim]"):
+            headers = (
+                {"x-api-key": key, "anthropic-version": "2023-06-01"}
+                if provider == "claude"
+                else {"Authorization": f"Bearer {key}"}
+            )
             response = requests.get(
                 KEY_TEST_URLS[provider],
-                headers={"Authorization": f"Bearer {key}"},
+                headers=headers,
                 timeout=15,
             )
         if response.ok:
@@ -232,9 +244,38 @@ def _ask_llm(console: Console, answers: Dict[str, Any]) -> None:
     _, env_var = PROVIDER_KEYS[provider]
     model_field, default_model = PROVIDER_MODELS[provider]
 
-    console.print()
-    key = _ask_key(console, "API key", env_var)
-    _test_key(console, provider, key)
+    key = ""
+    base_url = None
+
+    if provider == "local":
+        console.print("\n  [dim]Local providers run on your hardware. No API key required by default.[/dim]\n")
+        local_presets = [
+            ("ollama", "Ollama", "http://localhost:11434/v1, model: llama3.2"),
+            ("lmstudio", "LM Studio", "http://localhost:1234/v1, model: local-model"),
+            ("custom", "Custom Server", "Specify custom base URL and model"),
+        ]
+        preset = _choose(console, "Local Backend", local_presets, "ollama")
+        if preset == "ollama":
+            base_url = "http://localhost:11434/v1"
+            default_model = "llama3.2"
+        elif preset == "lmstudio":
+            base_url = "http://localhost:1234/v1"
+            default_model = "local-model"
+        else:
+            base_url = Prompt.ask("  Base URL", default="http://localhost:11434/v1")
+
+        console.print()
+        key = _ask_key(console, "API key (optional)", env_var)
+    elif provider in ("openai_compat", "anthropic_compat"):
+        default_url = "http://localhost:8000/v1" if provider == "openai_compat" else "https://api.anthropic.com/v1"
+        console.print()
+        base_url = Prompt.ask("  Base URL", default=default_url)
+        console.print()
+        key = _ask_key(console, "API key (optional)", env_var)
+    else:
+        console.print()
+        key = _ask_key(console, "API key", env_var)
+        _test_key(console, provider, key)
 
     console.print()
     model = Prompt.ask("  Model", default=default_model)
@@ -242,6 +283,8 @@ def _ask_llm(console: Console, answers: Dict[str, Any]) -> None:
     answers["llm_provider"] = provider
     answers["llm_key"] = key
     answers["llm_model"] = model
+    if base_url:
+        answers["base_url"] = base_url
 
 
 def _ask_voice(console: Console, answers: Dict[str, Any]) -> None:

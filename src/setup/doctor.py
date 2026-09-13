@@ -148,7 +148,15 @@ async def check_keys(config: BrainConfig) -> Finding:
     if config.stt_provider and config.stt_provider not in STT_LOCAL:
         wanted.add(config.stt_provider)
 
-    missing = [name for name in sorted(wanted) if not _key_for(config, name)]
+    optional_key_providers = {
+        "local", "ollama", "lmstudio",
+        "openai_compat", "openai_compatible",
+        "anthropic_compat", "anthropic_compatible",
+    }
+    missing = [
+        name for name in sorted(wanted)
+        if name not in optional_key_providers and not _key_for(config, name)
+    ]
     if missing:
         return failed(f"no key for {', '.join(missing)}",
                       f"Put {', '.join(_env_var(name) for name in missing)} in {ENV_FILE}, "
@@ -595,11 +603,36 @@ def _verdict(console, found: List[Tuple[str, Finding]]) -> int:
 
 
 def _env_var(provider: str) -> str:
-    return {"openrouter": "OPENROUTER_API_KEY", "openai": "OPENAI_API_KEY",
-            "groq": "GROQ_API_KEY"}.get(provider, f"{provider.upper()}_API_KEY")
+    return {
+        "openrouter": "OPENROUTER_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "google_ai_studio": "GOOGLE_AI_STUDIO_KEY",
+        "google": "GOOGLE_AI_STUDIO_KEY",
+        "gemini": "GOOGLE_AI_STUDIO_KEY",
+        "openai_compat": "OPENAI_COMPAT_API_KEY",
+        "openai_compatible": "OPENAI_COMPAT_API_KEY",
+        "local": "LOCAL_API_KEY",
+        "ollama": "LOCAL_API_KEY",
+        "lmstudio": "LOCAL_API_KEY",
+        "claude": "ANTHROPIC_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "anthropic_compat": "ANTHROPIC_COMPAT_API_KEY",
+        "anthropic_compatible": "ANTHROPIC_COMPAT_API_KEY",
+    }.get(provider, f"{provider.upper()}_API_KEY")
 
 
 def _key_for(config: BrainConfig, provider: str) -> Optional[str]:
+    if provider in ("google_ai_studio", "google", "gemini"):
+        return getattr(config, "google_ai_studio_key", None) or os.getenv("GOOGLE_AI_STUDIO_KEY") or os.getenv("GEMINI_API_KEY")
+    if provider in ("claude", "anthropic"):
+        return getattr(config, "claude_key", None) or os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
+    if provider in ("local", "ollama", "lmstudio"):
+        return getattr(config, "local_key", None) or os.getenv("LOCAL_API_KEY") or "local"
+    if provider in ("openai_compat", "openai_compatible"):
+        return getattr(config, "openai_compat_key", None) or os.getenv("OPENAI_COMPAT_API_KEY") or "openai_compat"
+    if provider in ("anthropic_compat", "anthropic_compatible"):
+        return getattr(config, "anthropic_compat_key", None) or os.getenv("ANTHROPIC_COMPAT_API_KEY") or "anthropic_compat"
     return getattr(config, f"{provider}_key", None) or os.getenv(_env_var(provider))
 
 
