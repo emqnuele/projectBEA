@@ -61,6 +61,29 @@ jobs:
       - name: Tests
         run: uv run pytest -q
 
+  no-perf:
+    # the kill switch must keep working: the old paths it restores are only
+    # exercised when something actually runs with it set
+    name: tests with BEA_PERF=off (ubuntu)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Tests
+        run: uv run pytest -q
+        env:
+          BEA_PERF: off
+
   frontend:
     name: browser source tests
     runs-on: ubuntu-latest

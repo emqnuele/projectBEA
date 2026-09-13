@@ -27,9 +27,11 @@ def loaded(monkeypatch):
     calls = []
 
     class FakeModel:
-        def __init__(self, name, device=None, compute_type=None, download_root=None):
+        def __init__(self, name, device=None, compute_type=None, download_root=None,
+                     **kwargs):
             calls.append({"name": name, "device": device,
-                          "compute_type": compute_type, "download_root": download_root})
+                          "compute_type": compute_type, "download_root": download_root,
+                          **kwargs})
 
         def transcribe(self, path, **kwargs):
             calls.append({"path": path, **kwargs})
@@ -118,6 +120,71 @@ def test_a_model_that_will_not_load_does_not_take_the_engine_down(tmp_path, monk
 def test_audio_that_is_not_there_is_an_empty_transcript(tmp_path, monkeypatch, loaded):
     stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base"))
     assert stt.transcribe(str(tmp_path / "gone.wav")) == ""
+
+
+# --- the device it actually runs on -----------------------------------------
+
+
+def test_auto_is_resolved_to_something_concrete(tmp_path, monkeypatch, loaded):
+    """`auto` used to reach ctranslate2 unresolved, with the cpu precision."""
+    monkeypatch.delenv("BEA_PERF", raising=False)
+    stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base"))
+    assert stt.device in ("cpu", "cuda")
+    assert loaded[0]["device"] == stt.device
+
+
+def test_auto_means_cuda_when_there_is_one(tmp_path, monkeypatch, loaded):
+    import src.modules.STT.faster_whisper_stt as stt_module
+
+    monkeypatch.delenv("BEA_PERF", raising=False)
+    monkeypatch.setattr(stt_module, "_cuda_count", lambda: 2)
+    stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base"))
+    assert stt.device == "cuda"
+    assert loaded[0]["compute_type"] == "float16"
+
+
+def test_a_gpu_that_vanishes_at_load_time_falls_back_to_cpu(tmp_path, monkeypatch):
+    """Old drivers, a container without the device: ears over precision."""
+    import faster_whisper
+
+    seen = []
+
+    class FlakyModel:
+        def __init__(self, name, device=None, **kwargs):
+            seen.append(device)
+            if device == "cuda":
+                raise RuntimeError("CUDA failed to initialize")
+
+        def transcribe(self, path, **kwargs):
+            return ([], None)
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FlakyModel)
+    stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base",
+                                  faster_whisper_device="cuda"))
+    assert stt.model is not None
+    assert (stt.device, stt.compute_type) == ("cpu", "int8")
+    assert seen == ["cuda", "cpu"]
+
+
+def test_the_pool_is_sized_for_the_cores_that_exist(tmp_path, monkeypatch, loaded):
+    from src.core.perf import physical_cores
+
+    monkeypatch.delenv("BEA_PERF", raising=False)
+    FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base"))
+    assert loaded[0]["cpu_threads"] == physical_cores()
+    assert loaded[0]["num_workers"] == 1
+
+
+def test_perf_off_restores_the_old_behaviour(tmp_path, monkeypatch, loaded):
+    """The switch: raw values through, default pools, no probing."""
+    import src.modules.STT.faster_whisper_stt as stt_module
+
+    monkeypatch.setenv("BEA_PERF", "off")
+    monkeypatch.setattr(stt_module, "_cuda_count",
+                        lambda: (_ for _ in ()).throw(AssertionError("must not probe")))
+    stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base"))
+    assert (stt.device, stt.compute_type) == ("auto", "int8")
+    assert "cpu_threads" not in loaded[0]
 
 
 # --- reloading -------------------------------------------------------------

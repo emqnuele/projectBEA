@@ -7,6 +7,7 @@ import pytest
 
 from src.core.memory.db import Database
 from src.core.memory.rag import SOURCE_BEA, SOURCE_PERSON, Rag, cosine
+from src.core.perf import perf_enabled
 
 
 class WordEmbedder:
@@ -51,6 +52,11 @@ def remember(rag, text, **kwargs):
     kwargs.setdefault("scope", "diary")
     kwargs.setdefault("scope_key", "s1")
     return rag.remember(text=text, **kwargs)
+
+
+def index_active(rag):
+    """The index answers only when it exists and the perf switch allows it."""
+    return bool(rag.db.vec_enabled) and perf_enabled() and rag._vec_ready
 
 
 # --- cosine -----------------------------------------------------------------
@@ -230,6 +236,46 @@ def test_recall_still_works_after_a_model_change(rag):
     assert len(rag.recall("minecraft", scope="diary", scope_key="s1")) == 1
 
 
+# --- writing is one transaction, and the text is what must survive ------------
+
+
+def test_a_broken_index_never_loses_the_memory(rag):
+    """The index is derived from the text. Losing the text to save it is backwards."""
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
+    rag.db.execute("DROP TABLE IF EXISTS vec_memories")
+    assert remember(rag, "marco adora minecraft") is not None
+    assert rag.count() == 1
+
+
+def test_a_memory_and_its_vector_land_together(rag):
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
+    mem_id = remember(rag, "marco adora minecraft")
+    indexed = rag.db.query("SELECT rowid FROM vec_memories WHERE rowid = ?", (mem_id,))
+    assert len(indexed) == 1
+
+
+def test_re_indexing_the_same_memory_replaces_it(rag):
+    """`INSERT OR REPLACE` raises on a vec0 table, so this was write-once."""
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
+    mem_id = remember(rag, "marco adora minecraft")
+    rag._index_vector(mem_id, "diary", "s1", rag.db.query_one(
+        "SELECT embedding FROM memories WHERE id = ?", (mem_id,))["embedding"])
+    assert len(rag.db.query("SELECT rowid FROM vec_memories WHERE rowid = ?", (mem_id,))) == 1
+
+
+def test_forgetting_leaves_no_vectors_behind(rag):
+    """Nothing points the index back at `memories`; an orphan would just sit there."""
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
+    remember(rag, "marco adora minecraft", scope_key="s1")
+    remember(rag, "luca parla di pizza", scope_key="s2")
+    rag.forget_scope("diary", "s1")
+    assert len(rag.db.query("SELECT rowid FROM vec_memories")) == 1
+
+
 # --- forgetting --------------------------------------------------------------
 
 
@@ -261,19 +307,187 @@ def test_exists_reports_whether_a_scope_has_anything(rag):
 # --- the two retrieval paths agree -------------------------------------------
 
 
-def test_the_vector_path_and_the_python_path_return_the_same_thing(rag):
-    """sqlite-vec is only a coarse pre-filter; the decision is the same cosine,
-    so enabling it must not change results."""
+def _both_paths(rag, query, **kw):
+    """The same recall down each path. Returns (python, vec)."""
+    was = rag._vec_ready
+    rag._vec_ready = False
+    python_path = [r.text for r in rag.recall(query, **kw)]
+    rag._vec_ready = bool(rag.db.vec_enabled)
+    vec_path = [r.text for r in rag.recall(query, **kw)]
+    rag._vec_ready = was
+    return python_path, vec_path
+
+
+@pytest.mark.parametrize("scope_key", [None, "s1"])
+def test_the_vector_path_and_the_python_path_return_the_same_thing(rag, scope_key):
+    """The index answers with the same cosine, so turning it on changes nothing.
+
+    Parametrised over `scope_key` because that is the whole story: every test
+    here used to pass "s1", nothing in the engine passes anything, and the
+    version of this file without the `None` case was green while production
+    never once reached the index.
+    """
     for text in ["marco adora minecraft", "luca parla di pizza", "musica di notte",
                  "il gatto dorme in casa"]:
         remember(rag, text)
 
-    query = "minecraft e pizza"
-    rag._vec_ready = False
-    python_path = [r.text for r in rag.recall(query, scope="diary", scope_key="s1")]
-    rag._vec_ready = bool(rag.db.vec_enabled)
-    vec_path = [r.text for r in rag.recall(query, scope="diary", scope_key="s1")]
+    python_path, vec_path = _both_paths(rag, "minecraft e pizza",
+                                        scope="diary", scope_key=scope_key)
+    # distance and recency are identical for the top two, so the final order
+    # depends on the raw sqlite select order, which varies across platforms.
+    assert set(python_path) == set(vec_path)
+    assert len(python_path) == len(vec_path)
+
+
+@pytest.mark.parametrize("scope_key", [None, "s1"])
+def test_the_paths_agree_on_a_store_big_enough_to_order(rag, scope_key):
+    """Four memories can agree by luck. Two hundred have to agree on purpose."""
+    words = WordEmbedder.VOCAB
+    for i in range(200):
+        remember(rag, f"ricordo {i} su {words[i % len(words)]} e {words[(i + 3) % len(words)]}",
+                 scope_key="s1" if i % 2 else "s2",
+                 source=SOURCE_BEA if i % 5 == 0 else SOURCE_PERSON,
+                 created_at=time.time() - i * 86400)
+
+    python_path, vec_path = _both_paths(rag, "minecraft e musica",
+                                        scope="diary", scope_key=scope_key)
     assert python_path == vec_path
+    assert python_path
+
+
+def test_the_index_answers_a_recall_that_names_no_session(rag):
+    """The regression, stated as a requirement.
+
+    Nothing in the engine passes a scope_key when reading — `conversation.py`,
+    the memory skill and the dashboard all pass a scope alone. If that query
+    cannot be served from the index, the index is decoration. Breaking the scan
+    is how this test can tell the difference: it only passes if the answer came
+    from somewhere else.
+    """
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
+    for text in ["marco adora minecraft", "luca parla di pizza"]:
+        remember(rag, text)
+
+    def unreachable(*a, **kw):
+        raise AssertionError("recall fell back to the full scan")
+
+    rag._recall_python = unreachable
+    assert [r.text for r in rag.recall("minecraft", scope="diary")] == ["marco adora minecraft"]
+
+
+def test_a_broken_index_still_answers_through_python(rag):
+    """The fallback is the product, not a nicety."""
+    for text in ["marco adora minecraft", "luca parla di pizza"]:
+        remember(rag, text)
+    rag.db.execute("DROP TABLE IF EXISTS vec_memories")
+    assert [r.text for r in rag.recall("minecraft", scope="diary")] == ["marco adora minecraft"]
+
+
+def test_scopes_do_not_leak_into_each_other(rag):
+    """The reason the index is partitioned by scope and not by session."""
+    remember(rag, "marco adora minecraft", scope="diary")
+    remember(rag, "luca adora minecraft", scope="conversation")
+    found = [r.text for r in rag.recall("minecraft", scope="diary")]
+    assert found == ["marco adora minecraft"]
+
+
+def test_more_candidates_than_one_round_trip(rag):
+    """`_fetch` reads ids in chunks; the seam between them must change nothing."""
+    from src.core.memory import rag as rag_module
+
+    for i in range(40):
+        remember(rag, f"ricordo numero {i} su minecraft")
+
+    whole = [r.text for r in rag.recall("minecraft", scope="diary", k=30)]
+    original = rag_module.FETCH_CHUNK
+    rag_module.FETCH_CHUNK = 7
+    try:
+        split = [r.text for r in rag.recall("minecraft", scope="diary", k=30)]
+    finally:
+        rag_module.FETCH_CHUNK = original
+    assert split == whole
+    assert len(whole) == 30
+
+
+# --- vectors that cannot be compared ------------------------------------------
+
+
+def test_a_vector_without_direction_matches_nothing(rag):
+    """A zero vector has no direction. It is unrelated, not undefined."""
+    rag.db.execute(
+        "INSERT INTO memories (scope, scope_key, who_name, text, source, embedding, "
+        "tags, created_at) VALUES ('diary', 's1', '', 'un ricordo senza direzione', "
+        "'person', ?, '', ?)",
+        (b"\x00" * (4 * len(WordEmbedder.VOCAB)), time.time()))
+    assert rag.recall("minecraft", scope="diary") == []
+
+
+def test_memories_from_another_model_are_skipped_not_fatal(rag):
+    """Mid re-embed a store holds both widths. The recall must still answer."""
+    remember(rag, "marco adora minecraft")
+    rag.db.execute(
+        "INSERT INTO memories (scope, scope_key, who_name, text, source, embedding, "
+        "tags, created_at) VALUES ('diary', 's1', '', 'un ricordo di un altro modello', "
+        "'person', ?, '', ?)",
+        (b"\x01" * 4 * 99, time.time()))
+    assert [r.text for r in rag.recall("minecraft", scope="diary")] == ["marco adora minecraft"]
+
+
+# --- the index is derived, and rebuilt when its shape changes -----------------
+
+
+def test_an_old_index_is_rebuilt_from_the_vectors_already_stored(rag):
+    """No re-embedding: every vector in the index is also in `memories`."""
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
+    for text in ["marco adora minecraft", "luca parla di pizza"]:
+        remember(rag, text)
+
+    # the shape this store used to have, and a store on disk still has
+    rag.db.execute("DROP TABLE IF EXISTS vec_memories")
+    with rag.db.cursor() as cur:
+        cur.execute(f"CREATE VIRTUAL TABLE vec_memories USING vec0("
+                    f"scope_key TEXT partition key, embedding float[{rag.embedder.dim}])")
+    rag.db.execute("DELETE FROM memory_meta WHERE key = 'vec_schema'")
+
+    rebuilt = Rag(rag.db, rag.embedder, min_similarity=0.2)
+    assert rebuilt._vec_ready
+    assert [r.text for r in rebuilt.recall("minecraft", scope="diary")] == \
+        ["marco adora minecraft"]
+
+
+def test_the_index_is_not_rebuilt_on_every_start(rag):
+    """Rebuilding is cheap, not free; doing it each time is a startup cost."""
+    if not index_active(rag):
+        pytest.skip("the vector index is not active here")
+    remember(rag, "marco adora minecraft")
+    before = rag.db.query_one("SELECT value FROM memory_meta WHERE key = 'vec_schema'")
+    again = Rag(rag.db, rag.embedder, min_similarity=0.2)
+    after = rag.db.query_one("SELECT value FROM memory_meta WHERE key = 'vec_schema'")
+    assert again._vec_ready
+    assert before["value"] == after["value"]
+    assert rag.db.query("SELECT rowid FROM vec_memories")
+
+
+def test_wiring_recall_never_loads_the_embedding_model(rag):
+    """Startup asks the embedder how wide it is, and nothing more.
+
+    Measuring that width by embedding a throwaway string loaded the model — a
+    220MB download, during startup, from a class whose whole point is being
+    lazy about exactly that.
+    """
+    class WidthOnly:
+        dim = 8
+
+        def embed(self, texts):
+            raise AssertionError("the model was loaded to wire up recall")
+
+    db = Database(":memory:").init()
+    try:
+        Rag(db, WidthOnly())
+    finally:
+        db.close()
 
 
 def test_similarity_is_reported_on_each_hit(rag):

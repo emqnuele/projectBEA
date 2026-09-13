@@ -12,6 +12,7 @@ import warnings
 from importlib import metadata
 from typing import Any, List, Optional, Sequence
 
+from src.core.perf import perf_enabled, physical_cores
 from src.utils.huggingface import download_hint
 from src.utils.logger import get_logger
 
@@ -49,6 +50,11 @@ def resolve_model(name: Optional[str]) -> str:
     return candidate
 
 
+def _threads() -> Optional[int]:
+    """What the onnx pool is sized with. None means the library's default."""
+    return physical_cores() if perf_enabled() else None
+
+
 class FastEmbedEmbedder:
     def __init__(self, model_name: Optional[str] = DEFAULT_MODEL,
                  cache_dir: Optional[str] = DEFAULT_CACHE_DIR) -> None:
@@ -73,7 +79,12 @@ class FastEmbedEmbedder:
                 # the store re-embeds — and printing a raw traceback about it on
                 # every start reads like something is broken
                 warnings.filterwarnings("ignore", message=".*mean pooling.*")
-                self._model = TextEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
+                kwargs: dict = {}
+                threads = _threads()
+                if threads is not None:
+                    kwargs["threads"] = threads
+                self._model = TextEmbedding(model_name=self.model_name,
+                                           cache_dir=self.cache_dir, **kwargs)
         except Exception as error:
             # the caller writes the memory anyway, without a vector, and comes
             # back for another try — so the explanation is said once, not once
@@ -104,6 +115,29 @@ class FastEmbedEmbedder:
 
     @property
     def dim(self) -> int:
+        """How wide the vectors are — looked up, not measured.
+
+        This is asked for while the memory store is being wired, which is
+        startup. Measuring it meant embedding a throwaway string, which meant
+        loading the model, which on a fresh install meant downloading 220MB
+        before she had said anything — the exact wait this module's laziness
+        exists to avoid, undone by the one caller that only wanted a number.
+
+        fastembed's own catalogue knows the width of every model it ships. A
+        model that is not in it is someone's own repository, and for that there
+        is still nothing to do but ask the model itself.
+        """
         if self._dim is None:
-            self._dim = len(self.embed(["dim probe"])[0])
+            self._dim = self._declared_dim() or len(self.embed(["dim probe"])[0])
         return self._dim
+
+    def _declared_dim(self) -> Optional[int]:
+        try:
+            from fastembed import TextEmbedding
+
+            for model in TextEmbedding.list_supported_models():
+                if model.get("model") == self.model_name:
+                    return int(model["dim"])
+        except Exception as e:
+            logger.debug(f"Could not read the width of '{self.model_name}' ({e}).")
+        return None

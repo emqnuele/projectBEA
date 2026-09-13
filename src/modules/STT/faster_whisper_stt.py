@@ -64,12 +64,74 @@ def normalize_language(code: Optional[str]) -> Optional[str]:
     return code
 
 
+def _wanted(config: BrainConfig) -> tuple:
+    """The raw config the model was built from. Compared, not resolved."""
+    return (normalize_model(config.stt_model),
+            config.faster_whisper_device or "auto",
+            config.faster_whisper_compute_type or "auto",
+            config.faster_whisper_download_root or None)
+
+
+def _resolve_device(config: BrainConfig) -> tuple:
+    """A concrete device and precision, from a config that may say "auto".
+
+    `auto` used to reach ctranslate2 unresolved, which picked the gpu — while
+    the precision stayed at int8, the cpu choice. An explicit device is taken
+    at face value; a load failure still falls back to cpu, in `_load`.
+    """
+    from src.core import perf as perf_module
+
+    want_device = (config.faster_whisper_device or "auto").strip().lower() or "auto"
+    want_compute = (config.faster_whisper_compute_type or "auto").strip() or "auto"
+    if not perf_module.perf_enabled():
+        # the old behaviour, before any of this existed
+        return want_device, (want_compute if want_compute != "auto"
+                             else "float16" if want_device == "cuda" else "int8")
+    device = want_device
+    if device == "auto":
+        device = "cuda" if _cuda_count() > 0 else "cpu"
+    if want_compute != "auto":
+        return device, want_compute
+    # ctranslate2's own `default` keeps full precision, several times slower
+    # on a cpu for no accuracy anyone can hear
+    return device, "float16" if device == "cuda" else "int8"
+
+
+def _cuda_count() -> int:
+    """GPUs ctranslate2 can see. Zero on any error: no gpu is the safe answer."""
+    try:
+        import ctranslate2
+
+        return max(0, int(ctranslate2.get_cuda_device_count()))
+    except Exception:
+        return 0
+
+
+def _build(stt: "FasterWhisperSTT"):
+    """The model, with the thread pool sized for the cores that exist."""
+    from faster_whisper import WhisperModel
+
+    from src.core import perf as perf_module
+
+    kwargs: dict = {}
+    if perf_module.perf_enabled():
+        # one worker: several would each hold the model, and the turns already
+        # run concurrently — throughput here is latency somewhere else
+        kwargs = {"cpu_threads": perf_module.physical_cores(), "num_workers": 1}
+    return WhisperModel(stt.model_name, device=stt.device,
+                        compute_type=stt.compute_type,
+                        download_root=stt.download_root, **kwargs)
+
+
 class FasterWhisperSTT(STTInterface):
     def __init__(self, config: BrainConfig):
         self.config = config
         self.model_name = normalize_model(config.stt_model)
-        self.device = config.faster_whisper_device or "auto"
-        self.compute_type = config.faster_whisper_compute_type or "auto"
+        # raw config, for the reload comparison below: `device` holds what the
+        # probe resolved, and comparing resolved against configured would
+        # rebuild the model on every unrelated save
+        self._configured = _wanted(config)
+        self.device, self.compute_type = _resolve_device(config)
         self.download_root = config.faster_whisper_download_root or None
         self.vad = bool(config.faster_whisper_vad)
         self.model = None
@@ -82,7 +144,7 @@ class FasterWhisperSTT(STTInterface):
         still perfectly usable typed at, exactly as with no transcriber at all.
         """
         try:
-            from faster_whisper import WhisperModel
+            from faster_whisper import WhisperModel  # noqa: F401
         except ImportError:
             logger.error("faster-whisper is not installed — run `uv sync`.")
             return
@@ -91,26 +153,27 @@ class FasterWhisperSTT(STTInterface):
             os.makedirs(self.download_root, exist_ok=True)
 
         try:
-            self.model = WhisperModel(self.model_name, device=self.device,
-                                      compute_type=self._compute_type(),
-                                      download_root=self.download_root)
+            self.model = _build(self)
             logger.info(f"Local whisper ready: {self.model_name} on {self.device}")
         except Exception as e:
+            if self.device != "cpu" or self.compute_type != "int8":
+                # a cuda card that was there at probe time and gone at load
+                # time — old drivers, a container without the device — is not
+                # worth losing her ears over
+                logger.warning(f"Local whisper on {self.device} failed ({e}); "
+                               f"falling back to cpu/int8.")
+                self.device, self.compute_type = "cpu", "int8"
+                try:
+                    self.model = _build(self)
+                    logger.info(f"Local whisper ready: {self.model_name} on cpu "
+                                f"(fallback).")
+                    return
+                except Exception as fallback_error:
+                    e = fallback_error
             logger.error(f"Could not load local whisper {self.model_name!r}: {e}")
             hint = download_hint(e)
             if hint:
                 logger.error(hint)
-
-    def _compute_type(self) -> str:
-        """`auto` means int8 on a cpu and float16 on a gpu, which is what you want.
-
-        ctranslate2's own `default` keeps the weights at full precision, and on
-        the cpu most people run this on that is several times slower for no
-        accuracy anyone can hear.
-        """
-        if self.compute_type != "auto":
-            return self.compute_type
-        return "float16" if self.device == "cuda" else "int8"
 
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         lang = language if language else self.config.language
@@ -142,16 +205,15 @@ class FasterWhisperSTT(STTInterface):
         the dashboard must not pay for it.
         """
         self.config = config
-        wanted = (normalize_model(config.stt_model),
-                  config.faster_whisper_device or "auto",
-                  config.faster_whisper_compute_type or "auto",
-                  config.faster_whisper_download_root or None)
+        wanted = _wanted(config)
         self.vad = bool(config.faster_whisper_vad)
 
-        if wanted == (self.model_name, self.device, self.compute_type, self.download_root):
+        if wanted == self._configured:
             return
 
-        self.model_name, self.device, self.compute_type, self.download_root = wanted
+        self._configured = wanted
+        self.model_name, _, _, self.download_root = wanted
+        self.device, self.compute_type = _resolve_device(config)
         logger.info(f"Reloading local whisper: {self.model_name} on {self.device}")
         self.model = None
         self._load()

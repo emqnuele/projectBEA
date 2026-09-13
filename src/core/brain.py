@@ -265,8 +265,45 @@ class AIVtuberBrain:
         self.history_manager.create_session()
         self.memory.sessions.record(self.history_manager.session_id)
         logger.info(f"Brain Initialized. Session ID: {self.history_manager.session_id}")
+        logger.info(f"perf: {self._perf_line()}")
 
         self._build_consciousness()
+
+    def _perf_line(self) -> str:
+        """The resolved performance configuration, in one log line.
+
+        Built defensively: the startup log must never be the thing that
+        breaks a startup.
+        """
+        from src.core import perf as perf_module
+
+        try:
+            db = self.memory.db
+            if db.vec_enabled:
+                row = db.query_one(
+                    "SELECT value FROM memory_meta WHERE key = 'vec_schema'")
+                schema = (row["value"] if row else "?").split(":")[0]
+                vec = f"on(schema={schema})"
+            else:
+                vec = "off"
+            try:
+                memories = db.scalar("SELECT COUNT(*) FROM memories")
+            except Exception:
+                memories = "?"
+            stt = getattr(self, "stt", None)
+            if stt is not None and getattr(stt, "device", None):
+                # resolved at load: cuda when the probe saw it, cpu otherwise
+                whisper = f"{stt.device}/{stt.compute_type}"
+            else:
+                whisper = (f"{self.config.faster_whisper_device or 'auto'}"
+                           f"/{self.config.faster_whisper_compute_type or 'auto'}")
+            line = perf_module.describe(
+                vec=vec, providers=perf_module.onnx_providers(),
+                threads=perf_module.physical_cores(),
+                whisper=whisper, memories=memories)
+            return line if perf_module.perf_enabled() else line + " perf=off"
+        except Exception as e:
+            return f"unavailable ({e})"
 
     def _build_consciousness(self):
         """Wires the single-brain stack. Started later only if enabled in config."""
@@ -524,7 +561,9 @@ class AIVtuberBrain:
 
     async def generate_audio_response(self, audio_path: str) -> Tuple[str, str, str]:
         """Transcribes audio, deposits a voice perception, waits for the reply."""
-        transcript = self.stt.transcribe(audio_path) if self.stt else ""
+        # off the loop: whisper is hundreds of milliseconds, and holding the
+        # loop through it freezes playback and barge-in mid-sentence
+        transcript = await asyncio.to_thread(self.stt.transcribe, audio_path) if self.stt else ""
         text = transcript or "[Audio Message]"
         # the dashboard's own microphone, not discord's: handing it to the
         # discord surface made the owner arrive as a stranger in a call she was
@@ -677,6 +716,7 @@ class AIVtuberBrain:
             await self.consciousness.stop()
 
     def shutdown(self):
+        self.history_manager.flush()
         self.stage.close()
         self.avatar.close()
         self.obs.disconnect()

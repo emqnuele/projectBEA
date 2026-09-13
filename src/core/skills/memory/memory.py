@@ -116,7 +116,8 @@ class MemorySkill(Skill):
         try:
             diary = await self.generator.generate_diary(history)
             if diary:
-                self._save_diary(session_id, diary)
+                # embedding blocks for tens of ms: not on the loop
+                await asyncio.to_thread(self._save_diary, session_id, diary)
         except Exception as e:
             logger.error(f"MemorySkill: error processing session: {e}")
 
