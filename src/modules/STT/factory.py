@@ -22,10 +22,19 @@ def _openrouter(config) -> STTInterface:
     return OpenRouterSTT(config)
 
 
+def _faster_whisper(config) -> STTInterface:
+    from src.modules.STT.faster_whisper_stt import FasterWhisperSTT
+    return FasterWhisperSTT(config)
+
+
 BUILDERS: Dict[str, Callable[..., STTInterface]] = {
     "groq": _groq,
     "openrouter": _openrouter,
+    "faster_whisper": _faster_whisper,
 }
+
+# providers that run on this machine, so nothing above should look for a key
+LOCAL = frozenset({"faster_whisper"})
 
 
 def build_stt(config) -> Optional[STTInterface]:

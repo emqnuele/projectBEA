@@ -140,6 +140,10 @@
     },
     "stt_provider": "groq",
     "stt_model": "whisper-large-v3-turbo",
+    "faster_whisper_device": "auto",
+    "faster_whisper_compute_type": "auto",
+    "faster_whisper_download_root": "data/models/whisper",
+    "faster_whisper_vad": true,
     "consciousness": {
         "enabled": true,
         "idle_after": 240.0,

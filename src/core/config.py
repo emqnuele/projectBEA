@@ -297,6 +297,13 @@ class BrainConfig:
     stt_provider: str = "openrouter"
     stt_model: str = "whisper-large-v3-turbo"
 
+    # local whisper. Only read when stt_provider is "faster_whisper"; the model
+    # id comes from stt_model like everywhere else, hosted spellings included
+    faster_whisper_device: str = "auto"       # auto | cpu | cuda
+    faster_whisper_compute_type: str = "auto" # auto picks int8 on cpu, float16 on cuda
+    faster_whisper_download_root: str = "data/models/whisper"
+    faster_whisper_vad: bool = True           # drops silence, which whisper otherwise invents words for
+
     def __post_init__(self):
         self.load_from_file()
 
