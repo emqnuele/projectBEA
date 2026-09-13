@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+*.pyc
 *.py[cod]
 *$py.class
 *.so
@@ -80,6 +81,9 @@ data/clips/
 # the author's own planning file at the root — anchored, or it also matches
 # docs/skills/plan.md, which is documentation the README links to
 /PLAN.md
+
+# local implementation notes
+/changes.md
 
 # personal planning notes, not part of the repo
 docs/roadmap.md
