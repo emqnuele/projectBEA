@@ -100,10 +100,18 @@ Vectors from two different models are not comparable, so changing
 `embedding_model` re-embeds everything: `rag.ensure_model()` checks the recorded
 model at startup and rebuilds the store if it moved.
 
-The model (~100 MB) is downloaded on first use into `embedding_cache_dir`, not
-at startup. If it cannot be loaded at all, the brain logs the error and keeps
-going: the roster, the person cards and the hot facts still work — only recall
-is lost.
+The model (~220 MB) is downloaded from Hugging Face on first use into
+`embedding_cache_dir`, not at startup — so on a fresh install it is the first
+thing she remembers that pays for it. `uv run bea --setup` offers to fetch it at
+the end, which is the same download with a progress bar in front of it.
+
+No account and no key: the repo is public. When the download is refused anyway
+— a shared IP hitting Hugging Face's anonymous rate limit — the log says so once
+and names `HF_TOKEN`, which `.env` is read for like any other secret.
+
+If the model cannot be loaded at all, the brain logs the error and keeps going:
+the roster, the person cards and the hot facts still work — only recall is
+lost.
 
 ---
 

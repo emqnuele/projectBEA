@@ -11,6 +11,7 @@ from typing import Optional
 
 from src.core.config import BrainConfig
 from src.interfaces.base_interfaces import STTInterface
+from src.utils.huggingface import download_hint
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stt.faster_whisper")
@@ -96,6 +97,9 @@ class FasterWhisperSTT(STTInterface):
             logger.info(f"Local whisper ready: {self.model_name} on {self.device}")
         except Exception as e:
             logger.error(f"Could not load local whisper {self.model_name!r}: {e}")
+            hint = download_hint(e)
+            if hint:
+                logger.error(hint)
 
     def _compute_type(self) -> str:
         """`auto` means int8 on a cpu and float16 on a gpu, which is what you want.

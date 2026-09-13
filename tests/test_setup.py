@@ -2,9 +2,21 @@
 clobber a hand-edited `.env`, and it may not leave a skill armed that the user
 did not ask for."""
 
+from pathlib import Path
+
 from src.core.config import BrainConfig
 from src.setup.config_plan import apply_answers, env_updates
 from src.setup.env_file import merge_env, parse_env
+from src.setup.prefetch import (
+    directory_bytes,
+    embedder_here,
+    embedder_mb,
+    fetch_embedder,
+    fetch_whisper,
+    whisper_here,
+)
+from src.setup.wizard import disk_size
+from src.utils.huggingface import download_hint
 
 
 def config(tmp_path, monkeypatch) -> BrainConfig:
@@ -265,3 +277,106 @@ def test_env_updates_carries_every_skill_token():
     assert updates["DISCORD_TOKEN"] == "discord-token"
     assert updates["TELEGRAM_TOKEN"] == "telegram-token"
     assert "TWITCH_OAUTH_TOKEN" not in updates
+
+
+# --- the models she downloads ----------------------------------------------
+
+
+def writing(payload: bytes, name: str = "model.onnx"):
+    """A download that puts a file where the real one would."""
+
+    def download(model, root, local_files_only=False):
+        path = Path(root) / name
+        path.write_bytes(payload)
+        return str(path)
+
+    return download
+
+
+def test_directory_bytes_counts_what_is_already_down(tmp_path):
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "model.bin").write_bytes(b"x" * 40)
+    (tmp_path / "config.json").write_bytes(b"y" * 2)
+    assert directory_bytes(str(tmp_path)) == 42
+
+
+def test_directory_bytes_of_a_folder_that_is_not_there_is_zero(tmp_path):
+    assert directory_bytes(str(tmp_path / "gone")) == 0
+
+
+def test_a_finished_download_reports_no_error_and_leaves_the_weights(tmp_path):
+    root = tmp_path / "whisper"
+    assert fetch_whisper("small", str(root), downloader=writing(b"weights"), tick=0) is None
+    assert (root / "model.onnx").read_bytes() == b"weights"
+
+
+def test_the_progress_of_a_download_is_reported(tmp_path):
+    seen = []
+    fetch_whisper("small", str(tmp_path), downloader=writing(b"x" * 9), tick=0,
+                  on_progress=seen.append)
+    assert seen and seen[-1] == 9
+
+
+def test_a_download_that_failed_comes_back_as_the_error(tmp_path):
+    """Setup must survive it: the engine downloads them again on first use."""
+
+    def explode(model, root, local_files_only=False):
+        raise OSError("429 Too Many Requests")
+
+    error = fetch_whisper("small", str(tmp_path), downloader=explode, tick=0)
+    assert isinstance(error, OSError)
+    assert download_hint(error) is not None
+
+
+def test_the_model_id_is_normalised_before_anything_is_fetched(tmp_path):
+    """A hosted spelling left in config.json is not a repo huggingface serves."""
+    asked = []
+
+    def record(model, root, local_files_only=False):
+        asked.append(model)
+
+    fetch_whisper("openai/whisper-large-v3-turbo", str(tmp_path), downloader=record, tick=0)
+    assert asked == ["large-v3-turbo"]
+
+
+def test_weights_already_on_disk_are_not_downloaded_again(tmp_path):
+    def local_only(model, root, local_files_only=False):
+        if not local_files_only:
+            raise AssertionError("asked the network for something already here")
+        return str(tmp_path)
+
+    assert whisper_here("small", str(tmp_path), downloader=local_only)
+
+
+def test_weights_that_are_missing_are_reported_as_missing(tmp_path):
+    def missing(model, root, local_files_only=False):
+        raise OSError("not cached")
+
+    assert not whisper_here("small", str(tmp_path), downloader=missing)
+
+
+def test_an_embedder_already_cached_is_not_fetched_again(tmp_path):
+    """Her memory downloads one too, the first time she remembers anything."""
+    assert not embedder_here(str(tmp_path))
+    (tmp_path / "models--x").mkdir()
+    (tmp_path / "models--x" / "model.onnx").write_bytes(b"onnx")
+    assert embedder_here(str(tmp_path))
+
+
+def test_an_embedder_that_will_not_load_is_a_warning_not_a_crash(tmp_path):
+    def explode():
+        raise RuntimeError("no wheel for this platform")
+
+    assert isinstance(fetch_embedder(loader=explode, cache_dir=str(tmp_path), tick=0),
+                      RuntimeError)
+
+
+def test_the_embedder_size_comes_from_fastembeds_own_catalogue():
+    """Hardcoding it here would mean a bar that lies after any model change."""
+    assert 100 < embedder_mb(None) < 1000
+
+
+def test_a_size_is_shown_in_the_unit_a_person_would_say_it_in():
+    assert disk_size(75) == "~75 MB"
+    assert disk_size(1600) == "~1.6 GB"
+    assert disk_size(0) == ""

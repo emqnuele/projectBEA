@@ -464,3 +464,27 @@ def test_a_patch_release_is_not_worth_re_embedding_for(monkeypatch):
     first = embedder_module._fastembed_series()
     monkeypatch.setattr(embedder_module.metadata, "version", lambda _: "0.7.9")
     assert embedder_module._fastembed_series() == first
+
+
+# --- a model that could not be downloaded ------------------------------------
+
+
+def test_an_embedder_that_cannot_be_fetched_says_what_would_fix_it(monkeypatch, caplog):
+    """A `429` on first use is a silent loss of recall, not a crash."""
+    import fastembed
+
+    from src.core.memory.embedder import FastEmbedEmbedder
+    from src.utils.huggingface import TOKEN_HINT
+
+    def refused(**kwargs):
+        raise OSError("429 Too Many Requests")
+
+    monkeypatch.setattr(fastembed, "TextEmbedding", refused)
+    embedder = FastEmbedEmbedder("BAAI/bge-small-en-v1.5")
+
+    with caplog.at_level("ERROR"):
+        for _ in range(3):
+            with pytest.raises(OSError):
+                embedder.embed(["a line"])
+
+    assert caplog.text.count(TOKEN_HINT) == 1, "the same explanation on every memory she writes"

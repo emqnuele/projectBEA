@@ -150,3 +150,21 @@ def test_the_factory_builds_it(tmp_path, monkeypatch, loaded):
 
 def test_every_local_provider_is_one_the_factory_can_build():
     assert LOCAL <= set(BUILDERS)
+
+
+# --- a download that failed -------------------------------------------------
+
+
+def test_the_hint_reaches_the_log_when_the_download_is_refused(tmp_path, monkeypatch, caplog):
+    """`401` means nothing to someone who never knew an account was involved."""
+    import faster_whisper
+
+    from src.utils.huggingface import TOKEN_HINT
+
+    def refused(*args, **kwargs):
+        raise OSError("401 Client Error: Unauthorized")
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", refused)
+    with caplog.at_level("ERROR"):
+        FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base"))
+    assert TOKEN_HINT in caplog.text

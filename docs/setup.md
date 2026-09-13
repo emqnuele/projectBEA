@@ -80,6 +80,11 @@ TWITCH_OAUTH_TOKEN=oauth:...
 # Donations — shared secret checked on the webhook. Set this before exposing the server
 DONATION_SECRET=...
 
+# Hugging Face — optional, and almost nobody needs it. The whisper and embedding
+# models are public. Set this only if a download is refused: a shared or office
+# IP hitting the anonymous rate limit. https://huggingface.co/settings/tokens
+HF_TOKEN=hf_...
+
 # Logging — optional, defaults to INFO
 LOG_LEVEL=DEBUG   # set to DEBUG to see verbose output (OBS, TTS, audio playback details)
 ```
@@ -209,10 +214,14 @@ Whisper** in the wizard or on the dashboard's Hearing page — and choose a size
 | `small` | ~480 MB | The default, and the balance most people want |
 | `large-v3-turbo` | ~1.6 GB | Best, and it wants a GPU |
 
-The weights download on first use into `data/models/whisper`, which is
-gitignored. The first transcription after a fresh install therefore takes as
-long as that download; `uv run bea --doctor` allows for it and will not call it
-a failure.
+The weights download into `data/models/whisper`, which is gitignored. The wizard
+offers to fetch them at the end of setup; decline it, or skip the wizard, and
+they arrive on first use instead — so the first transcription after a fresh
+install takes as long as that download. `uv run bea --doctor` allows for it and
+will not call it a failure.
+
+Nothing here needs a Hugging Face account. If a download is refused — a shared
+IP against the anonymous rate limit — set `HF_TOKEN` in `.env` and run it again.
 
 On a machine with an NVIDIA GPU, set `faster_whisper_device` to `cuda` — this
 needs the CUDA and cuDNN runtimes on the system, which `uv sync` does not

@@ -1,7 +1,8 @@
 """Local, in-process embeddings (fastembed / ONNX on CPU).
 
-Lazy: the model (~100MB) is fetched on the first `embed`, so startup does not
-wait for it. Two methods only, so a test can inject a deterministic fake.
+Lazy: the model (~220MB) is fetched on the first `embed`, so startup does not
+wait for it — `bea --setup` offers to get it out of the way beforehand. Two
+methods only, so a test can inject a deterministic fake.
 
 The default is multilingual: with an English-only model, non-English sentences
 collapse into the same region and retrieval becomes close to random.
@@ -11,6 +12,7 @@ import warnings
 from importlib import metadata
 from typing import Any, List, Optional, Sequence
 
+from src.utils.huggingface import download_hint
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.memory.embedder")
@@ -54,6 +56,7 @@ class FastEmbedEmbedder:
         self.cache_dir = cache_dir
         self._model: Optional[Any] = None
         self._dim: Optional[int] = None
+        self._explained = False
 
     def _ensure(self) -> Any:
         """The loaded model, loading it the first time. Returned, not just set,
@@ -63,13 +66,23 @@ class FastEmbedEmbedder:
         from fastembed import TextEmbedding  # lazy: heavy import
 
         logger.info(f"Loading embedding model '{self.model_name}'…")
-        with warnings.catch_warnings():
-            # fastembed warns that it pools this model differently than it used
-            # to. That is handled — `identity` carries the version, so the store
-            # re-embeds — and printing a raw traceback about it on every start
-            # reads like something is broken
-            warnings.filterwarnings("ignore", message=".*mean pooling.*")
-            self._model = TextEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
+        try:
+            with warnings.catch_warnings():
+                # fastembed warns that it pools this model differently than it
+                # used to. That is handled — `identity` carries the version, so
+                # the store re-embeds — and printing a raw traceback about it on
+                # every start reads like something is broken
+                warnings.filterwarnings("ignore", message=".*mean pooling.*")
+                self._model = TextEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
+        except Exception as error:
+            # the caller writes the memory anyway, without a vector, and comes
+            # back for another try — so the explanation is said once, not once
+            # per thing she remembers
+            hint = download_hint(error)
+            if hint and not self._explained:
+                self._explained = True
+                logger.error(hint)
+            raise
         return self._model
 
     @property

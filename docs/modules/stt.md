@@ -73,6 +73,11 @@ The weights are downloaded on first use, not at install time:
 Any faster-whisper model on Hugging Face works too — a repo id with a slash in
 it (`Systran/faster-distil-whisper-large-v3`) is passed through untouched.
 
+The weights come from a public repo: no account, no key. `uv run bea --setup`
+offers to download them at the end rather than leaving the wait to her first
+sentence, and a refusal — a shared IP against Hugging Face's anonymous rate
+limit — is logged with what would fix it, `HF_TOKEN` in `.env`.
+
 **Two things it normalises, so the same config.json works on every provider:**
 
 - `stt_model`. The hosted spelling `whisper-large-v3-turbo`, or

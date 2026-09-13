@@ -11,10 +11,11 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import BarColumn, DownloadColumn, Progress, SpinnerColumn, TextColumn
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
@@ -28,6 +29,15 @@ from src.setup.config_plan import (
     env_updates,
 )
 from src.setup.env_file import merge_env
+from src.setup.prefetch import (
+    WHISPER_MB,
+    embedder_here,
+    embedder_mb,
+    fetch_embedder,
+    fetch_whisper,
+    whisper_here,
+)
+from src.utils.huggingface import download_hint
 
 ENV_FILE = Path(".env")
 CONFIG_FILE = Path("config.json")
@@ -62,13 +72,24 @@ STT_ENGINES: List[Tuple[str, str, str]] = [
     ("openrouter", "OpenRouter", "The same Whisper models on your OpenRouter key."),
 ]
 
+
+def disk_size(megabytes: int) -> str:
+    """A size in the unit a person would say it in."""
+    if not megabytes:
+        return ""
+    if megabytes < 1000:
+        return f"~{megabytes} MB"
+    return f"~{megabytes / 1000:.1f} GB"
+
+
 # what the local transcriber costs to run, smallest first. Anything huggingface
 # serves works in config.json; these are the four worth offering blind
 WHISPER_SIZES: List[Tuple[str, str, str]] = [
-    ("tiny", "tiny", "~75 MB. Instant, and it will mishear you."),
-    ("base", "base", "~145 MB. Usable on an old laptop."),
-    ("small", "small", "~480 MB. The balance most people want."),
-    ("large-v3-turbo", "large-v3-turbo", "~1.6 GB. Best, and it wants a GPU."),
+    ("tiny", "tiny", f"{disk_size(WHISPER_MB['tiny'])}. Instant, and it will mishear you."),
+    ("base", "base", f"{disk_size(WHISPER_MB['base'])}. Usable on an old laptop."),
+    ("small", "small", f"{disk_size(WHISPER_MB['small'])}. The balance most people want."),
+    ("large-v3-turbo", "large-v3-turbo",
+     f"{disk_size(WHISPER_MB['large-v3-turbo'])}. Best, and it wants a GPU."),
 ]
 
 TTS_ENGINES: List[Tuple[str, str, str]] = [
@@ -274,8 +295,8 @@ def _ask_ears(console: Console, answers: Dict[str, Any]) -> None:
     answers["stt_provider"] = engine
 
     if engine in STT_LOCAL:
-        console.print("\n  [dim]The weights are downloaded once into data/models/whisper, "
-                      "the first time she hears anything.[/dim]\n")
+        console.print("\n  [dim]The weights are downloaded once into data/models/whisper. "
+                      "No key, no account.[/dim]\n")
         answers["stt_model"] = _choose(console, "Model size", WHISPER_SIZES, "small")
         return
 
@@ -286,6 +307,76 @@ def _ask_ears(console: Console, answers: Dict[str, Any]) -> None:
 
     console.print()
     answers["stt_key"] = _ask_key(console, "API key", PROVIDER_KEYS[engine][1])
+
+
+def _download(console: Console, label: str, root: str, megabytes: int,
+              work: Callable[[Callable[[int], None]], Optional[Exception]]) -> bool:
+    """One download, with a bar, and a warning instead of a stack trace.
+
+    Failing here costs nothing but the wait it was meant to take out of her
+    first sentence: the engine fetches whatever is missing on first use.
+    """
+    total = megabytes * 1_000_000 or None
+    with Progress(SpinnerColumn(), TextColumn("  [dim]{task.description}[/dim]"), BarColumn(),
+                  DownloadColumn(), console=console, transient=True) as progress:
+        task = progress.add_task(label, total=total)
+        error = work(lambda done: progress.update(
+            task, completed=min(done, total) if total else done))
+
+    if not error:
+        console.print(f"  [green]✓[/green] {label} — ready in {root}.")
+        return True
+
+    console.print(f"  [yellow]?[/yellow] {label} — the download did not finish ({error}).")
+    hint = download_hint(error)
+    if hint:
+        console.print(f"  [dim]{hint}[/dim]")
+    return False
+
+
+def _ask_downloads(console: Console, answers: Dict[str, Any]) -> None:
+    """Fetches the two models that would otherwise arrive mid-conversation.
+
+    Her memory needs the embedder whether or not anything else was armed, so
+    this step is not tied to any of the answers above.
+    """
+    from src.core.config import BrainConfig
+
+    config = BrainConfig()
+    jobs: List[Tuple[str, str, int, Any]] = []
+
+    model = answers.get("stt_model")
+    whisper_root = config.faster_whisper_download_root or "data/models/whisper"
+    if answers.get("stt_provider") in STT_LOCAL and model and not whisper_here(model, whisper_root):
+        jobs.append((f"whisper {model}", whisper_root, WHISPER_MB.get(model, 0),
+                     lambda report, model=model: fetch_whisper(model, whisper_root,
+                                                               on_progress=report)))
+
+    memory = config.skills.get("memory", {})
+    embedder = memory.get("embedding_model")
+    cache = memory.get("embedding_cache_dir") or "data/embeddings_cache"
+    if memory.get("enabled", True) and not embedder_here(cache):
+        jobs.append(("her memory's embedder", cache, embedder_mb(embedder),
+                     lambda report: fetch_embedder(embedder, cache, on_progress=report)))
+
+    if not jobs:
+        console.print("  [green]✓[/green] Everything she needs is already on this machine.")
+        return
+
+    what = "one model" if len(jobs) == 1 else f"{len(jobs)} models"
+    console.print(f"  She needs {what} from Hugging Face, {disk_size(sum(job[2] for job in jobs))} "
+                  "in all. No account and no key —\n  and fetching them now means her first "
+                  "sentence is not spent waiting for one.\n")
+
+    if not Confirm.ask("  Download them now?", default=True):
+        console.print("  [dim]They will be fetched the first time each one is needed.[/dim]")
+        return
+
+    console.print()
+    done = [_download(console, label, root, megabytes, work) for label, root, megabytes, work in jobs]
+    if not all(done):
+        console.print("  [dim]Setup is finished either way — she fetches whatever is still "
+                      "missing the first time she needs it.[/dim]")
 
 
 def needs_obs(avatar: str, caption: str) -> bool:
@@ -479,6 +570,16 @@ def run_setup(console: Optional[Console] = None) -> int:
         return 1
 
     _write(console, answers)
+
+    # after the write on purpose: a download interrupted here still leaves a
+    # configured install behind
+    _rule(console, "last", "What she needs on disk")
+    try:
+        _ask_downloads(console, answers)
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n  [yellow]Stopped the download.[/yellow] "
+                      "[dim]She will fetch what is missing when she needs it.[/dim]")
+
     _summary(console, answers)
     console.print()
     return 0
