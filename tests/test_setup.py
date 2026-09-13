@@ -207,11 +207,17 @@ def test_every_backend_the_wizard_offers_is_one_the_engine_can_build():
     """A wizard that offers a name the factory has never heard of is a dead end."""
     from src.modules.avatar.factory import BUILDERS as AVATARS
     from src.modules.caption.factory import BUILDERS as CAPTIONS
+    from src.modules.STT.factory import BUILDERS as TRANSCRIBERS
+    from src.modules.tts.factory import BUILDERS as VOICES
     from src.setup.wizard import AVATARS as OFFERED_AVATARS
     from src.setup.wizard import CAPTIONS as OFFERED_CAPTIONS
+    from src.setup.wizard import STT_ENGINES as OFFERED_TRANSCRIBERS
+    from src.setup.wizard import TTS_ENGINES as OFFERED_VOICES
 
     assert {a[0] for a in OFFERED_AVATARS} <= set(AVATARS)
     assert {c[0] for c in OFFERED_CAPTIONS} <= set(CAPTIONS)
+    assert {e[0] for e in OFFERED_TRANSCRIBERS} <= set(TRANSCRIBERS)
+    assert {e[0] for e in OFFERED_VOICES} <= set(VOICES)
 
 
 def test_saved_config_carries_no_secret(tmp_path, monkeypatch):
@@ -236,6 +242,18 @@ def test_env_updates_carries_a_separate_stt_key_when_the_provider_differs():
     updates = env_updates(base_answers(stt_provider="groq", stt_key="gsk-live"))
     assert updates["GROQ_API_KEY"] == "gsk-live"
     assert updates["OPENROUTER_API_KEY"] == "sk-or-live"
+
+
+def test_a_local_transcriber_writes_no_secret_of_its_own():
+    """It has no account, so nothing about it belongs in `.env`."""
+    updates = env_updates(base_answers(stt_provider="faster_whisper", stt_model="small"))
+    assert list(updates) == ["OPENROUTER_API_KEY"]
+
+
+def test_the_chosen_whisper_size_lands_in_the_config():
+    cfg = apply_answers(BrainConfig(), base_answers(stt_provider="faster_whisper",
+                                                    stt_model="small"))
+    assert (cfg.stt_provider, cfg.stt_model) == ("faster_whisper", "small")
 
 
 def test_env_updates_carries_every_skill_token():
