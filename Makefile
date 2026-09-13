@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install setup update docker docker-up docker-down run web node lock clean test lint migrate model doctor
+.PHONY: help install setup update docker docker-up docker-down run web node lock clean test lint bench migrate model doctor
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -50,6 +50,9 @@ test: ## run the test suite
 
 lint: ## static checks
 	uv run ruff check src tests
+
+bench: ## measure this machine: retrieval, memory, startup, models
+	uv run python tools/bench.py
 
 model: ## download the free sample 3d model and clip into data/
 	uv run python tools/fetch_model.py
