@@ -375,8 +375,6 @@ async def check_perf(config: BrainConfig) -> Finding:
 
 def _collect_perf(config: BrainConfig) -> Optional[str]:
     """The perf line, built off the loop. None when the store will not open."""
-    import time
-
     from src.core import perf as perf_module
     from src.core.memory.store import MemoryStore
 
