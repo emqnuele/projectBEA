@@ -187,6 +187,8 @@ def plan_config(config: BrainConfig, payload: Dict[str, Any]) -> Plan:
 
     for key, raw in sorted(payload.items()):
         if key in GUARDED:
+            if raw == getattr(config, key, None):
+                continue
             errors[key] = "not writable here"
             continue
 
