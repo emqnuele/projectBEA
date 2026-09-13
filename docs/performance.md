@@ -73,16 +73,16 @@ without a second run and a second machine.
 
 | Scenario | size | before | after |
 |---|---|---|---|
-| `recall` (one session) | 10 000 | 4.756 py / 0.571 vec | *pending* |
-| `recall_nofilter` (production) | 1 000 | 24.547 py / 24.578 vec | *pending* |
-| `recall_nofilter` (production) | 10 000 | 245.141 py / 246.002 vec | *pending* |
-| `remember` | into 10 000 | 0.064 | *pending* |
-| `reembed_all` | 10 000 | 851.336 | *pending* |
-| `startup` | — | 255.708 | *pending* |
-| `embed` 1 text | — | 2.108 | *pending* |
-| `embed` 32 texts | — | 39.661 | *pending* |
-| `history_append` | session of 2 000 | 3.041 | *pending* |
-| `turnlog_write` | one turn | 0.029 | *pending* |
+| `recall` (one session) | 10 000 | 4.756 py / 0.571 vec | 0.678 py / 0.432 vec |
+| `recall_nofilter` (production) | 1 000 | 24.547 py / 24.578 vec | 2.306 py / 0.345 vec |
+| `recall_nofilter` (production) | 10 000 | 245.141 py / 246.002 vec | 26.961 py / 3.670 vec |
+| `remember` | into 10 000 | 0.064 | 0.070 |
+| `reembed_all` | 10 000 | 851.336 | 405.893 |
+| `startup` | — | 255.708 | 1.374 |
+| `embed` 1 text | — | 2.108 | 2.923 |
+| `embed` 32 texts | — | 39.661 | 66.577 |
+| `history_append` | session of 2 000 | 3.041 | 0.001 |
+| `turnlog_write` | one turn | 0.029 | 0.029 |
 
 ### What the baseline says
 
