@@ -77,6 +77,14 @@ def test_the_persona_keeps_its_own_door(config):
     assert config.persona == before
 
 
+def test_an_untouched_persona_in_a_whole_save_is_ignored(config):
+    # A full config read from `GET /config` carries the current persona block.
+    # Saving that config back must not reject the save when persona is unchanged.
+    plan = plan_config(config, {"language": "it", "persona": config.persona})
+    assert "persona" not in plan.changed
+    assert plan.changed["language"] == "it"
+
+
 # --- types ------------------------------------------------------------------
 
 
