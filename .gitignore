@@ -86,3 +86,5 @@ docs/roadmap.md
 
 # local editor/agent tooling
 .claude/
+
+bench.json
