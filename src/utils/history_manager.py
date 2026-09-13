@@ -31,7 +31,7 @@ class HistoryManager:
         self.debounce_seconds = max(0.0, float(debounce_seconds))
         self._lock = threading.Lock()
         self._dirty = False
-        self._last_write = 0.0
+        self._last_write = float('-inf')
         self._timer: Optional[threading.Timer] = None
 
     def create_session(self):

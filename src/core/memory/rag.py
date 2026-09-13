@@ -429,6 +429,8 @@ class Rag:
         not need to be — `_rank` decides it.
         """
         rows: List[dict] = []
+        # sort so chunking does not mix global order, making tie-breaking stable
+        ids = sorted(ids)
         for start in range(0, len(ids), FETCH_CHUNK):
             chunk = ids[start:start + FETCH_CHUNK]
             placeholders = ",".join("?" * len(chunk))
