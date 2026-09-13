@@ -36,14 +36,18 @@ from src.core.expression.tags import DIRECTIONS
 from src.core.mind.operating import missing_tools
 from src.core.stage import installed_clips
 
+# the module itself is cheap; only the builders inside it import a backend
+from src.modules.STT.factory import LOCAL as STT_LOCAL
+
 ENV_FILE = Path(".env")
 
 # the built dashboard, which is also the page her 3D body is drawn on
 DASHBOARD = Path("src/web/frontend/dist/index.html")
 
 # a line short enough to synthesise quickly and distinctive enough that hearing
-# it back is evidence rather than a coincidence
-TEST_LINE = "one two three"
+# it back is evidence rather than a coincidence. Words, not numbers: whisper
+# writes "one two three" back as "1, 2, 3" and a working install looked broken
+TEST_LINE = "the quick brown fox"
 
 # where the dashboard listens unless it is told otherwise
 DEFAULT_PORT = 8000
@@ -52,6 +56,9 @@ DEFAULT_PORT = 8000
 # that hangs on one cold provider is worse than one that says so.
 PROVIDER_CALL_TIMEOUT = 30.0
 EARS_ROUND_TRIP_TIMEOUT = 60.0
+# a local transcriber's first run downloads a few hundred MB before it hears
+# anything, and calling that a failure would be a lie about a working install
+LOCAL_EARS_ROUND_TRIP_TIMEOUT = 900.0
 
 
 @dataclass(frozen=True)
@@ -137,7 +144,8 @@ async def check_keys(config: BrainConfig) -> Finding:
     if not wanted:
         wanted.add(config.llm_provider)
     # her ears run on the same key namespace as the llm, and are as keyed as it
-    if config.stt_provider:
+    # — unless they run on this machine, where there is nothing to key
+    if config.stt_provider and config.stt_provider not in STT_LOCAL:
         wanted.add(config.stt_provider)
 
     missing = [name for name in sorted(wanted) if not _key_for(config, name)]
@@ -280,22 +288,23 @@ async def check_ears(config: BrainConfig) -> Finding:
                       "She cannot hear voice input. Set `stt_provider` if you "
                       "want to talk to her rather than type.")
 
+    budget = (LOCAL_EARS_ROUND_TRIP_TIMEOUT if config.stt_provider in STT_LOCAL
+              else EARS_ROUND_TRIP_TIMEOUT)
     try:
         # one thread for the whole journey: build_stt can download a model and
         # the transcriber can hang, and either must be counted down, not waited on
         heard = await asyncio.wait_for(asyncio.to_thread(_round_trip, config),
-                                       timeout=EARS_ROUND_TRIP_TIMEOUT)
+                                       timeout=budget)
     except asyncio.TimeoutError:
         return failed(f"{config.stt_provider} did not answer in time",
-                      "Check the STT key and model in config.json, and its "
-                      "network reach from this machine.")
+                      _ears_fix(config))
     except Exception as e:
         return failed(f"{config.stt_provider} could not transcribe ({e})",
-                      "Check the STT key and model in config.json.")
+                      _ears_fix(config))
 
     if not heard:
         return failed(f"{config.stt_provider} heard nothing at all",
-                      "Check the STT key and model in config.json.")
+                      _ears_fix(config))
     words = {w.strip(".,!?").lower() for w in heard.split()}
     if not words & set(TEST_LINE.split()):
         return warned(f"it heard {heard!r} instead of {TEST_LINE!r}",
@@ -600,6 +609,16 @@ def _model_of(client) -> str:
         return name
     pool = getattr(client, "clients", None)
     return getattr(pool[0], "model_name", "the mind") if pool else "the mind"
+
+
+def _ears_fix(config: BrainConfig) -> str:
+    if config.stt_provider in STT_LOCAL:
+        return (f"Check `stt_model` in config.json is a whisper size it knows "
+                f"(tiny, base, small, medium, large-v3, large-v3-turbo), and that "
+                f"{config.faster_whisper_download_root or 'the model cache'} is "
+                f"writable — the first run downloads the weights.")
+    return ("Check the STT key and model in config.json, and its network reach "
+            "from this machine.")
 
 
 def _voice_fix(config: BrainConfig) -> str:
