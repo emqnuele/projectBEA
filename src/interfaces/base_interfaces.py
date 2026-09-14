@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator, Dict, Optional, Sequence, Tuple, Union
 class LLMInterface(ABC):
 
     @abstractmethod
-    def chat(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
+    async def chat(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
         """
         Sends user input to the LLM and returns (mood, message, metadata).
         history: List of dictionaries [{"role": "user"|"assistant", "content": "..."}]
@@ -14,10 +14,12 @@ class LLMInterface(ABC):
         pass
 
     @abstractmethod
-    def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
+    async def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
         """
         Sends audio input to the LLM and returns (mood, message, metadata).
         """
+        pass
+
     @abstractmethod
     def reload_config(self, config) -> None:
         """
@@ -26,7 +28,7 @@ class LLMInterface(ABC):
         pass
 
     @abstractmethod
-    def generate_json(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Union[Dict, list]:
+    async def generate_json(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Union[Dict, list]:
         """
         Generates a JSON response from the LLM.
         Returns a dictionary parsed from the JSON output.

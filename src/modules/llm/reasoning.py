@@ -60,10 +60,24 @@ def _openai(level: str) -> ReasoningStyle:
     return ReasoningStyle({"reasoning_effort": effort}, ("reasoning_effort",))
 
 
+def _responses(level: str) -> ReasoningStyle:
+    # the responses api carries effort as an object; minimal is the floor for
+    # "answer now". negotiable like the rest: a beta endpoint that rejects it
+    # gets the call again without it rather than a failure.
+    effort = "minimal" if level == "off" else level
+    return ReasoningStyle({"reasoning": {"effort": effort}}, ("reasoning",))
+
+
 _TRANSLATORS = {
-    "openrouter": _openrouter,
-    "groq": _groq,
-    "openai": _openai,
+    "openrouter": _responses,
+    "groq": _responses,
+    "openai": _responses,
+    # chat completions shaped
+    "local": _openai,
+    "openai_compat": _openai,
+    # google's openai endpoint and the anthropic family take no documented
+    # equivalent: guessing a parameter name is how you turn a working model
+    # into a 400
 }
 
 

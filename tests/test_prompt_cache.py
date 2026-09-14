@@ -19,7 +19,7 @@ from src.core.events import EventCategory
 from src.core.perception.bus import PerceptionBus
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.base import Skill, SkillRegistry
-from src.modules.llm.openai_compat import _usage
+from src.modules.llm.chat import _usage
 from tests.fakes import FakeExpression, FakeHistory, FakeLLMClient, RecordingEvents, speaks
 
 NOON = datetime(2026, 6, 15, 12, 0).timestamp()
@@ -217,21 +217,17 @@ async def test_what_the_cache_covered_reaches_the_dashboard():
 # --- reading it off a provider -----------------------------------------------
 
 
-def usage_block(**fields):
-    return type("Usage", (), fields)()
-
-
-def test_the_cached_figure_is_read_from_the_shape_openai_sends():
-    raw = usage_block(prompt_tokens=1200, completion_tokens=40,
-                      prompt_tokens_details=usage_block(cached_tokens=1024))
+def test_the_cached_figure_is_read_from_the_nested_shape():
+    raw = {"prompt_tokens": 1200, "completion_tokens": 40,
+           "prompt_tokens_details": {"cached_tokens": 1024}}
     assert _usage(raw).cached_tokens == 1024
 
 
-def test_the_cached_figure_is_read_from_the_shape_openrouter_sends():
-    raw = usage_block(prompt_tokens=1200, completion_tokens=40, cached_tokens=1024)
+def test_the_cached_figure_is_read_from_the_flat_shape():
+    raw = {"prompt_tokens": 1200, "completion_tokens": 40, "cached_tokens": 1024}
     assert _usage(raw).cached_tokens == 1024
 
 
 def test_a_provider_that_reports_nothing_costs_nothing_to_read():
     assert _usage(None).cached_tokens == 0
-    assert _usage(usage_block(prompt_tokens=10, completion_tokens=2)).cached_tokens == 0
+    assert _usage({"prompt_tokens": 10, "completion_tokens": 2}).cached_tokens == 0

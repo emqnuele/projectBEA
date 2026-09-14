@@ -24,6 +24,7 @@ dependencies = [
     "kokoro-onnx",
     "faster-whisper>=1.1",
     "groq",
+    "aiohttp>=3.10",
     "fastembed>=0.3,<0.9",
     "sqlite-vec>=0.1.1",
     "python-telegram-bot[job-queue]>=21",

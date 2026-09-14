@@ -1487,6 +1487,7 @@ name = "projectbea"
 version = "2.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "edge-tts" },
     { name = "fastapi" },
     { name = "fastembed" },
@@ -1519,6 +1520,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.10" },
     { name = "edge-tts" },
     { name = "fastapi" },
     { name = "fastembed", specifier = ">=0.3,<0.9" },
