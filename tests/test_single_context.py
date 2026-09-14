@@ -233,3 +233,76 @@ async def test_handoff_cold_empty_backs_off():
 async def test_handoff_render_system_block():
     assert render_handoff("  ").strip() == ""
     assert render_handoff("you talked").startswith("[EARLIER]")
+
+
+def test_swap_never_stacks_continuity_bridges():
+    budget = TokenBudget(max_tokens=6000, trigger_tokens=3000, target_tokens=5000)
+    ctx = SingleContext(budget, hot_tokens=100_000, hot_seconds=100_000.0)
+    ctx.append("user", "hello world", key="stage")
+    _, hot = ctx.snapshot_for_handoff()
+    ctx.swap_with_snapshot("[EARLIER]\nfirst bridge", hot, [])
+    _, hot2 = ctx.snapshot_for_handoff()
+    ctx.swap_with_snapshot("[EARLIER]\nsecond bridge", hot2, [])
+    bridges = [m for m in ctx.messages() if m.get("role") == "system"]
+    assert len(bridges) == 1
+    assert "second bridge" in bridges[0]["content"]
+    assert "first bridge" not in " ".join(m["content"] for m in ctx.messages()
+                                          if m.get("role") != "system")
+
+
+def test_hot_tokens_clamped_to_the_ceiling():
+    budget = TokenBudget(max_tokens=2000, trigger_tokens=1800, target_tokens=1500)
+    ctx = SingleContext(budget, hot_tokens=500_000)
+    assert ctx.hot_tokens <= budget.max_tokens
+
+
+def test_valve_evictions_are_counted_in_status():
+    budget = TokenBudget(max_tokens=500, trigger_tokens=400, target_tokens=200)
+    ctx = SingleContext(budget)
+    for i in range(30):
+        ctx.append("user", f"filler {i} " + "word " * 30, key="stage")
+    assert ctx.total_tokens <= budget.max_tokens
+    assert ctx.status()["valve_evicted_tokens"] > 0
+
+
+def test_format_turns_keeps_user_lines_with_scaffolding_prefixes():
+    out = format_turns([{"role": "user", "content": "You are on fire today, bea!"}])
+    assert "You are on fire today" in out
+    out = format_turns([{"role": "user", "content": "[EARLIER] i literally typed this"}])
+    assert "i literally typed this" in out
+
+
+def test_format_turns_still_skips_real_scaffolding():
+    orientation = ("You are on discord in conversation 1 with alice. Answer here with "
+                   "send_message(platform='discord', channel='1') — never claim otherwise.")
+    out = format_turns([{"role": "user", "content": f"[WHERE YOU ARE]\n{orientation}\nhello"}])
+    assert "hello" in out
+    assert "You are on discord" not in out
+    assert "WHERE YOU ARE" not in out
+    out = format_turns([{"role": "system", "content": "[EARLIER]\nold bridge prose"}])
+    assert "EARLIER" not in out
+
+
+async def test_handoff_cold_excludes_old_bridge_entries():
+    budget = TokenBudget(max_tokens=6000, trigger_tokens=3000, target_tokens=2000)
+    ctx = SingleContext(budget, hot_tokens=100, hot_seconds=60.0)
+    old = time.time() - 4000
+    ctx.append("system", "[EARLIER]\nprevious bridge prose", key="stage", ts=old)
+    for i in range(10):
+        ctx.append("user", f"cold line {i} " + "word " * 400, ts=old)
+    ctx.append("user", "live now", ts=time.time())
+    assert ctx.status()["needs_handoff"] is True
+    seen_payloads = []
+
+    class _SpyLLM:
+        async def complete(self, messages, tools=None):
+            seen_payloads.append(messages[1]["content"])
+            return _Reply("fresh recap of the cold lines")
+
+    worker = HandoffWorker(_SpyLLM())
+    assert await worker.maybe_swap(ctx)
+    assert seen_payloads, "worker never called the llm"
+    assert "previous bridge prose" not in seen_payloads[0]
+    bridges = [m for m in ctx.messages() if m.get("role") == "system"]
+    assert len(bridges) == 1
+    assert "fresh recap" in bridges[0]["content"]

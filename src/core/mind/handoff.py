@@ -33,14 +33,14 @@ HANDOFF_SYSTEM = (
 HANDOFF_HEADER = "[EARLIER]"
 
 # frame scaffolding is orientation, not history: summarizing it bakes our own
-# headers into her memory as if they were things that happened
+# headers into her memory as if they were things that happened.
+# matched strictly: a user line that merely starts like scaffolding ("you are
+# on fire today") is history, not framing, and must survive into the recap.
 _SKIPPED_PREFIXES = (
     "[PERCEPTIONS",
     "[NEW INPUT",
     "[WHERE YOU ARE]",
     "[YOU WERE CUT OFF]",
-    "You are on ",
-    "[EARLIER]",
 )
 
 
@@ -113,7 +113,10 @@ class HandoffWorker:
             if not cold:
                 self._noop_until = time.time() + self.noop_retry_seconds
                 return ""
-            cold_text = format_turns([e.payload for e in cold])
+            cold_text = format_turns([
+                e.payload for e in cold
+                if not (isinstance(e.payload, dict) and e.payload.get("role") == "system")
+            ])
             if not cold_text.strip():
                 self._noop_until = time.time() + self.noop_retry_seconds
                 return ""
@@ -144,6 +147,25 @@ class HandoffWorker:
             self.running = False
 
 
+def _is_scaffolding(line: str, role: object) -> bool:
+    """True when a line is our own framing, not something that happened.
+
+    Bracketed frame headers never occur in genuine speech. Orientation lines
+    match the template (`you are on x in conversation y`), never a bare
+    prefix — `you are on fire today` is history. The `[EARLIER]`
+    header is scaffolding only on system bridge entries (or as the bare
+    header line); a user line continuing after it is theirs.
+    """
+    if line.startswith(_SKIPPED_PREFIXES):
+        return True
+    lowered = line.lower()
+    if lowered.startswith("you are on ") and "in conversation" in lowered:
+        return True
+    if role == "system" and line.startswith(HANDOFF_HEADER):
+        return True
+    return line == HANDOFF_HEADER
+
+
 def format_turns(messages: list) -> str:
     """Hot turns as speaker-labelled lines, verbatim, newest last.
 
@@ -157,11 +179,12 @@ def format_turns(messages: list) -> str:
         content = str(m.get("content") or "").strip()
         if not content:
             continue
+        role = m.get("role")
         for line in content.splitlines():
             stripped = line.strip()
-            if not stripped or stripped.startswith(_SKIPPED_PREFIXES):
+            if not stripped or _is_scaffolding(stripped, role):
                 continue
-            if m.get("role") == "assistant":
+            if role == "assistant":
                 lines.append(f"you: {stripped}")
             else:
                 lines.append(stripped)

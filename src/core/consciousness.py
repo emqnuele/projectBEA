@@ -645,10 +645,15 @@ class Consciousness:
             return ""
         return "[WHERE YOU ARE]\n" + "\n".join(seen.values())
 
-    def _dominant_identity(self, annotated: List[Tuple[Perception, float]]) -> str:
-        """Who she is mostly answering, for the follow-up gate's addressee."""
-        for p, _ in annotated:
-            if p.author is not None:
+    def _addressee_for(self, key: str) -> str:
+        """Who she was answering in this conversation.
+
+        A turn can answer several conversations at once; stamping every reply
+        with the batch-dominant author misattributes all but one and blinds
+        the follow-up gate on the rest.
+        """
+        for p in self._batch:
+            if p.author is not None and conversation_key(p) == key:
                 return p.author.identity
         return ""
 
@@ -864,13 +869,16 @@ class Consciousness:
         The perceptions go in as individual user entries tagged with their
         conversation keys; what she sent back goes in as assistant entries with
         the addressee she was answering — the follow-up gate reads exactly
-        this. Boilerplate and idle turns are not stored, saving budget.
+        this. Boilerplate, idle turns and her own system nudges are not
+        stored: a spontaneous poke is an instruction for this turn, not
+        someone speaking, and keeping it as a user line would let the room
+        stay "alive" on its own echoes.
         """
         try:
             now = time.time()
             for _, annotated in frames:
                 for p, _ in annotated:
-                    if p.kind is PerceptionKind.IDLE:
+                    if p.kind is PerceptionKind.IDLE or p.kind is PerceptionKind.SYSTEM:
                         continue
                     key = conversation_key(p)
                     author = p.author.identity if p.author else ""
@@ -879,8 +887,7 @@ class Consciousness:
             for sent in self._sent:
                 key = f"{sent['platform']}:{sent['channel']}"
                 self.sliding_window.append("assistant", sent["text"], key=key,
-                                           addressee=self._dominant_identity(
-                                               [(p, 0.0) for p in self._batch]))
+                                           addressee=self._addressee_for(key))
             if self._said and self._said.get("message"):
                 self.sliding_window.append("assistant", str(self._said["message"]),
                                            key="stage")
@@ -912,7 +919,7 @@ class Consciousness:
         if self.memory is None:
             return
         try:
-            addressee = self._dominant_identity([(p, 0.0) for p in self._batch])
+            addressee = self._addressee_for(key)
             self.memory.conversations.add(
                 conversation_key=key, role="bea", content=text,
                 platform=platform, channel_id=channel, display_name="bea",

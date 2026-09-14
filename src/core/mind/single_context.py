@@ -30,18 +30,29 @@ SWAP_OVERLAP_TOKENS = 5_000
 
 
 class SingleContext:
-    """Versioned, token-budgeted, append-only context log."""
+    """Versioned, token-budgeted, append-only context log.
+
+    Single-threaded by contract: every `append` and every swap runs on the
+    event loop thread, so the synchronous swap is atomic and no lock is
+    needed. Never append from a surface callback or worker thread — a
+    threaded write racing a swap would be silently lost.
+    """
 
     def __init__(self, budget: Optional[TokenBudget] = None, *, hot_tokens: int = 30_000,
                  hot_seconds: float = 1800.0):
         self.budget = budget or TokenBudget()
-        self.hot_tokens = max(1_000, int(hot_tokens))
+        # the hot present can never exceed the ceiling: promising more verbatim
+        # than fits forces the swap to silently drop the present it just kept
+        self.hot_tokens = min(max(1_000, int(hot_tokens)), max(1_000, self.budget.max_tokens))
         self.hot_seconds = max(60.0, float(hot_seconds))
         self.version = 0
         self._entries: List[BudgetEntry] = []
         # running total: total_tokens is o(1), never a scan per append
         self._total = 0
         self._next_seq = 1
+        # tokens dropped by the emergency valve without ever being summarized:
+        # cumulative, so unsummarized amnesia stays auditable from status()
+        self.evicted_tokens = 0
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -104,10 +115,12 @@ class SingleContext:
             payload = e.payload if isinstance(e.payload, dict) else {}
             if payload.get("role") != "system":
                 self._total -= e.tokens
+                self.evicted_tokens += e.tokens
                 del self._entries[i]
                 return
         oldest = self._entries.pop(0)
         self._total -= oldest.tokens
+        self.evicted_tokens += oldest.tokens
 
     # --- reading ----------------------------------------------------------
 
@@ -127,6 +140,7 @@ class SingleContext:
             "target_tokens": self.budget.target_tokens,
             "needs_handoff": self.budget.needs_handoff(total),
             "over_max": self.budget.over_max(total),
+            "valve_evicted_tokens": self.evicted_tokens,
         }
 
     def messages(self, key: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -239,12 +253,16 @@ class SingleContext:
         mid-swap and no lock can block it.
         """
         _ = now
-        carried = list(hot)
-        seen_ids = {id(e) for e in carried}
+        # old continuity bridges never travel verbatim: the past they carry is
+        # already chained through the worker's prose, so keeping them would
+        # stack a bridge per swap and burn budget on stale recap
+        carried = [e for e in hot
+                   if not (isinstance(e.payload, dict) and e.payload.get("role") == "system")]
+        seen_seqs = {e.seq for e in carried}
         fresh: List[BudgetEntry] = []
         for e in incoming or []:
-            if id(e) not in seen_ids:
-                seen_ids.add(id(e))
+            if e.seq not in seen_seqs:
+                seen_seqs.add(e.seq)
                 fresh.append(e)
         prose_tokens = estimate_tokens(handoff_text) + MESSAGE_OVERHEAD_TOKENS if handoff_text else 0
         combined = carried + fresh
@@ -261,8 +279,8 @@ class SingleContext:
             total_combined -= combined.pop(0).tokens
         # how many hot entries survived the trim (combined pops from the front,
         # so hot goes first and fresh survives longest)
-        kept_ids = {id(e) for e in combined}
-        kept_hot = sum(1 for e in carried if id(e) in kept_ids)
+        kept_seqs = {e.seq for e in combined}
+        kept_hot = sum(1 for e in carried if e.seq in kept_seqs)
         new_entries: List[BudgetEntry] = []
         if handoff_text:
             new_entries.append(BudgetEntry(

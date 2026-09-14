@@ -64,7 +64,7 @@ def truncate_to_budget(text: str, max_tokens: int) -> str:
         return text
 
     # Fast path: cap by chars first to avoid O(N log N) encoding of multi-MB pastes
-    max_chars = max_tokens * 8
+    max_chars = max_tokens * 4
     if len(text) > max_chars:
         text = text[:max_chars]
     marker = "[...truncated to the context ceiling]"
