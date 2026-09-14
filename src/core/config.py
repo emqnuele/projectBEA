@@ -30,6 +30,11 @@ SECRET_ENV_VARS: Dict[str, str] = {
     "openrouter_key": "OPENROUTER_API_KEY",
     "openai_key": "OPENAI_API_KEY",
     "groq_key": "GROQ_API_KEY",
+    "google_key": "GOOGLE_API_KEY",
+    "claude_key": "ANTHROPIC_API_KEY",
+    "openai_compat_key": "OPENAI_COMPAT_API_KEY",
+    "anthropic_compat_key": "ANTHROPIC_COMPAT_API_KEY",
+    "local_key": "LOCAL_API_KEY",
     "orpheus_key": "ORPHEUS_API_KEY",
     "orpheus_endpoint": "ORPHEUS_ENDPOINT",
     "discord.token": "DISCORD_TOKEN",
@@ -61,7 +66,7 @@ class BrainConfig:
     soul_path: str = "data/prompts/soul.md"  # shared persona, prepended to every context
     system_prompt_path: str = "data/prompts/chat.md"  # deprecated: fallback when operating manual is absent
     operating_prompt_path: str = "data/prompts/operating.md"  # unified operating manual (speak tool, moods, perception)
-    llm_provider: str = "openrouter" # openrouter, openai, groq
+    llm_provider: str = "openrouter" # openrouter, openai, groq, google, claude, openai_compat, anthropic_compat, local
 
     # openrouter (routes to virtually any model via one openai-compatible endpoint)
     openrouter_key: Optional[str] = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
@@ -74,6 +79,33 @@ class BrainConfig:
     # groq
     groq_key: Optional[str] = field(default_factory=lambda: os.getenv("GROQ_API_KEY"))
     groq_model: str = "openai/gpt-oss-20b"
+
+    # google ai studio (gemini through its openai-compatible endpoint)
+    google_key: Optional[str] = field(default_factory=lambda: os.getenv("GOOGLE_API_KEY"))
+    google_model: str = "gemini-3.8-flash"
+
+    # claude (anthropic messages api)
+    claude_key: Optional[str] = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY"))
+    claude_model: str = "claude-sonnet-5"
+
+    # any self-hosted openai-compatible server. chat completions is the
+    # universal default; flip openai_compat_api when the endpoint speaks
+    # the responses protocol instead
+    openai_compat_key: Optional[str] = field(default_factory=lambda: os.getenv("OPENAI_COMPAT_API_KEY"))
+    openai_compat_base_url: str = field(default_factory=lambda: os.getenv("OPENAI_COMPAT_BASE_URL", ""))
+    openai_compat_model: str = ""
+    openai_compat_api: str = "chat" # chat or responses
+
+    # any anthropic-compatible endpoint
+    anthropic_compat_key: Optional[str] = field(default_factory=lambda: os.getenv("ANTHROPIC_COMPAT_API_KEY"))
+    anthropic_compat_base_url: str = field(default_factory=lambda: os.getenv("ANTHROPIC_COMPAT_BASE_URL", ""))
+    anthropic_compat_model: str = ""
+
+    # the models on this machine (ollama, lm studio): no key, no account,
+    # nothing leaves the room. point the url at lm studio to switch runners
+    local_key: Optional[str] = field(default_factory=lambda: os.getenv("LOCAL_API_KEY"))
+    local_base_url: str = field(default_factory=lambda: os.getenv("LOCAL_BASE_URL", "http://localhost:11434/v1"))
+    local_model: str = "qwen3:8b"
 
     obs_text_source: Optional[str] = "AIText"
     obs_avatar_source: str = "BeaPNG"
@@ -308,7 +340,9 @@ class BrainConfig:
         self.load_from_file()
 
     # secret keys
-    SECRET_KEYS = ["openrouter_key", "openai_key", "groq_key", "orpheus_key", "orpheus_endpoint"]
+    SECRET_KEYS = ["openrouter_key", "openai_key", "groq_key", "google_key", "claude_key",
+                   "openai_compat_key", "anthropic_compat_key", "local_key",
+                   "orpheus_key", "orpheus_endpoint"]
 
     def load_from_file(self):
         """Loads configuration from config.json if it exists."""

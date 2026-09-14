@@ -9,7 +9,7 @@ than failing.
 import pytest
 
 from src.core.agent.types import AssistantMessage
-from src.modules.llm.openai_compat import OpenAICompatibleClient
+from src.modules.llm.base import AsyncLLMClient
 from src.modules.llm.reasoning import ReasoningStyle, style_for
 
 # --- the translation, per provider -------------------------------------------
@@ -17,32 +17,51 @@ from src.modules.llm.reasoning import ReasoningStyle, style_for
 
 def test_openrouter_is_told_to_switch_reasoning_off():
     style = style_for("openrouter", "off")
-    assert style.extra_body == {"reasoning": {"enabled": False}}
+    assert style.extra_body == {"reasoning": {"effort": "minimal"}}
     assert style.optional_keys == ("reasoning",)
 
 
 def test_openrouter_low_asks_for_the_cheapest_reasoning():
     style = style_for("openrouter", "low")
-    assert style.extra_body == {"reasoning": {"effort": "low", "exclude": True}}
+    assert style.extra_body == {"reasoning": {"effort": "low"}}
 
 
-def test_groq_hides_the_reasoning_it_cannot_switch_off():
+def test_groq_hides_behind_the_same_effort_object():
     style = style_for("groq", "off")
-    assert style.extra_body["reasoning_format"] == "hidden"
-    assert style.extra_body["reasoning_effort"] == "none"
+    assert style.extra_body == {"reasoning": {"effort": "minimal"}}
 
 
 def test_groq_low_keeps_the_effort_minimal():
     style = style_for("groq", "low")
-    assert style.extra_body["reasoning_effort"] == "low"
+    assert style.extra_body["reasoning"] == {"effort": "low"}
 
 
-def test_openai_uses_its_own_field():
-    assert style_for("openai", "low").extra_body == {"reasoning_effort": "low"}
+def test_openai_direct_uses_the_responses_shape():
+    assert style_for("openai", "low").extra_body == {"reasoning": {"effort": "low"}}
+
+
+def test_chat_shaped_providers_keep_their_own_field():
+    assert style_for("openai_compat", "low").extra_body == {"reasoning_effort": "low"}
+    assert style_for("openai_compat", "off").extra_body == {"reasoning_effort": "minimal"}
+
+
+def test_local_off_really_switches_thinking_off():
+    """ollama clamps minimal to low: only none stops a local thinker."""
+    style = style_for("local", "off")
+    assert style.extra_body == {"reasoning_effort": "none"}
+    assert style.optional_keys == ("reasoning_effort",)
+    assert style_for("local", "low").extra_body == {"reasoning_effort": "low"}
+
+
+def test_google_and_claude_get_no_reasoning_hint():
+    """Their endpoints document no equivalent: guessing turns calls into 400s."""
+    assert style_for("google", "off").extra_body == {}
+    assert style_for("claude", "off").extra_body == {}
+    assert style_for("anthropic_compat", "low").extra_body == {}
 
 
 def test_auto_means_do_not_interfere():
-    for provider in ("openrouter", "groq", "openai"):
+    for provider in ("openrouter", "groq", "openai", "local", "google", "claude"):
         style = style_for(provider, "auto")
         assert style.extra_body == {}
         assert style.optional_keys == ()
@@ -56,71 +75,121 @@ def test_an_unknown_level_falls_back_to_auto():
     assert style_for("openrouter", "banana").extra_body == {}
 
 
-# --- what actually reaches the sdk -------------------------------------------
+# --- what actually reaches the wire -------------------------------------------
 
 
-class FakeCompletions:
-    def __init__(self, fail_times: int = 0):
-        self.calls = []
-        self.fail_times = fail_times
+class FakeContent:
+    def __init__(self, lines):
+        self._lines = lines
 
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        if self.fail_times > 0:
-            self.fail_times -= 1
-            raise RuntimeError("Unrecognized request argument supplied: reasoning")
-        return _reply("ciao")
+    def __aiter__(self):
+        async def gen():
+            for line in self._lines:
+                yield (line + "\n").encode()
+        return gen()
 
 
-class FakeSDK:
-    def __init__(self, fail_times: int = 0):
-        self.chat = type("Chat", (), {})()
-        self.chat.completions = FakeCompletions(fail_times)
+class FakeResponse:
+    def __init__(self, status=200, payload=None):
+        self.status = status
+        self._payload = payload
+        self.content = FakeContent([])
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def text(self):
+        import json as _json
+
+        return _json.dumps(self._payload) if self._payload is not None else ""
+
+
+class FakeSession:
+    posts = []
+
+    def __init__(self, shared):
+        self._shared = shared
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def post(self, url, headers=None, json=None):
+        FakeSession.posts.append(json)
+        if len(self._shared) > 1:
+            return self._shared.pop(0)
+        return self._shared[0]
+
+
+def serve(monkeypatch, *responses):
+    import aiohttp
+
+    FakeSession.posts = []
+    shared = list(responses)
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: FakeSession(shared))
 
 
 def _reply(text: str):
-    message = type("Msg", (), {"content": text, "tool_calls": None})()
-    choice = type("Choice", (), {"message": message})()
-    return type("Response", (), {"choices": [choice], "usage": None})()
+    return {"id": "resp_1", "status": "completed",
+            "output": [{"type": "message",
+                        "content": [{"type": "output_text", "text": text}]}],
+            "usage": {"input_tokens": 1, "output_tokens": 1}}
 
 
-def client(style: ReasoningStyle, fail_times: int = 0) -> OpenAICompatibleClient:
-    sdk = FakeSDK(fail_times)
-    return OpenAICompatibleClient(sdk, "a/model", reasoning=style)
+def client(monkeypatch, style: ReasoningStyle, fail_times: int = 0) -> AsyncLLMClient:
+    from src.modules.llm.responses import ResponsesClient
+
+    refused = FakeResponse(status=400, payload={"error": {"message": "reasoning refused"}})
+    serve(monkeypatch, *([refused] * fail_times), FakeResponse(payload=_reply("ciao")))
+    return ResponsesClient(base_url="https://x/v1", model_name="a/model", reasoning=style)
 
 
-async def test_the_reasoning_fields_travel_with_every_call():
-    c = client(style_for("openrouter", "off"))
+async def test_the_reasoning_fields_travel_with_every_call(monkeypatch):
+    c = client(monkeypatch, style_for("openrouter", "off"))
     await c.complete([{"role": "user", "content": "ciao"}])
-    assert c.client.chat.completions.calls[0]["extra_body"] == {"reasoning": {"enabled": False}}
+    assert FakeSession.posts[0]["reasoning"] == {"effort": "minimal"}
 
 
-async def test_a_model_that_refuses_them_is_retried_without():
-    c = client(style_for("openrouter", "off"), fail_times=1)
+async def test_a_model_that_refuses_them_is_retried_without(monkeypatch):
+    c = client(monkeypatch, style_for("openrouter", "off"), fail_times=1)
     reply = await c.complete([{"role": "user", "content": "ciao"}])
-    calls = c.client.chat.completions.calls
-    assert len(calls) == 2
-    assert "extra_body" not in calls[1] or not calls[1]["extra_body"]
+    assert len(FakeSession.posts) == 2
+    assert "reasoning" not in FakeSession.posts[1]
     assert isinstance(reply, AssistantMessage)
     assert reply.content == "ciao"
 
 
-async def test_a_real_failure_is_not_swallowed():
-    c = client(style_for("openrouter", "off"), fail_times=2)
+async def test_a_real_failure_is_not_swallowed(monkeypatch):
+    c = client(monkeypatch, style_for("openrouter", "off"), fail_times=2)
     with pytest.raises(RuntimeError):
         await c.complete([{"role": "user", "content": "ciao"}])
 
 
-async def test_without_a_style_nothing_extra_is_sent():
-    c = OpenAICompatibleClient(FakeSDK(), "a/model")
+async def test_without_a_style_nothing_extra_is_sent(monkeypatch):
+    from src.modules.llm.responses import ResponsesClient
+
+    serve(monkeypatch, FakeResponse(payload=_reply("ciao")))
+    c = ResponsesClient(base_url="https://x/v1", model_name="a/model")
     await c.complete([{"role": "user", "content": "ciao"}])
-    assert not c.client.chat.completions.calls[0].get("extra_body")
+    assert "reasoning" not in FakeSession.posts[0]
 
 
-def test_the_legacy_json_path_carries_it_too():
-    c = client(style_for("groq", "off"))
-    c.generate_json("ciao")
-    assert c.client.chat.completions.calls[0]["extra_body"]["reasoning_format"] == "hidden"
+def test_the_legacy_json_path_carries_it_too(monkeypatch):
+    from src.modules.llm.chat import ChatCompletionsClient
+
+    serve(monkeypatch, FakeResponse(payload={
+        "choices": [{"message": {"content": '{"a": 1}'}}], "usage": {}}))
+    c = ChatCompletionsClient(base_url="https://x/v1", model_name="a/model",
+                              reasoning=style_for("local", "off"))
+    import asyncio
+
+    asyncio.run(c.complete_json("ciao"))
+    assert FakeSession.posts[0]["reasoning_effort"] == "none"
 
 
 # --- the factory reads it from config ----------------------------------------
@@ -146,7 +215,7 @@ def test_a_built_client_carries_the_configured_style():
     from src.modules.llm.factory import build_client
 
     c = build_client("openrouter", "a/model", Config(reasoning="off"))
-    assert c.reasoning.extra_body == {"reasoning": {"enabled": False}}
+    assert c.reasoning.extra_body == {"reasoning": {"effort": "minimal"}}
 
 
 def test_auto_builds_a_client_that_asks_for_nothing():

@@ -92,7 +92,7 @@ makes her behaviour testable. Keep them that way.
 
 | What | How |
 |---|---|
-| **A new LLM provider** | Extend `OpenAICompatibleClient`, add it to `_PROVIDERS` and `build_client()` in `src/modules/llm/factory.py` |
+| **A new LLM provider** | One row in `src/modules/llm/providers.py` if it speaks Responses, Chat Completions or Anthropic Messages — plus its config fields, CLI flags and wizard entry |
 | **A new TTS engine** | Implement `TTSInterface`, add the branch and the CLI choice in `src/cli.py` |
 | **A new skill** | Extend `Skill`, register it in `AIVtuberBrain._build_consciousness()` |
 | **A new text platform** | Extend `PlatformSkill`, and the roster, person cards, attention gate and scoped conversations then work with no extra code |

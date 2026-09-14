@@ -74,7 +74,9 @@ if you have Make. Every `make` target here is one `uv run` command underneath, s
 nothing needs Make: Windows in particular does not ship it.
 
 > [!NOTE]
-> She needs an API key from OpenRouter, OpenAI or Groq.
+> No API key needed: she runs on local models, on your own machine
+> ([below](#she-runs-on-your-machine-too)). A key from OpenRouter, OpenAI,
+> Groq, Google AI Studio or Claude gets you bigger models instead.
 
 ---
 
@@ -345,7 +347,7 @@ touching the core.
 
 | Component | Interface | Implementations |
 |---|---|---|
-| **LLM** | `LLMClient` (tool-aware) | OpenRouter, OpenAI, Groq |
+| **LLM** | `LLMClient` (tool-aware) | OpenRouter, OpenAI, Groq, Google AI Studio, Claude, any OpenAI- or Anthropic-compatible endpoint, local models (Ollama / LM Studio) |
 | **TTS** | `TTSInterface` | EdgeTTS (free), Kokoro (local ONNX), Orpheus (API) |
 | **STT** | `STTInterface` | Local Whisper (faster-whisper), Groq, OpenRouter |
 | **Avatar** | `AvatarInterface` | Images (OBS), 3D model (VRM), VTube Studio |
@@ -359,6 +361,26 @@ provider is down. Hot reload is built in: change models, voices or settings at
 runtime, without a restart.
 
 **[LLM →](docs/modules/llm.md)** · **[TTS →](docs/modules/tts.md)** · **[STT →](docs/modules/stt.md)** · **[Avatar →](docs/modules/avatar.md)** · **[OBS →](docs/modules/obs.md)**
+
+---
+
+## She runs on your machine too
+
+No key, no account, no bill — and nothing you say leaves the room. She thinks
+on local models through Ollama or LM Studio, voice and memory already run
+locally, so the whole of her can live on your hardware.
+
+```bash
+ollama pull qwen3:8b
+```
+
+Pick **Local models** in the setup, and that is the whole configuration. Her
+mind and her background are separate pools, so give the talking to a capable
+model and the diary, the dreamer and the Minecraft body to a small one — or
+mix a local model with a cloud key, and the pool falls over when the laptop
+sleeps.
+
+**[Local setup →](docs/setup.md#7c-local-models-optional-and-the-interesting-one)**
 
 ---
 
@@ -416,8 +438,12 @@ Or by hand, copy `.env.example` to `.env`:
 OPENROUTER_API_KEY=sk-or-...
 OPENAI_API_KEY=sk-...
 GROQ_API_KEY=gsk_...
+GOOGLE_API_KEY=AIza...
+ANTHROPIC_API_KEY=sk-ant-...
 DISCORD_TOKEN=...
 ```
+
+Local models need no key at all — see [above](#she-runs-on-your-machine-too).
 
 Then review `config.json` for your OBS source names, audio device, TTS voice and
 which skills are enabled.
@@ -456,7 +482,7 @@ The plugin API is a base class and a registry.
 
 | What | How |
 |---|---|
-| **A new LLM provider** | Extend `OpenAICompatibleClient`, add it to `_PROVIDERS` and `build_client()` |
+| **A new LLM provider** | One row in `src/modules/llm/providers.py` if it speaks Responses, Chat Completions or Anthropic Messages |
 | **A new TTS engine** | Implement `TTSInterface`, add the branch and the CLI choice in `src/cli.py` |
 | **A new skill** | Extend `Skill`, register it in `AIVtuberBrain._build_consciousness()` |
 | **A new text platform** | Extend `PlatformSkill`, and the roster, person cards, attention gate and scoped conversations come for free |

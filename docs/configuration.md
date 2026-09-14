@@ -49,6 +49,15 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "openrouter_model": "deepseek/deepseek-v4-flash",
     "openai_model": "gpt-5",
     "groq_model": "openai/gpt-oss-20b",
+    "google_model": "gemini-3.8-flash",
+    "claude_model": "claude-sonnet-5",
+    "openai_compat_base_url": "",
+    "openai_compat_model": "",
+    "openai_compat_api": "chat",
+    "anthropic_compat_base_url": "",
+    "anthropic_compat_model": "",
+    "local_base_url": "http://localhost:11434/v1",
+    "local_model": "qwen3:8b",
     "obs_text_source": "AIText",
     "obs_avatar_source": "BeaPNG",
     "obs_source_type": "image",
@@ -234,7 +243,12 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
 | `soul_path` | `data/prompts/soul.md` | Who she is. Prepended to every context, never edited by the engine |
 | `operating_prompt_path` | `data/prompts/operating.md` | How she exists: the `speak` tool, the moods, what she notices |
 | `system_prompt_path` | `data/prompts/chat.md` | Deprecated. Only used if the operating manual is missing |
-| `llm_provider` | `"openrouter"` | Only used when `models` has no pool for a role |
+| `llm_provider` | `"openrouter"` | Only used when `models` has no pool for a role. One of `openrouter`, `openai`, `groq`, `google`, `claude`, `openai_compat`, `anthropic_compat`, `local` |
+| `openai_compat_base_url` / `anthropic_compat_base_url` | `""` | Your endpoint, ending in `/v1`. Empty means the provider cannot build and the pool skips it with a warning |
+| `openai_compat_model` / `anthropic_compat_model` | `""` | The model id your endpoint serves — only you know it |
+| `openai_compat_api` | `"chat"` | `chat` or `responses`. Flip it when your endpoint speaks the Responses protocol |
+| `local_base_url` | `"http://localhost:11434/v1"` | Ollama's address. LM Studio answers at `http://localhost:1234/v1` |
+| `local_model` | `"qwen3:8b"` | Any model the runner serves. Every model in `mind` must support tool calling |
 
 ---
 
@@ -481,6 +495,11 @@ everywhere.
 | Variable | Used for |
 |---|---|
 | `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `GROQ_API_KEY` | LLM providers, and STT for Groq / OpenRouter |
+| `GOOGLE_API_KEY` | Google AI Studio (Gemini) |
+| `ANTHROPIC_API_KEY` | Claude, called directly |
+| `OPENAI_COMPAT_API_KEY` / `OPENAI_COMPAT_BASE_URL` | A custom OpenAI-protocol endpoint. The key is optional — many local servers want none |
+| `ANTHROPIC_COMPAT_API_KEY` / `ANTHROPIC_COMPAT_BASE_URL` | A custom Messages-protocol endpoint, same deal |
+| `LOCAL_API_KEY` / `LOCAL_BASE_URL` | Local models. No key and the Ollama address by default; point the URL at LM Studio to switch runners |
 | `ORPHEUS_API_KEY` / `ORPHEUS_ENDPOINT` | Orpheus TTS |
 | `DISCORD_TOKEN` | The Discord bot |
 | `DISCORD_ADMIN_ID` | Fallback for `skills.discord.admin_id` |
@@ -505,8 +524,11 @@ uv run bea --web --llm-provider openrouter --tts-provider kokoro --device-id 22
 |---|---|
 | `--web` | Serve the dashboard instead of the terminal loop |
 | `--host` / `--port` | Default `127.0.0.1:8000`. See below before changing the host |
-| `--llm-provider` | `openrouter`, `openai`, `groq`. Only affects the legacy single-model path |
-| `--openrouter-key` / `--openrouter-model` | and the same pair for `--openai-*` and `--groq-*` |
+| `--llm-provider` | `openrouter`, `openai`, `groq`, `google`, `claude`, `openai_compat`, `anthropic_compat`, `local`. Only affects the legacy single-model path |
+| `--openrouter-key` / `--openrouter-model` | and the same pair for `--openai-*`, `--groq-*`, `--google-*` and `--claude-*` |
+| `--openai-compat-key` / `--openai-compat-base-url` / `--openai-compat-model` / `--openai-compat-api` | the custom OpenAI-protocol endpoint |
+| `--anthropic-compat-key` / `--anthropic-compat-base-url` / `--anthropic-compat-model` | the custom Messages-protocol endpoint |
+| `--local-key` / `--local-base-url` / `--local-model` | the models on this machine |
 | `--stt-provider` / `--stt-model` | `faster_whisper`, `groq` or `openrouter` |
 | `--tts-provider` / `--tts-voice` | `edge`, `kokoro`, `orpheus` |
 | `--orpheus-key` / `--orpheus-endpoint` / `--orpheus-voice` | |

@@ -5,12 +5,9 @@ second late, and it runs on text that is, by definition, malformed — a JSON
 object with no closing brace. Every case here is a way that text can be cut.
 """
 
-from types import SimpleNamespace
-
 import pytest
 
 from src.core.agent.streaming import JsonFieldStream, SpokenCall, spoken_call
-from src.modules.llm.openai_compat import OpenAICompatibleClient
 
 
 def drip(raw: str, field: str = "message", size: int = 1) -> str:
@@ -127,41 +124,105 @@ def test_the_speaking_tool_is_watched():
 
 # --- what the provider hands over --------------------------------------------
 #
-# The sdk yields chunks, not a response, and a tool call arrives spread across
-# them: the name in one, the arguments a few characters at a time in the rest.
+# The wire yields SSE blocks, not a response, and a tool call arrives spread
+# across them: the name in one, the arguments a few characters at a time in
+# the rest.
 
 
-class Sdk:
-    """The smallest thing that looks like the sdk's streaming iterator."""
+class FakeContent:
+    def __init__(self, lines):
+        self._lines = lines
 
-    def __init__(self, chunks, fail_with=None):
-        self.chunks = chunks
-        self.fail_with = fail_with
-        self.calls = []
-        self.chat = type("Chat", (), {"completions": self})()
+    def __aiter__(self):
+        async def gen():
+            for line in self._lines:
+                if isinstance(line, Exception):
+                    raise line
+                yield (line + "\n").encode()
+        return gen()
 
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        if self.fail_with and kwargs.get("stream"):
-            raise self.fail_with
-        if not kwargs.get("stream"):
-            return _whole_reply()
-        return iter(self.chunks)
+
+class FakeResponse:
+    def __init__(self, status=200, payload=None, lines=None):
+        self.status = status
+        self._payload = payload
+        self.content = FakeContent(lines or [])
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def text(self):
+        import json as _json
+
+        return _json.dumps(self._payload) if self._payload is not None else ""
+
+
+class FakeSession:
+    posts = []
+
+    def __init__(self, shared):
+        self._shared = shared
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def post(self, url, headers=None, json=None):
+        FakeSession.posts.append(json)
+        # the last response repeats: a test that only cares about the request
+        # shapes must not run the queue dry on its fallback calls
+        if len(self._shared) > 1:
+            return self._shared.pop(0)
+        return self._shared[0]
+
+
+def serve(monkeypatch, *responses):
+    import aiohttp
+
+    FakeSession.posts = []
+    shared = list(responses)
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: FakeSession(shared))
+
+
+def sse(doc):
+    import json as _json
+
+    return f"data: {_json.dumps(doc)}"
 
 
 def _part(index=0, call_id=None, name=None, arguments=None):
-    function = SimpleNamespace(name=name, arguments=arguments)
-    return SimpleNamespace(index=index, id=call_id, function=function)
+    part = {"index": index}
+    if call_id is not None:
+        part["id"] = call_id
+    function = {}
+    if name is not None:
+        function["name"] = name
+    if arguments is not None:
+        function["arguments"] = arguments
+    part["function"] = function
+    return part
 
 
 def _chunk(*parts, content=None, usage=None):
-    delta = SimpleNamespace(content=content, tool_calls=list(parts) or None)
-    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=usage)
+    delta = {}
+    if content is not None:
+        delta["content"] = content
+    if parts:
+        delta["tool_calls"] = list(parts)
+    doc = {"choices": [{"delta": delta}]}
+    if usage is not None:
+        doc["usage"] = usage
+    return sse(doc)
 
 
 def _whole_reply():
-    message = SimpleNamespace(content="said all at once", tool_calls=None)
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+    return {"choices": [{"message": {"content": "said all at once"}}],
+            "usage": None}
 
 
 def _writes(text: str, size: int = 5):
@@ -171,14 +232,26 @@ def _writes(text: str, size: int = 5):
         yield _chunk(_part(arguments=text[start:start + size]))
 
 
-def client(chunks, fail_with=None) -> OpenAICompatibleClient:
-    return OpenAICompatibleClient(Sdk(list(chunks), fail_with), "a/model")
+def client(monkeypatch, chunks, fail_with=None):
+    from src.modules.llm.chat import ChatCompletionsClient
+
+    chunks = list(chunks)
+    if fail_with is not None:
+        serve(monkeypatch,
+              FakeResponse(status=400, payload={"error": {"message": str(fail_with)}}),
+              FakeResponse(payload=_whole_reply()))
+    elif chunks:
+        serve(monkeypatch, FakeResponse(lines=chunks),
+              FakeResponse(payload=_whole_reply()))
+    else:
+        serve(monkeypatch, FakeResponse(payload=_whole_reply()))
+    return ChatCompletionsClient(base_url="https://x/v1", model_name="a/model")
 
 
-async def test_the_arguments_are_handed_over_as_they_are_written():
+async def test_the_arguments_are_handed_over_as_they_are_written(monkeypatch):
     raw = '{"mood": "happy", "message": "ciao a tutti quanti"}'
     seen = []
-    reply = await client(_writes(raw)).stream_complete(
+    reply = await client(monkeypatch, _writes(raw)).stream_complete(
         [], tools=[{}], on_tool_delta=lambda index, name, delta: seen.append((index, name, delta)))
 
     assert {name for _, name, _ in seen} == {"speak"}
@@ -186,114 +259,121 @@ async def test_the_arguments_are_handed_over_as_they_are_written():
     assert reply.tool_calls[0].arguments == {"mood": "happy", "message": "ciao a tutti quanti"}
 
 
-async def test_the_response_is_the_same_one_a_plain_call_would_have_given():
+async def test_the_response_is_the_same_one_a_plain_call_would_have_given(monkeypatch):
     raw = '{"mood": "angry", "message": "ma tu guarda"}'
-    reply = await client(_writes(raw)).stream_complete([], tools=[{}], on_tool_delta=lambda *_: None)
+    reply = await client(monkeypatch, _writes(raw)).stream_complete(
+        [], tools=[{}], on_tool_delta=lambda *_: None)
 
     call = reply.tool_calls[0]
     assert (call.id, call.name) == ("c1", "speak")
     assert call.arguments["message"] == "ma tu guarda"
 
 
-async def test_nothing_is_handed_over_before_the_tool_has_a_name():
+async def test_nothing_is_handed_over_before_the_tool_has_a_name(monkeypatch):
     """Characters with nobody to attribute them to are held, never dropped."""
     seen = []
-    chunks = [_chunk(_part(arguments='{"mood": "happy"')),
-              _chunk(_part(call_id="c1", name="speak", arguments=', "message": "ok"}'))]
-    await client(chunks).stream_complete(
+    chunks = [sse({"choices": [{"delta": {"tool_calls": [
+        {"index": 0, "function": {"arguments": '{"mood": "happy"'}}]}}]}),
+        sse({"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "c1", "function": {
+                "name": "speak", "arguments": ', "message": "ok"}'}}]}}]})]
+    await client(monkeypatch, chunks).stream_complete(
         [], tools=[{}], on_tool_delta=lambda index, name, delta: seen.append((index, name, delta)))
 
     assert seen == [(0, "speak", '{"mood": "happy", "message": "ok"}')]
 
 
-async def test_two_tool_calls_at_once_stay_apart():
+async def test_two_tool_calls_at_once_stay_apart(monkeypatch):
     chunks = [
         _chunk(_part(index=0, call_id="a", name="speak", arguments='{"message": "ciao"}')),
         _chunk(_part(index=1, call_id="b", name="go_to_sleep", arguments="{}")),
     ]
     seen = []
-    reply = await client(chunks).stream_complete(
+    reply = await client(monkeypatch, chunks).stream_complete(
         [], tools=[{}], on_tool_delta=lambda index, name, delta: seen.append((index, name, delta)))
 
     assert seen == [(0, "speak", '{"message": "ciao"}'), (1, "go_to_sleep", "{}")]
     assert [c.name for c in reply.tool_calls] == ["speak", "go_to_sleep"]
 
 
-async def test_free_text_alongside_a_tool_call_still_arrives():
+async def test_free_text_alongside_a_tool_call_still_arrives(monkeypatch):
     chunks = [_chunk(content="thinking out loud"),
               _chunk(_part(call_id="c1", name="speak", arguments='{"message": "ok"}'))]
-    reply = await client(chunks).stream_complete([], tools=[{}], on_tool_delta=lambda *_: None)
+    reply = await client(monkeypatch, chunks).stream_complete(
+        [], tools=[{}], on_tool_delta=lambda *_: None)
     assert reply.content == "thinking out loud"
 
 
-async def test_the_token_counts_come_off_the_last_chunk():
-    usage = SimpleNamespace(prompt_tokens=120, completion_tokens=8,
-                            prompt_tokens_details=SimpleNamespace(cached_tokens=96))
+async def test_the_token_counts_come_off_the_last_chunk(monkeypatch):
+    usage = {"prompt_tokens": 120, "completion_tokens": 8,
+             "prompt_tokens_details": {"cached_tokens": 96}}
     chunks = list(_writes('{"message": "ok"}')) + [_chunk(usage=usage)]
-    reply = await client(chunks).stream_complete([], tools=[{}], on_tool_delta=lambda *_: None)
+    reply = await client(monkeypatch, chunks).stream_complete(
+        [], tools=[{}], on_tool_delta=lambda *_: None)
 
     assert reply.usage.prompt_tokens == 120
     assert reply.usage.cached_tokens == 96
 
 
-async def test_arguments_that_never_parse_cost_the_arguments_and_not_the_turn():
+async def test_arguments_that_never_parse_cost_the_arguments_and_not_the_turn(monkeypatch):
     chunks = [_chunk(_part(call_id="c1", name="speak", arguments="{not json"))]
-    reply = await client(chunks).stream_complete([], tools=[{}], on_tool_delta=lambda *_: None)
+    reply = await client(monkeypatch, chunks).stream_complete(
+        [], tools=[{}], on_tool_delta=lambda *_: None)
     assert reply.tool_calls[0].arguments == {}
 
 
 # --- when speaking early cannot work -----------------------------------------
 
 
-async def test_a_listener_that_falls_over_costs_nothing_but_itself():
+async def test_a_listener_that_falls_over_costs_nothing_but_itself(monkeypatch):
     """Speaking early is an optimisation: it may never cost the turn."""
-    def explode(name, delta):
+    def explode(index, name, delta):
         raise RuntimeError("the engine fell over")
 
-    reply = await client(_writes('{"message": "ciao"}')).stream_complete(
+    reply = await client(monkeypatch, _writes('{"message": "ciao"}')).stream_complete(
         [], tools=[{}], on_tool_delta=explode)
     assert reply.tool_calls[0].arguments == {"message": "ciao"}
 
 
-async def test_a_provider_that_cannot_stream_falls_back_to_a_plain_call():
-    c = client([], fail_with=RuntimeError("stream_options is not supported"))
+async def test_a_provider_that_cannot_stream_falls_back_to_a_plain_call(monkeypatch):
+    c = client(monkeypatch, [], fail_with=RuntimeError("stream_options is not supported"))
     reply = await c.stream_complete([], on_tool_delta=lambda *_: None)
     assert reply.content == "said all at once"
 
 
-async def test_a_model_that_could_not_stream_is_not_asked_twice():
+async def test_a_model_that_could_not_stream_is_not_asked_twice(monkeypatch):
     """Otherwise every turn pays for the failed attempt and the real call."""
-    c = client([], fail_with=RuntimeError("no streaming here"))
+    c = client(monkeypatch, [], fail_with=RuntimeError("no streaming here"))
     await c.stream_complete([], on_tool_delta=lambda *_: None)
     await c.stream_complete([], on_tool_delta=lambda *_: None)
 
-    assert [k.get("stream", False) for k in c.client.calls] == [True, False, False]
+    assert [k.get("stream", False) for k in FakeSession.posts] == [True, False, False]
 
 
-async def test_a_different_model_is_given_its_own_chance():
-    c = client([], fail_with=RuntimeError("no streaming here"))
+async def test_a_different_model_is_given_its_own_chance(monkeypatch):
+    c = client(monkeypatch, [], fail_with=RuntimeError("no streaming here"))
     await c.stream_complete([], on_tool_delta=lambda *_: None)
     c.model_name = "another/model"
     await c.stream_complete([], on_tool_delta=lambda *_: None)
 
-    assert [k.get("stream", False) for k in c.client.calls].count(True) == 2
+    assert [k.get("stream", False) for k in FakeSession.posts].count(True) == 2
 
 
-async def test_a_failure_after_the_first_chunk_is_a_real_failure():
+async def test_a_failure_after_the_first_chunk_is_a_real_failure(monkeypatch):
     """Half a turn is not a turn: falling back would say the first half twice."""
-    def chunks():
-        yield _chunk(_part(call_id="c1", name="speak", arguments='{"message": "ci'))
-        raise RuntimeError("the connection dropped")
+    chunks = [_chunk(_part(call_id="c1", name="speak", arguments='{"message": "ci')),
+              RuntimeError("the connection dropped")]
 
     with pytest.raises(RuntimeError):
-        await client(chunks()).stream_complete([], tools=[{}], on_tool_delta=lambda *_: None)
+        await client(monkeypatch, chunks).stream_complete(
+            [], tools=[{}], on_tool_delta=lambda *_: None)
 
 
-async def test_with_nobody_listening_it_is_just_an_ordinary_call():
-    c = client([])
+async def test_with_nobody_listening_it_is_just_an_ordinary_call(monkeypatch):
+    c = client(monkeypatch, [])
     reply = await c.stream_complete([])
     assert reply.content == "said all at once"
-    assert not c.client.calls[0].get("stream")
+    assert not FakeSession.posts[0].get("stream")
 
 
 # --- characters that arrive as escapes ---------------------------------------
