@@ -2,9 +2,9 @@
 
 from src.core.mind.handoff import (
     build_handoff_payload,
-    empty_handoff,
+    format_turns,
+    normalize_handoff,
     render_handoff,
-    validate_handoff,
 )
 from src.core.mind.single_context import SingleContext
 from src.core.mind.token_budget import (
@@ -75,21 +75,27 @@ def test_perceptions_arriving_mid_handoff_are_not_lost():
 
 
 def test_a_broken_worker_reply_becomes_an_empty_bridge():
-    assert validate_handoff(None) == empty_handoff()
-    assert validate_handoff("nope") == empty_handoff()
-    full = validate_handoff({"identity": "bea", "facts": ["a", "b"], "bogus": 1})
-    assert full["identity"] == "bea"
-    assert full["facts"] == ["a", "b"]
-    assert "bogus" not in full
+    assert normalize_handoff(None) == ""
+    assert normalize_handoff("  you talked about food  ") == "you talked about food"
+    assert render_handoff("") == ""
+    assert render_handoff(None) == ""  # type: ignore[arg-type]
 
 
-def test_the_bridge_renders_as_the_next_window_header():
-    text = render_handoff({"identity": "bea", "facts": [], "open_loops": ["x"]})
-    assert text.startswith("[CONTINUITY FROM EARLIER]")
-    assert "open_loops: x" in text
+def test_the_bridge_renders_as_prose_under_a_header():
+    text = render_handoff("you talked about food for two hours.")
+    assert text.startswith("[EARLIER]")
+    assert "you talked about food" in text
 
 
-def test_the_previous_bridge_travels_with_the_cold_turns():
-    payload = build_handoff_payload("cold stuff", previous_handoff="bridge")
-    assert "PREVIOUS HANDOFF" in payload and "cold stuff" in payload
+def test_the_previous_recap_travels_with_the_cold_turns():
+    payload = build_handoff_payload("cold stuff", previous_handoff="old recap")
+    assert "PREVIOUS RECAP" in payload and "cold stuff" in payload
     assert build_handoff_payload("cold stuff") == "cold stuff"
+
+
+def test_hot_turns_stay_verbatim_with_speakers():
+    text = format_turns([
+        {"role": "user", "content": "[marco] ciao"},
+        {"role": "assistant", "content": "ei"},
+    ])
+    assert text == "[marco] ciao\nyou: ei"
