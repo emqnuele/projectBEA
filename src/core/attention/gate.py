@@ -86,6 +86,47 @@ class Attention:
         return float(self._cfg.get("interject_threshold", 0.45))
 
     @property
+    def mode(self) -> str:
+        """`gate` filters (react/note/drop); `annotate` keeps everything with a
+        priority for the one sliding window, where the model itself decides."""
+        return str(self._cfg.get("mode", "gate"))
+
+    def annotate(self, batch: List[Perception]) -> List[Tuple[Perception, float]]:
+        """Priority per perception, deterministic: no threshold, no dice.
+
+        Addressed and follow-up always 1.0; everything else is the raw score
+        clamped to [0, 1]. The single context then orders the frame by it
+        instead of dropping the quiet half of the room.
+        """
+        out: List[Tuple[Perception, float]] = []
+        for p in batch:
+            self._record_activity(p)
+            reason = is_addressed(
+                p, trigger_words=self.trigger_words, self_ids=self._cfg.get("self_ids", [])
+            )
+            if reason:
+                out.append((p, 1.0))
+                continue
+            if self._is_followup(p, self._key(p)):
+                out.append((p, 1.0))
+                continue
+            base = score(
+                salience=p.salience,
+                text=p.content,
+                author_known=self._author_known(p),
+                author_promoted=self._author_promoted(p),
+                donation=self._donation(p),
+                hot_names=self.hot_names,
+                seconds_since_spoke=self.seconds_since_spoke(self._key(p)),
+                recent_activity=self.activity(self._key(p)),
+                hour=self._hour(),
+                quiet=self.quiet_hours,
+                cooldown_seconds=self.cooldown_for(p),
+            )
+            out.append((p, max(0.0, min(1.0, base))))
+        return out
+
+    @property
     def cooldown(self) -> float:
         return float(self._cfg.get("cooldown_seconds", 20.0))
 

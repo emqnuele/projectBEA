@@ -52,6 +52,36 @@ ask about a thing someone left hanging, complain about your day.
 If nothing genuinely comes to mind, `say_nothing`. Posting for the sake of it is
 worse than staying quiet, and everyone can tell the difference."""
 
+# one rescue, not a loop: plain text is private thinking, so a text-only answer
+# means nobody heard her. Rather than staying mute, she gets told once.
+NO_TOOL_NUDGE = (
+    "[NOTICE — nobody saw your last message: plain text is private thinking. "
+    "Call reply/send_message now with your answer, or say_nothing if it needs none.]"
+)
+
+
+def place_header(key: str, incoming: List[Perception]) -> str:
+    """Deterministic self-awareness: where she is, with whom, on what.
+
+    A scoped turn used to carry no platform grounding at all, so the model had
+    to infer "telegram" from a key format — and sometimes concluded it had no
+    telegram while answering on it. Injected from code, not hoped from prose.
+    """
+    names = []
+    for p in incoming:
+        name = p.author.display_name if p.author else ""
+        if name and name not in names:
+            names.append(name)
+    who = ", ".join(names) if names else "someone"
+    platform = platform_of(key)
+    channel = channel_of(key) or "?"
+    return (
+        "[WHERE YOU ARE]\n"
+        f"You are on {platform} in conversation {channel} with {who}. "
+        f"Answer here with reply/send_message — you ARE on {platform}, "
+        "never claim otherwise."
+    )
+
 
 class ConversationMind:
     """Runs scoped conversation turns and remembers one line about each."""
@@ -156,16 +186,17 @@ class ConversationMind:
 
         context = await asyncio.to_thread(
             self._build_context, key, incoming, first, initiative, frame)
-        sent = await self._reason(key, context, tools)
+        sent = await self._reason(key, context, tools, expect_answer=bool(incoming))
 
         if sent:
             self._record_outgoing(key, sent, incoming)
         self._schedule_background(key, incoming)
 
     async def _reason(self, key: str, context: List[Dict[str, Any]],
-                      registry: ToolRegistry) -> List[str]:
+                      registry: ToolRegistry, expect_answer: bool = False) -> List[str]:
         schemas = registry.schemas() or None
         sent: List[str] = []
+        silent = False
 
         for _ in range(self.max_steps):
             assistant: AssistantMessage = await self.llm.complete(context, tools=schemas)
@@ -190,8 +221,34 @@ class ConversationMind:
                         sent.append(text)
                 if call.name in ("reply", "send_message", "say_nothing"):
                     terminal = True
+                    if call.name == "say_nothing":
+                        silent = True
             if terminal:
                 break
+
+        # text-only answer to a real message: nobody heard her, so one rescue
+        # with an explicit nudge instead of a mute turn
+        if expect_answer and not sent and not silent:
+            if self.events:
+                self.events.publish(EventCategory.SYSTEM, f"conversation:{key}",
+                                    "NO_TOOL_CALL: text-only answer, retrying once")
+            context.append({"role": "user", "content": NO_TOOL_NUDGE})
+            assistant = await self.llm.complete(context, tools=schemas)
+            context.append(_assistant_message(assistant))
+            if assistant.content and self.events:
+                self.events.publish(EventCategory.THOUGHT, f"conversation:{key}",
+                                    assistant.content)
+            for call in assistant.tool_calls:
+                if self.events:
+                    self.events.publish(EventCategory.TOOL, f"conversation:{key}",
+                                        f"{call.name}({call.arguments})")
+                observation = await registry.dispatch(call)
+                context.append({"role": "tool", "tool_call_id": call.id,
+                                "name": call.name, "content": observation})
+                if call.name in ("reply", "send_message"):
+                    text = str(call.arguments.get("text", "")).strip()
+                    if text and not observation.startswith("FAILED"):
+                        sent.append(text)
         return sent
 
     # --- context ------------------------------------------------------------
@@ -205,6 +262,7 @@ class ConversationMind:
             self._get_soul(),
             self._get_operating(),
             CONVERSATION_RULES,
+            place_header(key, incoming),
         ]
 
         feeling = self.affect.render() if self.affect else ""
@@ -316,7 +374,15 @@ class ConversationMind:
                          if p.meta.get("message_id")), None)
 
         registry = ToolRegistry()
+        platform = platform_of(key)
         for tool in skill.conversation_tools(channel, reply_to=reply_to):
+            # the destination rides in the description too: with the ids bound,
+            # the model still benefits from reading where "here" is
+            if tool.name in ("reply", "send_message"):
+                tool.description = (
+                    f"{tool.description} Destination: this {platform} "
+                    f"conversation ({channel})."
+                )
             registry.register(tool)
         if not len(registry):
             return None
@@ -448,4 +514,4 @@ def _clip(text: str, limit: int = 60) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-__all__ = ["ConversationMind", "Tool", "CONVERSATION_RULES"]
+__all__ = ["ConversationMind", "Tool", "CONVERSATION_RULES", "NO_TOOL_NUDGE", "place_header"]
