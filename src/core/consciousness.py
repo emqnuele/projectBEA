@@ -12,9 +12,12 @@ from src.core.events import EventCategory
 from src.core.expression.chunking import spoken_prefix
 from src.core.expression.live import LiveLine
 from src.core.mind.correlation import CorrelationRegistry
+from src.core.mind.handoff import HandoffWorker
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.core.mind.recap import SessionRecap
 from src.core.mind.routing import route
+from src.core.mind.single_context import SingleContext
+from src.core.mind.token_budget import TokenBudget
 from src.core.mind.tools import MindTools
 from src.core.mind.turnlog import TurnLog, turn_record
 from src.core.perception.types import Perception, PerceptionKind
@@ -73,6 +76,18 @@ class Consciousness:
         self._recap_task: Optional[asyncio.Task] = None
 
         cc = config.consciousness
+        # the one sliding window: every turn is mirrored here for the budget,
+        # and the handoff prose it produces comes back as continuity
+        self.sliding_window = SingleContext(TokenBudget(
+            max_tokens=int(cc.get("context_max_tokens", 150_000)),
+            trigger_tokens=int(cc.get("handoff_trigger_tokens", 120_000)),
+            target_tokens=int(cc.get("handoff_target_tokens", 50_000)),
+        ), hot_tokens=int(cc.get("hot_tokens", 30_000)),
+            hot_seconds=float(cc.get("hot_seconds", 1800.0)))
+        self._handoff = HandoffWorker()
+        self._handoff_task: Optional[asyncio.Task] = None
+        self._handoff_enabled = bool(cc.get("context_handoff", True))
+        self._continuity = ""
         self.idle_after = cc.get("idle_after", 30.0)
         self.window = cc.get("window", 0.3)
         self.burst_steps = cc.get("burst_steps", 6)
@@ -279,6 +294,8 @@ class Consciousness:
                                 f"in {elapsed_ms:.0f}ms")
                     self._publish_cost(steps, spent, elapsed_ms)
                     self._write_down(batch, steps, spent, elapsed_ms)
+                    self._record_window(batch)
+                    self._schedule_handoff()
                 self._drop(briefing)
                 self._trim()
             except asyncio.CancelledError:
@@ -526,6 +543,7 @@ class Consciousness:
         parts.extend(dynamic)
         for what, produce in (
             ("the session recap", self.recap.render),
+            ("continuity from earlier windows", self._continuity_block),
             ("what she missed", lambda: self.attention.digest() if self.attention else ""),
             ("the other conversations",
              lambda: self.conversations.recent_lines() if self.conversations else ""),
@@ -732,6 +750,65 @@ class Consciousness:
         self.context = [self.context[0]] + tail
         if self.recap.due:
             self._schedule_recap()
+
+    def _continuity_block(self) -> str:
+        """Prose from earlier windows, if a handoff has produced any."""
+        return f"[EARLIER]\n{self._continuity}" if self._continuity else ""
+
+    def _record_window(self, batch: List[Perception]) -> None:
+        """Mirrors the turn into the sliding window for the token budget.
+
+        Bookkeeping only: it must never cost the turn it describes.
+        """
+        try:
+            now = time.time()
+            lines = [p.render(now=now) for p in batch]
+            if lines:
+                self.sliding_window.append("user", "[PERCEPTIONS]\n" + "\n".join(lines))
+            if self._said and self._said.get("message"):
+                self.sliding_window.append("assistant", str(self._said["message"]))
+        except Exception as e:
+            logger.warning(f"Could not mirror the turn into the window: {e}")
+
+    def window_status(self) -> Dict[str, Any]:
+        """Budget state for the dashboard."""
+        return {
+            **self.sliding_window.status(),
+            "handoff_enabled": self._handoff_enabled,
+            "handoff_running": self._handoff_task is not None and not self._handoff_task.done(),
+            "handoff_swaps": self._handoff.swaps,
+            "continuity_chars": len(self._continuity),
+        }
+
+    def _schedule_handoff(self) -> None:
+        """Hands off in the background: the mind never waits on its own memory.
+
+        When the worker finishes, its prose becomes continuity for the next
+        turns — the window breathes instead of pinning at the ceiling.
+        """
+        if not self._handoff_enabled:
+            return
+        if self._handoff_task and not self._handoff_task.done():
+            return
+        if not self.sliding_window.status()["needs_handoff"]:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # not now; the window keeps everything and the next turn tries again
+
+        async def work():
+            try:
+                self._handoff._llm = self.background_llm or self.llm
+                prose = await self._handoff.maybe_swap(self.sliding_window)
+                if prose:
+                    self._continuity = prose
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Window handoff failed: {e}")
+
+        self._handoff_task = asyncio.create_task(work())
 
     def _schedule_recap(self) -> None:
         """Condenses in the background: the mind never waits on its own memory.
