@@ -9,10 +9,11 @@
     },
     "dependencies": {
         "@discordjs/opus": "^0.10.0",
-        "@discordjs/voice": "^0.18.0",
+        "@discordjs/voice": "^0.19.2",
+        "@snazzah/davey": "^0.1.12",
         "axios": "^1.13.2",
         "body-parser": "^1.20.2",
-        "discord.js": "^14.14.1",
+        "discord.js": "^14.27.0",
         "express": "^4.19.2",
         "form-data": "^4.0.6",
         "libsodium-wrappers": "^0.7.16",
