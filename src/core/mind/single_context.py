@@ -42,6 +42,11 @@ class SingleContext:
                             payload={"role": role, "content": content, "key": key,
                                      "author": author, "addressee": addressee})
         self._entries.append(entry)
+
+        # emergency valve: if handoff is broken, don't brick the context
+        while self.total_tokens > self.budget.max_tokens and len(self._entries) > 1:
+            self._entries.pop(0)
+
         return entry
 
     # --- reading ----------------------------------------------------------

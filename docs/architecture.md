@@ -29,8 +29,6 @@ reactive chat path — the consciousness is the only mind.
 |---|---|---|
 | `PerceptionBus` | `src/core/perception/bus.py` | the one sensory channel (asyncio.Queue + coalescing window) |
 | `SkillRegistry` | `src/core/skills/base.py` | the catalog of capabilities |
-| `ConversationMind` | `src/core/mind/conversation.py` | scoped written turns, one per channel, beside the live loop |
-| `ConversationScheduler` | `src/core/mind/scheduler.py` | one turn at a time per conversation, several at once |
 | `SingleContext` | `src/core/mind/single_context.py` | the one sliding window: token-budgeted log that breathes 0 → 120k → ~42k |
 | `TokenBudget` | `src/core/mind/token_budget.py` | the counter: ceiling 150k, trigger 120k, hot/cold split (pure) |
 | `HandoffWorker` | `src/core/mind/handoff.py` | background handoff: cold past to prose, hot ongoing verbatim |
