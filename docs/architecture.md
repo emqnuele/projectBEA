@@ -29,7 +29,7 @@ reactive chat path — the consciousness is the only mind.
 |---|---|---|
 | `PerceptionBus` | `src/core/perception/bus.py` | the one sensory channel (asyncio.Queue + coalescing window) |
 | `SkillRegistry` | `src/core/skills/base.py` | the catalog of capabilities |
-| `SingleContext` | `src/core/mind/single_context.py` | the one sliding window: token-budgeted log that breathes 0 → 120k → ~42k |
+| `SingleContext` | `src/core/mind/single_context.py` | the one sliding window: token-budgeted log that breathes 0 → 120k → ~50k |
 | `TokenBudget` | `src/core/mind/token_budget.py` | the counter: ceiling 150k, trigger 120k, hot/cold split (pure) |
 | `HandoffWorker` | `src/core/mind/handoff.py` | background handoff: cold past to prose, hot ongoing verbatim |
 | `SpontaneousPresence` | `src/core/mind/spontaneous.py` | occasionally opens a conversation herself |
@@ -80,7 +80,7 @@ ProjectBEA/
     │   ├── attention/      # the gate: rules (pure) + state
     │   ├── affect/         # how she feels, and who put her there
     │   ├── floor/          # who holds the floor, and when she yields it
-    │   ├── mind/           # routing, scheduler, conversations, correlation
+    │   ├── mind/           # routing, handoff, single_context, token_budget, tools
     │   ├── memory/         # sqlite, rag, embedder, profiler, plan
     │   ├── social/         # the roster, reach and agenda
     │   ├── expression/     # the single output sink + humanizer + the face
@@ -116,11 +116,12 @@ ProjectBEA/
 
 ---
 
-## One mind, two clocks
+## One mind, one loop
 
 "One mind" is a constraint on *identity* — one soul, one self-lore, one set of
-people, one memory — not on *concurrency*. A person holds a conversation at the
-bar and answers a message on their phone.
+people, one memory — and on *concurrency*: one loop, one frame, one window.
+A telegram DM and a voice call land in the same batch, are read together, and
+answered from the same context.
 
 ```
                           ┌────────────────────────────────────────┐
@@ -129,44 +130,41 @@ bar and answers a message on their phone.
                                              ▼
                           ┌────────────────────────────────────────┐
                           │            Attention                   │
-                          │  addressed? → REACT   (deterministic)  │
-                          │  score()    → REACT   (heuristic+rng)  │
-                          │  otherwise  → NOTE    (digest, 0 llm)  │
+                          │  annotate: every perception gets a     │
+                          │  priority (addressed/follow-up = 1.0,  │
+                          │  else a clamped score). Nothing is     │
+                          │  ever dropped here.                    │
+                          └──────────────────┬─────────────────────┘
+                                             ▼
+                          ┌────────────────────────────────────────┐
+                          │  Mind — the one loop                   │
+                          │  one frame per batch, ordered by       │
+                          │  priority; one sliding window for      │
+                          │  context; speak or send_message        │
                           └───────┬────────────────────┬───────────┘
-                                  │ REACT              │ NOTE
-                          ┌───────▼──────────┐  ┌──────▼──────────┐
-                          │  routing.route() │  │  digest buffer  │
-                          └───┬──────────┬───┘  └─────────────────┘
-                  stage ──────┘          └────── conversation_key
-                        ▼                              ▼
-              ┌──────────────────┐        ┌────────────────────────┐
-              │  Mind — live loop│        │  Mind — conversation   │
-              │  voice, game,    │        │  turns (discord text,  │
-              │  console, twitch │        │  telegram)             │
-              └────────┬─────────┘        └───────────┬────────────┘
-                       ▼                              ▼
-              ┌──────────────────┐        ┌────────────────────────┐
-              │  Expression      │        │  TextHumanizer         │
-              │  voice + OBS     │        │  line-per-message      │
-              └──────────────────┘        └────────────────────────┘
+                                  ▼                    ▼
+                       ┌──────────────────┐  ┌────────────────────────┐
+                       │  Expression      │  │  platform skills       │
+                       │  voice + OBS     │  │  send_message / react  │
+                       └──────────────────┘  └────────────────────────┘
 ```
 
-**The rule that must never break:** a perception reaches exactly one turn. The
-routing is an explicit if/else (`src/core/mind/routing.py`), not two consumers of
-the same batch — answering the same message twice, from two contexts that know
+**The rule that must never break:** one batch, one frame, one turn. The
+conversation key (`src/core/mind/routing.py`) only tags *where a perception
+came from* — answering the same message twice, from two contexts that know
 nothing about each other, is the worst failure mode here.
 
 What is the **stage**: her voice, a Discord call, the game, the console, Twitch
-chat. She is present, live, and answers out loud. What is a **scoped
-conversation**: asynchronous written text — a Discord channel, a Telegram group.
-Those get their own thread, their own context, and only the platform's tools —
-no `speak`, no body — so answering a written message out loud is impossible by
-construction rather than by a rule a model can ignore.
+chat. She is present, live, and answers out loud. What is a **written
+conversation**: asynchronous text — a Discord channel, a Telegram group. It is
+read in the same frame and answered with `send_message(platform, channel,
+text)` — never out loud — because the destination rides in the tool arguments,
+not in a rule a model can ignore.
 
-Cross-awareness is **one line each way**: the live loop sees
-`[ELSEWHERE, JUST NOW]`, a scoped turn sees `[WHAT YOU'RE DOING RIGHT NOW]`.
-Pouring more context between them would rebuild the single slow mind, with more
-machinery.
+Cross-awareness is **deterministic grounding**: a `[WHERE YOU ARE]` block
+(platform, conversation, who — injected from code) plus a per-line `[via …]`
+provenance tag. That is how she never concludes she has no telegram while
+answering on it.
 
 ---
 
@@ -181,12 +179,12 @@ machinery.
    `IDLE`, her voice is interrupted.
 3. **Correlations.** Collect the `correlation_id`s in the batch — HTTP callers
    waiting on a synchronous reply.
-3b. **Attention.** `Attention.judge(batch)` splits it into what deserves a
-   reasoning cycle and what is merely noticed. Nothing to react to → the turn ends
-   without a single model call. The rest goes into the digest, which appears in
-   the next system message as `[WHILE YOU WERE BUSY]`.
-4. **Rebuild the system message** (`_build_system_message`):
-   The static part (soul + operating manual) is deliberately split from the dynamic part (RAG, person cards, live state) so providers can cache the static prompt. The dynamic part runs in `asyncio.to_thread` so a slow retrieval never stalls the loop.
+3b. **Attention.** `Attention.annotate(batch)` assigns every perception a
+    priority, highest first: addressed and follow-up always 1.0, everything
+    else a clamped score. Nothing is dropped, nothing costs a model call —
+    the model itself decides what deserves an answer.
+4. **Rebuild the briefing** (`_briefing`):
+    The static part (soul + operating manual) is deliberately split from the dynamic part (RAG, person cards, live state) so providers can cache the static prompt. The dynamic part runs in `asyncio.to_thread` so a slow retrieval never stalls the loop.
 5. **Append the perception frame** as a `user` message.
 6. **Reasoning burst**, up to `burst_steps` (6) steps:
    - `bus.drain_nowait()` folds anything that arrived *during* reasoning in as a
@@ -194,12 +192,12 @@ machinery.
    - `llm.complete(context, tools=…)`; the LLM **streams** its response back;
    - free assistant text is **inner monologue** (published as
      `EventCategory.THOUGHT`) and is never spoken;
-   - tools run; if the only tools called were `speak`/`stay_silent` the turn ends
-     without burning another model call.
-7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **trim** the context to
-   `history_limit` (30 messages). The turn is also **mirrored** into the sliding
-   window (`_record_window`), and a handoff is **scheduled** when the budget
-   hits the trigger (`_schedule_handoff`) — see below.
+    - tools run; if she spoke (`speak`) or chose silence (`stay_silent`,
+      `say_nothing`) the turn ends without burning another model call.
+7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **mirror** the turn into the sliding
+    window (`_record_window`) — retention is token-budgeted (150k ceiling),
+    never message-count-trimmed. A handoff is **scheduled** when the budget
+    hits the trigger (`_schedule_handoff`) — see below.
 
 Details that matter:
 
@@ -215,7 +213,7 @@ Details that matter:
 One mind, one log. Every live turn is mirrored into `SingleContext`
 (`src/core/mind/single_context.py`), a token-budgeted append-only log that
 replaces message-count trimming with a real ceiling: **150k max, handoff
-trigger at 120k, rest near ~42k**.
+trigger at 120k, rest near ~50k**.
 
 When the trigger hits, `HandoffWorker` (`src/core/mind/handoff.py`) runs on
 the background pool, in parallel with the loop:
@@ -226,11 +224,11 @@ the background pool, in parallel with the loop:
 - **hot** (what is happening right now) is carried into the next window
   **verbatim**, speaker labels and all — the present is never compressed;
 - anything that arrived mid-handoff joins verbatim too, so nothing is lost;
-- the prose comes back as `[EARLIER]` continuity in the next briefings, and
-  the window breathes: `0 → 50k → 120k → ~42k → 120k → …`, never pinned at
+- the prose comes back as an `[EARLIER]` system block opening the next window,
+  and the window breathes: `0 → 50k → 120k → ~50k → 120k → …`, never pinned at
   the ceiling. A failed handoff keeps the old window intact.
 
-Scoped turns get two related guarantees: a deterministic `[WHERE YOU ARE]`
+Written channels get two related guarantees: a deterministic `[WHERE YOU ARE]`
 header (platform, conversation, who — injected from code, so she never
 concludes she has no telegram while answering on it), and one rescue retry
 when a text-only answer would otherwise leave a mute turn (`NO_TOOL_CALL`).
@@ -256,8 +254,8 @@ truth**. Bea can never arm a capability by herself.
 |---|---|---|---|
 | `ChatSurface` | `chat:ui` | — (core) | text input from the dashboard; `Author(platform="ui", is_owner=True)` |
 | `VoiceSurface` | `voice:discord` | `discord` | owns the **node subprocess** (needed for voice); input arrives via the HTTP endpoints the bot calls |
-| `TelegramSkill` | `chat:telegram` | `telegram` | in-process polling, no subprocess; scoped conversations |
-| `TwitchSkill` | `chat:twitch` | `twitch` | anonymous IRC read; every message tallied, only the ones that pass the gate reach the mind |
+| `TelegramSkill` | `chat:telegram` | `telegram` | in-process polling, no subprocess; written conversations answered via `send_message` |
+| `TwitchSkill` | `chat:twitch` | `twitch` | anonymous IRC read; every message is tallied, all of them reach the one frame with a priority |
 | `DonationSkill` | `donation` | `donations` | `POST /webhook/donation`; always reacts, promotes the donor immediately |
 | `IdleSurface` | `idle` | `monologue` | produces no input: supplies the monologue rules on a pure-idle frame |
 | `MinecraftSurface` | `game:mc` | `minecraft` | WebSocket client to the mod; **7** tools to the mind, the other 24 to the `GameAgent` |
@@ -365,7 +363,7 @@ Plan** page and stored in `bea.db` (`objectives` + `settings`).
 The number shown next to an objective is its database id, and it is the same
 number she passes to `objective_done` — one identifier, no mapping to get wrong.
 
-The plan reaches the live loop, not scoped conversation turns: it describes what
+The plan reaches the live loop: it describes what
 she is doing on stage.
 
 ---
@@ -381,7 +379,7 @@ single transaction, and "who have I seen most" is a query rather than a scan.
 | Episodic diary | `memories` (scope `diary`) | no, top-3 per batch | `DiaryGenerator` at session end |
 | Roster (tally) | `roster` + `identities` | never | `SocialMemory.context_for`, per perception |
 | Person cards | `people` + `facts` | only those present, max 5 | auto-promotion + `remember_person` + dreamer + profiler |
-| Conversations | `messages` + `summaries` | per conversation turn | the platform skills |
+| Conversations | `messages` + `summaries` | append-only log for dream/recall/dashboard, never built into live context | the consciousness + the profiler |
 | Self-lore | `self_facts` + `self_profile` | yes (last 15 facts) | the dreamer only |
 | Hot facts | `hot_facts` (TTL) | yes (max 6) | dreamer + morning pass + a strong reaction |
 | Standing mood | `settings` (`affect.state`) | only past a threshold | every line she speaks |
@@ -391,7 +389,11 @@ single transaction, and "who have I seen most" is a query rather than a scan.
 Re-ranking is `similarity*0.7 + recency*0.3` with `1/(1+days*0.1)` decay. Every
 injection is explicitly capped so the prompt cannot bloat.
 
-**Two things worth knowing:**
+**Three things worth knowing:**
+
+- **Three logs, one live.** The sliding window is the only context the loop
+  reads. SQLite `messages` and the JSON session files (`HistoryManager`) are
+  append-only: dream, recall and the dashboard read them, the loop never does.
 
 - **`memories.source`** separates what *people said* (`person`) from what *Bea
   said* (`bea`). `recall_split` returns them as two labelled blocks. Bea invents
@@ -417,23 +419,21 @@ Importing a Chroma-era store: `uv run python tools/migrate_to_sqlite.py`
 cycle: with the game connected, one model call every ten seconds forever.
 
 - `rules.py` is **pure** — no IO, no asyncio, no `Skill`. It takes primitives and
-  returns a number or a reason, which is what makes the thresholds testable
+  returns a number or a reason, which is what makes the scoring testable
   against a table of cases instead of tuned by watching a live stream.
-- `gate.py` holds the state (per-conversation activity, when she last spoke, the
-  digest) with `rng` and `clock` injected.
+- `gate.py` holds the state (per-conversation activity, when she last spoke)
+  with `clock` injected, and `annotate()` assigns every perception a priority
+  without ever dropping one. The follow-up question ("are they answering me")
+  reads the tagged entries of the one sliding window, never SQLite.
 
 Two questions, deliberately kept apart. **"Is this for me?"** (`is_addressed`) is
-deterministic and bypasses cooldowns and quiet hours — rolling a die to decide
-whether to answer someone who just spoke to you is what makes a bot feel broken.
-**"Does this concern me?"** (`score`) is rightly probabilistic.
+deterministic and bypasses cooldowns and quiet hours. **"Does this concern
+me?"** (`score`) is a deterministic heuristic over salience, cooldowns, quiet
+hours and recent activity.
 
-Every decision is published as a `system` event with `reaction`, `score` and
-`reason`, and shown in Brain Activity. That is not optional instrumentation:
-without seeing *why* something was ignored, tuning the thresholds is guesswork.
-
-`attention.mode: annotate` switches the gate to an annotator for the sliding
-window: nothing is dropped, every perception carries a deterministic priority
-(`Attention.annotate`), and the model itself decides what deserves an answer.
+Every perception is ordered by its priority in the one frame the model reads,
+and the model itself decides what deserves an answer. There is no threshold,
+no dice, no digest, no second regime.
 
 ## Mood
 
