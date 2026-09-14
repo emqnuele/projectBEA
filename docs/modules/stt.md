@@ -93,6 +93,21 @@ limit — is logged with what would fix it, `HF_TOKEN` in `.env`.
 
 ---
 
+## When the device will not run
+
+A GPU ctranslate2 can see is not one it can use: on Windows the CUDA Toolkit
+DLLs do not come with the pip wheels, so the model loads and every
+transcription fails. Instead of staying deaf, she probes the device once at
+startup with a silent second — if it cannot hear, she rebuilds on `cpu/int8`
+before anyone speaks and says so loudly in the log, with what to install for
+your OS. If a device breaks mid-call, the current turn is retried on CPU
+rather than dropped.
+
+`/status` reports the honest state (`stt.device`, `stt.degraded`,
+`stt.last_error`), and the doctor's ears check names the fix.
+
+---
+
 ## Groq (`groq_stt.py`)
 
 Groq's Whisper endpoint. Fast enough for near-realtime.

@@ -7,6 +7,7 @@ model, and a CPU that is busy while she listens.
 """
 
 import os
+import sys
 from typing import Optional
 
 from src.core.config import BrainConfig
@@ -107,6 +108,27 @@ def _cuda_count() -> int:
         return 0
 
 
+def device_advice() -> str:
+    """What to do about a device that will not run, on this machine.
+
+    A gpu ctranslate2 can see is not a gpu it can use: on windows the CUDA
+    Toolkit DLLs (cuBLAS and friends) do not come with the pip wheels, so the
+    card is visible, the model loads, and every transcription fails.
+    """
+    if sys.platform.startswith("win"):
+        return ("On windows the gpu needs the CUDA Toolkit 12.x libraries "
+                "(cuBLAS DLLs) on PATH; without them she runs on cpu instead. "
+                "Either install them, or set `faster_whisper_device` to "
+                "\"cpu\" and stop asking for a gpu she cannot use.")
+    if sys.platform == "darwin":
+        return ("Macs have no CUDA, so cpu is the only device and that is "
+                "normal — if this still fails the install itself is broken "
+                "(`uv sync`).")
+    return ("Linux usually gets CUDA through the nvidia pip wheels; without a "
+            "driver and matching CUDA libraries she runs on cpu instead. Set "
+            "`faster_whisper_device` to \"cpu\" to stop retrying the gpu.")
+
+
 def _build(stt: "FasterWhisperSTT"):
     """The model, with the thread pool sized for the cores that exist."""
     from faster_whisper import WhisperModel
@@ -135,7 +157,13 @@ class FasterWhisperSTT(STTInterface):
         self.download_root = config.faster_whisper_download_root or None
         self.vad = bool(config.faster_whisper_vad)
         self.model = None
+        # honest state: whether she hears as configured, and the last reason
+        # she did not. The dashboard and the doctor read this instead of
+        # guessing from the config.
+        self.degraded = False
+        self.last_error: Optional[str] = None
         self._load()
+        self._probe()
 
     def _load(self) -> None:
         """Builds the model, or leaves it None and says why.
@@ -175,6 +203,61 @@ class FasterWhisperSTT(STTInterface):
             if hint:
                 logger.error(hint)
 
+    def _use_cpu(self, reason: str) -> bool:
+        """Rebuilds on cpu/int8 after a device proved unusable. Returns built."""
+        self.device, self.compute_type = "cpu", "int8"
+        self.degraded = True
+        try:
+            self.model = _build(self)
+            logger.warning(f"Local whisper on cpu/int8 ({reason}). {device_advice()}")
+            return True
+        except Exception as e:
+            self.model = None
+            self.last_error = str(e)
+            logger.error(f"Local whisper would not build on cpu either ({e}).")
+            return False
+
+    def _probe(self) -> None:
+        """One silent second through the model, at startup rather than mid-call.
+
+        Loading is not hearing: a device ctranslate2 can see but cannot use
+        (missing CUDA libraries) loads fine and then fails every real turn.
+        A failed probe falls back before the first person speaks, loudly.
+        """
+        if self.model is None:
+            return
+        try:
+            import numpy as np
+
+            silence = np.zeros(16000, dtype="float32")
+            self.model.transcribe(silence, language=None, temperature=0.0,
+                                  vad_filter=False)
+            return
+        except Exception as e:
+            if self.device == "cpu":
+                self.model = None
+                self.degraded = True
+                self.last_error = str(e)
+                logger.error(f"Local whisper cannot transcribe even on cpu ({e}); "
+                             f"ears are off. {device_advice()}")
+                return
+            logger.warning(f"Local whisper on {self.device} loads but cannot "
+                           f"transcribe ({e}); trying cpu before anyone speaks. "
+                           f"{device_advice()}")
+            self.last_error = str(e)
+            if self._use_cpu(f"boot probe failed: {e}"):
+                try:
+                    import numpy as np
+
+                    self.model.transcribe(np.zeros(16000, dtype="float32"),
+                                          language=None, temperature=0.0,
+                                          vad_filter=False)
+                except Exception as cpu_error:
+                    self.model = None
+                    self.last_error = str(cpu_error)
+                    logger.error(f"Local whisper cannot transcribe even on cpu "
+                                 f"({cpu_error}); ears are off. {device_advice()}")
+
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         lang = language if language else self.config.language
 
@@ -187,16 +270,51 @@ class FasterWhisperSTT(STTInterface):
             return ""
 
         try:
-            segments, _ = self.model.transcribe(audio_path,
-                                                language=normalize_language(lang),
-                                                temperature=0.0,
-                                                vad_filter=self.vad)
-            text = "".join(segment.text for segment in segments).strip()
-            logger.info(f"Local transcription result: '{text}'")
-            return text
+            return self._transcribe_file(audio_path, lang)
         except Exception as e:
+            if self.device == "cpu":
+                self.last_error = str(e)
+                logger.error(f"Local transcription failed: {e}")
+                return ""
+            # the turn is retried, not dropped: whoever spoke already waited
+            # through the first attempt
+            logger.warning(f"Transcription on {self.device} failed ({e}); "
+                           f"falling back to cpu and retrying this audio. "
+                           f"{device_advice()}")
+            self.last_error = str(e)
+            if self._use_cpu(f"transcription failed: {e}"):
+                try:
+                    return self._transcribe_file(audio_path, lang)
+                except Exception as retry_error:
+                    e = retry_error
+            self.last_error = str(e)
             logger.error(f"Local transcription failed: {e}")
             return ""
+
+    def _transcribe_file(self, audio_path: str, lang: Optional[str]) -> str:
+        """One attempt, raising. The caller decides what a failure is worth."""
+        model = self.model
+        if model is None:
+            raise RuntimeError("Local whisper is not loaded.")
+        segments, _ = model.transcribe(audio_path,
+                                       language=normalize_language(lang),
+                                       temperature=0.0,
+                                       vad_filter=self.vad)
+        text = "".join(segment.text for segment in segments).strip()
+        logger.info(f"Local transcription result: '{text}'")
+        return text
+
+    def status(self) -> dict:
+        """Honest runtime state, for /status and the dashboard."""
+        return {
+            "provider": "faster_whisper",
+            "model": self.model_name,
+            "device": self.device,
+            "compute_type": self.compute_type,
+            "loaded": self.model is not None,
+            "degraded": self.degraded,
+            "last_error": self.last_error,
+        }
 
     def reload_config(self, config) -> None:
         """Rebuilds the model, but only when something about it actually changed.
@@ -214,6 +332,10 @@ class FasterWhisperSTT(STTInterface):
         self._configured = wanted
         self.model_name, _, _, self.download_root = wanted
         self.device, self.compute_type = _resolve_device(config)
+        # a new device gets a clean verdict: the probe below re-marks it
+        self.degraded = False
+        self.last_error = None
         logger.info(f"Reloading local whisper: {self.model_name} on {self.device}")
         self.model = None
         self._load()
+        self._probe()

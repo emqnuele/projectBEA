@@ -31,11 +31,17 @@ def _engine_summary(brain: AIVtuberBrain) -> Dict[str, Any]:
         "anthropic_compat": config.anthropic_compat_model,
         "local": config.local_model,
     }.get(config.llm_provider, "")
+    stt = getattr(brain, "stt", None)
+    stt_state: Dict[str, Any] = (
+        stt.status() if stt is not None and hasattr(stt, "status")
+        else {"provider": config.stt_provider, "loaded": stt is not None}
+    )
     return {
         "llm_provider": config.llm_provider,
         "model": model,
         "tts_provider": config.tts_provider,
         "stt_provider": config.stt_provider,
+        "stt": stt_state,
         "language": config.language,
         "obs_connected": bool(getattr(brain.obs, "client", None)),
     }

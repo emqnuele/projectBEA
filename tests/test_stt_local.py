@@ -1,6 +1,9 @@
 """Local whisper: the model id it ends up asking for, the precision it picks,
 and the promise that a model it could not load degrades instead of crashing."""
 
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from src.core.config import BrainConfig
@@ -8,6 +11,7 @@ from src.modules.STT.factory import BUILDERS, LOCAL, build_stt
 from src.modules.STT.faster_whisper_stt import (
     DEFAULT_MODEL,
     FasterWhisperSTT,
+    device_advice,
     normalize_language,
     normalize_model,
 )
@@ -83,11 +87,14 @@ def test_a_language_whisper_does_not_know_becomes_detection():
 
 def test_auto_means_int8_on_a_cpu_and_float16_on_a_gpu(tmp_path, monkeypatch, loaded):
     FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base"))
-    assert loaded[0]["compute_type"] == "int8"
+    # model constructions only: the boot probe transcribes, it never rebuilds
+    builds = [call for call in loaded if "name" in call]
+    assert builds[0]["compute_type"] == "int8"
 
     FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base",
                             faster_whisper_device="cuda"))
-    assert loaded[1]["compute_type"] == "float16"
+    builds = [call for call in loaded if "name" in call]
+    assert builds[1]["compute_type"] == "float16"
 
 
 def test_a_chosen_precision_is_not_second_guessed(tmp_path, monkeypatch, loaded):
@@ -196,7 +203,8 @@ def test_an_unrelated_save_does_not_reload_the_model(tmp_path, monkeypatch, load
     stt = FasterWhisperSTT(settings)
     settings.obs_port = 4456
     stt.reload_config(settings)
-    assert len(loaded) == 1
+    # model constructions only: the boot probe transcribes, it never rebuilds
+    assert len([call for call in loaded if "name" in call]) == 1
 
 
 def test_a_new_model_does_reload(tmp_path, monkeypatch, loaded):
@@ -204,7 +212,7 @@ def test_a_new_model_does_reload(tmp_path, monkeypatch, loaded):
     stt = FasterWhisperSTT(settings)
     settings.stt_model = "small"
     stt.reload_config(settings)
-    assert [call["name"] for call in loaded] == ["base", "small"]
+    assert [call["name"] for call in loaded if "name" in call] == ["base", "small"]
 
 
 # --- the factory -----------------------------------------------------------
@@ -235,3 +243,134 @@ def test_the_hint_reaches_the_log_when_the_download_is_refused(tmp_path, monkeyp
     with caplog.at_level("ERROR"):
         FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base"))
     assert TOKEN_HINT in caplog.text
+
+
+# --- a device that loads but cannot hear --------------------------------------
+
+
+def _said(text):
+    return ([SimpleNamespace(text=text)], None)
+
+
+class CudaDeafModel:
+    """Loads anywhere, transcribes only on cpu: the missing-cuBLAS machine."""
+
+    def __init__(self, name, device=None, **kwargs):
+        self.device = device
+
+    def transcribe(self, path, **kwargs):
+        if self.device == "cuda":
+            raise RuntimeError("Library cublas64_12.dll is not found")
+        return _said("ciao")
+
+
+def test_the_boot_probe_falls_back_before_anyone_speaks(tmp_path, monkeypatch, caplog):
+    """The windows failure: visible gpus, no CUDA libraries, load succeeds."""
+    import faster_whisper
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", CudaDeafModel)
+    with caplog.at_level("WARNING"):
+        stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base",
+                                      faster_whisper_device="cuda"))
+    assert (stt.device, stt.compute_type) == ("cpu", "int8")
+    assert stt.model is not None
+    assert stt.degraded is True
+    assert "cublas" in (stt.last_error or "")
+    assert "cpu" in caplog.text
+
+
+def test_a_failed_turn_is_retried_on_cpu_not_dropped(tmp_path, monkeypatch):
+    """The probe hears silence fine; the first real turn is what breaks."""
+
+    import faster_whisper
+
+    class FlakyCudaModel:
+        def __init__(self, name, device=None, **kwargs):
+            self.device = device
+
+        def transcribe(self, path, **kwargs):
+            if isinstance(path, str) and self.device == "cuda":
+                raise RuntimeError("Library cublas64_12.dll is not found")
+            return _said("parola")
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FlakyCudaModel)
+    stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base",
+                                  faster_whisper_device="cuda"))
+    assert stt.degraded is False
+
+    wav = tmp_path / "turn.wav"
+    wav.write_bytes(b"RIFF" + b"\0" * 100)
+    assert stt.transcribe(str(wav)) == "parola"
+    assert (stt.device, stt.compute_type) == ("cpu", "int8")
+    assert stt.degraded is True
+
+
+def test_a_cpu_that_cannot_hear_says_so(tmp_path, monkeypatch):
+    """No retry loop: on cpu a failure is a failure, recorded honestly."""
+    import faster_whisper
+
+    class DeafModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def transcribe(self, path, **kwargs):
+            raise RuntimeError("no backend at all")
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", DeafModel)
+    stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base",
+                                  faster_whisper_device="cpu"))
+    assert stt.model is None
+    assert stt.degraded is True
+    assert "no backend" in (stt.last_error or "")
+
+    wav = tmp_path / "turn.wav"
+    wav.write_bytes(b"RIFF" + b"\0" * 100)
+    assert stt.transcribe(str(wav)) == ""
+
+
+def test_status_reports_the_device_and_the_fallback(tmp_path, monkeypatch):
+    import faster_whisper
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", CudaDeafModel)
+    stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base",
+                                  faster_whisper_device="cuda"))
+    state = stt.status()
+    assert state["provider"] == "faster_whisper"
+    assert state["device"] == "cpu"
+    assert state["degraded"] is True
+    assert state["loaded"] is True
+    assert "cublas" in (state["last_error"] or "")
+
+
+def test_a_fresh_device_gets_a_fresh_verdict(tmp_path, monkeypatch):
+    """Switching the device clears the old degradation instead of keeping it."""
+    import faster_whisper
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", CudaDeafModel)
+    settings = config(tmp_path, monkeypatch, stt_model="base",
+                      faster_whisper_device="cuda")
+    stt = FasterWhisperSTT(settings)
+    assert stt.degraded is True
+    settings.faster_whisper_device = "cpu"
+    stt.reload_config(settings)
+    assert stt.degraded is False
+    assert stt.last_error is None
+
+
+# --- advice for this machine --------------------------------------------------
+
+
+def test_the_advice_names_the_platform_problem(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert "CUDA Toolkit" in device_advice()
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert "no CUDA" in device_advice()
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert "nvidia" in device_advice()
+
+
+def test_the_doctor_names_the_device_fix(tmp_path, monkeypatch):
+    from src.setup.doctor import _ears_fix
+
+    fix = _ears_fix(config(tmp_path, monkeypatch, stt_provider="faster_whisper"))
+    assert "cpu" in fix.lower()
