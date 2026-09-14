@@ -75,8 +75,9 @@ tested against captured lines.
 |---|---|
 | `twitch_say(text)` | type into the channel. Needs `oauth_token` |
 
-There are no scoped conversation tools: `scoped_conversations = False` puts
-every Twitch message on the stage.
+Twitch chat is tagged `twitch:<channel>` and read in the one frame with
+everything else — at low salience, so only her name, bits, subs and raids
+pull her in. Writing back is `twitch_say(text)` from the same loop.
 
 ---
 

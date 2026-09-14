@@ -13,7 +13,6 @@ the consciousness — and a skill plugs into it by doing any subset of these:
 |---|---|
 | perceive | pushes `Perception` objects onto the bus — this is a *sense* |
 | `tools()` | tools armed only while the skill is active |
-| `conversation_tools(channel_id, reply_to)` | a different, smaller set for a scoped conversation turn |
 | `context_section` | static prompt rules mounted while active |
 | `context_for(batch)` | prompt content computed from the current batch (e.g. recall) |
 | `live_state()` | volatile state injected into every frame (e.g. where her body is) |
@@ -98,9 +97,10 @@ not to a skill. Everything else is armed by whichever skill is active:
 The registry is built once and cached; it is rebuilt only when a capability is
 toggled (`MindTools.invalidate()`), not on every model step.
 
-A **scoped conversation turn** gets a different set: `reply`, `send_message`,
-`react`, `say_nothing`, plus `remember_person`. No `speak` and no body actions —
-absent by construction, not by a rule in the prompt.
+Written answers go through the unified tools — `send_message(platform,
+channel, text)`, `react`, `say_nothing` — with the destination in the
+arguments. There is no `speak` on a written channel: answering out loud is
+impossible by construction, not by a rule in the prompt.
 
 ---
 
@@ -142,5 +142,5 @@ class MySkill(Skill):
 It now appears in the dashboard's Skills page and can be toggled at runtime.
 
 If it is a text platform, extend `PlatformSkill` instead and the roster, person
-cards, attention gate and scoped conversations work with no extra code —
+cards and attention priorities work with no extra code —
 they are all keyed on `Author` and `conversation_key`.

@@ -158,11 +158,13 @@
         "idle_after": 240.0,
         "window": 0.3,
         "burst_steps": 6,
-        "history_limit": 30,
         "correlation_timeout": 90.0,
-        "conversation_history": 16,
-        "conversation_steps": 3,
-        "max_coalesced_runs": 3,
+        "context_max_tokens": 150000,
+        "handoff_trigger_tokens": 120000,
+        "handoff_target_tokens": 50000,
+        "hot_tokens": 30000,
+        "hot_seconds": 1800.0,
+        "context_handoff": true,
         "turn_log": true,
         "turn_log_dir": "data/turns",
         "turn_log_days": 14
@@ -180,18 +182,19 @@
     "attention": {
         "enabled": true,
         "cooldown_seconds": 20,
-        "interject_threshold": 0.45,
         "quiet_hours": [
             3,
             9
         ],
-        "trigger_words": [
-            "bea",
-            "beatrice"
-        ],
+        "trigger_words": [],
         "hot_names": [],
         "self_ids": [],
-        "digest_max_lines": 8,
+        "followup_enabled": true,
+        "followup_window_seconds": 180,
+        "followup_max_turns": 3,
+        "followup_max_interposed": 3,
+        "followup_active_bonus": 5,
+        "followup_lookback": 30,
         "voice_cooldown_seconds": 5
     },
     "rhythm": {

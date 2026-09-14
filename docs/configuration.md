@@ -183,7 +183,6 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         "idle_after": 240.0,
         "window": 0.3,
         "burst_steps": 6,
-        "history_limit": 30,
         "correlation_timeout": 90.0,
         "context_max_tokens": 150000,
         "handoff_trigger_tokens": 120000,
@@ -206,18 +205,19 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         "enabled": true,
         "cooldown_seconds": 20,
         "voice_cooldown_seconds": 5,
-        "interject_threshold": 0.45,
         "quiet_hours": [
             3,
             9
         ],
-        "trigger_words": [
-            "bea",
-            "beatrice"
-        ],
+        "trigger_words": [],
         "hot_names": [],
         "self_ids": [],
-        "digest_max_lines": 8
+        "followup_enabled": true,
+        "followup_window_seconds": 180,
+        "followup_max_turns": 3,
+        "followup_max_interposed": 3,
+        "followup_active_bonus": 5,
+        "followup_lookback": 30
     },
     "rhythm": {
         "enabled": true,
@@ -270,7 +270,7 @@ rate limits and fall back down the list on failure.
 
 | Role | Used by | Requirement |
 |---|---|---|
-| `mind` | the consciousness, scoped conversation turns | **must support tool calling** |
+| `mind` | the consciousness | **must support tool calling** |
 | `background` | diary, dreamer, profiler, summaries, the Minecraft body | anything |
 
 An empty pool falls back to `llm_provider` + `<provider>_model`, so a
@@ -289,7 +289,6 @@ engine refuses to start and says which key is missing.
 | `idle_after` | `240.0` | Seconds of silence before an IDLE perception. Only applies while the `monologue` skill is on |
 | `window` | `0.3` | How long the bus coalesces a burst into one batch |
 | `burst_steps` | `6` | Max reasoning steps in one turn |
-| `history_limit` | `30` | Rolling context size, in messages |
 | `correlation_timeout` | `90.0` | How long an HTTP caller waits for her reply before giving up |
 | `context_max_tokens` | `150000` | Hard ceiling of the one sliding window, in tokens |
 | `handoff_trigger_tokens` | `120000` | Window size that starts the background handoff |
@@ -309,13 +308,16 @@ What wakes the mind, and what she merely notices. [How it works →](architectur
 | `enabled` | `true` | Off means every perception costs a full reasoning cycle |
 | `cooldown_seconds` | `20` | She just spoke: let the room breathe. Being addressed bypasses it |
 | `voice_cooldown_seconds` | `5` | The same, in a live call — where twenty seconds reads as absence, not restraint |
-| `interject_threshold` | `0.45` | Score needed to speak up unprompted. ±0.1 of noise is added before comparing |
 | `quiet_hours` | `[3, 9]` | She never interjects in this window. Being addressed still gets through |
-| `trigger_words` | `["bea", "beatrice"]` | Her names. Whole-word, one typo tolerated. Shared by every platform |
+| `trigger_words` | `[]` | Her names; empty means derived from the persona name. Whole-word, one typo tolerated. Shared by every platform |
 | `hot_names` | `[]` | Other names that pull her into a conversation |
 | `self_ids` | `[]` | Her own platform ids, so a reply to her is recognised as addressed |
-| `digest_max_lines` | `8` | Cap on the `[WHILE YOU WERE BUSY]` block |
-| `mode` | `"gate"` | `gate` filters what reaches her; `annotate` keeps everything with a priority for the one sliding window |
+| `followup_enabled` | `true` | Off, a reply to her is scored like everything else |
+| `followup_window_seconds` | `180` | How long after she spoke an answer still counts as an answer |
+| `followup_max_turns` | `3` | How long she keeps it up before waiting to be called again |
+| `followup_max_interposed` | `3` | Unrelated lines allowed between her line and the reply |
+| `followup_active_bonus` | `5` | Extra weight for a reply in an already lively conversation |
+| `followup_lookback` | `30` | Recent window turns the reply check may read |
 
 ---
 

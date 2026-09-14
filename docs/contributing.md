@@ -23,7 +23,7 @@ Issues carry an `area:` label: `area: attention`, `area: memory`,
 The most useful contributions, in order:
 
 1. **A new surface.** Extend `PlatformSkill` and she is on it. The roster,
-   person cards, attention gate and scoped conversations come for free.
+   person cards and attention priorities come for free.
 2. **A new TTS engine or LLM provider.** Both are one interface and one branch.
 3. **A failing test for something she gets wrong.** A reproduction is worth more
    than a fix built on a guess.
@@ -74,9 +74,9 @@ issue first, not a surprise in a diff.
 nothing gets a private channel into the consciousness. If a new surface needs to
 reach her some other way, that is a design problem, not a shortcut.
 
-**One mind.** There is a single always-on loop. Written channels run as scoped
-conversation turns alongside it, one turn at a time per channel, but there is
-never a second consciousness.
+**One mind.** There is a single always-on loop reading one frame per batch
+from one sliding window. Written channels are read in the same frame and
+answered with `send_message` — there is never a second consciousness.
 
 **One sink.** Everything she does leaves through the expression layer. That is
 what makes it possible to answer "what did she actually do" by looking in one
@@ -95,7 +95,7 @@ makes her behaviour testable. Keep them that way.
 | **A new LLM provider** | One row in `src/modules/llm/providers.py` if it speaks Responses, Chat Completions or Anthropic Messages — plus its config fields, CLI flags and wizard entry |
 | **A new TTS engine** | Implement `TTSInterface`, add the branch and the CLI choice in `src/cli.py` |
 | **A new skill** | Extend `Skill`, register it in `AIVtuberBrain._build_consciousness()` |
-| **A new text platform** | Extend `PlatformSkill`, and the roster, person cards, attention gate and scoped conversations then work with no extra code |
+| **A new text platform** | Extend `PlatformSkill`, and the roster, person cards and attention priorities then work with no extra code |
 | **A change to `data/prompts/soul.md`** | Update `SHIPPED_SOUL_SHA256` in `src/core/persona.py` to match. The test fails with the value to paste |
 | **A new endpoint** | Put it in the router it belongs to under `src/web/routers/`, or add a module and list it in `routers/__init__.py`. Take the brain as `Depends(get_brain)` rather than reaching for it |
 | **A new setting** | Declare it in `src/core/settings_schema.py`. The dashboard renders the schema, and the write path validates against it — a knob declared nowhere can still be saved, but nothing checks it |

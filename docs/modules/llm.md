@@ -67,7 +67,7 @@ is not set. `GET /config` never returns them.
 
 | Role | Who uses it | What it needs |
 |---|---|---|
-| `mind` | the consciousness, scoped conversation turns | **must support tool calling** |
+| `mind` | the consciousness | **must support tool calling** |
 | `background` | diary, dreamer, profiler, summaries, the Minecraft body | cheap and slow is fine |
 
 A spec is `"provider:model"`, split on the **first** `:` so OpenRouter ids keep

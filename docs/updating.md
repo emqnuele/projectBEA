@@ -233,7 +233,7 @@ the log.
 Nothing in the engine shells out to git. `src/core/update/gitrepo.py` is the
 only module that runs it, so on a machine without git she starts, thinks,
 speaks, remembers and serves the dashboard exactly as she does anywhere else —
-the suite proves it: 1668 pass, and the 39 that skip are the updater's own,
+the suite proves it: ~1490 pass, and the ones that skip are the updater's own,
 which build real repositories to test against.
 
 What is lost is updating in place. `runner.supported()` returns the reason,

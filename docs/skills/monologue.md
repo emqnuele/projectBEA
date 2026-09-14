@@ -30,10 +30,10 @@ Consciousness.run()
 
 Two consequences worth knowing:
 
-- **The timer is the gate.** The attention gate does not score an IDLE
-  perception — the bus only emits one after `idle_after` seconds of true
-  silence, so there is nothing left to decide. It only checks quiet hours, and
-  drops it if she is meant to be asleep (`gate.py`, `idle:quiet-hours`).
+- **The timer is the gate.** An `IDLE` perception enters the one frame like
+  anything else — the bus only emits one after `idle_after` seconds of true
+  silence, so it arrives with low priority and she speaks only if something is
+  genuinely worth saying.
 - **With the toggle off she never self-triggers.** The loop blocks on
   `bus.drain()` instead, so nothing but a real input can wake her.
 
