@@ -15,7 +15,14 @@ process, and costs no query.
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.core.mind.token_budget import BudgetEntry, TokenBudget, estimate_tokens, split_hot_cold
+from src.core.mind.token_budget import (
+    MESSAGE_OVERHEAD_TOKENS,
+    BudgetEntry,
+    TokenBudget,
+    estimate_tokens,
+    split_hot_cold,
+    truncate_to_budget,
+)
 
 # verbatim overlap carried across a swap so a sentence or decision is never
 # cut in half at the boundary
@@ -32,29 +39,75 @@ class SingleContext:
         self.hot_seconds = max(60.0, float(hot_seconds))
         self.version = 0
         self._entries: List[BudgetEntry] = []
+        # running total: total_tokens is o(1), never a scan per append
+        self._total = 0
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def entry_count(self) -> int:
+        """number of entries without building the message list."""
+        return len(self._entries)
+
+    def entries_after(self, index: int) -> List[BudgetEntry]:
+        """entry objects appended after `index`, keys intact.
+
+        the handoff buffer round-trips through this, never through
+        `messages()` — which strips keys — so mid-flight perceptions keep
+        their conversation attribution across a swap.
+        """
+        return list(self._entries[index:])
 
     # --- writing ----------------------------------------------------------
 
     def append(self, role: str, content: str, ts: Optional[float] = None, key: str = "stage",
                author: str = "", addressee: str = "") -> BudgetEntry:
         """Appends one message. Entries are atomic: never split by the trim."""
-        entry = BudgetEntry(tokens=estimate_tokens(content) + 8, ts=ts or time.time(),
+        content = truncate_to_budget(content, self.budget.max_tokens)
+        entry = BudgetEntry(tokens=estimate_tokens(content) + MESSAGE_OVERHEAD_TOKENS,
+                            ts=ts or time.time(),
                             payload={"role": role, "content": content, "key": key,
                                      "author": author, "addressee": addressee})
         self._entries.append(entry)
+        self._total += entry.tokens
 
-        # emergency valve: if handoff is broken, don't brick the context
-        while self.total_tokens > self.budget.max_tokens and len(self._entries) > 1:
-            self._entries.pop(0)
+        # emergency valve: if handoff is broken, don't brick the context.
+        # system entries (the [earlier] bridge) are pinned: trimming the one
+        # thing that reconstructs the past first defeats the handoff.
+        while self._total > self.budget.max_tokens and len(self._entries) > 1:
+            self._evict_oldest()
+        # pathological single entry still over the ceiling (prose reserve,
+        # estimator skew): shrink it in place rather than pinning the window
+        if self._total > self.budget.max_tokens and len(self._entries) == 1:
+            only = self._entries[0]
+            payload = only.payload if isinstance(only.payload, dict) else {}
+            shrunk = truncate_to_budget(str(payload.get("content", "")),
+                                        self.budget.max_tokens)
+            self._total -= only.tokens
+            only.tokens = estimate_tokens(shrunk) + MESSAGE_OVERHEAD_TOKENS
+            if isinstance(only.payload, dict):
+                only.payload["content"] = shrunk
+            self._total += only.tokens
 
         return entry
+
+    def _evict_oldest(self) -> None:
+        """drops the oldest evictable entry, sparing the continuity bridge."""
+        for i, e in enumerate(self._entries):
+            payload = e.payload if isinstance(e.payload, dict) else {}
+            if payload.get("role") != "system":
+                self._total -= e.tokens
+                del self._entries[i]
+                return
+        oldest = self._entries.pop(0)
+        self._total -= oldest.tokens
 
     # --- reading ----------------------------------------------------------
 
     @property
     def total_tokens(self) -> int:
         """Current window size in tokens."""
-        return sum(e.tokens for e in self._entries)
+        return self._total
 
     def status(self) -> Dict[str, Any]:
         """Budget state for the dashboard and the handoff trigger."""
@@ -145,31 +198,94 @@ class SingleContext:
     def snapshot_for_handoff(self, now: Optional[float] = None) -> Tuple[List[BudgetEntry], List[BudgetEntry]]:
         """Splits compressible past (cold) from ongoing present (hot)."""
         return split_hot_cold(self._entries, hot_tokens=self.hot_tokens,
-                              hot_seconds=self.hot_seconds, now=now if now is not None else time.time())
+                              hot_seconds=self.hot_seconds, now=now)
+
+    @staticmethod
+    def apply_overlap(cold: List[BudgetEntry], hot: List[BudgetEntry],
+                      overlap_tokens: int = SWAP_OVERLAP_TOKENS) -> Tuple[List[BudgetEntry], List[BudgetEntry]]:
+        """Moves the cold tail into the carried set verbatim.
+
+        Returns (cold_to_summarize, carried): the newest cold entries worth up
+        to `overlap_tokens` travel verbatim so a sentence or decision is never
+        cut in half at the boundary, and are excluded from the prose summary
+        so they are not stored twice.
+        """
+        overlap: List[BudgetEntry] = []
+        total = 0
+        while cold and total + cold[-1].tokens <= overlap_tokens:
+            entry = cold.pop()
+            overlap.append(entry)
+            total += entry.tokens
+        overlap.reverse()
+        return cold, overlap + list(hot)
+
+    def swap_with_snapshot(self, handoff_text: str, hot: List[BudgetEntry],
+                           incoming: Optional[List[BudgetEntry]] = None,
+                           now: Optional[float] = None) -> Dict[str, Any]:
+        """Starts the next window from one pre-handoff snapshot.
+
+        Single-snapshot rule: `hot` and `incoming` must come from the same
+        snapshot (entries at/after the snapshot point). Entries arriving
+        mid-handoff are in `incoming` only — never re-snapshotted — so they
+        cannot be duplicated into `hot` and back. Everything here is
+        synchronous: no await, no thread handoff, the loop never yields
+        mid-swap and no lock can block it.
+        """
+        _ = now
+        carried = list(hot)
+        seen_ids = {id(e) for e in carried}
+        fresh: List[BudgetEntry] = []
+        for e in incoming or []:
+            if id(e) not in seen_ids:
+                seen_ids.add(id(e))
+                fresh.append(e)
+        prose_tokens = estimate_tokens(handoff_text) + MESSAGE_OVERHEAD_TOKENS if handoff_text else 0
+        # hard ceiling first: the window must fit max_tokens even when the
+        # hot floor is large; the bridge is pinned, hot yields
+        while (sum(e.tokens for e in carried) + prose_tokens > self.budget.max_tokens
+               and carried):
+            carried.pop(0)
+        # resting size: settle near target_tokens instead of pinning at the
+        # trigger, keeping at least the newest hot entry
+        while (sum(e.tokens for e in carried) + prose_tokens > self.budget.target_tokens
+               and len(carried) > 1):
+            carried.pop(0)
+        new_entries: List[BudgetEntry] = []
+        if handoff_text:
+            new_entries.append(BudgetEntry(
+                tokens=prose_tokens, ts=time.time(),
+                payload={"role": "system", "content": handoff_text,
+                         "key": "stage", "author": "", "addressee": ""}))
+        new_entries.extend(carried)
+        new_entries.extend(fresh)
+        self._entries = new_entries
+        self._total = sum(e.tokens for e in new_entries)
+        self.version += 1
+        # window breathes after a swap: report whether it landed near target
+        return {**self.status(), "carried_hot": len(carried)}
 
     def swap(self, handoff_text: str, incoming: Optional[List[Dict[str, str]]] = None,
              now: Optional[float] = None) -> Dict[str, Any]:
         """Starts the next window: handoff + hot + overlap + incoming buffer.
 
-        The cold past is gone; its essence survives in `handoff_text`. The hot
-        ongoing is carried verbatim.         Perceptions that arrived mid-handoff are
-        prepended from `incoming` so nothing is lost in flight.
+        Kept for backwards compatibility (tests, external callers): snapshots
+        once and treats dict-style `incoming` as brand-new entries. The live
+        loop path uses `swap_with_snapshot` with entry objects so keys survive.
         """
         _, hot = self.snapshot_for_handoff(now=now)
-        carried = list(hot)
-        # emergency valve: hot alone past the ceiling trims its oldest turns
-        while sum(e.tokens for e in carried) + estimate_tokens(handoff_text) > self.budget.max_tokens and len(carried) > 1:
-            carried.pop(0)
-        self._entries = [BudgetEntry(tokens=estimate_tokens(handoff_text) + 8, ts=time.time(),
-                                     payload={"role": "user", "content": handoff_text,
-                                              "key": "stage", "author": "",
-                                              "addressee": ""})]
-        self._entries.extend(carried)
+        entries: List[BudgetEntry] = []
         for message in incoming or []:
-            self.append(str(message.get("role", "user")), str(message.get("content", "")),
-                        key=str(message.get("key", "stage")),
-                        author=str(message.get("author", "")),
-                        addressee=str(message.get("addressee", "")))
-        self.version += 1
-        # window breathes after a swap: report whether it landed near target
-        return {**self.status(), "carried_hot": len(carried)}
+            if isinstance(message, BudgetEntry):
+                entries.append(message)
+                continue
+            content = truncate_to_budget(str(message.get("content", "")),
+                                         self.budget.max_tokens)
+            entries.append(BudgetEntry(
+                tokens=estimate_tokens(content) + MESSAGE_OVERHEAD_TOKENS,
+                ts=time.time(),
+                payload={"role": str(message.get("role", "user")),
+                         "content": content,
+                         "key": str(message.get("key", "stage")),
+                         "author": str(message.get("author", "")),
+                         "addressee": str(message.get("addressee", ""))}))
+        return self.swap_with_snapshot(handoff_text, hot, entries, now=now)
