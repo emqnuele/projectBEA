@@ -3,9 +3,6 @@
 How ProjectBEA is actually put together. Every claim here is anchored to a file
 so it can be checked against the code rather than trusted.
 
-> The development plan that this architecture is moving towards lives in
-> [`roadmap.md`](roadmap.md). This document describes what exists **now**.
-
 ---
 
 ## The shape of it
