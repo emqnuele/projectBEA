@@ -51,6 +51,10 @@ class DiscordTransport:
         dcfg = self.config.skills.get("discord", {})
         env = os.environ.copy()
         env["DISCORD_TOKEN"] = token
+        # where the bot keeps its runtime state (whitelist): outside the
+        # source tree, so it never reads as local changes to the updater
+        root = Path(__file__).resolve().parents[4]
+        env.setdefault("BEA_DATA_DIR", str(root / "data"))
         env["PORT"] = str(self._port())
         env["BIND_HOST"] = LOOPBACK
         env["API_TOKEN"] = self.api_token

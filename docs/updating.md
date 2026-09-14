@@ -112,13 +112,13 @@ rendered by both the terminal and the dashboard.
 
 | Step | Does | Refuses when |
 |---|---|---|
-| `preflight` | recovers an interrupted run, classifies local changes | not a git checkout, no `origin`, detached HEAD, Docker, git missing, **any modified tracked file outside `data/prompts/`** |
+| `preflight` | recovers an interrupted run, classifies local changes | not a git checkout, no `origin`, detached HEAD, Docker, git missing, **any modified tracked file outside `data/prompts/` — except the generated lockfiles and the legacy whitelist, which are handled, not refused** |
 | `download` | `fetch` (un-shallowing a `--depth 1` clone first), resolves the target | the target is not a descendant of `HEAD` — a diverged checkout is reported, never rewritten |
 | `backup` | snapshots edited prompts, `config.json`, `.env` and the database; opens the journal | — |
 | `apply` | re-reads the prompts, `checkout HEAD -- data/prompts`, `merge --ff-only` | a prompt changed between the first read and this one |
 | `reconcile` | three-way merge per file, writes the base map, closes the journal | — |
 | `dependencies` | `uv sync`, when `uv.lock` or `pyproject.toml` changed | `uv` not on PATH — reported, run continues |
-| `dashboard` | `npm install && npm run build`, when `src/web/frontend/` changed | `npm` not on PATH — reported, run continues |
+| `dashboard`, `discord bot` | `npm ci` (+ `npm run build` for the dashboard), when that project changed | `npm` not on PATH — reported, run continues |
 
 The target is the tracking branch (`@{u}`), falling back to `origin/main`. The
 merge is `--ff-only`: there is no scenario in which the updater creates a merge
@@ -136,6 +136,22 @@ than ignored.
 Local modifications to tracked files outside `data/prompts/` abort the run with
 the list. The updater merges prose, not source: if someone has patched the
 engine, that is their patch to reconcile.
+
+Two paths are handled instead of refused:
+
+* **The lockfiles** (`src/web/frontend/package-lock.json`,
+  `src/core/skills/voice/bot/package-lock.json`). `npm install` rewrites a
+  lockfile on its own — a newer compatible version under a `^` range, a
+  different npm version, or platform-specific optional deps — so a dirty
+  lockfile after a plain install is the normal case. The updater takes the new
+  upstream copy, always, and rebuilds with `npm ci`, which installs exactly
+  what the lockfile says and never rewrites it. A rebuild therefore leaves no
+  local changes behind for the next update to trip over.
+* **The legacy whitelist** (`src/core/skills/voice/bot/whitelist.json`). The
+  discord bot used to write it into the source tree, so every `!wl add` read as
+  local changes. It is stashed before the fast-forward and migrated to the
+  untracked `data/discord_whitelist.json` after it — kept, not discarded. When
+  the run bails out before merging, it is put back where it was.
 
 ### Interruption
 
@@ -217,6 +233,7 @@ affecting `make update`.
 | Path | Lifetime |
 |---|---|
 | `data/.prompt_base.json` | permanent; losing it costs one manual reconciliation |
+| `data/discord_whitelist.json` | permanent; the discord whitelist, untracked so it never blocks an update |
 | `data/prompts/*.new` | until the conflict is settled |
 | `data/.backups/<utc-stamp>/` | last 8 runs; carries `manifest.json` with the base sha |
 | `data/.update.lock` | duration of a run, or 45 minutes |

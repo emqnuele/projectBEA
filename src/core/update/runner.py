@@ -50,6 +50,29 @@ ROOT = Path(__file__).resolve().parents[3]
 # polls; without this a tab left open all day is a fetch every few minutes.
 CHECK_TTL = 30 * 60
 
+# generated files nobody is ever asked to merge. `npm install` rewrites a
+# lockfile on its own — a newer compatible version under a `^` range, a
+# different npm version, or platform-specific optional deps — so a dirty
+# lockfile after a plain install is the normal case, not a patch to the
+# engine. The updater takes the new upstream copy, always, then rebuilds
+# with `npm ci`, which installs exactly what the lockfile says and never
+# rewrites it.
+GENERATED_RESET = (
+    "src/web/frontend/package-lock.json",
+    "src/core/skills/voice/bot/package-lock.json",
+)
+
+# runtime state that used to live in the source tree: the discord bot writes
+# it while running, so a tracked copy reads as local changes on every update.
+# Unlike the lockfiles above it is user data, so it is kept, not discarded —
+# stashed aside before the fast-forward and restored after it.
+LEGACY_STATE_KEEP = (
+    "src/core/skills/voice/bot/whitelist.json",
+)
+
+# where that state lives now: untracked, so it never blocks an update again
+WHITELIST_DATA_PATH = "data/discord_whitelist.json"
+
 # generous on purpose: a cold `uv sync` pulls a few hundred MB, and a first
 # `npm install` on a slow link is measured in minutes, not seconds
 DEPENDENCY_TIMEOUT = 30 * 60
@@ -307,6 +330,17 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
         return Report(status=BLOCKED, headline="This install cannot update itself",
                       detail=reason, steps=steps)
 
+    # generated files are taken from upstream, always: a lockfile npm rewrote
+    # during a plain install is not a patch to the engine
+    generated_dirty = [p for p in repo.modified_tracked() if p in GENERATED_RESET]
+    if generated_dirty:
+        repo.checkout_paths(generated_dirty)
+        logger.info(f"Discarded local changes to generated file(s): {', '.join(generated_dirty)}")
+
+    # runtime state is user data: stashed aside so the fast-forward can move,
+    # restored (to its new home) once it has
+    kept_state = _stash_legacy_state(root, repo)
+
     # anything of theirs outside the prompts is code, and code is not ours to merge
     blocked = [p for p in repo.modified_tracked() if not p.startswith(f"{PROMPTS}/")]
     if blocked:
@@ -335,6 +369,7 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
                       detail=detail, steps=steps)
 
     if target == base_sha:
+        _restore_legacy_state(root, repo, kept_state, target=None)
         step("download", DONE, "already on the latest version")
         for pending in ("backup", "apply", "reconcile", "dependencies",
                         *(p.name for p in NODE_PROJECTS)):
@@ -343,6 +378,7 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
                       steps=steps, from_sha=base_sha, to_sha=target)
 
     if not repo.is_ancestor(base_sha, target):
+        _restore_legacy_state(root, repo, kept_state, target=None)
         detail = ("Your checkout has commits that are not upstream, so this cannot be a "
                   "fast-forward. Merge or reset it by hand.")
         step("download", FAILED, detail)
@@ -354,8 +390,8 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
 
     # --- 3. backup -----------------------------------------------------------
     step("backup", RUNNING)
-    snapshot = backup.take(root, edited, base_sha)
-    backup.open_journal(root, "reset", snapshot, base_sha, edited)
+    snapshot = backup.take(root, [*edited, *kept_state], base_sha)
+    backup.open_journal(root, "reset", snapshot, base_sha, [*edited, *kept_state])
     step("backup", DONE, f"saved to {backup.BACKUP_ROOT}/{snapshot.name}")
 
     # --- 4. apply ------------------------------------------------------------
@@ -365,6 +401,7 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
     drifted = [p for p, text in ours.items() if _read(root / p) != text]
     if drifted:
         backup.close_journal(root)
+        _restore_legacy_state(root, repo, kept_state, target=None)
         detail = f"{', '.join(drifted)} changed while the update was preparing. Nothing was touched."
         step("apply", FAILED, detail)
         return Report(status=BLOCKED, headline="Something edited a prompt mid-update",
@@ -375,6 +412,7 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
     backup.mark_phase(root, "merge")
     repo.merge_ff_only(target)
     invalidate()
+    _restore_legacy_state(root, repo, kept_state, target=target)
     step("apply", DONE, f"now on {target[:8]}")
 
     # --- 5. reconcile --------------------------------------------------------
@@ -413,6 +451,50 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
         backup=snapshot.name,
         restart_required=True,
     )
+
+
+def _stash_legacy_state(root: Path, repo: Repo) -> Dict[str, str]:
+    """Puts tracked runtime state aside so it never blocks the fast-forward.
+
+    Returns what was stashed, keyed by repo-relative path. The working copy is
+    left clean for those paths; the caller restores them, migrated, after the
+    merge — or back where they were when the run bails out early.
+    """
+    kept: Dict[str, str] = {}
+    dirty = set(repo.modified_tracked())
+    for path in LEGACY_STATE_KEEP:
+        if path not in dirty:
+            continue
+        text = _read(root / path)
+        if text is not None:
+            kept[path] = text
+    if kept:
+        repo.checkout_paths(list(kept))
+        logger.info(f"Stashed runtime state for the update: {', '.join(kept)}")
+    return kept
+
+
+def _restore_legacy_state(root: Path, repo: Repo, kept: Dict[str, str],
+                           target: Optional[str]) -> None:
+    """Puts stashed runtime state back. `target=None` means the run bailed out:
+    the file goes back where it was, byte for byte. Otherwise it migrates to
+    its new untracked home, and — only when the new revision still ships the
+    old path — back to the legacy one too, so an old bot keeps working."""
+    from src.utils.files import atomic_write_text
+
+    for legacy_path, text in kept.items():
+        if target is None:
+            (root / legacy_path).parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(root / legacy_path, text)
+            continue
+        fresh = root / WHITELIST_DATA_PATH
+        if legacy_path.endswith("whitelist.json") and not fresh.is_file():
+            fresh.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(fresh, text)
+            logger.info(f"Migrated {legacy_path} to {WHITELIST_DATA_PATH}")
+        if repo.file_at(target, legacy_path) is not None:
+            (root / legacy_path).parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(root / legacy_path, text)
 
 
 def _base_for(root: Path, path: str, bases: state.BaseMap, head: str) -> Optional[str]:
@@ -474,6 +556,10 @@ def _rebuild_node(root: Path, changed: List[str], step) -> None:
     The discord bot was left out of this for as long as it existed: an update
     that changed its packages left the skill switched on in the UI and the bot
     unable to start, saying so nowhere but its own stderr.
+
+    `npm ci` — not `install` — on purpose: it installs exactly what the
+    lockfile says and never rewrites it, so a rebuild leaves no local changes
+    behind for the next update to trip over.
     """
     for project in NODE_PROJECTS:
         if not any(p.startswith(project.path + "/") for p in changed):
@@ -488,7 +574,7 @@ def _rebuild_node(root: Path, changed: List[str], step) -> None:
             continue
 
         step(project.name, RUNNING, "installing")
-        ok, detail = _command(project.directory(root), ["npm", "install", "--no-audit", "--no-fund"])
+        ok, detail = _command(project.directory(root), ["npm", "ci", "--no-audit", "--no-fund"])
         if ok and project.builds:
             step(project.name, RUNNING, "building")
             ok, detail = _command(project.directory(root), ["npm", "run", "build"])

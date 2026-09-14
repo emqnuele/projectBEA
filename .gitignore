@@ -50,6 +50,10 @@ data/memory/
 data/bea.db
 data/bea.db-wal
 data/bea.db-shm
+# runtime state the discord bot rewrites while running: untracked, so it never
+# reads as local changes to the updater (migrated from the old tracked copy)
+data/discord_whitelist.json
+src/core/skills/voice/bot/whitelist.json
 data/vtube_studio_token.json
 data/embeddings_cache/
 data/turns/
