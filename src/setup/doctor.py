@@ -730,10 +730,13 @@ def _model_of(client) -> str:
 
 def _ears_fix(config: BrainConfig) -> str:
     if config.stt_provider in STT_LOCAL:
+        from src.modules.STT.faster_whisper_stt import device_advice
+
         return (f"Check `stt_model` in config.json is a whisper size it knows "
                 f"(tiny, base, small, medium, large-v3, large-v3-turbo), and that "
                 f"{config.faster_whisper_download_root or 'the model cache'} is "
-                f"writable — the first run downloads the weights.")
+                f"writable — the first run downloads the weights. "
+                f"{device_advice()}")
     return ("Check the STT key and model in config.json, and its network reach "
             "from this machine.")
 
