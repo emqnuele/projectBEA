@@ -12,7 +12,10 @@ her own to join a call or pull someone into one.
 
 It is the only skill that needs a **second runtime**: Discord voice requires
 `@discordjs/voice`, so a Node.js bot runs as a subprocess. Telegram and Twitch
-are in-process precisely because they are text only.
+are in-process precisely because they are text only. Discord encrypts voice
+end to end (DAVE) and enforces it on voice channels, so the bot joins with
+`daveEncryption: true` via `@snazzah/davey` — without it the bot shows up in
+the channel but stays deaf and mute.
 
 ---
 
@@ -171,7 +174,8 @@ and discreet, three is the loudest person in the room.
 her at all. In voice she hears everyone in the channel — if you are in the room
 she can hear you — but an unlisted voice arrives with its salience damped, the
 same way an unlisted message does. Admin commands (`!wl add|remove|list`) are
-restricted to `ADMIN_ID` and unauthorised calls are silently ignored.
+restricted to `ADMIN_ID`; unauthorised calls get a reply saying so, and a
+stranger told they are not whitelisted learns their id and how to get in.
 
 ---
 

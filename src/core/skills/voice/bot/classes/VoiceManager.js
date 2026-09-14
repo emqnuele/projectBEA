@@ -19,6 +19,21 @@ const { PcmGain } = require('./PcmGain');
 const { createSpeechBuffer } = require('./SpeechBuffer');
 const { pcmToWav } = require('./Pcm');
 
+// discord encrypts voice end to end now (dave): without it the bot joins the
+// channel but stays deaf and mute on channels that enforce it. @discordjs/voice
+// 0.19 negotiates dave through @snazzah/davey, so this stays explicit rather
+// than relying on a library default.
+function buildJoinOptions(guildId, channelId, adapterCreator) {
+    return {
+        channelId: channelId,
+        guildId: guildId,
+        adapterCreator: adapterCreator,
+        selfDeaf: false,
+        selfMute: false,
+        daveEncryption: true,
+    };
+}
+
 // discord closes a receive stream this long after a client stops transmitting.
 // It is kept short on purpose: what a turn is now gets decided by the hangover
 // in SpeechBuffer, so there is no reason to hold a subscription open waiting.
@@ -73,13 +88,8 @@ class VoiceManager {
 
     async handleJoin(guildId, channelId, adapterCreator) {
         try {
-            const connection = joinVoiceChannel({
-                channelId: channelId,
-                guildId: guildId,
-                adapterCreator: adapterCreator,
-                selfDeaf: false,
-                selfMute: false
-            });
+            const connection = joinVoiceChannel(
+                buildJoinOptions(guildId, channelId, adapterCreator));
 
             const player = createAudioPlayer();
             connection.subscribe(player);
@@ -112,6 +122,16 @@ class VoiceManager {
                 console.log('[VoiceManager] Bea: PAUSED');
             });
 
+            // every state is logged, not just ready and disconnected: a handshake
+            // that never completes looks exactly like a working call otherwise
+            connection.on(VoiceConnectionStatus.Signalling, () => {
+                console.log(`[VoiceManager] Signalling in guild ${guildId}`);
+            });
+
+            connection.on(VoiceConnectionStatus.Connecting, () => {
+                console.log(`[VoiceManager] Connecting in guild ${guildId}`);
+            });
+
             connection.on(VoiceConnectionStatus.Ready, () => {
                 console.log(`[VoiceManager] Connection ready in guild ${guildId}`);
                 this.listenToUsers(guildId);
@@ -120,6 +140,11 @@ class VoiceManager {
 
             connection.on(VoiceConnectionStatus.Disconnected, () => {
                 console.log(`[VoiceManager] Disconnected from guild ${guildId}`);
+                this.cleanup(guildId);
+            });
+
+            connection.on(VoiceConnectionStatus.Destroyed, () => {
+                console.log(`[VoiceManager] Connection destroyed in guild ${guildId}`);
                 this.cleanup(guildId);
             });
 
@@ -451,3 +476,4 @@ class VoiceManager {
 }
 
 module.exports = VoiceManager;
+module.exports.buildJoinOptions = buildJoinOptions;
