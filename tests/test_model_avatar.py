@@ -5,6 +5,7 @@ the page is the only thing that knows what three.js is.
 """
 
 import json
+import os
 import time
 
 import numpy as np
@@ -81,14 +82,27 @@ def test_the_envelope_is_cheap_enough_to_compute_before_she_speaks():
     rate, seconds = 24000, 6.0
     t = np.linspace(0, seconds, int(rate * seconds), dtype=np.float32)
     speech = (np.sin(2 * np.pi * 180 * t) * (0.5 + 0.5 * np.sin(2 * np.pi * 4 * t)) ** 2)
+    audio = speech.astype(np.float32)
 
-    started = time.perf_counter()
-    frames = envelope(speech.astype(np.float32), rate, 30)
-    elapsed = (time.perf_counter() - started) * 1000
+    # one warmup: the first call pays fft planning and cold caches
+    envelope(audio, rate, 30)
 
+    # best of three: shared ci runners stall, the minimum shows the code cost
+    elapsed = min(_time_envelope(audio, rate) for _ in range(3))
+
+    # ci machines are shared and throttled, so they only catch huge regressions
+    budget = 500.0 if os.environ.get("CI") else 25.0
+
+    frames = envelope(audio, rate, 30)
     assert len(frames) == int(seconds * 30)
     assert max(opens(frames)) == 1.0 and min(opens(frames)) >= 0.0
-    assert elapsed < 25.0, f"{elapsed:.1f} ms is too long to sit in front of playback"
+    assert elapsed < budget, f"{elapsed:.1f} ms is too long to sit in front of playback"
+
+
+def _time_envelope(audio, rate) -> float:
+    started = time.perf_counter()
+    envelope(audio, rate, 30)
+    return (time.perf_counter() - started) * 1000
 
 
 def test_the_envelope_is_small_enough_to_send_whole():
