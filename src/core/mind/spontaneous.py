@@ -88,6 +88,9 @@ class SpontaneousPresence:
 
         if not self.enabled:
             return 0
+        window = self.window
+        if window is None:
+            return 0
         hour = datetime.fromtimestamp(self._clock()).hour
         started = 0
 
@@ -96,8 +99,8 @@ class SpontaneousPresence:
         for key in self.candidates():
             try:
                 now = self._clock()
-                since = self.window.seconds_since_bea(key, now=now)
-                activity = self.window.activity_count(key, ACTIVITY_WINDOW, now=now)
+                since = window.seconds_since_bea(key, now=now)
+                activity = window.activity_count(key, ACTIVITY_WINDOW, now=now)
             except Exception as e:
                 logger.warning(f"Spontaneous: could not read '{key}': {e}")
                 continue
