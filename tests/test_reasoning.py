@@ -41,8 +41,16 @@ def test_openai_direct_uses_the_responses_shape():
 
 
 def test_chat_shaped_providers_keep_their_own_field():
-    assert style_for("local", "low").extra_body == {"reasoning_effort": "low"}
+    assert style_for("openai_compat", "low").extra_body == {"reasoning_effort": "low"}
     assert style_for("openai_compat", "off").extra_body == {"reasoning_effort": "minimal"}
+
+
+def test_local_off_really_switches_thinking_off():
+    """ollama clamps minimal to low: only none stops a local thinker."""
+    style = style_for("local", "off")
+    assert style.extra_body == {"reasoning_effort": "none"}
+    assert style.optional_keys == ("reasoning_effort",)
+    assert style_for("local", "low").extra_body == {"reasoning_effort": "low"}
 
 
 def test_google_and_claude_get_no_reasoning_hint():
@@ -181,7 +189,7 @@ def test_the_legacy_json_path_carries_it_too(monkeypatch):
     import asyncio
 
     asyncio.run(c.complete_json("ciao"))
-    assert FakeSession.posts[0]["reasoning_effort"] == "minimal"
+    assert FakeSession.posts[0]["reasoning_effort"] == "none"
 
 
 # --- the factory reads it from config ----------------------------------------

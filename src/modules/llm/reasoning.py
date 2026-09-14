@@ -37,32 +37,28 @@ class ReasoningStyle:
 NO_STYLE = ReasoningStyle()
 
 
-def _openrouter(level: str) -> ReasoningStyle:
-    # unified `reasoning` parameter; enabled:false really switches it off on the
-    # hybrid models, and exclude keeps the trace out of the response
-    if level == "off":
-        return ReasoningStyle({"reasoning": {"enabled": False}}, ("reasoning",))
-    return ReasoningStyle({"reasoning": {"effort": level, "exclude": True}}, ("reasoning",))
-
-
-def _groq(level: str) -> ReasoningStyle:
-    # on gpt-oss the effort floor is what it is; reasoning_format=hidden at
-    # least keeps the trace out of the text she would otherwise say out loud
-    effort = "none" if level == "off" else level
-    return ReasoningStyle(
-        {"reasoning_effort": effort, "reasoning_format": "hidden"},
-        ("reasoning_effort", "reasoning_format"),
-    )
-
-
 def _openai(level: str) -> ReasoningStyle:
+    # chat completions on openai-family models; minimal is the floor there
     effort = "minimal" if level == "off" else level
+    return ReasoningStyle({"reasoning_effort": effort}, ("reasoning_effort",))
+
+
+def _local(level: str) -> ReasoningStyle:
+    # ollama documents exactly this scale and maps it in the open: none
+    # switches thinking off, while minimal is clamped to low — sending
+    # minimal for "off" would leave every local thinker thinking. Without
+    # any parameter ollama auto-enables thinking, so omitting it is not
+    # an option either. Negotiable all the same: lm studio may refuse
+    # none, and then the call goes out unhinted rather than failing.
+    effort = "none" if level == "off" else level
     return ReasoningStyle({"reasoning_effort": effort}, ("reasoning_effort",))
 
 
 def _responses(level: str) -> ReasoningStyle:
     # the responses api carries effort as an object; minimal is the floor for
-    # "answer now". negotiable like the rest: a beta endpoint that rejects it
+    # "answer now" on gpt-5, and openrouter documents the same scale.
+    # Model-dependent all the way down (newer models accept none, some
+    # reject minimal), so negotiable like the rest: whatever refuses it
     # gets the call again without it rather than a failure.
     effort = "minimal" if level == "off" else level
     return ReasoningStyle({"reasoning": {"effort": effort}}, ("reasoning",))
@@ -73,11 +69,13 @@ _TRANSLATORS = {
     "groq": _responses,
     "openai": _responses,
     # chat completions shaped
-    "local": _openai,
+    "local": _local,
     "openai_compat": _openai,
     # google's openai endpoint and the anthropic family take no documented
-    # equivalent: guessing a parameter name is how you turn a working model
-    # into a 400
+    # equivalent: gemini thinking levels are a different scale where minimal
+    # errors, and anthropic thinking is opt-in with token budgets — both are
+    # guesses that turn working models into 400s, and both default to the
+    # fast behavior anyway
 }
 
 

@@ -181,6 +181,14 @@ by the API and defaults to 4096.
 Every model in the `mind` pool must support tool calls, whichever protocol it
 speaks — Bea speaks *only* through the `speak` tool.
 
+`models.reasoning` (`off`, `low`, `medium`, `high`, `auto`) is a latency
+setting, not a quality one: it translates per provider to the documented
+minimum — `reasoning.effort: minimal` on Responses, `reasoning_effort: none`
+on local runners (Ollama clamps `minimal` to `low`, so `none` is the only
+real off), nothing at all where no equivalent exists (Gemini's thinking scale
+has no shared floor, Anthropic thinking is opt-in and off by default). A
+model that rejects its hint is retried without it rather than failing.
+
 ---
 
 ## Hot reload
