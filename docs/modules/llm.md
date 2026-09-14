@@ -23,16 +23,36 @@ src/core/agent/
 └── runner.py       AgentRunner: the think → act → observe loop
 
 src/modules/llm/
-├── openai_compat.py  OpenAICompatibleClient — the shared base
-├── openai_llm.py     OpenAI
-├── groq_llm.py       Groq
-├── openrouter_llm.py OpenRouter
-└── factory.py        build_client(provider, model, config, stt)
+├── base.py         AsyncLLMClient — sessions, errors, stream assembly, reload
+├── responses.py    the Responses API transport (POST {base}/responses)
+├── chat.py         the Chat Completions transport (POST {base}/chat/completions)
+├── anthropic.py    the Messages transport (POST {base}/messages)
+├── providers.py    every provider as one row of data — no subclasses
+└── factory.py      build_client(provider, model, config, stt)
 ```
 
-All three providers speak the OpenAI Chat API, so they share
-`OpenAICompatibleClient`; a subclass only sets a base URL and key and implements
-`reload_config`.
+Eight providers speak three protocols, so there are three transports and no
+per-vendor subclasses. A provider is one row in `providers.py`: transport,
+base url, env var, default model, whether the key is required. Adding a ninth
+that speaks one of the three protocols is one entry there.
+
+| Provider | Transport | Base URL | Key | Default model |
+|---|---|---|---|---|
+| OpenRouter | responses | `openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | `deepseek/deepseek-v4-flash` |
+| OpenAI | responses | `api.openai.com/v1` | `OPENAI_API_KEY` | `gpt-5` |
+| Groq | responses | `api.groq.com/openai/v1` | `GROQ_API_KEY` | `openai/gpt-oss-120b` |
+| Google AI Studio | chat | `generativelanguage…/v1beta/openai` | `GOOGLE_API_KEY` | `gemini-3.8-flash` |
+| Claude | messages | `api.anthropic.com/v1` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
+| Custom OpenAI | chat, or responses via `openai_compat_api` | yours | optional | — |
+| Custom Anthropic | messages | yours | optional | — |
+| Local (Ollama / LM Studio) | chat | `localhost:11434/v1` | none | `qwen3:8b` |
+
+All three transports are natively async over `aiohttp`: no thread pools, no
+sync SDKs. Every network error raises with the status and the provider's own
+body in the message, which is what the pool's failover reads.
+
+Keys come from the environment first; `config.json` only fills a variable that
+is not set. `GET /config` never returns them.
 
 ---
 
@@ -130,14 +150,36 @@ and that cannot be tuned unseen.
 
 ## Providers
 
-| Provider | Class | Key field | Env var |
-|---|---|---|---|
-| OpenRouter | `OpenRouterLLM` | `openrouter_key` | `OPENROUTER_API_KEY` |
-| OpenAI | `OpenAILLM` | `openai_key` | `OPENAI_API_KEY` |
-| Groq | `GroqLLM` | `groq_key` | `GROQ_API_KEY` |
+The table above is the whole list. Notes per transport:
 
-Keys come from the environment first; `config.json` only fills a variable that
-is not set. `GET /config` never returns them.
+**Responses** (`responses.py`). The item-based protocol: the system prompt
+travels as `instructions`, tools are flat (`type`, `name`, `description`,
+`parameters` — no nested `function` key), tool results come back as
+`function_call_output` items linked by `call_id`. Every call sends the full
+history and `store: false`: nothing is kept server-side, which is both a
+privacy choice and a requirement on endpoints that reject stored state.
+Streaming reads the semantic events (`output_text.delta`,
+`function_call_arguments.delta`, `completed`). JSON mode uses `text.format`,
+falling back to a plain prompt plus parsing when an endpoint refuses it.
+`reasoning: {effort}` carries the latency setting; a model that rejects it is
+retried without it rather than failing.
+
+**Chat Completions** (`chat.py`). The industry-standard protocol every
+compatible endpoint speaks. Messages and tools travel unchanged; `tool_choice`
+is skipped per provider where the endpoint rejects it (Ollama documents tools
+but not `tool_choice`). JSON mode uses `response_format` with the same
+fallback. Google AI Studio is reached through Gemini's OpenAI-compatible
+endpoint, which documents chat completions and nothing else.
+
+**Messages** (`anthropic.py`). System messages become the `system` parameter,
+assistant tool calls become `tool_use` blocks, `tool` turns become
+`tool_result` blocks addressed by `tool_use_id`, and tool schemas are
+flattened onto `input_schema`. Auth is `x-api-key`. There is no JSON mode on
+this protocol, so JSON turns are prompt plus parse. `max_tokens` is required
+by the API and defaults to 4096.
+
+Every model in the `mind` pool must support tool calls, whichever protocol it
+speaks — Bea speaks *only* through the `speak` tool.
 
 ---
 
@@ -151,17 +193,17 @@ restart.
 
 ## Adding a provider
 
-If it speaks the OpenAI Chat API, it is about fifteen lines:
+If it speaks one of the three protocols, it is one row in `providers.py`:
 
 ```python
-class MyLLM(OpenAICompatibleClient):
-    def __init__(self, api_key, model_name, stt_interface=None):
-        self.api_key = api_key
-        super().__init__(OpenAI(api_key=api_key, base_url="..."), model_name, stt_interface)
-
-    def reload_config(self, config):
-        ...
+"mycloud": Provider(
+    id="mycloud", transport=CHAT, base_url="https://mycloud.example/v1",
+    key_field="mycloud_key", env_var="MYCLOUD_API_KEY",
+    model_field="mycloud_model", default_model="my-model", needs_key=True),
 ```
 
-Then add it to `_PROVIDERS` and the branch in `factory.build_client()`, and to
-the `--llm-provider` choices in `src/cli.py`.
+plus the config fields, the CLI flags and the wizard entry — the factory,
+the doctor and the dashboard read the same table, so they follow without
+further branches. A genuinely new protocol means a new transport next to the
+three: map its payloads onto `build_body` / `parse_message` / `iter_events`
+and the pools, the streaming, the JSON turns and the reloads come for free.
