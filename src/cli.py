@@ -61,7 +61,9 @@ def parse_args(argv=None):
     parser.add_argument("--png-dir", default=None, help="Directory for avatar PNGs")
 
     # llm selection
-    parser.add_argument("--llm-provider", choices=["openrouter", "openai", "groq"], default=None, help="LLM Provider to use")
+    parser.add_argument("--llm-provider", choices=["openrouter", "openai", "groq", "google", "claude",
+                                                   "openai_compat", "anthropic_compat", "local"],
+                        default=None, help="LLM Provider to use")
 
     # openrouter
     parser.add_argument("--openrouter-key", default=None, help="OpenRouter API Key")
@@ -74,6 +76,31 @@ def parse_args(argv=None):
     # groq
     parser.add_argument("--groq-key", default=None, help="Groq API Key")
     parser.add_argument("--groq-model", default=None, help="Groq Model")
+
+    # google ai studio
+    parser.add_argument("--google-key", default=None, help="Google AI Studio API Key")
+    parser.add_argument("--google-model", default=None, help="Gemini Model")
+
+    # claude (anthropic)
+    parser.add_argument("--claude-key", default=None, help="Anthropic API Key")
+    parser.add_argument("--claude-model", default=None, help="Claude Model")
+
+    # generic openai-compatible endpoint
+    parser.add_argument("--openai-compat-key", default=None, help="Custom Endpoint API Key (if any)")
+    parser.add_argument("--openai-compat-base-url", default=None, help="Custom Endpoint Base URL")
+    parser.add_argument("--openai-compat-model", default=None, help="Custom Endpoint Model")
+    parser.add_argument("--openai-compat-api", choices=["chat", "responses"], default=None,
+                        help="Custom Endpoint Protocol")
+
+    # generic anthropic-compatible endpoint
+    parser.add_argument("--anthropic-compat-key", default=None, help="Custom Endpoint API Key (if any)")
+    parser.add_argument("--anthropic-compat-base-url", default=None, help="Custom Endpoint Base URL")
+    parser.add_argument("--anthropic-compat-model", default=None, help="Custom Endpoint Model")
+
+    # local models (ollama, lm studio)
+    parser.add_argument("--local-key", default=None, help="Local Endpoint API Key (rarely needed)")
+    parser.add_argument("--local-base-url", default=None, help="Local Endpoint Base URL")
+    parser.add_argument("--local-model", default=None, help="Local Model")
 
     # stt
     parser.add_argument("--stt-provider", choices=["groq", "openrouter", "faster_whisper"], default=None, help="STT Provider")

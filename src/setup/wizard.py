@@ -22,9 +22,12 @@ from rich.table import Table
 # which transcribers need no account, asked of the one place that builds them
 from src.modules.STT.factory import LOCAL as STT_LOCAL
 from src.setup.config_plan import (
+    LOCAL_URLS,
     PLATFORM_SKILLS,
     PROVIDER_KEYS,
     PROVIDER_MODELS,
+    PROVIDER_URL_DEFAULTS,
+    PROVIDER_URLS,
     apply_answers,
     env_updates,
 )
@@ -52,6 +55,11 @@ PROVIDERS: List[Tuple[str, str, str]] = [
     ("openrouter", "OpenRouter", "One key, virtually any model. https://openrouter.ai/keys"),
     ("openai", "OpenAI", "Called directly. https://platform.openai.com/api-keys"),
     ("groq", "Groq", "Fastest, smallest catalogue. https://console.groq.com/keys"),
+    ("google", "Google AI Studio", "Gemini with a free tier. https://aistudio.google.com/apikey"),
+    ("claude", "Claude", "Anthropic, called directly. https://console.anthropic.com/"),
+    ("local", "Local models", "Ollama or LM Studio on this machine. No key, nothing leaves the room."),
+    ("openai_compat", "Custom OpenAI endpoint", "Any server speaking the OpenAI protocol."),
+    ("anthropic_compat", "Custom Anthropic endpoint", "Any server speaking the Messages protocol."),
 ]
 
 AVATARS: List[Tuple[str, str, str]] = [
@@ -112,9 +120,10 @@ VOICES: Dict[str, List[Tuple[str, str]]] = {
 }
 
 KEY_TEST_URLS = {
-    "openrouter": "https://openrouter.ai/api/v1/key",
+    "openrouter": "https://openrouter.ai/api/v1/models",
     "openai": "https://api.openai.com/v1/models",
     "groq": "https://api.groq.com/openai/v1/models",
+    "google": "https://generativelanguage.googleapis.com/v1beta/openai/models",
 }
 
 
@@ -158,30 +167,39 @@ def _ask_key(console: Console, label: str, env_var: str) -> str:
     return Prompt.ask(f"  {label}", password=True, default="", show_default=False)
 
 
-def _test_key(console: Console, provider: str, key: str) -> None:
+def _test_key(console: Console, provider: str, key: str, base_url: str = "") -> None:
     """Best effort: a failed check is a warning, never a reason to stop."""
-    if not key or not Confirm.ask("  Test the key now?", default=True):
+    if provider in PROVIDER_URLS and not key:
+        if not Confirm.ask("  No key given. Check the endpoint answers instead?", default=True):
+            return
+    elif not key or not Confirm.ask("  Test the key now?", default=True):
         return
     try:
         import requests
 
-        with console.status("  [dim]calling the provider…[/dim]"):
-            response = requests.get(
-                KEY_TEST_URLS[provider],
-                headers={"Authorization": f"Bearer {key}"},
-                timeout=15,
-            )
-        if response.ok:
-            console.print("  [green]✓[/green] The key works.")
-        elif response.status_code in (401, 403):
-            console.print("  [red]✗[/red] The provider rejected the key. "
-                          "Setup continues — fix it in .env when you have the right one.")
+        if provider == "claude":
+            url = "https://api.anthropic.com/v1/models"
+        elif provider in PROVIDER_URLS:
+            url = f"{base_url.rstrip('/')}/models"
         else:
-            console.print(f"  [yellow]?[/yellow] Provider answered {response.status_code}. "
+            url = KEY_TEST_URLS[provider]
+        with console.status("  [dim]calling the provider…[/dim]"):
+            response = requests.get(url, headers=_key_headers(provider, key),
+                                    timeout=15)
+        if response.ok:
+            console.print("  [green]✓[/green] The endpoint answers.")
+        elif response.status_code in (401, 403):
+            console.print("  [red]✗[/red] The endpoint rejected the key. "
+                          "Setup continues — fix it in .env when you have the right one.")
+        elif response.status_code == 404 and provider in PROVIDER_URLS:
+            console.print("  [yellow]?[/yellow] Nothing serves the models list there. "
+                          "Check the URL — it should end in /v1, without /chat/completions.")
+        else:
+            console.print(f"  [yellow]?[/yellow] Endpoint answered {response.status_code}. "
                           "Probably fine, but worth checking later.")
     except Exception as error:
-        console.print(f"  [yellow]?[/yellow] Could not reach the provider ({error}). "
-                      "Skipping the check.")
+        console.print(f"  [yellow]?[/yellow] Could not reach the endpoint ({error}). "
+                      "Setup continues — check the URL and whether it is running.")
 
 
 def _output_devices() -> List[Tuple[int, str]]:
@@ -230,18 +248,64 @@ def _ask_llm(console: Console, answers: Dict[str, Any]) -> None:
 
     provider = _choose(console, "Provider", PROVIDERS, "openrouter")
     _, env_var = PROVIDER_KEYS[provider]
-    model_field, default_model = PROVIDER_MODELS[provider]
-
-    console.print()
-    key = _ask_key(console, "API key", env_var)
-    _test_key(console, provider, key)
-
-    console.print()
-    model = Prompt.ask("  Model", default=default_model)
-
+    _, default_model = PROVIDER_MODELS[provider]
     answers["llm_provider"] = provider
-    answers["llm_key"] = key
-    answers["llm_model"] = model
+
+    url_field = PROVIDER_URLS.get(provider)
+    if url_field:
+        console.print()
+        answers["llm_base_url"] = _ask_endpoint(
+            console, provider, PROVIDER_URL_DEFAULTS.get(provider, ""))
+        if provider == "local":
+            console.print()
+            key = _ask_key(console, "API key (almost never needed locally)", env_var)
+            _test_key(console, provider, key, answers["llm_base_url"])
+            answers["llm_key"] = key
+            console.print()
+            answers["llm_model"] = Prompt.ask("  Model", default=default_model)
+            return
+        console.print()
+        answers["llm_key"] = _ask_key(console, "API key (empty if the endpoint wants none)",
+                                      env_var)
+        _test_key(console, provider, answers["llm_key"], answers["llm_base_url"])
+
+    else:
+        console.print()
+        key = _ask_key(console, "API key", env_var)
+        _test_key(console, provider, key)
+        answers["llm_key"] = key
+
+    console.print()
+    while True:
+        model = Prompt.ask("  Model", default=default_model or None)
+        if (model or "").strip() or default_model:
+            answers["llm_model"] = model or default_model
+            return
+        console.print("  [yellow]The model cannot be empty: only you know what "
+                      "this endpoint serves.[/yellow]")
+
+
+def _ask_endpoint(console: Console, provider: str, default: str) -> str:
+    """Where a brought-your-own endpoint lives. Local runners get a menu."""
+    if provider == "local":
+        options = ([(url, name, "") for name, url in LOCAL_URLS.items()]
+                   + [("custom", "Another URL", "A remote Ollama or any compatible server.")])
+        picked = _choose(console, "Which runner", options, LOCAL_URLS["ollama"])
+        if picked != "custom":
+            return picked
+        console.print()
+    while True:
+        url = Prompt.ask("  Endpoint base URL", default=default or None)
+        cleaned = (url or "").strip()
+        if cleaned:
+            return cleaned
+        console.print("  [yellow]The endpoint URL cannot be empty.[/yellow]")
+
+
+def _key_headers(provider: str, key: str) -> Dict[str, str]:
+    if provider == "claude":
+        return {"x-api-key": key, "anthropic-version": "2023-06-01"}
+    return {"Authorization": f"Bearer {key}"}
 
 
 def _ask_voice(console: Console, answers: Dict[str, Any]) -> None:

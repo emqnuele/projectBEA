@@ -125,10 +125,53 @@ function MindSection({ config, update, updateSkill }) {
 
 // --- what thinks for her ----------------------------------------------------
 
+const LLM_PROVIDERS = [
+    { id: 'openrouter', label: 'OpenRouter', blurb: 'One endpoint, almost any model.' },
+    { id: 'openai', label: 'OpenAI', blurb: 'GPT models, called directly.' },
+    { id: 'groq', label: 'Groq', blurb: 'Fastest inference, fewer models.' },
+    { id: 'google', label: 'Google AI Studio', blurb: 'Gemini, with a free tier.' },
+    { id: 'claude', label: 'Claude', blurb: 'Anthropic, called directly.' },
+    { id: 'local', label: 'Local models', blurb: 'Ollama or LM Studio. No key, all offline.' },
+    { id: 'openai_compat', label: 'Custom OpenAI', blurb: 'Any OpenAI-protocol server.' },
+    { id: 'anthropic_compat', label: 'Custom Anthropic', blurb: 'Any Messages-protocol server.' },
+];
+
+const LLM_KEY_FIELDS = {
+    openrouter: 'openrouter_key', openai: 'openai_key', groq: 'groq_key',
+    google: 'google_key', claude: 'claude_key', local: 'local_key',
+    openai_compat: 'openai_compat_key', anthropic_compat: 'anthropic_compat_key',
+};
+
+const LLM_MODEL_FIELDS = {
+    openrouter: 'openrouter_model', openai: 'openai_model', groq: 'groq_model',
+    google: 'google_model', claude: 'claude_model', local: 'local_model',
+    openai_compat: 'openai_compat_model', anthropic_compat: 'anthropic_compat_model',
+};
+
+const LLM_URL_FIELDS = {
+    local: 'local_base_url',
+    openai_compat: 'openai_compat_base_url',
+    anthropic_compat: 'anthropic_compat_base_url',
+};
+
+const LLM_KEY_PLACEHOLDERS = {
+    openrouter: 'sk-or-…', openai: 'sk-…', groq: 'gsk-…', google: 'AIza…',
+    claude: 'sk-ant-…', local: 'usually empty', openai_compat: 'if the endpoint wants one',
+    anthropic_compat: 'if the endpoint wants one',
+};
+
+const LLM_MODEL_PLACEHOLDERS = {
+    openrouter: 'deepseek/deepseek-v4-flash', openai: 'gpt-5', groq: 'openai/gpt-oss-120b',
+    google: 'gemini-3.8-flash', claude: 'claude-sonnet-5', local: 'qwen3:8b',
+    openai_compat: 'the model id the endpoint serves',
+    anthropic_compat: 'the model id the endpoint serves',
+};
+
 function EngineSection({ config, update, secrets }) {
     const provider = config.llm_provider;
-    const keyField = { openrouter: 'openrouter_key', openai: 'openai_key', groq: 'groq_key' }[provider];
-    const modelField = { openrouter: 'openrouter_model', openai: 'openai_model', groq: 'groq_model' }[provider];
+    const keyField = LLM_KEY_FIELDS[provider];
+    const modelField = LLM_MODEL_FIELDS[provider];
+    const urlField = LLM_URL_FIELDS[provider];
 
     return (
         <>
@@ -136,25 +179,37 @@ function EngineSection({ config, update, secrets }) {
                 <ProviderChoice
                     value={provider}
                     onChange={(id) => update('llm_provider', id)}
-                    columns={3}
-                    options={[
-                        { id: 'openrouter', label: 'OpenRouter', blurb: 'One endpoint, almost any model.' },
-                        { id: 'openai', label: 'OpenAI', blurb: 'GPT models, called directly.' },
-                        { id: 'groq', label: 'Groq', blurb: 'Fastest inference, fewer models.' },
-                    ]}
+                    columns={4}
+                    options={LLM_PROVIDERS}
                 />
             </Group>
 
             <Group title="Credentials">
+                {urlField && (
+                    <Field
+                        label="Endpoint URL"
+                        help={provider === 'local'
+                            ? 'Ollama answers at :11434, LM Studio at :1234. No key, no account.'
+                            : 'The base URL, ending in /v1 — without /chat/completions.'}
+                    >
+                        <TextInput
+                            value={config[urlField] || ''}
+                            onChange={(e) => update(urlField, e.target.value)}
+                            placeholder={provider === 'local' ? 'http://localhost:11434/v1' : 'https://…/v1'}
+                            className="font-mono"
+                        />
+                    </Field>
+                )}
+
                 <Field
-                    label="API key"
+                    label={provider === 'local' || urlField ? 'API key (optional)' : 'API key'}
                     action={<SecretState configured={secrets[keyField]} envHint="saved to .env" />}
                     help="Saved to .env, which is the only file keys are kept in — config.json never carries one. Empty the box to forget the key."
                 >
                     <SecretInput
                         value={config[keyField] || ''}
                         onChange={(e) => update(keyField, e.target.value)}
-                        placeholder={provider === 'openrouter' ? 'sk-or-…' : 'sk-…'}
+                        placeholder={LLM_KEY_PLACEHOLDERS[provider]}
                     />
                 </Field>
 
@@ -162,7 +217,7 @@ function EngineSection({ config, update, secrets }) {
                     <TextInput
                         value={config[modelField] || ''}
                         onChange={(e) => update(modelField, e.target.value)}
-                        placeholder={provider === 'openrouter' ? 'deepseek/deepseek-v4-flash' : 'gpt-4o-mini'}
+                        placeholder={LLM_MODEL_PLACEHOLDERS[provider]}
                         className="font-mono"
                     />
                 </Field>

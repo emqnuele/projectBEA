@@ -131,7 +131,9 @@ async def check_config(config: BrainConfig) -> Finding:
 
 
 async def check_keys(config: BrainConfig) -> Finding:
-    """Every provider the pools actually name has a key on this machine."""
+    """Every provider the pools actually name has what it needs on this machine."""
+    from src.modules.llm.providers import PROVIDERS
+
     wanted = set()
     for role in (MIND, BACKGROUND):
         for entry in config.models.get(role) or []:
@@ -144,15 +146,30 @@ async def check_keys(config: BrainConfig) -> Finding:
     if not wanted:
         wanted.add(config.llm_provider)
     # her ears run on the same key namespace as the llm, and are as keyed as it
-    # — unless they run on this machine, where there is nothing to key
-    if config.stt_provider and config.stt_provider not in STT_LOCAL:
+    # — unless they run on this machine, where there is nothing to key. An
+    # unknown transcriber is the stt factory's business, not a missing key.
+    if (config.stt_provider and config.stt_provider not in STT_LOCAL
+            and config.stt_provider in PROVIDERS):
         wanted.add(config.stt_provider)
 
-    missing = [name for name in sorted(wanted) if not _key_for(config, name)]
+    unknown = sorted(name for name in wanted if name not in PROVIDERS)
+    if unknown:
+        return failed(f"unknown provider(s) {', '.join(unknown)}",
+                      "Check `models` in config.json: a spec is `provider:model`.")
+
+    missing = [name for name in sorted(wanted)
+               if PROVIDERS[name].needs_key and not _key_for(config, name)]
     if missing:
         return failed(f"no key for {', '.join(missing)}",
                       f"Put {', '.join(_env_var(name) for name in missing)} in {ENV_FILE}, "
                       f"or run `uv run bea --setup`.")
+
+    homeless = [name for name in sorted(wanted)
+                if PROVIDERS[name].url_field and not _url_for(config, name)]
+    if homeless:
+        fields = ", ".join(PROVIDERS[name].url_field for name in homeless)
+        return failed(f"no endpoint url for {', '.join(homeless)}",
+                      f"Set {fields} in config.json, or run `uv run bea --setup`.")
     return passed(", ".join(sorted(wanted)))
 
 
@@ -670,12 +687,37 @@ def _verdict(console, found: List[Tuple[str, Finding]]) -> int:
 
 
 def _env_var(provider: str) -> str:
-    return {"openrouter": "OPENROUTER_API_KEY", "openai": "OPENAI_API_KEY",
-            "groq": "GROQ_API_KEY"}.get(provider, f"{provider.upper()}_API_KEY")
+    from src.modules.llm.providers import PROVIDERS
+
+    preset = PROVIDERS.get(provider)
+    if preset is not None:
+        return preset.env_var
+    return f"{provider.upper()}_API_KEY"
 
 
 def _key_for(config: BrainConfig, provider: str) -> Optional[str]:
-    return getattr(config, f"{provider}_key", None) or os.getenv(_env_var(provider))
+    from src.modules.llm.providers import PROVIDERS
+
+    preset = PROVIDERS.get(provider)
+    field = preset.key_field if preset is not None else f"{provider}_key"
+    return getattr(config, field, None) or os.getenv(_env_var(provider))
+
+
+def _url_for(config: BrainConfig, provider: str) -> str:
+    """The endpoint url a provider resolves to, mirroring the factory.
+
+    A configured url wins; otherwise the fixed one. Empty exactly when the
+    factory would refuse to build the client.
+    """
+    from src.modules.llm.providers import PROVIDERS
+
+    preset = PROVIDERS.get(provider)
+    if preset is None:
+        return ""
+    if preset.url_field:
+        configured = (getattr(config, preset.url_field, None) or "").strip()
+        return configured or preset.base_url
+    return preset.base_url
 
 
 def _model_of(client) -> str:

@@ -25,6 +25,11 @@ def _engine_summary(brain: AIVtuberBrain) -> Dict[str, Any]:
         "openrouter": config.openrouter_model,
         "openai": config.openai_model,
         "groq": config.groq_model,
+        "google": config.google_model,
+        "claude": config.claude_model,
+        "openai_compat": config.openai_compat_model,
+        "anthropic_compat": config.anthropic_compat_model,
+        "local": config.local_model,
     }.get(config.llm_provider, "")
     return {
         "llm_provider": config.llm_provider,
