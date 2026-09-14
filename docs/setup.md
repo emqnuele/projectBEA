@@ -428,7 +428,7 @@ The fastest way to figure out what is wrong is to run the built-in diagnostic:
 uv run bea --doctor    # or: make doctor
 ```
 
-Thirteen checks, run in the order the pieces depend on each other and stopped at
+Fifteen checks, run in the order the pieces depend on each other and stopped at
 the first blocking failure — there is no point testing the voice when there is
 no config file. Every failure carries the exact command that fixes it. The exit
 code is non-zero when something is blocking, so it works in a script.

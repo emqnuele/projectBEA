@@ -26,8 +26,8 @@ src/core/skills/voice/
 ```
 
 `VoiceSurface` extends [`PlatformSkill`](overview.md#two-shapes-of-skill), so
-building an `Author` and sending text is all it owes; perception building,
-humanized delivery and the scoped conversation tools come from the base.
+building an `Author` and sending text is all it owes; perception building and
+humanized delivery come from the base.
 
 ---
 
@@ -74,12 +74,10 @@ rather than only the first.
 
 **Text** is not the stage. A message arrives at `POST /discord/chat`, becomes a
 `CHAT` perception carrying `conversation_key = "discord:<channel_id>"`, and the
-endpoint returns `{"status": "perceived"}` immediately. The message is routed to
-a [scoped conversation turn](../architecture.md#one-mind-two-clocks) that runs
-beside the live loop: one turn at a time per channel, several channels at once.
-
-A scoped turn has no `speak` tool, so a written message is answered in writing —
-by construction rather than by a rule in the prompt.
+endpoint returns `{"status": "perceived"}` immediately. The message is read in
+the one frame of the single loop and answered in writing via
+`send_message(platform="discord", …)` or `react` — never out loud, because a
+written channel has no `speak` tool.
 
 **Overheard speech** (`POST /voice/transcript`) is a third path: it deposits a
 perception and returns without waiting. The attention gate decides whether it

@@ -5,7 +5,6 @@ are alive, skips the ones she just spoke in, stays out of quiet hours, and then
 only sometimes goes ahead. `rng` and `clock` are injected for the tests.
 """
 
-import asyncio
 import random
 import time
 from datetime import datetime
@@ -26,12 +25,15 @@ STALE_AFTER = 6 * 3600.0
 class SpontaneousPresence:
     """Occasionally opens a conversation that is alive but has gone quiet."""
 
-    def __init__(self, *, config, memory, conversations,
+    def __init__(self, *, config, memory, bus, window=None,
                  rng: Optional[random.Random] = None,
                  clock: Optional[Callable[[], float]] = None):
         self.config = config
         self.memory = memory
-        self.conversations = conversations
+        self.bus = bus
+        # the one sliding window: liveness comes from here, never sqlite —
+        # the durable log is append-only and must not drive live decisions
+        self.window = window
         self._rng = rng or random.Random()
         self._clock = clock or time.time
 
@@ -76,28 +78,29 @@ class SpontaneousPresence:
 
     def candidates(self) -> List[str]:
         """Conversations recent enough to be worth considering at all."""
-        cutoff = self._clock() - STALE_AFTER
-        rows = self.memory.db.query(
-            "SELECT conversation_key, MAX(ts) AS last FROM messages "
-            "WHERE ts >= ? GROUP BY conversation_key ORDER BY last DESC LIMIT 20",
-            (cutoff,),
-        )
-        return [r["conversation_key"] for r in rows if r["conversation_key"] != "stage"]
+        if self.window is None:
+            return []
+        return self.window.live_keys(window_seconds=STALE_AFTER, now=self._clock())
 
     async def run_once(self) -> int:
         """Checks every live conversation; returns how many she opened."""
+        from src.core.perception.types import Perception, PerceptionKind
+
         if not self.enabled:
+            return 0
+        window = self.window
+        if window is None:
             return 0
         hour = datetime.fromtimestamp(self._clock()).hour
         started = 0
 
-        # the scan over every recent message must not stall the loop
-        for key in await asyncio.to_thread(self.candidates):
+        # window reads are cheap and synchronous: no thread hop, the loop
+        # never waits on its own memory
+        for key in self.candidates():
             try:
                 now = self._clock()
-                since = self.memory.conversations.seconds_since_bea_spoke(key, now=now)
-                activity = self.memory.conversations.recent_activity(
-                    key, ACTIVITY_WINDOW, now=now)
+                since = window.seconds_since_bea(key, now=now)
+                activity = window.activity_count(key, ACTIVITY_WINDOW, now=now)
             except Exception as e:
                 logger.warning(f"Spontaneous: could not read '{key}': {e}")
                 continue
@@ -108,7 +111,12 @@ class SpontaneousPresence:
                 continue
 
             logger.info(f"Spontaneous: opening '{key}' on her own.")
-            await self.conversations.turn_now(key, [], initiative=True)
+            self.bus.put(Perception(
+                kind=PerceptionKind.SYSTEM,
+                surface="spontaneous",
+                content="[NOBODY IS TALKING TO YOU] Nothing new here — this one has just gone quiet, and you thought of it. If there is something you actually want to say, say it: pick up something from earlier, ask about a thing someone left hanging, complain about your day. If nothing genuinely comes to mind, say_nothing.",
+                meta={"conversation_key": key}
+            ))
             started += 1
 
         return started

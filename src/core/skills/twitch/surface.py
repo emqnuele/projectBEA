@@ -54,7 +54,6 @@ class TwitchSkill(PlatformSkill):
     skill_name = "twitch"
     platform = "twitch"
     # chat is the audience in the room with her: she answers it out loud
-    scoped_conversations = False
     message_limit = 500
     # whispers are a separate, heavily rate-limited api she does not speak
     supports_dm = False

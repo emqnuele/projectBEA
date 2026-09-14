@@ -93,8 +93,8 @@ class TelegramSkill(PlatformSkill):
             return
 
         try:
-            # concurrent updates: several chats are read at once, and the
-            # per-conversation scheduler is what keeps each one serialized
+            # concurrent updates: several chats are read at once, and the bus
+            # coalesces the burst into one batch for the single loop
             self.app = Application.builder().token(token).concurrent_updates(True).build()
             # everything except commands: a photo, a sticker and a voice note
             # are all things a person sends, and ignoring them looks broken
@@ -268,11 +268,8 @@ class TelegramSkill(PlatformSkill):
             return None
         return (
             "## TELEGRAM\n"
-            "You are on Telegram. Messages people send you are handled in their own "
-            "thread, one per chat, while you keep doing whatever you're doing — you "
-            "don't answer them from here.\n"
-            "- `telegram_send_message` writes in a chat unprompted, if you feel like "
-            "saying something first."
+            "You are on Telegram.\n"
+            "- `telegram_send_message` writes in a chat."
         )
 
     def tools(self) -> List:

@@ -116,6 +116,6 @@ See the [API reference](../web/api.md#stream-plan) for the endpoints.
 
 ## Scope
 
-The plan reaches the **live loop**, not scoped conversation turns: it describes
+The plan reaches the **one loop**: it describes
 what she is doing on stage. A directive like "answer everyone in Discord today"
-will be visible to her on stage but not inside the Discord turn itself.
+is visible to her wherever she reads it, because there is only one context.

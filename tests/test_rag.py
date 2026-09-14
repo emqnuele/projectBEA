@@ -358,7 +358,7 @@ def test_the_paths_agree_on_a_store_big_enough_to_order(rag, scope_key):
 def test_the_index_answers_a_recall_that_names_no_session(rag):
     """The regression, stated as a requirement.
 
-    Nothing in the engine passes a scope_key when reading — `conversation.py`,
+    Nothing in the engine passes a scope_key when reading — `single_context`,
     the memory skill and the dashboard all pass a scope alone. If that query
     cannot be served from the index, the index is decoration. Breaking the scan
     is how this test can tell the difference: it only passes if the answer came

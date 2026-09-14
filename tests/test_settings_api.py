@@ -132,9 +132,9 @@ def test_a_root_block_is_writable_too(client):
 
 def test_a_bad_value_is_refused_with_the_field_named(client):
     api, stub = client
-    res = api.post("/settings/attention", json={"interject_threshold": 9})
+    res = api.post("/settings/attention", json={"followup_max_turns": 99})
     assert res.status_code == 422
-    assert "interject_threshold" in res.json()["detail"]
+    assert "followup_max_turns" in res.json()["detail"]
     assert stub.reloads == 0
 
 

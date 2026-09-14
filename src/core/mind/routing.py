@@ -1,9 +1,11 @@
-"""Where does a perception go: the stage, or a scoped conversation?
+"""Which conversation a perception belongs to — a tag, not a fork.
 
-The stage is what she does live in front of an audience — voice, the game, the
-console. A scoped conversation is written text in one channel.
+One loop, one context: every perception lands in the same frame of the same
+turn. The key only says *where it came from* (for the provenance tag, the
+follow-up gate and the per-key cooldowns), never which mind answers it.
 
-One rule: a perception goes to exactly one turn, or she answers it twice.
+A PlatformSkill sets `conversation_key` on the perception it emits; what
+follows is the fallback for senses that don't.
 """
 
 from typing import Optional
@@ -11,9 +13,6 @@ from typing import Optional
 from src.core.perception.types import Perception, PerceptionKind
 
 STAGE = "stage"
-
-# fallback only: a PlatformSkill sets `conversation_key` on the perception
-TEXT_SURFACES = {"voice:discord", "chat:telegram", "chat:mc"}
 
 
 def conversation_key(p: Perception) -> str:
@@ -29,7 +28,8 @@ def conversation_key(p: Perception) -> str:
     if p.surface == "chat:ui":
         return STAGE
 
-    if p.kind is PerceptionKind.CHAT and p.surface in TEXT_SURFACES:
+    # written text with a channel is a conversation with a key
+    if p.kind is PerceptionKind.CHAT:
         channel = (p.meta or {}).get("channel_id")
         if channel:
             platform = p.author.platform if p.author else p.surface
@@ -39,31 +39,6 @@ def conversation_key(p: Perception) -> str:
 
 def is_stage(p: Perception) -> bool:
     return conversation_key(p) == STAGE
-
-
-def awaits_a_reply(p: Perception) -> bool:
-    """Someone is blocked on an HTTP call waiting for her answer.
-
-    Stays on the stage whatever the surface says: only the live loop can
-    resolve a correlation.
-    """
-    return bool((p.meta or {}).get("correlation_id"))
-
-
-def route(batch) -> "tuple[list, dict]":
-    """Splits a batch into (stage, {conversation_key: [perceptions]}).
-
-    Every perception lands in exactly one bucket.
-    """
-    stage = []
-    scoped: dict = {}
-    for p in batch:
-        key = STAGE if awaits_a_reply(p) else conversation_key(p)
-        if key == STAGE:
-            stage.append(p)
-        else:
-            scoped.setdefault(key, []).append(p)
-    return stage, scoped
 
 
 def channel_of(key: str) -> Optional[str]:

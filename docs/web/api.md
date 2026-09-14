@@ -34,7 +34,7 @@ Returns the current brain state.
   "active_skills": ["memory", "discord"],
   "session_id": "session_1750000000",
   "uptime": 1832.4,
-  "version": "2.0.0"
+  "version": "2.5.0"
 }
 ```
 
@@ -217,9 +217,9 @@ Immediately stops current speech and typing.
 Receives a text message from the Discord bot and **returns immediately**.
 
 The message becomes a `CHAT` perception carrying
-`conversation_key = "discord:<channelId>"` and is routed to a scoped
-conversation turn that runs beside the live loop. Bea answers on her own,
-through the Discord tools, whenever she decides to. She may also decide not to.
+`conversation_key = "discord:<channelId>"` in the one frame of the single loop.
+Bea answers on her own, through `send_message(platform="discord", …)` or
+`react`, whenever she decides to. She may also decide not to.
 
 **Request:**
 ```json
@@ -412,10 +412,10 @@ Returns a dict of all registered skills and their current state, keyed by skill 
 
 ```json
 {
-  "memory":    { "enabled": true,  "active": true,  "config": { "chroma_path": "data/memory_db", "..." } },
+  "memory":    { "enabled": true,  "active": true,  "config": { "db_path": "data/bea.db", "..." } },
   "discord":   { "enabled": false, "active": false, "config": { "token": "", "..." } },
   "minecraft": { "enabled": false, "active": false, "config": { "server_url": "ws://localhost:8080", "..." } },
-  "monologue": { "enabled": false, "active": false, "config": { "interval_seconds": 30, "..." } }
+  "idle":      { "enabled": false, "active": false, "config": { "idle_after": 240.0, "..." } }
 }
 ```
 
@@ -504,9 +504,21 @@ out to six endpoints on load.
   "memory": { "people": 3, "roster": 41, "memories": 512,
               "hot_facts": 2, "self_facts": 9, "rag_ready": true },
   "engine": { "llm_provider": "openrouter", "model": "…", "tts_provider": "kokoro",
-              "stt_provider": "groq", "language": "en", "obs_connected": false }
+              "stt_provider": "groq", "language": "en", "obs_connected": false },
+  "context": { "enabled": true, "version": 3, "total_tokens": 41200,
+              "max_tokens": 150000, "trigger_tokens": 120000,
+              "target_tokens": 50000, "needs_handoff": false, "over_max": false,
+              "handoff_enabled": true, "handoff_running": false,
+              "handoff_swaps": 1, "continuity_chars": 812 }
 }
 ```
+
+#### `GET /context`
+The one sliding window, live: budget (`total_tokens`, `max_tokens`,
+`trigger_tokens`, `target_tokens`, `needs_handoff`, `over_max`), handoff state
+(`handoff_enabled`, `handoff_running`, `handoff_swaps`), and continuity
+(`last_prose`, `continuity_chars`). `{"enabled": false}` before the mind
+starts.
 
 ---
 
@@ -587,7 +599,7 @@ minutes; `?force=true` refetches.
 ```json
 {
   "supported": true, "available": true, "reason": "",
-  "behind": 3, "current": "4523164a", "latest": "96f7125b", "version": "2.0.0",
+  "behind": 3, "current": "4523164a", "latest": "96f7125b", "version": "2.5.0",
   "commits": [ { "sha": "96f7125b", "subject": "…", "author": "…", "date": "2026-09-10" } ],
   "reviews": [ { "name": "operating.md", "path": "data/prompts/operating.md" } ],
   "can_apply": true, "busy": false, "run": null

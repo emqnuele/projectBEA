@@ -18,7 +18,7 @@ src/core/skills/telegram/
 
 `TelegramSkill` extends [`PlatformSkill`](overview.md#two-shapes-of-skill). All
 it owes is `platform = "telegram"`, an `Author` builder and `send_text` — the
-roster, person cards, attention gate and scoped conversation turns work on top
+roster, person cards and attention priorities work on top
 of that with no Telegram-specific code, because they are keyed on `Author` and
 `conversation_key`.
 
@@ -46,12 +46,12 @@ telegram update
           ├─ Author(platform="telegram", native_id=<user id>)
           ├─ is_dm / mentions_self / reply_to_self flags
           └─ bus.put(Perception(CHAT, conversation_key="telegram:<chat_id>"))
-                  └─ attention gate → scoped conversation turn
+                  └─ attention gate annotates → the one frame of the one loop
 ```
 
 Polling runs with `concurrent_updates(True)`: several chats are read at once and
-the per-conversation scheduler is what keeps each single chat serialized. Bea
-answers one turn at a time per chat, several chats in parallel.
+land in the same batch. Bea answers one turn at a time, several chats in
+parallel.
 
 Replies go out through the humanizer — one line per message, with a typing pause
 between them. Telegram reactions are not used (`supports_reactions = False`).
@@ -63,7 +63,7 @@ between them. Telegram reactions are not used (`supports_reactions = False`).
 | Tool | Where |
 |---|---|
 | `telegram_send_message(chat_id, text)` | the live loop — writing somewhere unprompted |
-| `reply`, `send_message`, `say_nothing` | a scoped turn, with the ids already bound |
+| `send_message(platform, channel, text)`, `react`, `say_nothing` | the one loop — answering where it arrived |
 
 ---
 

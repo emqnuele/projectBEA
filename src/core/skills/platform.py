@@ -10,9 +10,7 @@ to send text.
 
 from typing import Any, Dict, List, Optional
 
-from src.core.agent.tools import Tool
 from src.core.expression.humanizer import TextHumanizer
-from src.core.mind.routing import STAGE
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.base import Skill
 from src.utils.logger import get_logger
@@ -24,10 +22,6 @@ class PlatformSkill(Skill):
     """Base for a text platform Bea can read and write."""
 
     platform: str = "platform"
-
-    # its own conversation thread, or the stage? a discord channel is an
-    # asynchronous exchange; a twitch chat is the room her voice is already in
-    scoped_conversations: bool = True
 
     # per-message ceiling of this platform, in characters
     message_limit: int = 2000
@@ -56,7 +50,7 @@ class PlatformSkill(Skill):
         )
 
     def conversation_key(self, channel_id: Any) -> str:
-        return f"{self.platform}:{channel_id}" if self.scoped_conversations else STAGE
+        return f"{self.platform}:{channel_id}"
 
     # --- perceiving ---------------------------------------------------------
 
@@ -125,71 +119,6 @@ class PlatformSkill(Skill):
             await self.send_typing(channel_id)
 
         return await self.humanizer.deliver(text, send_text=send, send_typing=typing)
-
-    async def emit_text(self, text: str, meta: Optional[Dict[str, Any]] = None) -> List[str]:
-        meta = meta or {}
-        channel_id = meta.get("channel_id")
-        if not channel_id:
-            return []
-        return await self.deliver(str(channel_id), text, reply_to=meta.get("message_id"))
-
-    # --- scoped conversation tools ------------------------------------------
-
-    def conversation_tools(self, channel_id: Optional[str],
-                           reply_to: Optional[str] = None) -> List[Tool]:
-        """`reply`, `send_message`, `react` — with the ids already bound.
-
-        No `speak` and no body actions: an absent tool is a stronger guarantee
-        than a rule in the prompt.
-        """
-        if not self.active or not channel_id:
-            return []
-
-        tools = [Tool(
-            "send_message",
-            "Write in this conversation. Each LINE becomes its own message, with a "
-            "typing pause in between — write like you text.",
-            {"type": "object", "properties": {"text": {"type": "string"}},
-             "required": ["text"]},
-            lambda text: self._tool_send(channel_id, text),
-        )]
-        if reply_to:
-            tools.insert(0, Tool(
-                "reply",
-                "Answer the last message directly (it gets quoted). Each LINE becomes "
-                "its own message; only the first one quotes theirs.",
-                {"type": "object", "properties": {"text": {"type": "string"}},
-                 "required": ["text"]},
-                lambda text: self._tool_send(channel_id, text, reply_to=reply_to),
-            ))
-            if self.supports_reactions:
-                tools.append(Tool(
-                    "react",
-                    "React to the last message with a single emoji, instead of writing.",
-                    {"type": "object", "properties": {"emoji": {"type": "string"}},
-                     "required": ["emoji"]},
-                    lambda emoji: self._tool_react(channel_id, reply_to, emoji),
-                ))
-        return tools
-
-    @property
-    def supports_reactions(self) -> bool:
-        """Whether this platform has reactions at all.
-
-        A property rather than a class attribute because for some platforms the
-        answer is a setting somebody can change while she is running, and a
-        subclass cannot narrow one of those into the other.
-        """
-        return True
-
-    async def _tool_send(self, channel_id: str, text: str,
-                         reply_to: Optional[str] = None) -> str:
-        sent = await self.deliver(channel_id, text, reply_to=reply_to)
-        return f"Sent ({len(sent)} message(s))." if sent else "FAILED: nothing was sent."
-
-    async def _tool_react(self, channel_id: str, message_id: str, emoji: str) -> str:
-        ok = await self.react(channel_id, message_id, emoji)
-        return "Reacted." if ok else "FAILED: could not react."
 
     async def react(self, channel_id: str, message_id: str, emoji: str) -> bool:
         return False

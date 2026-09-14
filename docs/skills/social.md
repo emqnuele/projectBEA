@@ -79,8 +79,7 @@ double them.
 | `remember_person(name, note, attitude)` | her own in-character decision. Always persists — if the platform never gave a stable id, a `named:<name>` identity is synthesized so the card exists anyway |
 | `recall_person(name)` | what she knows. Falls back to the raw tally ("seen 12 times across 2 sessions") when there is no card |
 
-`remember_person` is also offered inside a [scoped conversation
-turn](../architecture.md#one-mind-two-clocks) — it is the one memory action that
+`remember_person` is also armed on written channels — it is the one memory action that
 makes sense while she is texting.
 
 ---

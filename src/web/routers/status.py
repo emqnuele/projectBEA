@@ -174,9 +174,20 @@ def overview(brain: AIVtuberBrain = Depends(get_brain)):
         "skills": skills,
         "memory": memory_counts(brain),
         "engine": _engine_summary(brain),
+        "context": (brain.consciousness.window_status()
+                    if brain.consciousness is not None else {"enabled": False}),
     }
 
 
 @router.get("/health")
 def health():
     return {"status": "ok", "brain": current_brain() is not None}
+
+
+@router.get("/context")
+def context_window(brain: AIVtuberBrain = Depends(get_brain)):
+    """The one sliding window: budget, handoff state, continuity."""
+    mind = getattr(brain, "consciousness", None)
+    if mind is None:
+        return {"enabled": False}
+    return {"enabled": True, **mind.window_status()}

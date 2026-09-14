@@ -37,7 +37,7 @@ EXPECTED_PATHS = {
     "/sessions/{session_id}/activate", "/chat", "/interrupt",
     "/voice/ws", "/audio", "/voice/transcript", "/discord/chat", "/discord/audio",
     "/webhook/donation",
-    "/status", "/dream/run", "/dream/wake", "/skills", "/skills/{name}/toggle",
+    "/status", "/dream/run", "/dream/wake", "/context", "/skills", "/skills/{name}/toggle",
     "/skills/logs", "/events", "/events/stream", "/overview", "/health",
     "/plan", "/plan/directive", "/plan/objectives",
     "/plan/objectives/{objective_id}", "/plan/order", "/plan/reset",

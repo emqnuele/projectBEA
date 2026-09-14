@@ -12,7 +12,6 @@ from src.core.expression import Expression
 from src.core.expression.picker import clip_picker, mood_picker
 from src.core.memory.profiler import Profiler
 from src.core.memory.store import MemoryStore
-from src.core.mind import ConversationMind, ConversationScheduler
 from src.core.mind.moods import DEFAULT_MOOD
 from src.core.mind.operating import BUILTIN_OPERATING, missing_tools
 from src.core.mind.spontaneous import SpontaneousPresence
@@ -112,7 +111,6 @@ class AIVtuberBrain:
         self.attention: Optional[Attention] = None
         self.affect: Optional[AffectState] = None
         self.profiler: Optional[Profiler] = None
-        self.conversations: Optional[ConversationMind] = None
         self.spontaneous: Optional[SpontaneousPresence] = None
         self._rhythm_task: Optional[asyncio.Task] = None
         self.consciousness: Optional[Consciousness] = None
@@ -326,8 +324,6 @@ class AIVtuberBrain:
         self.attention = Attention(
             self.config,
             roster=getattr(social, "roster", None),
-            on_verdict=self._publish_verdict,
-            conversations=self.memory.conversations,
         )
 
         self.consciousness = Consciousness(
@@ -344,56 +340,21 @@ class AIVtuberBrain:
             affect=self.affect,
         )
 
-        # written conversations run beside the live loop: one turn at a time per
-        # channel, different channels in parallel
-        self.conversations = ConversationMind(
-            config=self.config,
-            llm=self.llm,
-            memory=self.memory,
-            surfaces=self.skill_registry,
-            soul_getter=lambda: self.soul,
-            operating_getter=self._load_operating_rules,
-            scheduler=ConversationScheduler(
-                max_coalesced_runs=int(self.config.consciousness.get("max_coalesced_runs", 3))
-            ),
-            event_manager=self.event_manager,
-            profiler=self.profiler,
-            attention=self.attention,
-            affect=self.affect,
-            now_line=self.consciousness.now_line,
-        )
-        self.consciousness.conversations = self.conversations
-        # the recap is background work: it must never compete with the mind
+        # handoff is background work: it must never compete with the mind
         self.consciousness.background_llm = self.model_for(BACKGROUND)
 
         self.reach = Reach(memory=self.memory, surfaces=self.skill_registry,
                            persona=self.persona)
         self.spontaneous = SpontaneousPresence(
-            config=self.config, memory=self.memory, conversations=self.conversations,
+            config=self.config, memory=self.memory, bus=self.perception_bus,
+            window=self.consciousness.sliding_window if self.consciousness else None,
         )
         self.rhythm = RhythmTick(
             agenda=AgendaRunner(
-                agenda=self.memory.agenda, conversations=self.conversations,
+                agenda=self.memory.agenda, bus=self.perception_bus,
                 reach=self.reach,
             ),
             spontaneous=self.spontaneous,
-        )
-
-    def _publish_verdict(self, perception, verdict) -> None:
-        """Surfaces every attention decision to the dashboard.
-
-        Without seeing WHY something was ignored, tuning the thresholds is blind
-        guessing — so this is not optional instrumentation."""
-        self.event_manager.publish(
-            EventCategory.SYSTEM, "attention",
-            f"{verdict.reaction.value}: {perception.surface} ({verdict.reason})",
-            metadata={
-                "reaction": verdict.reaction.value,
-                "score": round(verdict.score, 3),
-                "reason": verdict.reason,
-                "surface": perception.surface,
-                "preview": (perception.content or "")[:120],
-            },
         )
 
     def model_for(self, role: str = BACKGROUND):
@@ -709,9 +670,6 @@ class AIVtuberBrain:
         if self._rhythm_task:
             self._rhythm_task.cancel()
             self._rhythm_task = None
-        if self.conversations:
-            # let the in-flight replies land before the process goes away
-            await self.conversations.drain()
         if self.consciousness:
             await self.consciousness.stop()
 

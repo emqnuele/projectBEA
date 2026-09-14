@@ -152,7 +152,7 @@ def test_the_check_is_only_given_the_tools_the_manual_owns():
     code, which means it follows a rename."""
     from src.core.consciousness import Consciousness
 
-    assert Consciousness._TERMINAL_TOOLS == {"speak", "stay_silent"}
+    assert Consciousness._TERMINAL_TOOLS == {"speak", "stay_silent", "say_nothing"}
     assert missing_tools(BUILTIN_OPERATING, sorted(Consciousness._TERMINAL_TOOLS)) == []
 
 
@@ -161,7 +161,7 @@ def test_the_shipped_manual_names_every_terminal_tool():
     from pathlib import Path
 
     shipped = Path("data/prompts/operating.md").read_text()
-    assert missing_tools(shipped, ["speak", "stay_silent"]) == []
+    assert missing_tools(shipped, ["speak", "stay_silent", "say_nothing"]) == []
 
 
 # --- the mind actually uses the normaliser -----------------------------------
@@ -177,7 +177,7 @@ async def test_an_invented_mood_is_normalised_before_it_reaches_the_avatar():
 
     class Config:
         consciousness = {"enabled": True, "idle_after": 3600.0, "window": 0.0,
-                         "burst_steps": 3, "history_limit": 30, "correlation_timeout": 5.0}
+                         "burst_steps": 3, "correlation_timeout": 5.0}
         attention = {}
         skills = {}
 
@@ -202,7 +202,7 @@ async def test_a_real_mood_is_left_alone():
 
     class Config:
         consciousness = {"enabled": True, "idle_after": 3600.0, "window": 0.0,
-                         "burst_steps": 3, "history_limit": 30, "correlation_timeout": 5.0}
+                         "burst_steps": 3, "correlation_timeout": 5.0}
         attention = {}
         skills = {}
 
@@ -265,7 +265,7 @@ def test_a_healthy_prompt_says_nothing():
 def test_a_prompt_that_forgot_a_tool_is_reported_loudly():
     events = Events()
     missing = _brain_stub("just a soul, no manual", events).check_prompt_integrity()
-    assert set(missing) == {"speak", "stay_silent"}
+    assert set(missing) == {"speak", "stay_silent", "say_nothing"}
     assert events.published, "a broken prompt must reach the dashboard, not just a log"
     assert "speak" in events.published[0][2]
 

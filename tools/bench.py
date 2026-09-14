@@ -299,7 +299,7 @@ def scenario_recall(sizes, **_) -> List[Result]:
 def scenario_recall_nofilter(sizes, **_) -> List[Result]:
     """Recall across every session — what production actually calls.
 
-    `conversation.py`, the memory skill and the dashboard all pass a scope and
+    `single_context`, the memory skill and the dashboard all pass a scope and
     no scope_key. If this row and `recall` differ by an order of magnitude, the
     index is not serving the query anyone really makes.
     """

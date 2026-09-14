@@ -44,7 +44,10 @@ export default function HomePage() {
             : <LoadingBento />;
     }
 
-    const { plan, skills, memory, engine, session } = overview;
+    const { plan, skills, memory, engine, session, context } = overview;
+    const ctxPct = context?.enabled && context.max_tokens
+        ? Math.min(1, context.total_tokens / context.max_tokens)
+        : 0;
     const enabledSkills = skills.filter((s) => s.enabled);
     const progress = plan.total ? plan.closed / plan.total : 0;
 
@@ -257,6 +260,31 @@ export default function HomePage() {
                             tone={engine.obs_connected ? 'var(--flux-act)' : 'var(--flux-mute)'}
                         />
                     </dl>
+                </Tile>
+
+                {/* --- context window --- */}
+                <Tile className="md:col-span-3 xl:col-span-4" title="Context" hint="The one sliding window" icon={Brain}>
+                    {context?.enabled ? (
+                        <div>
+                            <ProgressRing value={ctxPct} size={46}>
+                                <span className="tnum font-mono text-[10px] text-dim">
+                                    {Math.round(ctxPct * 100)}%
+                                </span>
+                            </ProgressRing>
+                            <p className="mt-2 font-mono text-[10px] text-faint">
+                                {compact(context.total_tokens)} of {compact(context.max_tokens)} tokens
+                            </p>
+                            <p className="mt-1 text-[11px] leading-snug text-dim">
+                                {context.handoff_running
+                                    ? 'Handing off to the next window…'
+                                    : context.swaps
+                                        ? `Handed off ${context.swaps}× — the window breathes.`
+                                        : 'Filling up. The handoff starts at the trigger.'}
+                            </p>
+                        </div>
+                    ) : (
+                        <p className="text-[11px] leading-snug text-faint">The mind is not running.</p>
+                    )}
                 </Tile>
 
                 {/* --- abilities --- */}
