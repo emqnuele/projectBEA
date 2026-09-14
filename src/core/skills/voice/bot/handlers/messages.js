@@ -3,7 +3,7 @@ const { Events } = require('discord.js');
 const { createErrorEmbed } = require('../utils/embed');
 const config = require('../config');
 const whitelist = require('../whitelist');
-const { mayReach, normalizeMode } = require('../access');
+const { mayReach, normalizeMode, checkCommandAccess } = require('../access');
 
 // single messageCreate handler: routes `!commands` and forwards plain chat to
 // the brain as a perception (Bea answers autonomously via her discord tools).
@@ -25,12 +25,25 @@ async function handleCommand(client, message) {
     if (!command) return;
 
     const userId = message.author.id;
-    const isOwner = userId === config.ADMIN_ID;
+    const isOwner = config.ADMIN_ID !== '' && userId === config.ADMIN_ID;
 
-    // admin commands: owner only. everything else: whitelisted only.
-    if (command.category === 'admin') {
-        if (!isOwner) return;
-    } else if (!whitelist.has(userId)) {
+    // the owner is the admin and runs everything; everyone else needs the
+    // whitelist for ordinary commands. A denial always answers: a silent
+    // return left people locked out with no way to tell why.
+    const access = checkCommandAccess({
+        category: command.category,
+        isOwner,
+        whitelisted: whitelist.has(userId),
+    });
+    if (!access.allowed) {
+        if (access.reason === 'owner-only') {
+            await message.reply({ embeds: [createErrorEmbed('That command answers to the owner and nobody else.')] });
+        } else {
+            await message.reply({ embeds: [createErrorEmbed(
+                `You are not on the whitelist (your id: \`${userId}\`). ` +
+                `Ask the owner to run \`!wl add ${userId}\`.`
+            )] });
+        }
         return;
     }
 
@@ -97,4 +110,4 @@ async function handleChat(client, message) {
     }
 }
 
-module.exports = { register };
+module.exports = { register, handleCommand };

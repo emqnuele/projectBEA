@@ -223,6 +223,18 @@ def test_discord_exposes_its_safety_valves():
             "interrupt_threshold_ms"} <= _keys("discord")
 
 
+def test_discord_bot_baked_values_demand_a_restart():
+    # admin_id, access_mode and the invite knobs are baked into the bot
+    # subprocess environment at start: saving one without a restart used to
+    # report success while the running bot kept the old value, locking the
+    # owner out with no way to tell why.
+    sec = section("discord")
+    for key in ("admin_id", "access_mode", "invite_max_age_seconds", "invite_max_uses"):
+        setting = sec.get(key)
+        assert setting is not None, f"discord.{key} vanished from the schema"
+        assert setting.restart is True, f"discord.{key} must demand a restart"
+
+
 def test_twitch_exposes_the_events_it_can_now_see():
     assert {"channel", "oauth_token", "announce_raids", "announce_subs",
             "say_rate_limit"} <= _keys("twitch")
