@@ -41,6 +41,7 @@ class SingleContext:
         self._entries: List[BudgetEntry] = []
         # running total: total_tokens is o(1), never a scan per append
         self._total = 0
+        self._next_seq = 1
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -49,14 +50,18 @@ class SingleContext:
         """number of entries without building the message list."""
         return len(self._entries)
 
-    def entries_after(self, index: int) -> List[BudgetEntry]:
-        """entry objects appended after `index`, keys intact.
+    def last_seq(self) -> int:
+        """The sequence number of the most recent entry."""
+        return self._next_seq - 1
+
+    def entries_after(self, seq: int) -> List[BudgetEntry]:
+        """entry objects appended after `seq`, keys intact.
 
         the handoff buffer round-trips through this, never through
         `messages()` — which strips keys — so mid-flight perceptions keep
         their conversation attribution across a swap.
         """
-        return list(self._entries[index:])
+        return [e for e in self._entries if e.seq > seq]
 
     # --- writing ----------------------------------------------------------
 
@@ -67,7 +72,9 @@ class SingleContext:
         entry = BudgetEntry(tokens=estimate_tokens(content) + MESSAGE_OVERHEAD_TOKENS,
                             ts=ts or time.time(),
                             payload={"role": role, "content": content, "key": key,
-                                     "author": author, "addressee": addressee})
+                                     "author": author, "addressee": addressee},
+                            seq=self._next_seq)
+        self._next_seq += 1
         self._entries.append(entry)
         self._total += entry.tokens
 
@@ -240,29 +247,35 @@ class SingleContext:
                 seen_ids.add(id(e))
                 fresh.append(e)
         prose_tokens = estimate_tokens(handoff_text) + MESSAGE_OVERHEAD_TOKENS if handoff_text else 0
+        combined = carried + fresh
+        total_combined = sum(e.tokens for e in combined)
         # hard ceiling first: the window must fit max_tokens even when the
         # hot floor is large; the bridge is pinned, hot yields
-        while (sum(e.tokens for e in carried) + prose_tokens > self.budget.max_tokens
-               and carried):
-            carried.pop(0)
+        while (total_combined + prose_tokens > self.budget.max_tokens
+               and combined):
+            total_combined -= combined.pop(0).tokens
         # resting size: settle near target_tokens instead of pinning at the
         # trigger, keeping at least the newest hot entry
-        while (sum(e.tokens for e in carried) + prose_tokens > self.budget.target_tokens
-               and len(carried) > 1):
-            carried.pop(0)
+        while (total_combined + prose_tokens > self.budget.target_tokens
+               and len(combined) > 1):
+            total_combined -= combined.pop(0).tokens
+        # how many hot entries survived the trim (combined pops from the front,
+        # so hot goes first and fresh survives longest)
+        kept_ids = {id(e) for e in combined}
+        kept_hot = sum(1 for e in carried if id(e) in kept_ids)
         new_entries: List[BudgetEntry] = []
         if handoff_text:
             new_entries.append(BudgetEntry(
                 tokens=prose_tokens, ts=time.time(),
                 payload={"role": "system", "content": handoff_text,
-                         "key": "stage", "author": "", "addressee": ""}))
-        new_entries.extend(carried)
-        new_entries.extend(fresh)
+                         "key": "stage", "author": "", "addressee": ""},
+                seq=0))
+        new_entries.extend(combined)
         self._entries = new_entries
         self._total = sum(e.tokens for e in new_entries)
         self.version += 1
         # window breathes after a swap: report whether it landed near target
-        return {**self.status(), "carried_hot": len(carried)}
+        return {**self.status(), "carried_hot": kept_hot}
 
     def swap(self, handoff_text: str, incoming: Optional[List[Dict[str, str]]] = None,
              now: Optional[float] = None) -> Dict[str, Any]:
@@ -288,5 +301,7 @@ class SingleContext:
                          "content": content,
                          "key": str(message.get("key", "stage")),
                          "author": str(message.get("author", "")),
-                         "addressee": str(message.get("addressee", ""))}))
+                         "addressee": str(message.get("addressee", ""))},
+                seq=self._next_seq))
+            self._next_seq += 1
         return self.swap_with_snapshot(handoff_text, hot, entries, now=now)

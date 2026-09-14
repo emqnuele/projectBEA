@@ -62,6 +62,11 @@ def truncate_to_budget(text: str, max_tokens: int) -> str:
     """
     if estimate_tokens(text) + MESSAGE_OVERHEAD_TOKENS <= max_tokens:
         return text
+    
+    # Fast path: cap by chars first to avoid O(N log N) encoding of multi-MB pastes
+    max_chars = max_tokens * 8
+    if len(text) > max_chars:
+        text = text[:max_chars]
     marker = "[...truncated to the context ceiling]"
     marker_tokens = estimate_tokens(marker)
     # binary search on chars: estimate_tokens is monotonic, a handful of
@@ -93,8 +98,12 @@ class TokenBudget:
         self.max_tokens = max(1_000, int(self.max_tokens))
         self.trigger_tokens = max(1_000, int(self.trigger_tokens))
         self.target_tokens = max(1_000, int(self.target_tokens))
+        # clamp, never crash: a bad config must degrade to a sane budget,
+        # not take the whole startup down (and assert vanishes under -O)
         if self.trigger_tokens > self.max_tokens:
             self.trigger_tokens = self.max_tokens
+        if self.target_tokens > self.trigger_tokens:
+            self.target_tokens = self.trigger_tokens
 
     def needs_handoff(self, total: int) -> bool:
         """The window is full enough to start the background handoff."""
@@ -112,6 +121,7 @@ class BudgetEntry:
     tokens: int = 0
     ts: float = 0.0
     payload: Any = field(default=None)
+    seq: int = 0
 
 
 def split_hot_cold(entries: List[BudgetEntry], *, hot_tokens: int = 30_000,

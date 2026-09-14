@@ -874,17 +874,20 @@ class Consciousness:
                                                 List[Tuple[Perception, float]]]]) -> None:
         """Mirrors the turn into the one sliding window.
 
-        The frame goes in as one user entry tagged with the dominant
-        conversation key; what she sent back goes in as assistant entries with
+        The perceptions go in as individual user entries tagged with their
+        conversation keys; what she sent back goes in as assistant entries with
         the addressee she was answering — the follow-up gate reads exactly
-        this. Bookkeeping only: it must never cost the turn it describes.
+        this. Boilerplate and idle turns are not stored, saving budget.
         """
         try:
-            for frame, annotated in frames:
-                key = self._dominant_key(annotated)
-                author = self._dominant_identity(annotated)
-                content = str(frame.get("content", ""))
-                if content:
+            now = time.time()
+            for _, annotated in frames:
+                for p, _ in annotated:
+                    if p.kind is PerceptionKind.IDLE:
+                        continue
+                    key = conversation_key(p)
+                    author = p.author.identity if p.author else ""
+                    content = f"({p.kind.value.upper()}) [{self._provenance(p)}] {p.render(now=now)}"
                     self.sliding_window.append("user", content, key=key, author=author)
             for sent in self._sent:
                 key = f"{sent['platform']}:{sent['channel']}"

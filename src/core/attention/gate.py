@@ -179,7 +179,11 @@ class Attention:
         a reason to go quiet everywhere. Speaking on stage is, so it lands on
         ANYWHERE, which every key without its own stamp falls back to.
         """
+        if key in self._last_spoke:
+            del self._last_spoke[key]
         self._last_spoke[key] = self._clock()
+        if len(self._last_spoke) > 1000:
+            self._last_spoke.pop(next(iter(self._last_spoke)))
 
     def seconds_since_spoke(self, key: str = ANYWHERE) -> Optional[float]:
         stamp = self._last_spoke.get(key, self._last_spoke.get(ANYWHERE))
@@ -204,7 +208,14 @@ class Attention:
     def _record_activity(self, p: Perception) -> None:
         if p.kind is PerceptionKind.IDLE:
             return
-        self._activity.setdefault(self._key(p), deque(maxlen=200)).append(self._clock())
+        key = self._key(p)
+        q = self._activity.pop(key, None)
+        if q is None:
+            q = deque(maxlen=200)
+        q.append(self._clock())
+        self._activity[key] = q
+        if len(self._activity) > 1000:
+            self._activity.pop(next(iter(self._activity)))
 
     def _roster_entry(self, p: Perception):
         if self.roster is None or p.author is None:

@@ -40,6 +40,7 @@ _SKIPPED_PREFIXES = (
     "[WHERE YOU ARE]",
     "[YOU WERE CUT OFF]",
     "You are on ",
+    "[EARLIER]",
 )
 
 
@@ -103,7 +104,7 @@ class HandoffWorker:
             # the hot set come from the same instant, so arrivals during the
             # await below are exactly entries_after(seen) — brand new, keys
             # intact, impossible to double-count into hot
-            seen = ctx.entry_count() if hasattr(ctx, "entry_count") else len(ctx.messages())
+            seen = ctx.last_seq() if hasattr(ctx, "last_seq") else len(ctx.messages())
             cold, hot = ctx.snapshot_for_handoff()
             if hasattr(ctx, "apply_overlap"):
                 cold, carried = ctx.apply_overlap(list(cold), list(hot))
@@ -122,6 +123,7 @@ class HandoffWorker:
             ], tools=None)
             prose = normalize_handoff(getattr(reply, "content", ""))
             if not prose:
+                self._noop_until = time.time() + self.noop_retry_seconds
                 return ""
             if hasattr(ctx, "swap_with_snapshot"):
                 incoming: List[Any] = ctx.entries_after(seen)
@@ -136,6 +138,7 @@ class HandoffWorker:
             raise
         except Exception as e:
             logger.warning(f"Handoff failed, keeping the old window: {e}")
+            self._noop_until = time.time() + self.noop_retry_seconds
             return ""
         finally:
             self.running = False
