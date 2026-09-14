@@ -153,8 +153,8 @@ def test_omitted_settings_are_left_alone():
 
 def test_a_value_out_of_range_is_refused():
     with pytest.raises(ValidationError) as e:
-        apply_section(config(), "attention", {"interject_threshold": 4.0})
-    assert "interject_threshold" in str(e.value)
+        apply_section(config(), "attention", {"followup_max_turns": 99})
+    assert "followup_max_turns" in str(e.value)
 
 
 def test_a_choice_that_is_not_on_the_list_is_refused():
@@ -215,7 +215,7 @@ def _keys(name: str) -> set:
 
 def test_telegram_can_be_told_what_to_read_and_how_to_answer():
     assert {"enabled", "token", "owner_id", "allowed_chats", "read_media",
-            "reactions", "followup_enabled", "followup_max_turns"} <= _keys("telegram")
+            "reactions", "group_salience"} <= _keys("telegram")
 
 
 def test_discord_exposes_its_safety_valves():
@@ -242,4 +242,6 @@ def test_a_setting_can_describe_itself_to_a_human():
 
 
 def test_the_follow_up_gate_is_tunable_from_the_dashboard():
-    assert {"followup_enabled", "followup_window_seconds", "followup_max_turns"} <= _keys("attention")
+    assert {"followup_enabled", "followup_window_seconds", "followup_max_turns",
+            "followup_max_interposed", "followup_active_bonus",
+            "followup_lookback"} <= _keys("attention")

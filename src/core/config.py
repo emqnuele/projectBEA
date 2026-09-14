@@ -264,11 +264,15 @@ class BrainConfig:
         "idle_after": 240.0,       # seconds of silence before an IDLE perception (monologue = last resort)
         "window": 0.3,             # perception aggregation window
         "burst_steps": 6,          # max reasoning steps per perception batch
-        "history_limit": 30,       # rolling context size
         "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
-        # scoped conversation
+        # ongoing present: what counts as "happening right now" across a handoff
         "hot_tokens": 30_000,         # max size of the ongoing present window
         "hot_seconds": 1800,          # max age of an ongoing present message
+        # the one sliding window: ceiling, handoff trigger, resting size
+        "context_max_tokens": 150_000,
+        "handoff_trigger_tokens": 120_000,
+        "handoff_target_tokens": 50_000,
+        "context_handoff": True,      # off: the window only grows until the ceiling trims it
         # one jsonl a day of every turn she takes: the prompt in force, what she
         # was shown, what she did and what it cost. Nothing leaves the machine.
         "turn_log": True,
@@ -303,12 +307,16 @@ class BrainConfig:
         "enabled": True,
         "cooldown_seconds": 20,        # she just spoke: let the room breathe
         "voice_cooldown_seconds": 5,   # in a call 20s is not restraint, it is absence
-        "interject_threshold": 0.45,   # score needed to speak up unprompted
         "quiet_hours": [3, 9],         # never interjects here (being addressed still does)
         "trigger_words": [],           # empty = worked out from persona.name
         "hot_names": [],               # names that pull her into a conversation
         "self_ids": [],                # her own platform ids, to spot replies to her
-        "digest_max_lines": 8,
+        "followup_enabled": True,
+        "followup_window_seconds": 180,
+        "followup_max_turns": 3,
+        "followup_max_interposed": 3,
+        "followup_active_bonus": 5,
+        "followup_lookback": 30,
     })
 
     # how she feels, and how long it lasts. The mood colours her voice and her

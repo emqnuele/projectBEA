@@ -1,12 +1,12 @@
 """Token budget for the one sliding context window.
 
-Today the trim is by message count (30 live, 16 scoped) and no counter exists,
-so a 150k ceiling is a slogan rather than something enforced. This module is
-the counter: pure functions plus a small value object, no IO, no asyncio.
+The single source of truth for how much past fits in the live window: a
+ceiling, a handoff trigger and a resting size, all in tokens. Pure functions
+plus a small value object, no IO, no asyncio.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 # fallback when no tokenizer is available: ~4 chars per token for latin text
 CHARS_PER_TOKEN = 4
@@ -79,21 +79,6 @@ def truncate_to_budget(text: str, max_tokens: int) -> str:
                       + MESSAGE_OVERHEAD_TOKENS > max_tokens):
         lo = (lo * 9) // 10
     return text[:lo] + marker
-
-
-def message_tokens(message: Dict[str, Any]) -> int:
-    """Tokens carried by one context message, framing included."""
-    total = MESSAGE_OVERHEAD_TOKENS
-    total += estimate_tokens(str(message.get("content") or ""))
-    tool_calls = message.get("tool_calls") or []
-    for call in tool_calls:
-        total += estimate_tokens(str(call))
-    return total
-
-
-def conversation_tokens(messages: List[Dict[str, Any]]) -> int:
-    """Total tokens of a message list."""
-    return sum(message_tokens(m) for m in messages)
 
 
 @dataclass

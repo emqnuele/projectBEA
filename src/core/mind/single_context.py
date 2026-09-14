@@ -268,9 +268,10 @@ class SingleContext:
              now: Optional[float] = None) -> Dict[str, Any]:
         """Starts the next window: handoff + hot + overlap + incoming buffer.
 
-        Kept for backwards compatibility (tests, external callers): snapshots
-        once and treats dict-style `incoming` as brand-new entries. The live
-        loop path uses `swap_with_snapshot` with entry objects so keys survive.
+        Deprecated: kept for backwards compatibility (tests, external callers).
+        The live loop path uses `swap_with_snapshot` with entry objects so keys
+        survive — dict-style `incoming` cannot carry them through `messages()`.
+        Snapshots once and treats dict-style `incoming` as brand-new entries.
         """
         _, hot = self.snapshot_for_handoff(now=now)
         entries: List[BudgetEntry] = []

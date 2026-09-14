@@ -9,7 +9,7 @@ says already knows who they are.
 """
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.perception.types import Author, Perception, PerceptionKind
@@ -165,7 +165,3 @@ class DonationSkill(Skill):
 
     def live_state(self) -> Optional[str]:
         return None
-
-    def conversation_tools(self, channel_id: Optional[str],
-                           reply_to: Optional[str] = None) -> List[Any]:
-        return []
