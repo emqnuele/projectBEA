@@ -22,7 +22,7 @@
   <a href="https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml"><img src="https://github.com/emqnuele/projectBEA/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="#run-it-in-docker"><img src="https://img.shields.io/badge/docker-compose%20up-2496ED?logo=docker&logoColor=white" alt="Docker" /></a>
   <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue" alt="Python" /></a>
-  <a href="https://github.com/emqnuele/projectBEA/releases"><img src="https://img.shields.io/github/v/release/emqnuele/projectBEA" alt="Release" /></a>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Femqnuele%2FprojectBEA%2Fmain%2Fpyproject.toml&query=%24.project.version&label=version&color=blue" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/emqnuele/projectBEA" alt="License" /></a>
 </p>
 
