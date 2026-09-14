@@ -477,7 +477,7 @@ make test          # uv run pytest -q
 make lint          # uv run ruff check src tests
 ```
 
-1904 tests, and they run without network access or API keys: every model
+1480 tests, and they run without network access or API keys: every model
 client, surface and transport is faked. CI runs exactly `make test` and `make lint`.
 
 > [!TIP]
