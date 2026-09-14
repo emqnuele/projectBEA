@@ -30,10 +30,11 @@ class SingleContext:
 
     # --- writing ----------------------------------------------------------
 
-    def append(self, role: str, content: str, ts: Optional[float] = None) -> BudgetEntry:
+    def append(self, role: str, content: str, ts: Optional[float] = None,
+               key: str = "stage") -> BudgetEntry:
         """Appends one message. Entries are atomic: never split by the trim."""
         entry = BudgetEntry(tokens=estimate_tokens(content) + 8, ts=ts or time.time(),
-                            payload={"role": role, "content": content})
+                            payload={"role": role, "content": content, "key": key})
         self._entries.append(entry)
         return entry
 
@@ -57,9 +58,16 @@ class SingleContext:
             "over_max": self.budget.over_max(total),
         }
 
-    def messages(self) -> List[Dict[str, Any]]:
-        """The log as plain message dicts, oldest first."""
-        return [dict(e.payload) for e in self._entries]
+    def messages(self, key: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The log as plain message dicts, oldest first, optionally for one conversation."""
+        out = []
+        for e in self._entries:
+            payload = e.payload if isinstance(e.payload, dict) else {}
+            if key is not None and payload.get("key", "stage") != key:
+                continue
+            out.append({"role": payload.get("role", "user"),
+                        "content": payload.get("content", "")})
+        return out
 
     # --- handoff ----------------------------------------------------------
 
@@ -82,10 +90,12 @@ class SingleContext:
         while sum(e.tokens for e in carried) + len(handoff_text) // 4 > self.budget.max_tokens and len(carried) > 1:
             carried.pop(0)
         self._entries = [BudgetEntry(tokens=estimate_tokens(handoff_text) + 8, ts=time.time(),
-                                     payload={"role": "system", "content": handoff_text})]
+                                     payload={"role": "system", "content": handoff_text,
+                                              "key": "stage"})]
         self._entries.extend(carried)
         for message in incoming or []:
-            self.append(str(message.get("role", "user")), str(message.get("content", "")))
+            self.append(str(message.get("role", "user")), str(message.get("content", "")),
+                        key=str(message.get("key", "stage")))
         self.version += 1
         # window breathes after a swap: report whether it landed near target
         return {**self.status(), "carried_hot": len(carried)}
