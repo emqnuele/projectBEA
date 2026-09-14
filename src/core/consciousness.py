@@ -53,8 +53,10 @@ class Consciousness:
     the same window — answering one never forgets the other.
     """
 
-    # output tools that end a turn: no follow-up llm call needed after them
-    _TERMINAL_TOOLS = {"speak", "stay_silent"}
+    # output tools that end a turn: no follow-up llm call needed after them.
+    # written channels mirror voice: send_message may continue (multi-step
+    # written turns), but saying nothing anywhere ends the turn.
+    _TERMINAL_TOOLS = {"speak", "stay_silent", "say_nothing"}
 
     # one rescue, not a loop: plain text is private thinking, so a text-only
     # answer means nobody heard her. Rather than staying mute, she gets told once.

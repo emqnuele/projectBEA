@@ -31,7 +31,7 @@ class Config:
     def __init__(self, **consciousness):
         self.consciousness = {
             "enabled": True, "idle_after": 3600.0, "window": 0.0,
-            "burst_steps": 3, "history_limit": 30, "correlation_timeout": 5.0,
+            "burst_steps": 3, "correlation_timeout": 5.0,
         }
         self.consciousness.update(consciousness)
         self.attention = {"enabled": True, "trigger_words": ["bea"]}

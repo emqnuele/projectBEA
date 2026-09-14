@@ -6,8 +6,6 @@ silent on every message, and the log said `Invalid format string` and nothing
 about which skill had said it or what it had been asked for.
 """
 
-import pytest
-
 from src.core.attention.gate import Attention
 from src.core.consciousness import Consciousness
 from src.core.perception.bus import PerceptionBus
@@ -19,7 +17,7 @@ from tests.fakes import FakeExpression, FakeHistory, FakeLLMClient, RecordingEve
 class Config:
     def __init__(self):
         self.consciousness = {"enabled": True, "idle_after": 3600.0, "window": 0.0,
-                              "burst_steps": 3, "history_limit": 30,
+                              "burst_steps": 3,
                               "correlation_timeout": 5.0}
         self.attention = {}
         self.skills = {}
@@ -107,8 +105,9 @@ def test_the_log_names_the_skill_and_what_it_was_asked_for(caplog):
     assert "live state" in logged
 
 
-@pytest.mark.parametrize("attribute", ["recap", "attention", "conversations"])
-def test_a_broken_block_outside_the_skills_is_left_out_too(attribute):
+def test_a_broken_block_outside_the_skills_is_left_out_too():
+    """`affect` is the one non-skill block the briefing reads: if it raises,
+    the turn loses how she feels, not the turn."""
     mind = _mind(_skill(Working))
 
     class Raises:
@@ -117,5 +116,5 @@ def test_a_broken_block_outside_the_skills_is_left_out_too(attribute):
                 raise ValueError("Invalid format string")
             return boom
 
-    setattr(mind, attribute, Raises())
+    mind.affect = Raises()
     assert "half past noon" in mind._briefing(BATCH)["content"]
