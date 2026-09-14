@@ -5,7 +5,6 @@ are alive, skips the ones she just spoke in, stays out of quiet hours, and then
 only sometimes goes ahead. `rng` and `clock` are injected for the tests.
 """
 
-import asyncio
 import random
 import time
 from datetime import datetime
@@ -26,12 +25,15 @@ STALE_AFTER = 6 * 3600.0
 class SpontaneousPresence:
     """Occasionally opens a conversation that is alive but has gone quiet."""
 
-    def __init__(self, *, config, memory, bus,
+    def __init__(self, *, config, memory, bus, window=None,
                  rng: Optional[random.Random] = None,
                  clock: Optional[Callable[[], float]] = None):
         self.config = config
         self.memory = memory
         self.bus = bus
+        # the one sliding window: liveness comes from here, never sqlite —
+        # the durable log is append-only and must not drive live decisions
+        self.window = window
         self._rng = rng or random.Random()
         self._clock = clock or time.time
 
@@ -76,13 +78,9 @@ class SpontaneousPresence:
 
     def candidates(self) -> List[str]:
         """Conversations recent enough to be worth considering at all."""
-        cutoff = self._clock() - STALE_AFTER
-        rows = self.memory.db.query(
-            "SELECT conversation_key, MAX(ts) AS last FROM messages "
-            "WHERE ts >= ? GROUP BY conversation_key ORDER BY last DESC LIMIT 20",
-            (cutoff,),
-        )
-        return [r["conversation_key"] for r in rows if r["conversation_key"] != "stage"]
+        if self.window is None:
+            return []
+        return self.window.live_keys(window_seconds=STALE_AFTER, now=self._clock())
 
     async def run_once(self) -> int:
         """Checks every live conversation; returns how many she opened."""
@@ -93,15 +91,13 @@ class SpontaneousPresence:
         hour = datetime.fromtimestamp(self._clock()).hour
         started = 0
 
-        # the scan over every recent message must not stall the loop
-        for key in await asyncio.to_thread(self.candidates):
+        # window reads are cheap and synchronous: no thread hop, the loop
+        # never waits on its own memory
+        for key in self.candidates():
             try:
                 now = self._clock()
-                # Use plain SQL since the methods were in ConversationStore which might have changed
-                # Actually, memory.conversations should still have them?
-                since = self.memory.conversations.seconds_since_bea_spoke(key, now=now)
-                activity = self.memory.conversations.recent_activity(
-                    key, ACTIVITY_WINDOW, now=now)
+                since = self.window.seconds_since_bea(key, now=now)
+                activity = self.window.activity_count(key, ACTIVITY_WINDOW, now=now)
             except Exception as e:
                 logger.warning(f"Spontaneous: could not read '{key}': {e}")
                 continue

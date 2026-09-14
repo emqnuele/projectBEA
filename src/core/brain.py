@@ -347,6 +347,7 @@ class AIVtuberBrain:
                            persona=self.persona)
         self.spontaneous = SpontaneousPresence(
             config=self.config, memory=self.memory, bus=self.perception_bus,
+            window=self.consciousness.sliding_window if self.consciousness else None,
         )
         self.rhythm = RhythmTick(
             agenda=AgendaRunner(
