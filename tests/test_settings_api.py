@@ -292,6 +292,30 @@ def test_an_ordinary_save_still_works(client, tmp_path):
     assert "it" in (tmp_path / "config.json").read_text(encoding="utf-8")
 
 
+def test_a_complete_config_save_allows_unchanged_persona(client):
+    api, stub = client
+    payload = {"persona": dict(stub.config.persona), "language": "it"}
+
+    res = api.post("/config", json={"config": payload})
+
+    assert res.status_code == 200
+    assert stub.config.persona == payload["persona"]
+    assert stub.config.language == "it"
+
+
+def test_changing_persona_through_config_is_still_rejected(client):
+    api, stub = client
+    before = dict(stub.config.persona)
+    changed = {**before, "name": f"{before['name']}-changed"}
+
+    res = api.post("/config", json={"config": {"persona": changed}})
+
+    assert res.status_code == 422
+    assert "persona" in res.json()["detail"]
+    assert "not writable here" in res.json()["detail"]
+    assert stub.config.persona == before
+
+
 # --- secrets go to .env, which is where they survive a restart ---------------
 
 
