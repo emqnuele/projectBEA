@@ -225,6 +225,21 @@ commit.
 
 ---
 
+## One mind, one window
+
+She does not keep a separate head per chat. Every turn lands in a single
+sliding context window — 150k tokens max — that breathes instead of filling
+up: around 120k a background handoff writes down what went cold ("you talked
+about food for two hours") while the last half hour travels verbatim, and the
+window settles back near 42k. What was happening stays happening.
+
+Because the window knows where she is, she answers *there*: a Telegram
+message gets a Telegram reply, never silence, never "I don't have Telegram".
+
+**[How the window works →](docs/architecture.md#the-sliding-window)**
+
+---
+
 ## She sleeps
 
 <img src="assets/dream.png" align="right" width="290" alt="Bea sleeping" />

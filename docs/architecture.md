@@ -31,6 +31,9 @@ reactive chat path — the consciousness is the only mind.
 | `SkillRegistry` | `src/core/skills/base.py` | the catalog of capabilities |
 | `ConversationMind` | `src/core/mind/conversation.py` | scoped written turns, one per channel, beside the live loop |
 | `ConversationScheduler` | `src/core/mind/scheduler.py` | one turn at a time per conversation, several at once |
+| `SingleContext` | `src/core/mind/single_context.py` | the one sliding window: token-budgeted log that breathes 0 → 120k → ~42k |
+| `TokenBudget` | `src/core/mind/token_budget.py` | the counter: ceiling 150k, trigger 120k, hot/cold split (pure) |
+| `HandoffWorker` | `src/core/mind/handoff.py` | background handoff: cold past to prose, hot ongoing verbatim |
 | `SpontaneousPresence` | `src/core/mind/spontaneous.py` | occasionally opens a conversation herself |
 | `Expression` | `src/core/expression/voice.py` | the **only** voice/visual output sink |
 | `TextHumanizer` | `src/core/expression/humanizer.py` | written output: one line = one message, with typing |
@@ -196,7 +199,9 @@ machinery.
    - tools run; if the only tools called were `speak`/`stay_silent` the turn ends
      without burning another model call.
 7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **trim** the context to
-   `history_limit` (30 messages).
+   `history_limit` (30 messages). The turn is also **mirrored** into the sliding
+   window (`_record_window`), and a handoff is **scheduled** when the budget
+   hits the trigger (`_schedule_handoff`) — see below.
 
 Details that matter:
 
@@ -204,6 +209,38 @@ Details that matter:
 - **Body actions** (`long_running=True`) run in a single-slot task that preempts
   the previous one; the result comes back as a perception.
 - **The Turn Log:** Every turn she takes is recorded, capturing her exact context, perceptions, and tool calls.
+
+---
+
+## The sliding window
+
+One mind, one log. Every live turn is mirrored into `SingleContext`
+(`src/core/mind/single_context.py`), a token-budgeted append-only log that
+replaces message-count trimming with a real ceiling: **150k max, handoff
+trigger at 120k, rest near ~42k**.
+
+When the trigger hits, `HandoffWorker` (`src/core/mind/handoff.py`) runs on
+the background pool, in parallel with the loop:
+
+- **cold** (everything older than ~30k tokens / ~30 min) goes to the worker,
+  which writes a short prose recap — "you talked about food for two hours" —
+  facts and open threads, no identity (the soul is in context already);
+- **hot** (what is happening right now) is carried into the next window
+  **verbatim**, speaker labels and all — the present is never compressed;
+- anything that arrived mid-handoff joins verbatim too, so nothing is lost;
+- the prose comes back as `[EARLIER]` continuity in the next briefings, and
+  the window breathes: `0 → 50k → 120k → ~42k → 120k → …`, never pinned at
+  the ceiling. A failed handoff keeps the old window intact.
+
+Scoped turns get two related guarantees: a deterministic `[WHERE YOU ARE]`
+header (platform, conversation, who — injected from code, so she never
+concludes she has no telegram while answering on it), and one rescue retry
+when a text-only answer would otherwise leave a mute turn (`NO_TOOL_CALL`).
+
+`GET /context` exposes the budget live; the dashboard overview shows it as
+the Context tile. New knobs live under `consciousness` (`context_max_tokens`,
+`handoff_trigger_tokens`, `handoff_target_tokens`, `hot_tokens`,
+`hot_seconds`, `context_handoff`) — see [Configuration](configuration.md#consciousness).
 
 ---
 
@@ -395,6 +432,10 @@ whether to answer someone who just spoke to you is what makes a bot feel broken.
 Every decision is published as a `system` event with `reaction`, `score` and
 `reason`, and shown in Brain Activity. That is not optional instrumentation:
 without seeing *why* something was ignored, tuning the thresholds is guesswork.
+
+`attention.mode: annotate` switches the gate to an annotator for the sliding
+window: nothing is dropped, every perception carries a deterministic priority
+(`Attention.annotate`), and the model itself decides what deserves an answer.
 
 ## Mood
 

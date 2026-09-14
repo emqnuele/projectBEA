@@ -291,6 +291,12 @@ engine refuses to start and says which key is missing.
 | `conversation_history` | `16` | Past messages of a channel included in a scoped turn |
 | `conversation_steps` | `3` | Max steps in a scoped turn — a reply is not an expedition |
 | `max_coalesced_runs` | `3` | Cap on re-runs when messages keep arriving mid-turn |
+| `context_max_tokens` | `150000` | Hard ceiling of the one sliding window, in tokens |
+| `handoff_trigger_tokens` | `120000` | Window size that starts the background handoff |
+| `handoff_target_tokens` | `50000` | Size the window breathes back down to after a handoff |
+| `hot_tokens` | `30000` | Recent tokens kept verbatim across a handoff, never compressed |
+| `hot_seconds` | `1800.0` | Recent seconds kept verbatim across a handoff |
+| `context_handoff` | `true` | Off means the window only grows until the ceiling trims it |
 
 ---
 
@@ -309,6 +315,7 @@ What wakes the mind, and what she merely notices. [How it works →](architectur
 | `hot_names` | `[]` | Other names that pull her into a conversation |
 | `self_ids` | `[]` | Her own platform ids, so a reply to her is recognised as addressed |
 | `digest_max_lines` | `8` | Cap on the `[WHILE YOU WERE BUSY]` block |
+| `mode` | `"gate"` | `gate` filters what reaches her; `annotate` keeps everything with a priority for the one sliding window |
 
 ---
 
