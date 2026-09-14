@@ -74,8 +74,9 @@ if you have Make. Every `make` target here is one `uv run` command underneath, s
 nothing needs Make: Windows in particular does not ship it.
 
 > [!NOTE]
-> She needs an API key from OpenRouter, OpenAI, Groq, Google AI Studio or
-> Claude — or no key at all: she also thinks on local models, [below](#she-runs-on-your-machine-too).
+> No API key needed: she runs on local models, on your own machine
+> ([below](#she-runs-on-your-machine-too)). A key from OpenRouter, OpenAI,
+> Groq, Google AI Studio or Claude gets you bigger models instead.
 
 ---
 
