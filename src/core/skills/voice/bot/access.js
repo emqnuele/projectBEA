@@ -21,4 +21,14 @@ function normalizeMode(raw) {
     return ACCESS_MODES.includes(mode) ? mode : DEFAULT_MODE;
 }
 
-module.exports = { mayReach, normalizeMode, ACCESS_MODES, DEFAULT_MODE };
+// Who may run a `!command`. Pure: no discord, no whitelist file, no replies.
+// The owner is the admin and runs everything; everyone else needs the
+// whitelist for ordinary commands and never touches admin ones.
+function checkCommandAccess({ category, isOwner, whitelisted }) {
+    if (isOwner) return { allowed: true, reason: 'owner' };
+    if (category === 'admin') return { allowed: false, reason: 'owner-only' };
+    if (whitelisted) return { allowed: true, reason: 'whitelisted' };
+    return { allowed: false, reason: 'not-whitelisted' };
+}
+
+module.exports = { mayReach, normalizeMode, checkCommandAccess, ACCESS_MODES, DEFAULT_MODE };

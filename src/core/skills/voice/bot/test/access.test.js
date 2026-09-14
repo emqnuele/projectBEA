@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { mayReach, ACCESS_MODES } = require('../access');
+const { mayReach, checkCommandAccess, ACCESS_MODES } = require('../access');
 
 test('strict mode only lets the whitelist through', () => {
     assert.equal(mayReach('strict', true), true);
@@ -27,4 +27,37 @@ test('an unknown mode is treated as the safe one', () => {
 
 test('the three modes are the ones the dashboard offers', () => {
     assert.deepEqual([...ACCESS_MODES], ['strict', 'boost', 'open']);
+});
+
+// --- who may run a `!command` ---------------------------------------------
+
+// the owner is the admin: everything, whitelist or not
+test('the owner runs voice commands without the whitelist', () => {
+    assert.deepEqual(
+        checkCommandAccess({ category: 'voice', isOwner: true, whitelisted: false }),
+        { allowed: true, reason: 'owner' });
+});
+
+test('the owner runs admin commands', () => {
+    assert.deepEqual(
+        checkCommandAccess({ category: 'admin', isOwner: true, whitelisted: false }),
+        { allowed: true, reason: 'owner' });
+});
+
+test('a whitelisted user runs ordinary commands but not admin ones', () => {
+    assert.deepEqual(
+        checkCommandAccess({ category: 'voice', isOwner: false, whitelisted: true }),
+        { allowed: true, reason: 'whitelisted' });
+    assert.deepEqual(
+        checkCommandAccess({ category: 'admin', isOwner: false, whitelisted: true }),
+        { allowed: false, reason: 'owner-only' });
+});
+
+test('a stranger runs nothing, with the reason named', () => {
+    assert.deepEqual(
+        checkCommandAccess({ category: 'voice', isOwner: false, whitelisted: false }),
+        { allowed: false, reason: 'not-whitelisted' });
+    assert.deepEqual(
+        checkCommandAccess({ category: 'admin', isOwner: false, whitelisted: false }),
+        { allowed: false, reason: 'owner-only' });
 });
