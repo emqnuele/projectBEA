@@ -293,10 +293,13 @@ class FasterWhisperSTT(STTInterface):
 
     def _transcribe_file(self, audio_path: str, lang: Optional[str]) -> str:
         """One attempt, raising. The caller decides what a failure is worth."""
-        segments, _ = self.model.transcribe(audio_path,
-                                            language=normalize_language(lang),
-                                            temperature=0.0,
-                                            vad_filter=self.vad)
+        model = self.model
+        if model is None:
+            raise RuntimeError("Local whisper is not loaded.")
+        segments, _ = model.transcribe(audio_path,
+                                       language=normalize_language(lang),
+                                       temperature=0.0,
+                                       vad_filter=self.vad)
         text = "".join(segment.text for segment in segments).strip()
         logger.info(f"Local transcription result: '{text}'")
         return text
