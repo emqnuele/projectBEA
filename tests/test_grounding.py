@@ -46,3 +46,27 @@ def test_orientation_grounding():
     assert "[WHERE YOU ARE]" in orientation
     assert "You are on discord in conversation 888 with Alice" in orientation
     assert "send_message(platform='discord', channel='888')" in orientation
+
+
+def test_attention_wired_to_sliding_window():
+    from src.core.attention.gate import Attention
+
+    mock_config = MagicMock()
+    mock_config.consciousness = {}
+    mock_config.attention = {}
+
+    attention = Attention.__new__(Attention)
+    attention.window = None
+    c = Consciousness(
+        config=mock_config,
+        llm=MagicMock(),
+        bus=MagicMock(),
+        expression=MagicMock(),
+        surfaces=MagicMock(),
+        history_manager=MagicMock(),
+        event_manager=MagicMock(),
+        soul_getter=lambda: "soul",
+        operating_getter=lambda: "operating",
+        attention=attention,
+    )
+    assert attention.window is c.sliding_window
