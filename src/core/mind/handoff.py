@@ -68,7 +68,7 @@ def build_handoff_payload(cold_text: str, previous_handoff: str = "") -> str:
 class HandoffWorker:
     """Runs the handoff in the background when the window fills up.
 
-    Trigger at 120k, rest near ~42k, loop never blocked: while the worker
+    Trigger at 120k, rest near ~50k, loop never blocked: while the worker
     thinks, new turns keep appending, and whatever arrived mid-flight is
     carried into the next window verbatim. A failed worker call keeps the
     old window intact — losing a bridge must never lose the turns it was for.

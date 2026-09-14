@@ -2,7 +2,7 @@
 
 One mind, one log: every turn appends here instead of scattering across a
 live rolling list and per-channel SQLite histories as two sources of truth
-that never read each other. The window breathes — 0 → 50k → 120k → ~42k —
+that never read each other. The window breathes — 0 → 50k → 120k → ~50k —
 because a handoff compresses the cold past while the hot ongoing stays
 verbatim, rather than sitting pinned at the ceiling.
 

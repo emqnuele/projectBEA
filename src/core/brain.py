@@ -357,23 +357,6 @@ class AIVtuberBrain:
             spontaneous=self.spontaneous,
         )
 
-    def _publish_verdict(self, perception, verdict) -> None:
-        """Surfaces every attention decision to the dashboard.
-
-        Without seeing WHY something was ignored, tuning the thresholds is blind
-        guessing — so this is not optional instrumentation."""
-        self.event_manager.publish(
-            EventCategory.SYSTEM, "attention",
-            f"{verdict.reaction.value}: {perception.surface} ({verdict.reason})",
-            metadata={
-                "reaction": verdict.reaction.value,
-                "score": round(verdict.score, 3),
-                "reason": verdict.reason,
-                "surface": perception.surface,
-                "preview": (perception.content or "")[:120],
-            },
-        )
-
     def model_for(self, role: str = BACKGROUND):
         """A client for `role`, falling back to the mind's if the pool is empty.
 

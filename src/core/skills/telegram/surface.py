@@ -93,8 +93,8 @@ class TelegramSkill(PlatformSkill):
             return
 
         try:
-            # concurrent updates: several chats are read at once, and the
-            # per-conversation scheduler is what keeps each one serialized
+            # concurrent updates: several chats are read at once, and the bus
+            # coalesces the burst into one batch for the single loop
             self.app = Application.builder().token(token).concurrent_updates(True).build()
             # everything except commands: a photo, a sticker and a voice note
             # are all things a person sends, and ignoring them looks broken
