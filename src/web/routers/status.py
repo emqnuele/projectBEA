@@ -175,7 +175,7 @@ def overview(brain: AIVtuberBrain = Depends(get_brain)):
         "memory": memory_counts(brain),
         "engine": _engine_summary(brain),
         "context": (brain.consciousness.window_status()
-                    if getattr(brain, "consciousness", None) else {"enabled": False}),
+                    if brain.consciousness is not None else {"enabled": False}),
     }
 
 

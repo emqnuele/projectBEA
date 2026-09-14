@@ -24,8 +24,9 @@ def estimate_tokens(text: str) -> int:
     if not text:
         return 0
     try:
-        import tiktoken
+        import importlib
 
+        tiktoken = importlib.import_module("tiktoken")
         return len(tiktoken.get_encoding("cl100k_base").encode(text))
     except Exception:
         return max(1, len(text) // CHARS_PER_TOKEN)
