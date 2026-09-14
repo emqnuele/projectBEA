@@ -6,13 +6,34 @@ the counter: pure functions plus a small value object, no IO, no asyncio.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # fallback when no tokenizer is available: ~4 chars per token for latin text
 CHARS_PER_TOKEN = 4
 
 # per-message framing overhead (role, boundaries, tool envelope)
 MESSAGE_OVERHEAD_TOKENS = 8
+
+# cached encoding handle: resolved once so budgeting never pays import +
+# encoding setup per message and never blocks the loop on repeated work
+_ENCODING: Any = None
+_ENCODING_RESOLVED = False
+
+
+def _encoding() -> Optional[Any]:
+    """the cl100k encoder, or none when tiktoken is missing. resolved once."""
+    global _ENCODING, _ENCODING_RESOLVED
+    if _ENCODING_RESOLVED:
+        return _ENCODING
+    _ENCODING_RESOLVED = True
+    try:
+        import importlib
+
+        tiktoken = importlib.import_module("tiktoken")
+        _ENCODING = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        _ENCODING = None
+    return _ENCODING
 
 
 def estimate_tokens(text: str) -> int:
@@ -23,13 +44,41 @@ def estimate_tokens(text: str) -> int:
     """
     if not text:
         return 0
-    try:
-        import importlib
+    enc = _encoding()
+    if enc is not None:
+        try:
+            return len(enc.encode(text))
+        except Exception:
+            pass
+    return max(1, len(text) // CHARS_PER_TOKEN)
 
-        tiktoken = importlib.import_module("tiktoken")
-        return len(tiktoken.get_encoding("cl100k_base").encode(text))
-    except Exception:
-        return max(1, len(text) // CHARS_PER_TOKEN)
+
+def truncate_to_budget(text: str, max_tokens: int) -> str:
+    """shrinks one oversized message to the ceiling instead of pinning the window.
+
+    entries are atomic, so without this a single paste larger than max_tokens
+    bricks the budget forever: the valve needs len > 1 and the handoff finds
+    no cold. callers keep the head, which is where the request usually lives.
+    """
+    if estimate_tokens(text) + MESSAGE_OVERHEAD_TOKENS <= max_tokens:
+        return text
+    marker = "[...truncated to the context ceiling]"
+    marker_tokens = estimate_tokens(marker)
+    # binary search on chars: estimate_tokens is monotonic, a handful of
+    # iterations converges without blocking on huge inputs
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if estimate_tokens(text[:mid]) + MESSAGE_OVERHEAD_TOKENS + marker_tokens <= max_tokens:
+            lo = mid
+        else:
+            hi = mid - 1
+    # token boundaries can merge across the cut, so verify the joined string
+    # and back off geometrically until it provably fits
+    while lo > 0 and (estimate_tokens(text[:lo] + marker)
+                      + MESSAGE_OVERHEAD_TOKENS > max_tokens):
+        lo = (lo * 9) // 10
+    return text[:lo] + marker
 
 
 def message_tokens(message: Dict[str, Any]) -> int:
@@ -81,7 +130,7 @@ class BudgetEntry:
 
 
 def split_hot_cold(entries: List[BudgetEntry], *, hot_tokens: int = 30_000,
-                   hot_seconds: float = 1800.0, now: float = 0.0) -> Tuple[List[BudgetEntry], List[BudgetEntry]]:
+                    hot_seconds: float = 1800.0, now: Optional[float] = None) -> Tuple[List[BudgetEntry], List[BudgetEntry]]:
     """Splits old (compressible) from ongoing (kept verbatim).
 
     Walks from the newest entry back, keeping everything until both the token
@@ -89,6 +138,9 @@ def split_hot_cold(entries: List[BudgetEntry], *, hot_tokens: int = 30_000,
     never compressed: cutting the last half hour to save tokens is how a
     persona loses consciousness of the moment.
     """
+    import time as _time
+
+    now = _time.time() if now is None else now
     hot: List[BudgetEntry] = []
     hot_total = 0
     for entry in reversed(entries):
