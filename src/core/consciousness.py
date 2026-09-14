@@ -96,6 +96,10 @@ class Consciousness:
         self._handoff = HandoffWorker()
         self._handoff_task: Optional[asyncio.Task] = None
         self._handoff_enabled = bool(cc.get("context_handoff", True))
+        # the follow-up gate reads the one window, never sqlite: without this
+        # the gate is blind and every "are they answering me" is a flat no
+        if attention is not None and getattr(attention, "window", None) is None:
+            attention.window = self.sliding_window
         self.idle_after = cc.get("idle_after", 30.0)
         self.window = cc.get("window", 0.3)
         self.burst_steps = cc.get("burst_steps", 6)
@@ -190,6 +194,15 @@ class Consciousness:
                 await self._loop_task
             except asyncio.CancelledError:
                 pass
+        # a swap landing after shutdown would rewrite a window nobody reads;
+        # cancel it and consume it so no exception goes unretrieved
+        if self._handoff_task:
+            self._handoff_task.cancel()
+            try:
+                await self._handoff_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._handoff_task = None
         for s in self.surfaces.all():
             try:
                 await s.stop()
@@ -968,7 +981,7 @@ class Consciousness:
 
         async def work():
             try:
-                self._handoff._llm = self.background_llm or self.llm
+                self._handoff.set_llm(self.background_llm or self.llm)
                 await self._handoff.maybe_swap(self.sliding_window)
             except asyncio.CancelledError:
                 raise
