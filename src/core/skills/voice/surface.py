@@ -337,11 +337,7 @@ class VoiceSurface(PlatformSkill):
             "## DISCORD\n"
             "You are connected to Discord.\n"
             "- `speak` is your LIVE VOICE — the voice call and the stream. Use it here.\n"
-            "- Text messages people send you are handled in their own thread, one per "
-            "channel, while you keep doing whatever you're doing. You don't answer them "
-            "from here — you'll find yourself in that conversation on its own.\n"
-            "- What you CAN do from here is act first: `discord_send_message` to write in "
-            "a channel unprompted, `discord_send_dm` to message someone privately, "
+            "- `discord_send_message` writes in a channel, `discord_send_dm` messages someone privately, "
             "`discord_list_voice_channels` to see where people are, `discord_join_voice` "
             "to go hang out, `discord_summon` to call someone in.\n"
             + (

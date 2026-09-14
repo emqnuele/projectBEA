@@ -268,11 +268,8 @@ class TelegramSkill(PlatformSkill):
             return None
         return (
             "## TELEGRAM\n"
-            "You are on Telegram. Messages people send you are handled in their own "
-            "thread, one per chat, while you keep doing whatever you're doing — you "
-            "don't answer them from here.\n"
-            "- `telegram_send_message` writes in a chat unprompted, if you feel like "
-            "saying something first."
+            "You are on Telegram.\n"
+            "- `telegram_send_message` writes in a chat."
         )
 
     def tools(self) -> List:

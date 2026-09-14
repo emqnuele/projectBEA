@@ -5,6 +5,11 @@ live rolling list and per-channel SQLite histories as two sources of truth
 that never read each other. The window breathes — 0 → 50k → 120k → ~42k —
 because a handoff compresses the cold past while the hot ongoing stays
 verbatim, rather than sitting pinned at the ceiling.
+
+Every entry is tagged with the conversation `key` it belongs to ("stage" for
+the live room). The follow-up gate and the cooldowns read these tags — never
+SQLite — so "are they answering me" survives a restart of nothing but the
+process, and costs no query.
 """
 
 import time
@@ -30,11 +35,12 @@ class SingleContext:
 
     # --- writing ----------------------------------------------------------
 
-    def append(self, role: str, content: str, ts: Optional[float] = None,
-               key: str = "stage") -> BudgetEntry:
+    def append(self, role: str, content: str, ts: Optional[float] = None, key: str = "stage",
+               author: str = "", addressee: str = "") -> BudgetEntry:
         """Appends one message. Entries are atomic: never split by the trim."""
         entry = BudgetEntry(tokens=estimate_tokens(content) + 8, ts=ts or time.time(),
-                            payload={"role": role, "content": content, "key": key})
+                            payload={"role": role, "content": content, "key": key,
+                                     "author": author, "addressee": addressee})
         self._entries.append(entry)
         return entry
 
@@ -59,15 +65,75 @@ class SingleContext:
         }
 
     def messages(self, key: Optional[str] = None) -> List[Dict[str, Any]]:
-        """The log as plain message dicts, oldest first, optionally for one conversation."""
+        """The log as plain message dicts, oldest first, optionally filtered by conversation key."""
+        out = []
+        for e in self._entries:
+            msg = dict(e.payload)
+            msg_key = msg.pop("key", "stage")
+            # System and handoff messages (role system) belong everywhere.
+            if key is None or msg.get("role") == "system" or msg_key == key:
+                out.append(msg)
+        return out
+
+    # --- what the follow-up gate reads ------------------------------------
+
+    def turns_for(self, key: str, limit: int = 30) -> List[Dict[str, str]]:
+        """Recent turns of one conversation as role/identity/addressee/content.
+
+        The follow-up gate ("are they answering me") reads this, never SQLite:
+        the window is the only context, so it is also the only witness.
+        """
         out = []
         for e in self._entries:
             payload = e.payload if isinstance(e.payload, dict) else {}
-            if key is not None and payload.get("key", "stage") != key:
+            if payload.get("key", "stage") != key:
                 continue
-            out.append({"role": payload.get("role", "user"),
-                        "content": payload.get("content", "")})
-        return out
+            role = payload.get("role", "user")
+            out.append({
+                "role": "bea" if role == "assistant" else "user",
+                "identity": payload.get("author", ""),
+                "addressee": payload.get("addressee", ""),
+                "content": payload.get("content", ""),
+            })
+        return out[-limit:]
+
+    def seconds_since_bea(self, key: str, now: Optional[float] = None) -> Optional[float]:
+        """How long ago she last spoke in this conversation, if she ever did."""
+        now = time.time() if now is None else now
+        for e in reversed(self._entries):
+            payload = e.payload if isinstance(e.payload, dict) else {}
+            if payload.get("key", "stage") != key:
+                continue
+            if payload.get("role") == "assistant":
+                return now - e.ts
+        return None
+
+    def activity_count(self, key: str, window_seconds: float = 120.0,
+                       now: Optional[float] = None) -> int:
+        """User lines in this conversation inside the recent window."""
+        now = time.time() if now is None else now
+        count = 0
+        for e in self._entries:
+            payload = e.payload if isinstance(e.payload, dict) else {}
+            if payload.get("key", "stage") != key:
+                continue
+            if payload.get("role") == "user" and now - e.ts <= window_seconds:
+                count += 1
+        return count
+
+    def live_keys(self, window_seconds: float = 6 * 3600.0,
+                  now: Optional[float] = None) -> List[str]:
+        """Conversation keys with recent traffic, newest first (never "stage")."""
+        now = time.time() if now is None else now
+        last: Dict[str, float] = {}
+        for e in self._entries:
+            payload = e.payload if isinstance(e.payload, dict) else {}
+            key = payload.get("key", "stage")
+            if key == "stage":
+                continue
+            if now - e.ts <= window_seconds:
+                last[key] = e.ts
+        return sorted(last, key=lambda k: last[k], reverse=True)
 
     # --- handoff ----------------------------------------------------------
 
@@ -91,11 +157,14 @@ class SingleContext:
             carried.pop(0)
         self._entries = [BudgetEntry(tokens=estimate_tokens(handoff_text) + 8, ts=time.time(),
                                      payload={"role": "system", "content": handoff_text,
-                                              "key": "stage"})]
+                                              "key": "stage", "author": "",
+                                              "addressee": ""})]
         self._entries.extend(carried)
         for message in incoming or []:
             self.append(str(message.get("role", "user")), str(message.get("content", "")),
-                        key=str(message.get("key", "stage")))
+                        key=str(message.get("key", "stage")),
+                        author=str(message.get("author", "")),
+                        addressee=str(message.get("addressee", "")))
         self.version += 1
         # window breathes after a swap: report whether it landed near target
         return {**self.status(), "carried_hot": len(carried)}

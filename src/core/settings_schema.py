@@ -316,10 +316,6 @@ ATTENTION = Section(
         Setting("followup_max_turns", "Turns in a row", "int",
                 "How long she keeps it up before waiting to be called again.",
                 3, minimum=1, maximum=10),
-        Setting("mode", "Gate mode", "select",
-                "Gate filters what reaches her; annotate keeps everything with "
-                "a priority for the one sliding window.",
-                "gate", options=["gate", "annotate"]),
     ],
 )
 
@@ -398,12 +394,6 @@ CONSCIOUSNESS = Section(
         Setting("burst_steps", "Steps per turn", "int",
                 "How many tool steps one live turn may take.",
                 6, minimum=1, maximum=20),
-        Setting("conversation_steps", "Steps per reply", "int",
-                "A written reply is not an expedition.",
-                3, minimum=1, maximum=10),
-        Setting("history_limit", "Context length", "int",
-                "How many past messages she carries in the live loop.",
-                30, minimum=4, maximum=200),
         Setting("context_max_tokens", "Window ceiling", "int",
                 "Hard ceiling of the one sliding window, in tokens. Past this, "
                 "the cold past is trimmed at once, never the hot ongoing.",

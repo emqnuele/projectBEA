@@ -26,12 +26,12 @@ STALE_AFTER = 6 * 3600.0
 class SpontaneousPresence:
     """Occasionally opens a conversation that is alive but has gone quiet."""
 
-    def __init__(self, *, config, memory, conversations,
+    def __init__(self, *, config, memory, bus,
                  rng: Optional[random.Random] = None,
                  clock: Optional[Callable[[], float]] = None):
         self.config = config
         self.memory = memory
-        self.conversations = conversations
+        self.bus = bus
         self._rng = rng or random.Random()
         self._clock = clock or time.time
 
@@ -86,6 +86,8 @@ class SpontaneousPresence:
 
     async def run_once(self) -> int:
         """Checks every live conversation; returns how many she opened."""
+        from src.core.perception.types import Perception, PerceptionKind
+
         if not self.enabled:
             return 0
         hour = datetime.fromtimestamp(self._clock()).hour
@@ -95,6 +97,8 @@ class SpontaneousPresence:
         for key in await asyncio.to_thread(self.candidates):
             try:
                 now = self._clock()
+                # Use plain SQL since the methods were in ConversationStore which might have changed
+                # Actually, memory.conversations should still have them?
                 since = self.memory.conversations.seconds_since_bea_spoke(key, now=now)
                 activity = self.memory.conversations.recent_activity(
                     key, ACTIVITY_WINDOW, now=now)
@@ -108,7 +112,12 @@ class SpontaneousPresence:
                 continue
 
             logger.info(f"Spontaneous: opening '{key}' on her own.")
-            await self.conversations.turn_now(key, [], initiative=True)
+            self.bus.put(Perception(
+                kind=PerceptionKind.SYSTEM,
+                surface="spontaneous",
+                content="[NOBODY IS TALKING TO YOU] Nothing new here — this one has just gone quiet, and you thought of it. If there is something you actually want to say, say it: pick up something from earlier, ask about a thing someone left hanging, complain about your day. If nothing genuinely comes to mind, say_nothing.",
+                meta={"conversation_key": key}
+            ))
             started += 1
 
         return started

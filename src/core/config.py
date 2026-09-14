@@ -266,10 +266,9 @@ class BrainConfig:
         "burst_steps": 6,          # max reasoning steps per perception batch
         "history_limit": 30,       # rolling context size
         "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
-        # scoped conversation turns (written channels, beside the live loop)
-        "conversation_history": 16,   # past messages of that channel in the turn
-        "conversation_steps": 3,      # a reply is not an expedition
-        "max_coalesced_runs": 3,      # cap on re-runs when messages keep arriving
+        # scoped conversation
+        "hot_tokens": 30_000,         # max size of the ongoing present window
+        "hot_seconds": 1800,          # max age of an ongoing present message
         # one jsonl a day of every turn she takes: the prompt in force, what she
         # was shown, what she did and what it cost. Nothing leaves the machine.
         "turn_log": True,

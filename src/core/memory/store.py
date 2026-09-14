@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.core.affect.rules import PERSON_HALF_LIFE_SECONDS, clamp, faded, warmth_phrase
-from src.core.attention.followup import Turn
 from src.core.memory.db import Database
 from src.core.memory.plan import StreamPlan
 from src.core.social.agenda import Agenda
@@ -486,23 +485,6 @@ class Conversations:
              role, content, ts if ts is not None else time.time(), addressee_identity or ""),
         )
 
-    def history(self, conversation_key: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """The last `limit` messages, oldest first (reading order)."""
-        rows = self.db.query(
-            "SELECT display_name, role, content, ts, author_identity, addressee_identity "
-            "FROM messages WHERE conversation_key = ? ORDER BY id DESC LIMIT ?",
-            (conversation_key, limit),
-        )
-        return [dict(r) for r in reversed(rows)]
-
-    def turns(self, conversation_key: str, limit: int = 30) -> List[Turn]:
-        """The tail of the conversation, in the shape the follow-up gate reads."""
-        return [
-            Turn(role=row["role"], identity=row.get("author_identity") or "",
-                 addressee=row.get("addressee_identity") or "", content=row["content"])
-            for row in self.history(conversation_key, limit)
-        ]
-
     def count(self, conversation_key: str) -> int:
         return int(self.db.scalar(
             "SELECT COUNT(*) FROM messages WHERE conversation_key = ?", (conversation_key,)
@@ -545,43 +527,6 @@ class Conversations:
             "SELECT COUNT(*) FROM messages WHERE conversation_key = ? AND role = 'user' "
             "AND ts >= ?", (conversation_key, reference - window_seconds),
         ))
-
-    # --- summaries ----------------------------------------------------------
-
-    def summary(self, conversation_key: str) -> str:
-        return str(self.db.scalar(
-            "SELECT summary FROM summaries WHERE conversation_key = ?",
-            (conversation_key,), default="",
-        ))
-
-    def save_summary(self, conversation_key: str, summary: str) -> None:
-        self.db.execute(
-            "INSERT INTO summaries (conversation_key, summary, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(conversation_key) DO UPDATE SET summary = excluded.summary, "
-            "updated_at = excluded.updated_at",
-            (conversation_key, summary, time.time()),
-        )
-
-    def summary_due(self, conversation_key: str, every: int) -> bool:
-        """Have `every` messages passed since the last summary?
-
-        A delta, not a modulo: the counter jumps by more than one, so an exact
-        multiple would be stepped over and never fire.
-        """
-        total = self.count(conversation_key)
-        last = int(self.db.scalar(
-            "SELECT last_count FROM summaries WHERE conversation_key = ?",
-            (conversation_key,), default=0,
-        ))
-        return total - last >= every
-
-    def mark_summarized(self, conversation_key: str) -> None:
-        self.db.execute(
-            "INSERT INTO summaries (conversation_key, last_count, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(conversation_key) DO UPDATE SET last_count = excluded.last_count, "
-            "updated_at = excluded.updated_at",
-            (conversation_key, self.count(conversation_key), time.time()),
-        )
 
     def prune(self, keep_per_conversation: int = 500) -> int:
         """Caps history per conversation. A twitch channel would grow forever."""

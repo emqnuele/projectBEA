@@ -109,9 +109,9 @@ def _when(seconds: float) -> str:
 class AgendaRunner:
     """Turns what is due into a conversation she actually opens."""
 
-    def __init__(self, *, agenda: Agenda, conversations, reach=None):
+    def __init__(self, *, agenda: Agenda, bus, reach=None):
         self.agenda = agenda
-        self.conversations = conversations
+        self.bus = bus
         self.reach = reach
 
     def _key_for(self, item: AgendaItem) -> str:
@@ -124,6 +124,8 @@ class AgendaRunner:
 
     async def run_once(self, now: Optional[float] = None) -> int:
         """Acts on everything due. Returns how many conversations she opened."""
+        from src.core.perception.types import Perception, PerceptionKind
+
         acted = 0
         for item in self.agenda.due(now):
             key = self._key_for(item)
@@ -133,9 +135,12 @@ class AgendaRunner:
                 self.agenda.cancel(item.id)
                 continue
             try:
-                await self.conversations.turn_now(
-                    key, [], initiative=True, frame=_frame(item.note),
-                )
+                self.bus.put(Perception(
+                    kind=PerceptionKind.SYSTEM,
+                    surface="agenda",
+                    content=_frame(item.note),
+                    meta={"conversation_key": key}
+                ))
             except Exception as e:
                 logger.error(f"Acting on an intention failed ({item.note!r}): {e}")
                 continue
