@@ -645,19 +645,6 @@ class Consciousness:
             return ""
         return "[WHERE YOU ARE]\n" + "\n".join(seen.values())
 
-    @staticmethod
-    def _dominant_key(annotated: List[Tuple[Perception, float]]) -> str:
-        """The conversation this turn belongs to: most lines win, ties go stage."""
-        counts: Dict[str, int] = {}
-        for p, _ in annotated:
-            key = conversation_key(p)
-            counts[key] = counts.get(key, 0) + 1
-        if not counts:
-            return "stage"
-        top = max(counts.values())
-        winners = [k for k, v in counts.items() if v == top]
-        return winners[0] if len(winners) == 1 else "stage"
-
     def _dominant_identity(self, annotated: List[Tuple[Perception, float]]) -> str:
         """Who she is mostly answering, for the follow-up gate's addressee."""
         for p, _ in annotated:

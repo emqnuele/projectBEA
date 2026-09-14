@@ -62,7 +62,7 @@ def truncate_to_budget(text: str, max_tokens: int) -> str:
     """
     if estimate_tokens(text) + MESSAGE_OVERHEAD_TOKENS <= max_tokens:
         return text
-    
+
     # Fast path: cap by chars first to avoid O(N log N) encoding of multi-MB pastes
     max_chars = max_tokens * 8
     if len(text) > max_chars:
