@@ -153,10 +153,10 @@ class SingleContext:
         _, hot = self.snapshot_for_handoff(now=now)
         carried = list(hot)
         # emergency valve: hot alone past the ceiling trims its oldest turns
-        while sum(e.tokens for e in carried) + len(handoff_text) // 4 > self.budget.max_tokens and len(carried) > 1:
+        while sum(e.tokens for e in carried) + estimate_tokens(handoff_text) > self.budget.max_tokens and len(carried) > 1:
             carried.pop(0)
         self._entries = [BudgetEntry(tokens=estimate_tokens(handoff_text) + 8, ts=time.time(),
-                                     payload={"role": "system", "content": handoff_text,
+                                     payload={"role": "user", "content": handoff_text,
                                               "key": "stage", "author": "",
                                               "addressee": ""})]
         self._entries.extend(carried)

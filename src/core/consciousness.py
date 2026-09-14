@@ -238,8 +238,8 @@ class Consciousness:
                     logger.info(f"batch of {len(batch)} perception(s): "
                                 f"{', '.join(p.surface for p in batch)}")
 
-                # a real input barges in on an ongoing monologue
-                if self.expression.is_speaking and any(p.kind != PerceptionKind.IDLE for p in batch):
+                # a voice input barges in on an ongoing monologue; text is just queued
+                if self.expression.is_speaking and any(p.kind == PerceptionKind.VOICE for p in batch):
                     await self.expression.interrupt()
 
                 annotated = self._annotate(batch)

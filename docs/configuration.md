@@ -185,9 +185,12 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         "burst_steps": 6,
         "history_limit": 30,
         "correlation_timeout": 90.0,
-        "conversation_history": 16,
-        "conversation_steps": 3,
-        "max_coalesced_runs": 3
+        "context_max_tokens": 150000,
+        "handoff_trigger_tokens": 120000,
+        "handoff_target_tokens": 50000,
+        "hot_tokens": 30000,
+        "hot_seconds": 1800.0,
+        "context_handoff": true
     },
     "models": {
         "mind": [
@@ -288,9 +291,6 @@ engine refuses to start and says which key is missing.
 | `burst_steps` | `6` | Max reasoning steps in one turn |
 | `history_limit` | `30` | Rolling context size, in messages |
 | `correlation_timeout` | `90.0` | How long an HTTP caller waits for her reply before giving up |
-| `conversation_history` | `16` | Past messages of a channel included in a scoped turn |
-| `conversation_steps` | `3` | Max steps in a scoped turn — a reply is not an expedition |
-| `max_coalesced_runs` | `3` | Cap on re-runs when messages keep arriving mid-turn |
 | `context_max_tokens` | `150000` | Hard ceiling of the one sliding window, in tokens |
 | `handoff_trigger_tokens` | `120000` | Window size that starts the background handoff |
 | `handoff_target_tokens` | `50000` | Size the window breathes back down to after a handoff |
