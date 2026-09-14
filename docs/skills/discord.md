@@ -175,7 +175,10 @@ her at all. In voice she hears everyone in the channel — if you are in the roo
 she can hear you — but an unlisted voice arrives with its salience damped, the
 same way an unlisted message does. Admin commands (`!wl add|remove|list`) are
 restricted to `ADMIN_ID`; unauthorised calls get a reply saying so, and a
-stranger told they are not whitelisted learns their id and how to get in.
+stranger told they are not whitelisted learns their id and how to get in. The
+list is runtime state and lives untracked in `data/discord_whitelist.json`, so
+it never reads as local changes to the updater; an old
+`src/core/skills/voice/bot/whitelist.json` is picked up once and migrated.
 
 ---
 

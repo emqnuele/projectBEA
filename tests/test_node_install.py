@@ -39,7 +39,7 @@ def test_all_of_them_are_installed(monkeypatch):
     monkeypatch.setattr(node, "run", record)
 
     assert node.install_all() == 0
-    assert ("discord bot", ["install", "--no-audit", "--no-fund"]) in ran
+    assert ("discord bot", ["ci", "--no-audit", "--no-fund"]) in ran
     assert ("dashboard", ["run", "build"]) in ran
 
 

@@ -92,7 +92,15 @@ def install_all(root: Optional[Path] = None) -> int:
     failed = False
     for project in PROJECTS:
         logger.info(f"Installing the {project.name}…")
-        ok, detail = run(project, ["install", "--no-audit", "--no-fund"], root)
+        # ci, not install: the lockfile is committed, so this installs exactly
+        # what shipped and leaves the lockfile untouched — an `install` here
+        # rewrites it (newer ^-range versions, another npm or platform), and
+        # the next update then reads it as local changes to the engine
+        ok, detail = run(project, ["ci", "--no-audit", "--no-fund"], root)
+        if not ok and not (project.directory(root) / "package-lock.json").is_file():
+            # no lockfile to be clean about (someone deleted it): fall back to
+            # resolving from the ranges in package.json, which writes a fresh one
+            ok, detail = run(project, ["install", "--no-audit", "--no-fund"], root)
         if ok and project.builds:
             logger.info(f"Building the {project.name}…")
             ok, detail = run(project, ["run", "build"], root)

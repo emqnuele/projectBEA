@@ -769,6 +769,106 @@ def test_a_missing_npm_names_the_one_command_that_fixes_it(world, monkeypatch):
     assert "--install-node" in bot.detail
 
 
+# --- files the updater never asks anyone to merge --------------------------------
+
+
+LOCK = "src/web/frontend/package-lock.json"
+LEGACY_WL = "src/core/skills/voice/bot/whitelist.json"
+
+
+def _noisy_npm(monkeypatch):
+    """The rebuild steps shell out to npm; record the calls instead of running them."""
+    ran = []
+
+    def record(cwd, args):
+        ran.append((cwd, args))
+        return True, ""
+
+    monkeypatch.setattr(runner.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(runner, "_command", record)
+    return ran
+
+
+def test_a_dirty_lockfile_is_taken_from_upstream_not_reported(world, monkeypatch):
+    """`npm install` rewrites a lockfile on its own (newer ^-range versions, a
+    different npm, platform-specific optional deps), so a dirty lockfile after
+    a plain install is the normal case — and it used to block every update as
+    "local changes to the engine"."""
+    upstream, clone = world
+    write(upstream, LOCK, '{"lockfileVersion": 3, "packages": {"v1": true}}\n')
+    commit(upstream, "ship a lockfile")
+    git(clone, "pull", "-q", "origin", "main")
+    write(clone, LOCK, '{"lockfileVersion": 3, "packages": {"mine": true}}\n')
+    write(upstream, LOCK, '{"lockfileVersion": 3, "packages": {"v2": true}}\n')
+    replace(upstream, SOUL, "She is the one we ship.", "changed")
+    commit(upstream, "something new")
+    ran = _noisy_npm(monkeypatch)
+
+    report = update(clone)
+
+    assert report.status == UPDATED
+    assert read(clone, LOCK) == '{"lockfileVersion": 3, "packages": {"v2": true}}\n'
+    assert any(args[1] == "ci" for _, args in ran), "the rebuild must not rewrite the lockfile"
+
+
+def test_a_dirty_lockfile_alone_is_not_a_block(world, monkeypatch):
+    """Even with nothing new upstream worth merging, the lockfile never blocks."""
+    upstream, clone = world
+    write(upstream, LOCK, '{"lockfileVersion": 3}\n')
+    commit(upstream, "ship a lockfile")
+    git(clone, "pull", "-q", "origin", "main")
+    write(clone, LOCK, '{"lockfileVersion": 3, "dirty": true}\n')
+    replace(upstream, SOUL, "She is the one we ship.", "changed")
+    commit(upstream, "something new")
+    _noisy_npm(monkeypatch)
+
+    report = update(clone)
+
+    assert report.status == UPDATED
+    assert report.blocked_paths == []
+
+
+def test_the_legacy_whitelist_is_kept_and_migrated_not_blocking(world, monkeypatch):
+    """The discord bot used to write its whitelist into the source tree, where
+    every `!wl add` read as local changes to the engine. The update preserves
+    it — into its new untracked home — instead of refusing to run."""
+    upstream, clone = world
+    write(upstream, LEGACY_WL, '["user-1"]\n')
+    commit(upstream, "ship a whitelist")
+    git(clone, "pull", "-q", "origin", "main")
+    write(clone, LEGACY_WL, '["user-1", "user-2"]\n')
+    replace(upstream, SOUL, "She is the one we ship.", "changed")
+    commit(upstream, "something new")
+    _noisy_npm(monkeypatch)
+
+    report = update(clone)
+
+    assert report.status == UPDATED
+    assert report.blocked_paths == []
+    migrated = clone / runner.WHITELIST_DATA_PATH
+    assert migrated.is_file()
+    assert "user-2" in migrated.read_text(encoding="utf-8")
+
+
+def test_a_bailed_update_puts_the_whitelist_back_where_it_was(world):
+    """Stashing the whitelist for the fast-forward must not eat it when the
+    run bails out before merging — here, on a diverged checkout."""
+    upstream, clone = world
+    write(upstream, LEGACY_WL, '["user-1"]\n')
+    commit(upstream, "ship a whitelist")
+    git(clone, "pull", "-q", "origin", "main")
+    write(clone, "data/prompts/mine.md", "a commit of my own\n")
+    commit(clone, "local work")
+    write(clone, LEGACY_WL, '["user-1", "user-2"]\n')
+    replace(upstream, SOUL, "She is the one we ship.", "changed")
+    commit(upstream, "upstream work")
+
+    report = update(clone)
+
+    assert report.status == BLOCKED
+    assert "user-2" in read(clone, LEGACY_WL)
+
+
 # --- the same file, written the way windows writes it -------------------------
 
 
