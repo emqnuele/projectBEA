@@ -97,7 +97,9 @@ def test_the_art_and_the_ascii_have_the_same_shape():
 # they run before python exists on the machine, so the art is duplicated there;
 # duplicated art that nobody compares is art that drifts
 def shell_art(path: str, opener: str, closer: str) -> list:
-    text = Path(path).read_text(encoding="utf-8")
+    # checked out with LF everywhere per .gitattributes, but a test that
+    # depends on another file's config for that is a test that will surprise
+    text = Path(path).read_text(encoding="utf-8").replace("\r\n", "\n")
     body = text.split(opener, 1)[1].split(closer, 1)[0]
     return [line[2:] for line in body.strip("\n").splitlines()]
 
