@@ -632,7 +632,8 @@ def _summary(console: Console, answers: Dict[str, Any]) -> None:
         "[bold]uv run bea --doctor[/bold]    checks this machine and says what to fix\n\n"
         "[dim]Re-run this wizard any time with [/dim][bold]uv run bea --setup[/bold][dim] — "
         "everything you chose\nis editable in Settings. With make installed, "
-        "`make web`, `make run` and\n`make doctor` are the same three commands.[/dim]",
+        "`make web`, `make run` and\n`make doctor` are the same three commands.[/dim]\n\n"
+        f"[dim]Everything she can do, written down: [/dim]{banner.DOCS}",
         title="[bold]Next[/bold]",
         border_style="cyan",
         padding=(1, 2),

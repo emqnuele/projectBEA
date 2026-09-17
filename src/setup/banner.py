@@ -23,6 +23,18 @@ INK = "bold white"
 
 TAGLINE = "She talks, plays, and remembers you."
 
+# whose project this is and where it lives. One dim line, under everything
+AUTHOR = "emqnuele"
+SITE = "https://projectbea.emqnuele.dev"
+DOCS = f"{SITE}/docs"
+PORTFOLIO = "https://emanuelefaraci.com"
+
+
+def credit() -> str:
+    """The byline, without the scheme — nobody types `https://` off a terminal."""
+    return (f"by {AUTHOR}  ·  {SITE.split('://')[1]}  ·  "
+            f"{PORTFOLIO.split('://')[1]}")
+
 # 5 rows, 5 columns, one space between letters. Only the ten letters the
 # wordmark needs — a full alphabet here would be nine unused glyphs.
 FONT = {
@@ -98,4 +110,5 @@ def show(console: Console, subtitle: str = TAGLINE, *, animate: bool = True) -> 
 
     if subtitle:
         console.print(Text(f"  {subtitle}", style="dim"))
+    console.print(Text(f"  {credit()}", style="dim"))
     console.print()

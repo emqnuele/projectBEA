@@ -36,6 +36,7 @@ function Banner {
         Write-Host "  projectBEA" -ForegroundColor White
     }
     Write-Host "  an AI persona engine" -ForegroundColor DarkGray
+    Write-Host "  by emqnuele  ·  projectbea.emqnuele.dev  ·  emanuelefaraci.com" -ForegroundColor DarkGray
 }
 
 Banner
@@ -117,3 +118,4 @@ Write-Host "    uv run bea" -ForegroundColor White -NoNewline
 Write-Host "             the same engine, in the terminal"
 Write-Host "    uv run bea --doctor" -ForegroundColor White -NoNewline
 Write-Host "    checks this machine and says what to fix`n"
+Write-Host "  Everything she can do, written down: https://projectbea.emqnuele.dev/docs`n" -ForegroundColor DarkGray

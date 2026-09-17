@@ -106,3 +106,39 @@ def test_the_shell_installer_draws_the_same_wordmark():
 
 def test_the_powershell_installer_draws_the_same_wordmark():
     assert shell_art("install.ps1", '$art = @"\n', '\n"@') == banner.rows()
+
+
+# --- whose project this is --------------------------------------------------
+
+
+def test_the_byline_names_the_author_and_both_sites():
+    line = banner.credit()
+    assert banner.AUTHOR in line
+    assert "projectbea.emqnuele.dev" in line
+    assert "emanuelefaraci.com" in line
+    assert "https://" not in line, "nobody types a scheme off a terminal"
+
+
+def test_the_docs_live_under_the_project_site():
+    assert banner.DOCS.startswith(banner.SITE)
+
+
+def test_the_byline_is_printed_under_the_wordmark():
+    console = screen(100)
+    banner.show(console, animate=False)
+    assert banner.AUTHOR in text_of(console)
+
+
+def test_both_installers_carry_the_same_byline():
+    """They print it before python exists, so they spell it out themselves."""
+    for path in ("install.sh", "install.ps1"):
+        text = Path(path).read_text(encoding="utf-8")
+        assert f"by {banner.AUTHOR}" in text, path
+        assert banner.DOCS in text, path
+
+
+def test_the_dashboard_points_at_the_same_places():
+    """One moved docs site should not leave a dead link in the other half."""
+    links = Path("src/web/frontend/src/lib/links.js").read_text(encoding="utf-8")
+    for url in (banner.SITE, banner.DOCS, banner.PORTFOLIO):
+        assert url in links, url

@@ -50,6 +50,7 @@ ART
     printf '  projectBEA\n'
   fi
   printf '%s  an AI persona engine%s\n' "$DIM" "$RESET"
+  printf '%s  by emqnuele  ·  projectbea.emqnuele.dev  ·  emanuelefaraci.com%s\n' "$DIM" "$RESET"
 }
 
 banner
@@ -130,3 +131,4 @@ printf '\n  %sShe is installed.%s  Next:\n\n' "$BOLD" "$RESET"
 printf '    %suv run bea --web%s       the dashboard on http://127.0.0.1:8000\n' "$BOLD" "$RESET"
 printf '    %suv run bea%s             the same engine, in the terminal\n' "$BOLD" "$RESET"
 printf '    %suv run bea --doctor%s    checks this machine and says what to fix\n\n' "$BOLD" "$RESET"
+printf '  %sEverything she can do, written down: https://projectbea.emqnuele.dev/docs%s\n\n' "$DIM" "$RESET"
