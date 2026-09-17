@@ -12,13 +12,14 @@ call site.
 
 import os
 import time
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence
 
 from rich.console import Console, Group, RenderableType
 from rich.text import Text
 
-# the brand accent from the dashboard, run up to the cyan end of itself
-GRADIENT: Tuple[str, str] = ("#3d7dff", "#7ef0ff")
+# one colour, deliberately: the wordmark is a name, not a light show, and a
+# single bright ink is the one thing every terminal theme renders the same
+INK = "bold white"
 
 TAGLINE = "She talks, plays, and remembers you."
 
@@ -57,20 +58,6 @@ def rows(text: str = WORDMARK) -> List[str]:
     return lines
 
 
-def _ramp(steps: int, ends: Tuple[str, str] = GRADIENT) -> List[str]:
-    """`steps` hex colours from one end of the gradient to the other."""
-    start = tuple(int(ends[0][i:i + 2], 16) for i in (1, 3, 5))
-    stop = tuple(int(ends[1][i:i + 2], 16) for i in (1, 3, 5))
-    if steps <= 1:
-        return [ends[0]]
-    out = []
-    for step in range(steps):
-        fraction = step / (steps - 1)
-        channels = [round(a + (b - a) * fraction) for a, b in zip(start, stop, strict=True)]
-        out.append("#{:02x}{:02x}{:02x}".format(*channels))
-    return out
-
-
 def _block(console: Optional[Console]) -> Optional[str]:
     """The character to draw with, or None when this console has no unicode."""
     from src.setup.tui import supports_unicode
@@ -79,19 +66,9 @@ def _block(console: Optional[Console]) -> Optional[str]:
 
 
 def art(console: Optional[Console] = None, text: str = WORDMARK) -> List[Text]:
-    """The wordmark as coloured lines, left to right along the gradient."""
+    """The wordmark, one line per row of the font."""
     block = _block(console) or "#"
-    colours = _ramp(max(width(text), 1))
-    lines: List[Text] = []
-    for row in rows(text):
-        line = Text("  ")
-        for column, char in enumerate(row):
-            if char == "#":
-                line.append(block, style=colours[min(column, len(colours) - 1)])
-            else:
-                line.append(" ")
-        lines.append(line)
-    return lines
+    return [Text("  " + row.replace("#", block), style=INK) for row in rows(text)]
 
 
 def fits(console: Console, text: str = WORDMARK) -> bool:
@@ -100,11 +77,7 @@ def fits(console: Console, text: str = WORDMARK) -> bool:
 
 def plain(console: Optional[Console] = None) -> Text:
     """The one-line fallback: the name, in the casing the project writes it."""
-    colours = _ramp(len("projectBEA"))
-    line = Text("  ")
-    for index, char in enumerate("projectBEA"):
-        line.append(char, style=f"bold {colours[index]}")
-    return line
+    return Text("  projectBEA", style=INK)
 
 
 def show(console: Console, subtitle: str = TAGLINE, *, animate: bool = True) -> None:

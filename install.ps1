@@ -31,9 +31,9 @@ function Banner {
     $wide = $true
     try { $wide = $Host.UI.RawUI.WindowSize.Width -ge 70 } catch {}
     if ($wide) {
-        Write-Host ($art -replace "#", $ink) -ForegroundColor Cyan
+        Write-Host ($art -replace "#", $ink) -ForegroundColor White
     } else {
-        Write-Host "  projectBEA" -ForegroundColor Cyan
+        Write-Host "  projectBEA" -ForegroundColor White
     }
     Write-Host "  an AI persona engine" -ForegroundColor DarkGray
 }

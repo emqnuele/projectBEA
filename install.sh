@@ -36,7 +36,7 @@ banner() {
   case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
     *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ink='█' ;;
   esac
-  printf '%s' "$CYAN"
+  printf '%s' "$BOLD"
   # 66 columns; anything narrower gets the name on one line instead
   if [ "${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}" -ge 70 ]; then
     tr '#' "$ink" <<'ART'

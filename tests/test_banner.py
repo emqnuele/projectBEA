@@ -44,15 +44,11 @@ def test_the_declared_width_is_the_width_it_draws():
     assert max(len(row) for row in banner.rows()) <= banner.width()
 
 
-def test_the_gradient_runs_from_one_end_to_the_other():
-    ramp = banner._ramp(5)
-    assert ramp[0] == banner.GRADIENT[0]
-    assert ramp[-1] == banner.GRADIENT[1]
-    assert len(ramp) == 5
-
-
-def test_a_single_step_gradient_is_the_first_colour():
-    assert banner._ramp(1) == [banner.GRADIENT[0]]
+def test_the_wordmark_is_drawn_in_one_colour():
+    """Every terminal theme renders one bright ink the same. A ramp does not."""
+    for line in banner.art(screen()):
+        assert [span.style for span in line.spans] in ([], [banner.INK])
+        assert line.style == banner.INK
 
 
 def test_a_wide_console_gets_the_art():
