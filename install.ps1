@@ -14,11 +14,34 @@ function Ok($text)   { Write-Host "  " -NoNewline; Write-Host "OK " -ForegroundC
 function Warn($text) { Write-Host "  " -NoNewline; Write-Host "!  " -ForegroundColor Yellow -NoNewline; Write-Host $text }
 function Die($text)  { Write-Host "`n  " -NoNewline; Write-Host "x  $text`n" -ForegroundColor Red; exit 1 }
 
+# the wizard draws boxes and a wordmark; a console left on code page 437 turns
+# every one of them into a question mark. Best effort: an old host may refuse.
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
+
+function Banner {
+    # `#` unless the console has just promised it can carry the block character
+    $ink = if ([Console]::OutputEncoding.CodePage -eq 65001) { [char]0x2588 } else { "#" }
+    $art = @"
+  ####  ####   ###    ### #####  #### #####       ####  #####  ###
+  #   # #   # #   #    #  #     #       #         #   # #     #   #
+  ####  ####  #   #    #  ####  #       #         ####  ####  #####
+  #     #  #  #   # #  #  #     #       #         #   # #     #   #
+  #     #   #  ###   ##   #####  ####   #         ####  ##### #   #
+"@
+    $wide = $true
+    try { $wide = $Host.UI.RawUI.WindowSize.Width -ge 70 } catch {}
+    if ($wide) {
+        Write-Host ($art -replace "#", $ink) -ForegroundColor Cyan
+    } else {
+        Write-Host "  projectBEA" -ForegroundColor Cyan
+    }
+    Write-Host "  an AI persona engine" -ForegroundColor DarkGray
+}
+
+Banner
+
 $RepoUrl   = "https://github.com/emqnuele/projectBEA.git"
 $TargetDir = if ($env:BEA_DIR) { $env:BEA_DIR } else { "projectBEA" }
-
-Write-Host "`nProjectBEA " -ForegroundColor White -NoNewline
-Write-Host "- an AI persona engine" -ForegroundColor DarkGray
 
 # --- 1. the repository ------------------------------------------------------
 # piped from irm there is no clone yet; run from one there is. Handle both.
@@ -35,7 +58,7 @@ if ((Test-Path "pyproject.toml") -and (Select-String -Path "pyproject.toml" -Pat
 git is required to download ProjectBEA.
     winget install --id Git.Git -e
   Then run this again. You can also download the repository as a zip, but then
-  "make update" cannot keep your prompts across a new version.
+  "uv run bea --update" cannot keep your prompts across a new version.
 '@
     }
     if (Test-Path $TargetDir) { Die "$TargetDir already exists. Remove it, or run .\install.ps1 from inside it." }
@@ -85,3 +108,12 @@ if (Get-Command npm -ErrorAction SilentlyContinue) {
 
 Step "Configuration"
 uv run bea --setup
+
+Write-Host "`n  She is installed." -ForegroundColor White -NoNewline
+Write-Host "  Next:`n"
+Write-Host "    uv run bea --web" -ForegroundColor White -NoNewline
+Write-Host "       the dashboard on http://127.0.0.1:8000"
+Write-Host "    uv run bea" -ForegroundColor White -NoNewline
+Write-Host "             the same engine, in the terminal"
+Write-Host "    uv run bea --doctor" -ForegroundColor White -NoNewline
+Write-Host "    checks this machine and says what to fix`n"
