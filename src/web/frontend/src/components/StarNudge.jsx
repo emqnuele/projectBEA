@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Star } from 'lucide-react';
+import { LINKS } from '../lib/links';
 import { Glass } from './glass/Glass';
 import { Button } from './ui/controls';
-
-const REPO = 'https://github.com/emqnuele/projectBEA';
 
 const KEY = {
     visits: 'bea.star.visits',
@@ -94,7 +93,7 @@ export function StarNudge() {
                     {/* an anchor, not a button: the star happens on GitHub, and
                         this is the one control on the dashboard that leaves it */}
                     <a
-                        href={REPO}
+                        href={LINKS.repo}
                         target="_blank"
                         rel="noreferrer noopener"
                         onClick={close(true)}
