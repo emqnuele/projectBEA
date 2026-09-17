@@ -298,6 +298,36 @@ async def check_voice(config: BrainConfig) -> Finding:
     return passed(f"{config.tts_provider} said {TEST_LINE!r} in {seconds:.1f}s")
 
 
+async def check_weights(config: BrainConfig) -> Finding:
+    """What she still has to download, and what she downloaded twice.
+
+    Never blocking: every one of these arrives on first use anyway. It is here
+    because "first use" means in the middle of a conversation, and because a
+    wizard run before the cache layout was fixed left a few hundred megabytes
+    in a folder nothing reads.
+    """
+    from src.modules.STT.faster_whisper_stt import stale_weights
+    from src.setup.prefetch import DEFAULT_WHISPER_ROOT, plan
+
+    root = config.faster_whisper_download_root or DEFAULT_WHISPER_ROOT
+    stale = stale_weights(root)
+    if stale:
+        return warned(f"{root} holds {stale // 1_000_000} MB of whisper weights in a "
+                      f"layout the engine does not read",
+                      f"An earlier setup downloaded them beside the cache instead of "
+                      f"into it, so they were fetched again. Delete the loose files "
+                      f"directly in {root} — keep the models--* folder — and the space "
+                      f"comes back.")
+
+    waiting = plan(config)
+    if waiting:
+        return warned(f"{', '.join(job.label for job in waiting)} not downloaded yet "
+                      f"(~{sum(job.megabytes for job in waiting)} MB)",
+                      "uv run bea --setup fetches them with a progress bar. Otherwise "
+                      "they arrive the first time she needs them, which is mid-sentence.")
+    return passed("every model she loads from disk is already here")
+
+
 async def check_ears(config: BrainConfig) -> Finding:
     """The round trip: she says a line, and the transcriber hears it back."""
     if not config.stt_provider:
@@ -465,10 +495,11 @@ async def check_stage(config: BrainConfig) -> Finding:
         raw = stage.get("model_path") or ""
         if not raw:
             return failed("the 3D body has no model",
-                          "make model — or set `stage.model_path` to your own .vrm.")
+                          "uv run python tools/fetch_model.py — or set `stage.model_path` "
+                          "to your own .vrm.")
         if not Path(raw).is_file():
             return failed(f"{raw} is not on disk",
-                          "make model — or correct `stage.model_path`.")
+                          "uv run python tools/fetch_model.py — or correct `stage.model_path`.")
         clips = installed_clips(config)
         return passed(f"{Path(raw).name}, {len(clips)} behaviour(s) installed")
 
@@ -552,7 +583,7 @@ async def check_dashboard(config: BrainConfig) -> Finding:
 
 
 async def check_updates(config: BrainConfig) -> Finding:
-    """Whether `make update` will work here, which is not the same as whether she will.
+    """Whether `bea --update` will work here, which is not whether she will.
 
     Nothing in the engine shells out to git — she runs perfectly without it —
     so this can never block. It exists because the failure is otherwise
@@ -563,16 +594,18 @@ async def check_updates(config: BrainConfig) -> Finding:
 
     reason = supported()
     if not reason:
-        return passed("`make update` will work here")
+        return passed("`uv run bea --update` will work here")
 
     if "Docker" in reason:
         return passed("in Docker — updating means rebuilding the image")
 
     if "git is not installed" in reason:
-        return warned(reason, "Install git, then `make update` keeps your prompts, "
+        return warned(reason, "Install git, then `uv run bea --update` keeps your "
+                              "prompts, "
                               "config and memory across a new version:\n" + _git_install_hint())
 
-    return warned(reason, "She runs fine. `make update` will not work — reinstall with "
+    return warned(reason, "She runs fine. `uv run bea --update` will not work — "
+                          "reinstall with "
                           "`git clone` if you want in-place updates.")
 
 
@@ -592,6 +625,7 @@ CHECKS: List[Tuple[str, Callable]] = [
     ("The operating manual", check_manual),
     ("Audio output", check_speakers),
     ("Her voice", check_voice),
+    ("Local weights", check_weights),
     ("Her ears", check_ears),
     ("Her memory", check_memory),
     ("Performance", check_perf),
@@ -644,8 +678,10 @@ def run_doctor(config=None, console=None) -> int:
     console = console or Console()
     config = config or BrainConfig()
 
-    console.print()
-    console.rule("[bold]Checking your setup[/bold]", align="left", style="dim")
+    from src.setup import banner
+
+    banner.show(console, "Checking this machine.")
+    console.rule(style="dim")
     console.print()
 
     found = asyncio.run(diagnose(config, report=lambda t, f: _print(console, t, f)))

@@ -7,6 +7,7 @@ import {
 import { api } from '../api';
 import { cn } from '../lib/cn';
 import { NAV } from '../lib/nav';
+import { AUTHOR, LINKS, pretty } from '../lib/links';
 import { relativeTime } from '../lib/format';
 import { DESKTOP, useMediaQuery } from '../hooks/useMediaQuery';
 import { useToast } from '../state/ToastProvider';
@@ -308,13 +309,48 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                         {!rail && <span>Settings</span>}
                     </NavLink>
                     {!rail && (
-                        <p className="truncate px-2.5 pt-2 font-mono text-[10px] tracking-wider text-faint">
-                            {name} Control Room{status?.version ? ` · v${status.version}` : ''}
-                        </p>
+                        <>
+                            <p className="truncate px-2.5 pt-2 font-mono text-[10px] tracking-wider text-faint">
+                                {name} Control Room{status?.version ? ` · v${status.version}` : ''}
+                            </p>
+                            <ProjectLinks />
+                        </>
                     )}
                 </div>
             </Glass>
         </>
+    );
+}
+
+/**
+ * Whose project this is, and where the rest of it is written down.
+ *
+ * At the bottom of the rail, under the version, because it is the one thing
+ * here that is not about running her — and because the docs are the answer to
+ * most of the questions this screen raises.
+ */
+function ProjectLinks() {
+    const links = [
+        { href: LINKS.docs, label: 'Docs' },
+        { href: LINKS.site, label: pretty(LINKS.site) },
+        { href: LINKS.author, label: `by ${AUTHOR}` },
+    ];
+    return (
+        <p className="flex flex-wrap items-center gap-x-1.5 px-2.5 pt-1 text-[10px] text-faint">
+            {links.map((link, index) => (
+                <React.Fragment key={link.href}>
+                    {index > 0 && <span aria-hidden="true">·</span>}
+                    <a
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="transition-colors hover:text-dim"
+                    >
+                        {link.label}
+                    </a>
+                </React.Fragment>
+            ))}
+        </p>
     );
 }
 

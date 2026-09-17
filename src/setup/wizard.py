@@ -11,16 +11,25 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import BarColumn, DownloadColumn, Progress, SpinnerColumn, TextColumn
-from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
+from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
 
 # which transcribers need no account, asked of the one place that builds them
 from src.modules.STT.factory import LOCAL as STT_LOCAL
+from src.modules.STT.faster_whisper_stt import WEIGHTS_MB
+from src.setup import banner, tui
 from src.setup.config_plan import (
     LOCAL_URLS,
     PLATFORM_SKILLS,
@@ -32,14 +41,7 @@ from src.setup.config_plan import (
     env_updates,
 )
 from src.setup.env_file import merge_env
-from src.setup.prefetch import (
-    WHISPER_MB,
-    embedder_here,
-    embedder_mb,
-    fetch_embedder,
-    fetch_whisper,
-    whisper_here,
-)
+from src.setup.prefetch import Job, plan
 from src.utils.huggingface import download_hint
 
 ENV_FILE = Path(".env")
@@ -93,11 +95,11 @@ def disk_size(megabytes: int) -> str:
 # what the local transcriber costs to run, smallest first. Anything huggingface
 # serves works in config.json; these are the four worth offering blind
 WHISPER_SIZES: List[Tuple[str, str, str]] = [
-    ("tiny", "tiny", f"{disk_size(WHISPER_MB['tiny'])}. Instant, and it will mishear you."),
-    ("base", "base", f"{disk_size(WHISPER_MB['base'])}. Usable on an old laptop."),
-    ("small", "small", f"{disk_size(WHISPER_MB['small'])}. The balance most people want."),
+    ("tiny", "tiny", f"{disk_size(WEIGHTS_MB['tiny'])}. Instant, and it will mishear you."),
+    ("base", "base", f"{disk_size(WEIGHTS_MB['base'])}. Usable on an old laptop."),
+    ("small", "small", f"{disk_size(WEIGHTS_MB['small'])}. The balance most people want."),
     ("large-v3-turbo", "large-v3-turbo",
-     f"{disk_size(WHISPER_MB['large-v3-turbo'])}. Best, and it wants a GPU."),
+     f"{disk_size(WEIGHTS_MB['large-v3-turbo'])}. Best, and it wants a GPU."),
 ]
 
 TTS_ENGINES: List[Tuple[str, str, str]] = [
@@ -138,22 +140,18 @@ def _rule(console: Console, step: str, title: str) -> None:
 
 def _choose(console: Console, question: str, options: List[Tuple[str, str, str]],
             default: str) -> str:
-    """A numbered menu. Returns the key of the chosen option."""
-    for index, (key, label, hint) in enumerate(options, 1):
-        mark = "[cyan]•[/cyan]" if key == default else " "
-        console.print(f"  [bold cyan]{index}[/] {mark} [bold]{label}[/]")
-        if hint:
-            console.print(f"        [dim]{hint}[/]")
-    console.print()
+    """One option, chosen with the arrow keys. Returns its key.
 
-    default_index = next(str(i) for i, opt in enumerate(options, 1) if opt[0] == default)
-    answer = Prompt.ask(
-        f"  {question}",
-        choices=[str(i) for i in range(1, len(options) + 1)],
-        default=default_index,
-        show_choices=False,
-    )
-    return options[int(answer) - 1][0]
+    Every menu in the wizard goes through here, and `tui.select` falls back to
+    the numbered prompt this used to be wherever there is no keyboard to read
+    — a pipe, CI, the docker setup container.
+    """
+    return tui.select(console, question, options, default)
+
+
+def _confirm(console: Console, question: str, default: bool = True) -> bool:
+    """Yes or no. Same deal: arrows on a terminal, `y/n` everywhere else."""
+    return tui.confirm(console, question, default)
 
 
 def _ask_key(console: Console, label: str, env_var: str) -> str:
@@ -170,9 +168,9 @@ def _ask_key(console: Console, label: str, env_var: str) -> str:
 def _test_key(console: Console, provider: str, key: str, base_url: str = "") -> None:
     """Best effort: a failed check is a warning, never a reason to stop."""
     if provider in PROVIDER_URLS and not key:
-        if not Confirm.ask("  No key given. Check the endpoint answers instead?", default=True):
+        if not _confirm(console, "  No key given. Check the endpoint answers instead?"):
             return
-    elif not key or not Confirm.ask("  Test the key now?", default=True):
+    elif not key or not _confirm(console, "  Test the key now?"):
         return
     try:
         import requests
@@ -351,7 +349,7 @@ def _ask_ears(console: Console, answers: Dict[str, Any]) -> None:
     _rule(console, "3/5", "Her ears")
     console.print("  Voice input runs Whisper, either on this machine or on someone else's.\n")
 
-    if not Confirm.ask("  Enable voice input?", default=True):
+    if not _confirm(console, "  Enable voice input?"):
         return
 
     console.print()
@@ -373,29 +371,64 @@ def _ask_ears(console: Console, answers: Dict[str, Any]) -> None:
     answers["stt_key"] = _ask_key(console, "API key", PROVIDER_KEYS[engine][1])
 
 
-def _download(console: Console, label: str, root: str, megabytes: int,
-              work: Callable[[Callable[[int], None]], Optional[Exception]]) -> bool:
+def _download(console: Console, job: Job) -> bool:
     """One download, with a bar, and a warning instead of a stack trace.
 
     Failing here costs nothing but the wait it was meant to take out of her
     first sentence: the engine fetches whatever is missing on first use.
     """
-    total = megabytes * 1_000_000 or None
-    with Progress(SpinnerColumn(), TextColumn("  [dim]{task.description}[/dim]"), BarColumn(),
-                  DownloadColumn(), console=console, transient=True) as progress:
-        task = progress.add_task(label, total=total)
-        error = work(lambda done: progress.update(
+    total = job.megabytes * 1_000_000 or None
+    with Progress(SpinnerColumn(), TextColumn("  [dim]{task.description}[/dim]"),
+                  BarColumn(complete_style="cyan", finished_style="green"),
+                  DownloadColumn(), TimeRemainingColumn(compact=True),
+                  console=console, transient=True) as progress:
+        task = progress.add_task(job.label, total=total)
+        error = job.fetch(lambda done: progress.update(
             task, completed=min(done, total) if total else done))
 
     if not error:
-        console.print(f"  [green]✓[/green] {label} — ready in {root}.")
+        console.print(f"  [green]✓[/green] {job.label} — ready in {job.root}.")
         return True
 
-    console.print(f"  [yellow]?[/yellow] {label} — the download did not finish ({error}).")
+    console.print(f"  [yellow]?[/yellow] {job.label} — the download did not finish ({error}).")
     hint = download_hint(error)
     if hint:
         console.print(f"  [dim]{hint}[/dim]")
     return False
+
+
+def _ask_hf_token(console: Console) -> None:
+    """Offers to use a Hugging Face token, and is clear that it is not needed.
+
+    The weights are public and no account is involved. A token does exactly
+    one thing here: it lifts the per-IP rate limit, which is what makes a
+    download crawl on a shared or office connection. Saying "optional" without
+    saying what it buys is how a person ends up making an account they did not
+    need — or skipping the one line that would have made this take a minute.
+    """
+    if os.getenv("HF_TOKEN"):
+        console.print("  [green]✓[/green] Using the HF_TOKEN already in your environment.")
+        console.print()
+        return
+
+    console.print("  [dim]Optional: a Hugging Face token. Nothing here needs an account — "
+                  "the weights\n  are public and download fine without one. A token only "
+                  "raises the rate limit,\n  which makes this faster on a shared or office "
+                  "connection. Enter to skip.[/dim]")
+    console.print("  [dim]https://huggingface.co/settings/tokens[/dim]\n")
+
+    token = Prompt.ask("  Hugging Face token [dim](optional)[/dim]", password=True,
+                       default="", show_default=False).strip()
+    console.print()
+    if not token:
+        return
+
+    # in this process too, not only in .env: the downloads below are about to
+    # read it, and nothing reloads the file between here and there
+    os.environ["HF_TOKEN"] = token
+    existing = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.exists() else ""
+    ENV_FILE.write_text(merge_env(existing, {"HF_TOKEN": token}), encoding="utf-8")
+    console.print("  [green]✓[/green] Saved to .env, and used for the downloads below.\n")
 
 
 def _ask_downloads(console: Console, answers: Dict[str, Any]) -> None:
@@ -406,38 +439,25 @@ def _ask_downloads(console: Console, answers: Dict[str, Any]) -> None:
     """
     from src.core.config import BrainConfig
 
-    config = BrainConfig()
-    jobs: List[Tuple[str, str, int, Any]] = []
-
-    model = answers.get("stt_model")
-    whisper_root = config.faster_whisper_download_root or "data/models/whisper"
-    if answers.get("stt_provider") in STT_LOCAL and model and not whisper_here(model, whisper_root):
-        jobs.append((f"whisper {model}", whisper_root, WHISPER_MB.get(model, 0),
-                     lambda report, model=model: fetch_whisper(model, whisper_root,
-                                                               on_progress=report)))
-
-    memory = config.skills.get("memory", {})
-    embedder = memory.get("embedding_model")
-    cache = memory.get("embedding_cache_dir") or "data/embeddings_cache"
-    if memory.get("enabled", True) and not embedder_here(cache):
-        jobs.append(("her memory's embedder", cache, embedder_mb(embedder),
-                     lambda report: fetch_embedder(embedder, cache, on_progress=report)))
+    jobs = plan(BrainConfig(), answers)
 
     if not jobs:
         console.print("  [green]✓[/green] Everything she needs is already on this machine.")
         return
 
     what = "one model" if len(jobs) == 1 else f"{len(jobs)} models"
-    console.print(f"  She needs {what} from Hugging Face, {disk_size(sum(job[2] for job in jobs))} "
-                  "in all. No account and no key —\n  and fetching them now means her first "
-                  "sentence is not spent waiting for one.\n")
+    console.print(f"  She needs {what} from Hugging Face, "
+                  f"{disk_size(sum(job.megabytes for job in jobs))} in all. No account and "
+                  "no key —\n  and fetching them now means her first sentence is not spent "
+                  "waiting for one.\n")
 
-    if not Confirm.ask("  Download them now?", default=True):
+    if not _confirm(console, "  Download them now?"):
         console.print("  [dim]They will be fetched the first time each one is needed.[/dim]")
         return
 
     console.print()
-    done = [_download(console, label, root, megabytes, work) for label, root, megabytes, work in jobs]
+    _ask_hf_token(console)
+    done = [_download(console, job) for job in jobs]
     if not all(done):
         console.print("  [dim]Setup is finished either way — she fetches whatever is still "
                       "missing the first time she needs it.[/dim]")
@@ -466,8 +486,9 @@ def _ask_stage(console: Console, answers: Dict[str, Any]) -> None:
     stage: Dict[str, Any] = {"avatar_backend": avatar, "caption_backend": caption}
 
     if avatar == "model":
-        console.print("  No model ships with projectBEA. Run `make model` afterwards for the "
-                      "free sample, or point this at your own .vrm.\n")
+        console.print("  No model ships with projectBEA. Run "
+                      "`uv run python tools/fetch_model.py` afterwards for\n  the free "
+                      "sample, or point this at your own .vrm.\n")
         stage["model_path"] = Prompt.ask("  Model file", default="data/models/VRM1_Constraint_Twist_Sample.vrm")
         console.print()
     elif avatar == "vtube_studio":
@@ -483,7 +504,7 @@ def _ask_stage(console: Console, answers: Dict[str, Any]) -> None:
     if needs_obs(avatar, caption):
         console.print("  That needs OBS. Enable the WebSocket server first: "
                       "OBS → Tools → WebSocket Server Settings.\n")
-        if Confirm.ask("  Connect to OBS?", default=True):
+        if _confirm(console, "  Connect to OBS?"):
             console.print()
             obs: Dict[str, Any] = {
                 "host": Prompt.ask("  Host", default="localhost"),
@@ -502,40 +523,56 @@ def _ask_stage(console: Console, answers: Dict[str, Any]) -> None:
         console.print("  and untick 'Shutdown source when not visible' so she keeps her pose.\n")
 
 
+# the platforms she can live on, in the order config_plan arms them. The
+# details each one needs are asked only for the ones that were ticked.
+SURFACES: List[Tuple[str, str, str]] = [
+    ("discord", "Discord", "Voice calls and text channels. Needs a bot token."),
+    ("telegram", "Telegram", "Private chats and groups. Needs a bot token."),
+    ("twitch", "Twitch", "Reads chat anonymously. No token needed."),
+    ("minecraft", "Minecraft", "A body on a vanilla server, through the mod."),
+    ("donations", "Donations", "A webhook that always earns a reaction."),
+]
+
+
 def _ask_skills(console: Console, answers: Dict[str, Any]) -> None:
     _rule(console, "5/5", "Where she lives")
     console.print("  Every one of these is optional, and every one can be toggled later "
                   "from the dashboard.\n")
 
+    picked = tui.multiselect(console, "Pick her surfaces", SURFACES)
     skills: Dict[str, Dict[str, Any]] = {}
 
-    if Confirm.ask("  Discord — voice calls and text channels?", default=False):
-        skills["discord"] = {
+    if picked:
+        console.print()
+
+    for name in picked:
+        skills[name] = _ask_surface(console, name)
+
+    answers["skills"] = skills
+
+
+def _ask_surface(console: Console, name: str) -> Dict[str, Any]:
+    """What one ticked surface still needs to know."""
+    label = dict((value, text) for value, text, _ in SURFACES)[name]
+    console.print(f"  [bold]{label}[/]")
+
+    if name == "discord":
+        return {
             "token": _ask_key(console, "    Bot token", "DISCORD_TOKEN"),
             "admin_id": Prompt.ask("    Your Discord user id", default=""),
         }
-
-    if Confirm.ask("  Telegram — private chats and groups?", default=False):
-        skills["telegram"] = {
+    if name == "telegram":
+        return {
             "token": _ask_key(console, "    Bot token", "TELEGRAM_TOKEN"),
             "owner_id": Prompt.ask("    Your Telegram user id", default=""),
         }
-
-    if Confirm.ask("  Twitch — read chat (anonymous, no token needed)?", default=False):
+    if name == "twitch":
         channel = Prompt.ask("    Channel to read", default="")
-        skills["twitch"] = {"channel": channel, "nick": channel}
-
-    if Confirm.ask("  Minecraft — a body on a vanilla server?", default=False):
-        skills["minecraft"] = {
-            "server_url": Prompt.ask("    Mod WebSocket URL", default="ws://127.0.0.1:8080"),
-        }
-
-    if Confirm.ask("  Donations — a webhook that always earns a reaction?", default=False):
-        skills["donations"] = {
-            "token": Prompt.ask("    Shared secret", password=True, default="", show_default=False),
-        }
-
-    answers["skills"] = skills
+        return {"channel": channel, "nick": channel}
+    if name == "minecraft":
+        return {"server_url": Prompt.ask("    Mod WebSocket URL", default="ws://127.0.0.1:8080")}
+    return {"token": Prompt.ask("    Shared secret", password=True, default="",
+                                show_default=False)}
 
 
 def _write(console: Console, answers: Dict[str, Any]) -> None:
@@ -590,10 +627,13 @@ def _summary(console: Console, answers: Dict[str, Any]) -> None:
     console.print(table)
     console.print()
     console.print(Panel(
-        "[bold]make web[/bold]     the dashboard on http://127.0.0.1:8000\n"
-        "[bold]make run[/bold]     the same engine, in the terminal\n\n"
-        "[dim]Re-run this wizard any time with [/dim][bold]uv run bea --setup[/bold][dim]. "
-        "Everything you chose is editable in Settings.[/dim]",
+        "[bold]uv run bea --web[/bold]       the dashboard on http://127.0.0.1:8000\n"
+        "[bold]uv run bea[/bold]             the same engine, in the terminal\n"
+        "[bold]uv run bea --doctor[/bold]    checks this machine and says what to fix\n\n"
+        "[dim]Re-run this wizard any time with [/dim][bold]uv run bea --setup[/bold][dim] — "
+        "everything you chose\nis editable in Settings. With make installed, "
+        "`make web`, `make run` and\n`make doctor` are the same three commands.[/dim]\n\n"
+        f"[dim]Everything she can do, written down: [/dim]{banner.DOCS}",
         title="[bold]Next[/bold]",
         border_style="cyan",
         padding=(1, 2),
@@ -604,16 +644,10 @@ def run_setup(console: Optional[Console] = None) -> int:
     """The whole wizard. Returns a process exit code."""
     console = console or Console()
 
-    console.print()
-    console.print(Panel(
-        "[bold]Let's get Bea talking.[/bold]\n\n"
-        "[dim]Five questions, and nothing you pick here is permanent — "
-        "every answer is a field in Settings afterwards.[/dim]",
-        title="[bold]ProjectBEA setup[/bold]",
-        border_style="cyan",
-        padding=(1, 2),
-    ))
-    console.print()
+    banner.show(console, "Let's get her talking.")
+    console.print("  [dim]Five questions, and nothing you pick here is permanent — every "
+                  "answer is a\n  field in Settings afterwards. Arrow keys to move, enter "
+                  "to choose.[/dim]\n")
 
     _preflight(console)
 

@@ -21,6 +21,7 @@ from src.setup.doctor import (
     check_python,
     check_stage,
     check_updates,
+    check_weights,
     diagnose,
     failed,
     passed,
@@ -255,7 +256,7 @@ async def test_the_manual_that_ships_passes_its_own_check():
 async def test_a_3d_body_with_no_model_says_how_to_get_one():
     found = await check_stage(config(stage={"avatar_backend": "model", "model_path": ""}))
     assert found.stops
-    assert "make model" in found.fix
+    assert "tools/fetch_model.py" in found.fix
 
 
 async def test_a_model_path_that_is_not_on_disk_is_named(tmp_path):
@@ -425,3 +426,54 @@ async def test_packages_that_were_never_installed_are_named(monkeypatch, tmp_pat
 
     assert not found.ok
     assert "--install-node" in found.fix
+
+
+# --- the weights on disk ------------------------------------------------------
+
+
+async def test_a_model_that_is_not_downloaded_yet_is_a_warning_not_a_failure(tmp_path,
+                                                                             monkeypatch):
+    """It arrives on first use either way; the point is to say so beforehand."""
+    monkeypatch.chdir(tmp_path)
+    found = await check_weights(config(stt_provider="faster_whisper", stt_model="small",
+                                       faster_whisper_download_root=str(tmp_path / "w")))
+
+    assert not found.ok and not found.blocking
+    assert "whisper small" in found.detail
+    assert "uv run bea --setup" in found.fix
+
+
+async def test_nothing_missing_is_a_pass(tmp_path, monkeypatch):
+    """Hosted ears and a cached embedder: there is nothing left to fetch."""
+    monkeypatch.chdir(tmp_path)
+    settings = config(stt_provider="groq")
+    cache = tmp_path / settings.skills["memory"]["embedding_cache_dir"]
+    cache.mkdir(parents=True)
+    (cache / "model.onnx").write_bytes(b"onnx")
+
+    assert (await check_weights(settings)).ok
+
+
+async def test_the_dead_copy_of_the_weights_is_named_with_its_size(tmp_path, monkeypatch):
+    """A setup run before the layout was fixed left 480MB nothing reads."""
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "whisper"
+    root.mkdir()
+    (root / "model.bin").write_bytes(b"x" * 3_000_000)
+
+    found = await check_weights(config(faster_whisper_download_root=str(root)))
+
+    assert not found.blocking
+    assert "3 MB" in found.detail
+    assert str(root) in found.fix
+
+
+async def test_a_proper_cache_is_not_reported_as_a_dead_copy(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "whisper"
+    (root / "models--Systran--faster-whisper-small" / "blobs").mkdir(parents=True)
+
+    found = await check_weights(config(stt_provider="groq",
+                                       faster_whisper_download_root=str(root)))
+
+    assert "layout" not in found.detail

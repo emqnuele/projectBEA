@@ -24,6 +24,11 @@ def bootstrap() -> None:
     """
     # the local embedding model runs in a subprocess; silence the noisy fork warning
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    # windows without developer mode cannot make symlinks, so the hub caches by
+    # copying — which works, and which it explains in nine lines about enabling
+    # developer mode on every single start. `setdefault`: someone who wants to
+    # see it sets it to 0.
+    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     # onnx and accelerate size their pools once, at first use: after that this
     # is a comment. Set for the cores that exist, unless the owner opted out.
     from src.core.perf import perf_enabled, physical_cores
@@ -168,13 +173,20 @@ async def main(args=None):
     apply_cli_overrides(config, args)
 
     # 2. modules
+    #
+    # each of these says what it is about to do rather than what it has done:
+    # a local transcriber is seconds of loading and, on a fresh machine, a few
+    # hundred megabytes of download — and a start that prints nothing until
+    # afterwards is a start nobody can tell from a hang
 
     # stt
+    logger.info("Loading her ears…")
     from src.modules.STT.factory import build_stt
     stt = build_stt(config)
 
     # llm: one pool per role, so a provider outage does not silence her and the
     # dreamer never competes with the mind
+    logger.info("Wiring her mind…")
     registry = ModelRegistry(config, stt=stt)
     try:
         registry.get("mind")
@@ -183,6 +195,7 @@ async def main(args=None):
         return
 
     # tts
+    logger.info("Loading her voice…")
     from src.modules.tts.factory import build_tts
     tts = build_tts(config)
 

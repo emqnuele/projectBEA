@@ -8,11 +8,14 @@ model, and a CPU that is busy while she listens.
 
 import os
 import sys
-from typing import Optional
+import threading
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Callable, Iterator, Optional
 
 from src.core.config import BrainConfig
 from src.interfaces.base_interfaces import STTInterface
-from src.utils.huggingface import download_hint
+from src.utils.huggingface import directory_bytes, download_hint, quiet, watched
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stt.faster_whisper")
@@ -42,6 +45,108 @@ def normalize_model(name: str) -> str:
             return ALIASES[tail]
         return name
     return ALIASES.get(name, name)
+
+
+# --- the weights ------------------------------------------------------------
+
+# only ever used to tell someone how long a download will take, so being a
+# little off is harmless. Sizes for the four the wizard offers.
+WEIGHTS_MB = {
+    "tiny": 75,
+    "base": 145,
+    "small": 480,
+    "large-v3-turbo": 1600,
+}
+
+
+def _download(model: str, root: str, local_files_only: bool = False) -> str:
+    """The one call that fetches the weights, used by the engine and the wizard.
+
+    `cache_dir`, never `output_dir`: `WhisperModel(download_root=…)` hands its
+    folder over as a cache, and the two lay their files out differently. The
+    wizard used to download with `output_dir`, which meant a person who waited
+    through 480MB there waited through all of it again at her first startup,
+    into a second copy, with nothing on screen to say why. `output_dir` also
+    carries a symlink argument the hub has deprecated and warns about.
+    """
+    from faster_whisper.utils import download_model
+
+    return download_model(model, cache_dir=root, local_files_only=local_files_only)
+
+
+def weights_here(model: str, root: str, downloader: Optional[Callable[..., Any]] = None) -> bool:
+    """Whether the weights are already on disk, asked of the library itself."""
+    downloader = downloader or _download
+    try:
+        with quiet():
+            downloader(normalize_model(model), root, local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
+def fetch_weights(model: str, root: str, downloader: Optional[Callable[..., Any]] = None,
+                  on_progress: Optional[Callable[[int], None]] = None,
+                  tick: float = 0.3) -> Optional[Exception]:
+    """Downloads the weights, reporting bytes as they land. Never raises."""
+    downloader = downloader or _download
+    return watched(lambda: downloader(normalize_model(model), root), root, on_progress, tick)
+
+
+def stale_weights(root: str) -> int:
+    """Bytes of a pre-cache download sitting loose in `root`, read by nothing.
+
+    Setups run before the layout was fixed left the files directly in the
+    folder, where `WhisperModel` does not look. Deleting files on someone's
+    disk is not this program's business; saying which ones are dead is.
+    """
+    if not (Path(root) / "model.bin").is_file():
+        return 0
+    return sum(entry.stat().st_size for entry in Path(root).iterdir() if entry.is_file())
+
+
+@contextmanager
+def announce_download(model: str, root: str,
+                      report: Optional[Callable[[str], None]] = None,
+                      tick: float = 2.0) -> Iterator[None]:
+    """Says out loud that the first start is a download, while it is happening.
+
+    Her first start on a fresh machine is a few hundred megabytes arriving
+    with no bar and no line of log — a program that looks hung for anywhere
+    between one minute and ten. Nothing here downloads anything: the model
+    builder below does that, exactly as it always has. This only watches the
+    folder fill up and says so, and only when there is something to say.
+    """
+    if weights_here(model, root):
+        yield
+        return
+
+    say = report or logger.warning
+    size = WEIGHTS_MB.get(model)
+    say(f"First run: downloading the {model!r} whisper weights"
+        + (f" (~{size} MB)" if size else "")
+        + f" into {root}. This happens once, and she cannot hear until it lands.")
+
+    done = threading.Event()
+
+    def watch() -> None:
+        reported = 0
+        while not done.wait(tick):
+            if not size:
+                continue
+            percent = min(99, int(directory_bytes(root) * 100 / (size * 1_000_000)))
+            # every tenth: a ten-minute download is ten lines, not two thousand
+            if percent >= reported + 10:
+                reported = percent - percent % 10
+                say(f"whisper {model}: {reported}% of ~{size} MB")
+
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        yield
+    finally:
+        done.set()
+        watcher.join(timeout=tick)
 
 
 # `language` reaches the hosted providers as free text and they shrug at a code
@@ -181,7 +286,10 @@ class FasterWhisperSTT(STTInterface):
             os.makedirs(self.download_root, exist_ok=True)
 
         try:
-            self.model = _build(self)
+            # the weights are fetched by the builder on a fresh machine, and
+            # that is the longest silence in the whole first run
+            with announce_download(self.model_name, self.download_root or ""):
+                self.model = _build(self)
             logger.info(f"Local whisper ready: {self.model_name} on {self.device}")
         except Exception as e:
             if self.device != "cpu" or self.compute_type != "int8":

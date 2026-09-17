@@ -29,7 +29,31 @@ git_hint() {
 }
 TARGET_DIR="${BEA_DIR:-projectBEA}"
 
-printf '\n%sProjectBEA%s %s— an AI persona engine%s\n' "$BOLD" "$RESET" "$DIM" "$RESET"
+# the wordmark, in the one typeface a terminal has. `#` wherever the locale
+# cannot promise the block character survives the trip to the screen
+banner() {
+  local ink='#'
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ink='█' ;;
+  esac
+  printf '%s' "$BOLD"
+  # 66 columns; anything narrower gets the name on one line instead
+  if [ "${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}" -ge 70 ]; then
+    tr '#' "$ink" <<'ART'
+  ####  ####   ###    ### #####  #### #####       ####  #####  ###
+  #   # #   # #   #    #  #     #       #         #   # #     #   #
+  ####  ####  #   #    #  ####  #       #         ####  ####  #####
+  #     #  #  #   # #  #  #     #       #         #   # #     #   #
+  #     #   #  ###   ##   #####  ####   #         ####  ##### #   #
+ART
+  else
+    printf '  projectBEA\n'
+  fi
+  printf '%s  an AI persona engine%s\n' "$DIM" "$RESET"
+  printf '%s  by emqnuele  ·  projectbea.emqnuele.dev  ·  emanuelefaraci.com%s\n' "$DIM" "$RESET"
+}
+
+banner
 
 # --- 1. the repository ------------------------------------------------------
 # piping this script from curl means there is no clone yet; running it from one
@@ -44,7 +68,7 @@ else
   command -v git >/dev/null 2>&1 || die "git is required to download ProjectBEA.
     $(git_hint)
   Then run this again. You can also download the repository as a zip, but then
-  \`make update\` cannot keep your prompts across a new version."
+  \`uv run bea --update\` cannot keep your prompts across a new version."
   [ -d "$TARGET_DIR" ] && die "$TARGET_DIR already exists. Remove it, or run ./install.sh from inside it."
   git clone --depth 1 "$REPO_URL" "$TARGET_DIR"
   cd "$TARGET_DIR"
@@ -89,4 +113,22 @@ fi
 # --- 5. configuration -------------------------------------------------------
 
 step "Configuration"
-uv run bea --setup
+
+# Piped from curl, this script *is* this shell's standard input — so the wizard
+# would read the rest of itself instead of an answer, and the arrow keys would
+# have nowhere to come from. /dev/tty is the terminal the person is actually at.
+if [ -t 0 ]; then
+  uv run bea --setup
+elif [ -r /dev/tty ]; then
+  uv run bea --setup < /dev/tty
+else
+  warn "No terminal to ask questions on."
+  warn "Run this yourself when you have one:  uv run bea --setup"
+  exit 0
+fi
+
+printf '\n  %sShe is installed.%s  Next:\n\n' "$BOLD" "$RESET"
+printf '    %suv run bea --web%s       the dashboard on http://127.0.0.1:8000\n' "$BOLD" "$RESET"
+printf '    %suv run bea%s             the same engine, in the terminal\n' "$BOLD" "$RESET"
+printf '    %suv run bea --doctor%s    checks this machine and says what to fix\n\n' "$BOLD" "$RESET"
+printf '  %sEverything she can do, written down: https://projectbea.emqnuele.dev/docs%s\n\n' "$DIM" "$RESET"
