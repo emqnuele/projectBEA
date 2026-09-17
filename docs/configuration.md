@@ -515,7 +515,7 @@ everywhere.
 | `TELEGRAM_TOKEN` | The Telegram bot |
 | `TWITCH_OAUTH_TOKEN` | Writing in Twitch chat. Reading needs nothing |
 | `DONATION_SECRET` | Shared secret on the donation webhook |
-| `HF_TOKEN` | Optional. Only for a refused Hugging Face download — the whisper and embedding models are public |
+| `HF_TOKEN` | Optional, and no account is needed to run anything here — the whisper and embedding models are public. It buys a higher Hugging Face rate limit, which is what makes the first download crawl, or get refused, on a shared IP |
 | `BEA_ALLOWED_ORIGINS` | Extra CORS origins, comma-separated |
 | `LOG_LEVEL` | `DEBUG` for verbose output |
 

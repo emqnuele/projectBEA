@@ -88,9 +88,10 @@ TWITCH_OAUTH_TOKEN=oauth:...
 # Donations — shared secret checked on the webhook. Set this before exposing the server
 DONATION_SECRET=...
 
-# Hugging Face — optional, and almost nobody needs it. The whisper and embedding
-# models are public. Set this only if a download is refused: a shared or office
-# IP hitting the anonymous rate limit. https://huggingface.co/settings/tokens
+# Hugging Face — optional, and no account is needed to run anything here. The
+# whisper and embedding models are public. A token only raises the anonymous
+# rate limit, which is what makes the first download crawl (or get refused) on
+# a shared or office connection. https://huggingface.co/settings/tokens
 HF_TOKEN=hf_...
 
 # Logging — optional, defaults to INFO
@@ -222,14 +223,19 @@ Whisper** in the wizard or on the dashboard's Hearing page — and choose a size
 | `small` | ~480 MB | The default, and the balance most people want |
 | `large-v3-turbo` | ~1.6 GB | Best, and it wants a GPU |
 
-The weights download into `data/models/whisper`, which is gitignored. The wizard
-offers to fetch them at the end of setup; decline it, or skip the wizard, and
-they arrive on first use instead — so the first transcription after a fresh
-install takes as long as that download. `uv run bea --doctor` allows for it and
-will not call it a failure.
+The weights download into `data/models/whisper`, which is gitignored — as a
+Hugging Face cache, the same layout `WhisperModel(download_root=...)` reads, so
+the copy the wizard fetches is the copy the engine loads. The wizard offers to
+fetch them at the end of setup, with a progress bar; decline it, or skip the
+wizard, and they arrive on first use instead. In that case her first startup
+says so in the log and reports the download as it lands, rather than looking
+hung for a few hundred megabytes. `uv run bea --doctor` allows for it either
+way and will not call it a failure.
 
-Nothing here needs a Hugging Face account. If a download is refused — a shared
-IP against the anonymous rate limit — set `HF_TOKEN` in `.env` and run it again.
+Nothing here needs a Hugging Face account. A token is worth having only for the
+rate limit — on a shared or office IP it is the difference between a download
+that crawls and one that does not, and a refused download says the same thing.
+`bea --setup` asks for one, optionally, and writes it to `.env`.
 
 On a machine with an NVIDIA GPU, set `faster_whisper_device` to `cuda` — this
 needs the CUDA and cuDNN runtimes on the system, which `uv sync` does not
