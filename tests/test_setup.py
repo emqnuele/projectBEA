@@ -5,18 +5,12 @@ did not ask for."""
 from pathlib import Path
 
 from src.core.config import BrainConfig
+from src.modules.STT.faster_whisper_stt import fetch_weights, weights_here
 from src.setup.config_plan import apply_answers, env_updates
 from src.setup.env_file import merge_env, parse_env
-from src.setup.prefetch import (
-    directory_bytes,
-    embedder_here,
-    embedder_mb,
-    fetch_embedder,
-    fetch_whisper,
-    whisper_here,
-)
+from src.setup.prefetch import embedder_here, embedder_mb, fetch_embedder
 from src.setup.wizard import disk_size
-from src.utils.huggingface import download_hint
+from src.utils.huggingface import directory_bytes, download_hint
 
 
 def config(tmp_path, monkeypatch) -> BrainConfig:
@@ -165,7 +159,7 @@ def ask_stage(monkeypatch, avatar: str, caption: str, connect_obs: bool = True):
 
     picked = iter([avatar, caption])
     monkeypatch.setattr(wizard, "_choose", lambda *a, **k: next(picked))
-    monkeypatch.setattr(wizard.Confirm, "ask", lambda *a, **k: connect_obs)
+    monkeypatch.setattr(wizard, "_confirm", lambda *a, **k: connect_obs)
     monkeypatch.setattr(wizard.Prompt, "ask", lambda *a, **k: "whatever")
     monkeypatch.setattr(wizard.IntPrompt, "ask", lambda *a, **k: 4455)
 
@@ -306,13 +300,13 @@ def test_directory_bytes_of_a_folder_that_is_not_there_is_zero(tmp_path):
 
 def test_a_finished_download_reports_no_error_and_leaves_the_weights(tmp_path):
     root = tmp_path / "whisper"
-    assert fetch_whisper("small", str(root), downloader=writing(b"weights"), tick=0) is None
+    assert fetch_weights("small", str(root), downloader=writing(b"weights"), tick=0) is None
     assert (root / "model.onnx").read_bytes() == b"weights"
 
 
 def test_the_progress_of_a_download_is_reported(tmp_path):
     seen = []
-    fetch_whisper("small", str(tmp_path), downloader=writing(b"x" * 9), tick=0,
+    fetch_weights("small", str(tmp_path), downloader=writing(b"x" * 9), tick=0,
                   on_progress=seen.append)
     assert seen and seen[-1] == 9
 
@@ -323,7 +317,7 @@ def test_a_download_that_failed_comes_back_as_the_error(tmp_path):
     def explode(model, root, local_files_only=False):
         raise OSError("429 Too Many Requests")
 
-    error = fetch_whisper("small", str(tmp_path), downloader=explode, tick=0)
+    error = fetch_weights("small", str(tmp_path), downloader=explode, tick=0)
     assert isinstance(error, OSError)
     assert download_hint(error) is not None
 
@@ -335,7 +329,7 @@ def test_the_model_id_is_normalised_before_anything_is_fetched(tmp_path):
     def record(model, root, local_files_only=False):
         asked.append(model)
 
-    fetch_whisper("openai/whisper-large-v3-turbo", str(tmp_path), downloader=record, tick=0)
+    fetch_weights("openai/whisper-large-v3-turbo", str(tmp_path), downloader=record, tick=0)
     assert asked == ["large-v3-turbo"]
 
 
@@ -345,14 +339,14 @@ def test_weights_already_on_disk_are_not_downloaded_again(tmp_path):
             raise AssertionError("asked the network for something already here")
         return str(tmp_path)
 
-    assert whisper_here("small", str(tmp_path), downloader=local_only)
+    assert weights_here("small", str(tmp_path), downloader=local_only)
 
 
 def test_weights_that_are_missing_are_reported_as_missing(tmp_path):
     def missing(model, root, local_files_only=False):
         raise OSError("not cached")
 
-    assert not whisper_here("small", str(tmp_path), downloader=missing)
+    assert not weights_here("small", str(tmp_path), downloader=missing)
 
 
 def test_an_embedder_already_cached_is_not_fetched_again(tmp_path):
@@ -380,3 +374,119 @@ def test_a_size_is_shown_in_the_unit_a_person_would_say_it_in():
     assert disk_size(75) == "~75 MB"
     assert disk_size(1600) == "~1.6 GB"
     assert disk_size(0) == ""
+
+
+# --- what this machine is still missing ------------------------------------
+
+
+def planned(tmp_path, monkeypatch, answers=None, **overrides):
+    """`plan`, run in an empty directory so nothing is ever already cached."""
+    from src.setup.prefetch import plan
+
+    settings = config(tmp_path, monkeypatch)
+    for key, value in overrides.items():
+        setattr(settings, key, value)
+    return plan(settings, answers)
+
+
+def test_a_local_transcriber_that_is_not_downloaded_yet_is_a_job(tmp_path, monkeypatch):
+    jobs = planned(tmp_path, monkeypatch,
+                   {"stt_provider": "faster_whisper", "stt_model": "small"})
+    assert [job.label for job in jobs] == ["whisper small", "her memory's embedder"]
+    assert jobs[0].megabytes == 480
+
+
+def test_a_hosted_transcriber_downloads_nothing_of_its_own(tmp_path, monkeypatch):
+    jobs = planned(tmp_path, monkeypatch, {"stt_provider": "groq", "stt_model": "whisper-1"})
+    assert [job.label for job in jobs] == ["her memory's embedder"]
+
+
+def test_the_model_id_in_the_job_is_the_one_whisper_knows(tmp_path, monkeypatch):
+    """config.json ships a hosted spelling, and it must not become a repo name."""
+    jobs = planned(tmp_path, monkeypatch,
+                   {"stt_provider": "faster_whisper", "stt_model": "whisper-large-v3-turbo"})
+    assert jobs[0].label == "whisper large-v3-turbo"
+
+
+def test_the_embedder_is_planned_even_when_nothing_else_was_armed(tmp_path, monkeypatch):
+    """Her memory needs it whether or not she was given ears."""
+    jobs = planned(tmp_path, monkeypatch, {})
+    assert [job.label for job in jobs] == ["her memory's embedder"]
+
+
+def test_memory_that_is_switched_off_downloads_no_embedder(tmp_path, monkeypatch):
+    settings = config(tmp_path, monkeypatch)
+    settings.skills["memory"]["enabled"] = False
+
+    from src.setup.prefetch import plan
+
+    assert plan(settings, {}) == []
+
+
+def test_an_embedder_already_on_disk_is_not_planned_again(tmp_path, monkeypatch):
+    settings = config(tmp_path, monkeypatch)
+    cache = Path(settings.skills["memory"]["embedding_cache_dir"])
+    (cache / "models--x").mkdir(parents=True)
+    (cache / "models--x" / "model.onnx").write_bytes(b"onnx")
+
+    from src.setup.prefetch import plan
+
+    assert plan(settings, {}) == []
+
+
+def test_the_wizard_reads_the_provider_from_the_config_when_it_did_not_ask(tmp_path,
+                                                                          monkeypatch):
+    """`--setup` re-run on an existing install still knows she hears locally."""
+    jobs = planned(tmp_path, monkeypatch, {}, stt_provider="faster_whisper",
+                   stt_model="tiny")
+    assert jobs[0].label == "whisper tiny"
+
+
+# --- the hugging face token ------------------------------------------------
+
+
+def ask_token(monkeypatch, tmp_path, typed: str, already: str = ""):
+    """Runs the token question with the answer already decided."""
+    from src.setup import wizard
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    if already:
+        monkeypatch.setenv("HF_TOKEN", already)
+    monkeypatch.setattr(wizard.Prompt, "ask", lambda *a, **k: typed)
+
+    printed: list = []
+
+    class Recorder:
+        def print(self, *args, **kwargs):
+            printed.append(" ".join(str(a) for a in args))
+
+    wizard._ask_hf_token(Recorder())
+    return "\n".join(printed)
+
+
+def test_the_token_is_asked_for_as_optional_and_says_what_it_buys(monkeypatch, tmp_path):
+    """Nobody should make an account for this, and nobody should skip it blind."""
+    printed = ask_token(monkeypatch, tmp_path, "")
+
+    assert "optional" in printed.lower()
+    assert "rate limit" in printed.lower()
+    assert "faster" in printed.lower()
+    assert not (tmp_path / ".env").exists(), "an empty answer writes nothing"
+
+
+def test_a_token_lands_in_the_env_file_and_in_this_process(monkeypatch, tmp_path):
+    """The downloads are about to read it, and nothing reloads .env in between."""
+    import os
+
+    ask_token(monkeypatch, tmp_path, "hf_secret")
+
+    assert parse_env((tmp_path / ".env").read_text(encoding="utf-8"))["HF_TOKEN"] == "hf_secret"
+    assert os.environ["HF_TOKEN"] == "hf_secret"
+
+
+def test_a_token_already_in_the_environment_is_not_asked_for_again(monkeypatch, tmp_path):
+    printed = ask_token(monkeypatch, tmp_path, "ignored", already="hf_from_env")
+
+    assert "HF_TOKEN" in printed
+    assert not (tmp_path / ".env").exists()
