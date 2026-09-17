@@ -44,6 +44,16 @@ def test_bootstrap_sets_the_environment(monkeypatch):
     assert os.environ["TOKENIZERS_PARALLELISM"] == "false"
 
 
+def test_bootstrap_silences_the_windows_symlink_lecture(monkeypatch):
+    """Nine lines about developer mode, on every start, about a fallback that works."""
+    monkeypatch.delenv("HF_HUB_DISABLE_SYMLINKS_WARNING", raising=False)
+    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: None)
+
+    cli.bootstrap()
+
+    assert os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] == "1"
+
+
 def test_bootstrap_never_overwrites_a_deliberate_setting(monkeypatch):
     monkeypatch.setenv("TOKENIZERS_PARALLELISM", "true")
     monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: None)

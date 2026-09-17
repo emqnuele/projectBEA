@@ -2,6 +2,7 @@
 and the promise that a model it could not load degrades instead of crashing."""
 
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -374,3 +375,128 @@ def test_the_doctor_names_the_device_fix(tmp_path, monkeypatch):
 
     fix = _ears_fix(config(tmp_path, monkeypatch, stt_provider="faster_whisper"))
     assert "cpu" in fix.lower()
+
+
+# --- the weights on disk ----------------------------------------------------
+
+
+def test_the_weights_are_fetched_into_the_cache_the_engine_reads(monkeypatch):
+    """The wizard and the engine must not download into two different layouts.
+
+    `WhisperModel(download_root=…)` passes that folder to faster-whisper as a
+    *cache*. The wizard used to fetch with `output_dir`, which lays the same
+    files out flat — so a fresh install downloaded 480MB in the wizard and then
+    480MB again at her first startup, into a second copy in the same folder.
+    """
+    import faster_whisper.utils as whisper_utils
+
+    from src.modules.STT.faster_whisper_stt import _download
+
+    asked = {}
+    monkeypatch.setattr(whisper_utils, "download_model",
+                        lambda model, **kwargs: asked.update(model=model, **kwargs) or "path")
+
+    _download("small", "data/models/whisper")
+
+    assert asked["cache_dir"] == "data/models/whisper"
+    assert "output_dir" not in asked, "that is the other layout, and nothing reads it"
+    assert "local_dir_use_symlinks" not in asked, "deprecated, and the hub warns about it"
+
+
+def test_the_probe_asks_for_the_same_folder_it_would_download_into(monkeypatch):
+    import faster_whisper.utils as whisper_utils
+
+    from src.modules.STT.faster_whisper_stt import weights_here
+
+    seen = {}
+
+    def offline(model, **kwargs):
+        seen.update(model=model, **kwargs)
+        return "path"
+
+    monkeypatch.setattr(whisper_utils, "download_model", offline)
+
+    assert weights_here("small", "some/root")
+    assert seen == {"model": "small", "cache_dir": "some/root", "local_files_only": True}
+
+
+def test_weights_that_are_not_there_are_reported_as_missing(tmp_path):
+    from src.modules.STT.faster_whisper_stt import weights_here
+
+    def missing(model, root, local_files_only=False):
+        raise OSError("not cached")
+
+    assert not weights_here("small", str(tmp_path), downloader=missing)
+
+
+def test_an_old_flat_copy_of_the_weights_is_counted(tmp_path):
+    """So the doctor can say which few hundred megabytes are dead."""
+    from src.modules.STT.faster_whisper_stt import stale_weights
+
+    assert stale_weights(str(tmp_path)) == 0
+    (tmp_path / "model.bin").write_bytes(b"x" * 100)
+    (tmp_path / "config.json").write_bytes(b"y" * 5)
+    assert stale_weights(str(tmp_path)) == 105
+
+
+def test_a_proper_cache_is_not_mistaken_for_an_old_copy(tmp_path):
+    from src.modules.STT.faster_whisper_stt import stale_weights
+
+    blobs = tmp_path / "models--Systran--faster-whisper-small" / "blobs"
+    blobs.mkdir(parents=True)
+    (blobs / "abc123").write_bytes(b"x" * 100)
+    assert stale_weights(str(tmp_path)) == 0
+
+
+# --- saying that the first run is a download --------------------------------
+
+
+def announced(monkeypatch, here: bool, tmp_path):
+    from src.modules.STT import faster_whisper_stt as whisper
+
+    said: list = []
+    monkeypatch.setattr(whisper, "weights_here", lambda *a, **k: here)
+    with whisper.announce_download("small", str(tmp_path), report=said.append, tick=0.01):
+        pass
+    return said
+
+
+def test_the_first_run_says_it_is_downloading_before_the_silence(monkeypatch, tmp_path):
+    """Three hundred megabytes with no output is a program that looks hung."""
+    said = announced(monkeypatch, here=False, tmp_path=tmp_path)
+
+    assert said and "First run" in said[0]
+    assert "480 MB" in said[0]
+    assert str(tmp_path) in said[0]
+
+
+def test_nothing_is_said_when_the_weights_are_already_there(monkeypatch, tmp_path):
+    assert announced(monkeypatch, here=True, tmp_path=tmp_path) == []
+
+
+def test_the_download_notice_never_touches_the_network(monkeypatch, tmp_path):
+    """It only watches the folder: the model builder does the downloading."""
+    from src.modules.STT import faster_whisper_stt as whisper
+
+    monkeypatch.setattr(whisper, "weights_here", lambda *a, **k: False)
+    monkeypatch.setattr(whisper, "fetch_weights",
+                        lambda *a, **k: pytest.fail("the notice downloaded something"))
+    with whisper.announce_download("small", str(tmp_path), report=lambda line: None,
+                                   tick=0.01):
+        pass
+
+
+def test_the_progress_of_the_download_is_reported_as_it_lands(monkeypatch, tmp_path):
+    from src.modules.STT import faster_whisper_stt as whisper
+
+    said: list = []
+    monkeypatch.setattr(whisper, "weights_here", lambda *a, **k: False)
+    monkeypatch.setattr(whisper, "WEIGHTS_MB", {"small": 1})
+
+    with whisper.announce_download("small", str(tmp_path), report=said.append, tick=0.01):
+        (tmp_path / "model.bin").write_bytes(b"x" * 600_000)
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and len(said) < 2:
+            time.sleep(0.01)
+
+    assert any("%" in line for line in said), said
