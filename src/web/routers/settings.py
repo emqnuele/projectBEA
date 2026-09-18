@@ -11,6 +11,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from src.core import language
 from src.core import secrets as secret_store
 from src.core.brain import AIVtuberBrain
 from src.core.config import SECRET_SKILL_FIELDS
@@ -18,6 +19,7 @@ from src.core.config_write import WriteRejected, plan_config, section_secrets
 from src.core.settings_schema import ValidationError, describe, plan_section, write_section
 from src.core.settings_schema import restart_needed as _restart_needed
 from src.core.settings_schema import section as _section
+from src.modules.tts import providers as tts_providers
 from src.utils.logger import get_logger
 from src.web.deps import get_brain
 
@@ -73,6 +75,35 @@ def update_config(request: ConfigUpdateRequest, brain: AIVtuberBrain = Depends(g
         "message": msg,
         "restart_required": plan.restart_required,
         "secrets_written_to_env": stored,
+        # saved either way: a combination that cannot work is the owner's to
+        # make, and `suggested` is what would put it back in step
+        "warnings": list(plan.warnings),
+        "suggested": plan.suggested,
+    }
+
+
+@router.get("/voices")
+def get_voices():
+    """The voice engines and the languages they speak, from the one table.
+
+    Served rather than duplicated in the dashboard: the menu, the setup wizard
+    and the engine each used to carry their own copy, which is how the language
+    picker offered `jp` to a transcriber that has never accepted it.
+    """
+    return {
+        "languages": [{"code": code, "label": label}
+                      for code, label in language.options()],
+        "providers": [
+            {
+                "id": p.id, "label": p.label, "blurb": p.blurb,
+                "voice_field": p.voice_field,
+                "languages": list(tts_providers.languages(p)),
+                "open_catalogue": p.open_catalogue,
+                "voices": [{"id": v.id, "label": v.label, "language": v.language}
+                           for v in p.voices],
+            }
+            for p in tts_providers.PROVIDERS.values()
+        ],
     }
 
 

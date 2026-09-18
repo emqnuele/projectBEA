@@ -26,9 +26,12 @@ from rich.progress import (
 from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
 
+from src.core import language as language_module
+
 # which transcribers need no account, asked of the one place that builds them
 from src.modules.STT.factory import LOCAL as STT_LOCAL
 from src.modules.STT.faster_whisper_stt import WEIGHTS_MB
+from src.modules.tts import providers
 from src.setup import banner, tui
 from src.setup.config_plan import (
     LOCAL_URLS,
@@ -102,24 +105,15 @@ WHISPER_SIZES: List[Tuple[str, str, str]] = [
      f"{disk_size(WEIGHTS_MB['large-v3-turbo'])}. Best, and it wants a GPU."),
 ]
 
-TTS_ENGINES: List[Tuple[str, str, str]] = [
-    ("edge", "EdgeTTS", "Free, no key, good quality. Needs internet."),
-    ("kokoro", "Kokoro", "Runs locally from an ONNX file you download yourself."),
-    ("orpheus", "Orpheus", "Best quality, needs a Baseten endpoint and key."),
-]
 
-# a short curated list beats the full EdgeTTS catalogue, which is thousands long
-VOICES: Dict[str, List[Tuple[str, str]]] = {
-    "English (US)": [("en-US-AvaNeural", "Ava"), ("en-US-AndrewNeural", "Andrew")],
-    "English (UK)": [("en-GB-SoniaNeural", "Sonia"), ("en-GB-RyanNeural", "Ryan")],
-    "Italiano": [("it-IT-IsabellaNeural", "Isabella"), ("it-IT-DiegoNeural", "Diego")],
-    "Español": [("es-ES-ElviraNeural", "Elvira"), ("es-ES-AlvaroNeural", "Álvaro")],
-    "Français": [("fr-FR-DeniseNeural", "Denise"), ("fr-FR-HenriNeural", "Henri")],
-    "Deutsch": [("de-DE-KatjaNeural", "Katja"), ("de-DE-ConradNeural", "Conrad")],
-    "日本語": [("ja-JP-NanamiNeural", "Nanami"), ("ja-JP-KeitaNeural", "Keita")],
-    "中文": [("zh-CN-XiaoxiaoNeural", "Xiaoxiao"), ("zh-CN-YunxiNeural", "Yunxi")],
-    "Português (BR)": [("pt-BR-FranciscaNeural", "Francisca"), ("pt-BR-AntonioNeural", "Antônio")],
-}
+def _language_options() -> List[Tuple[str, str, str]]:
+    """Every language, with the engines that can actually speak it."""
+    out = []
+    for code, name in language_module.options():
+        engines = ", ".join(p.label for p in providers.for_language(code))
+        out.append((code, name, engines))
+    return out
+
 
 KEY_TEST_URLS = {
     "openrouter": "https://openrouter.ai/api/v1/models",
@@ -309,16 +303,31 @@ def _key_headers(provider: str, key: str) -> Dict[str, str]:
 def _ask_voice(console: Console, answers: Dict[str, Any]) -> None:
     _rule(console, "2/5", "Her voice")
 
-    engine = _choose(console, "Engine", TTS_ENGINES, "edge")
+    # the language comes first and is a real answer, not a way of grouping a
+    # voice menu — which is all it used to be, so it was thrown away and every
+    # install ended up transcribing and answering in English
+    console.print("  [dim]She answers whoever writes to her in their own language. "
+                  "This is the one she\n  reaches for when she speaks first.[/dim]\n")
+    language = _choose(console, "Language", _language_options(), language_module.AUTO)
+    answers["language"] = language
+
+    console.print()
+    engines = [(p.id, p.label, p.blurb) for p in providers.for_language(language)]
+    if len(engines) < len(providers.PROVIDERS):
+        hidden = [p.label for p in providers.PROVIDERS.values()
+                  if p.id not in {e[0] for e in engines}]
+        console.print(f"  [dim]{', '.join(hidden)} cannot speak "
+                      f"{language_module.endonym(language)}, so "
+                      f"{'they are' if len(hidden) > 1 else 'it is'} not "
+                      f"offered here.[/dim]\n")
+    engine = _choose(console, "Engine", engines, engines[0][0])
     answers["tts_provider"] = engine
 
     if engine == "edge":
         console.print()
-        languages = [(name, name, ", ".join(label for _, label in voices))
-                     for name, voices in VOICES.items()]
-        language = _choose(console, "Language", languages, "English (US)")
-        console.print()
-        voices = [(voice_id, label, "") for voice_id, label in VOICES[language]]
+        provider = providers.PROVIDERS[engine]
+        voices = [(v.id, v.label, language_module.endonym(v.language))
+                  for v in providers.voices_for(provider, language)]
         answers["tts_voice"] = _choose(console, "Voice", voices, voices[0][0])
 
     elif engine == "orpheus":
@@ -328,10 +337,13 @@ def _ask_voice(console: Console, answers: Dict[str, Any]) -> None:
                                                  default=os.getenv("ORPHEUS_ENDPOINT", ""))
         answers["orpheus_voice"] = Prompt.ask("  Voice", default="zoe")
 
-    else:
-        console.print("\n  [dim]Kokoro reads two files from the project root: "
-                      "kokoro-v0_19.onnx and voices.bin.\n"
-                      "  Download them once from the kokoro-onnx releases page.[/dim]")
+    elif engine == "kokoro":
+        console.print()
+        provider = providers.PROVIDERS[engine]
+        voices = [(v.id, v.label, "") for v in providers.voices_for(provider, language)]
+        answers["kokoro_voice"] = _choose(console, "Voice", voices, voices[0][0])
+        console.print("\n  [dim]The weights and the voice pack are downloaded on "
+                      "first use, into the project root.[/dim]")
 
     console.print()
     devices = _output_devices()

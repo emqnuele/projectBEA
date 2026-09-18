@@ -8,21 +8,30 @@ import { PromptEditor } from './PromptEditor';
 import { createSchemaSection } from './SchemaSection';
 import { PersonalitySection } from './PersonalitySection';
 
-const LANGUAGES = [
-    ['en', 'English'], ['it', 'Italian'], ['jp', 'Japanese'],
-    ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'],
-];
+// What the engine can speak, asked of the engine. The copy that used to live
+// here offered `jp`, which no transcriber has ever accepted.
+function useVoiceCatalogue() {
+    const [catalogue, setCatalogue] = useState({ languages: [], providers: [] });
+    useEffect(() => {
+        api.voices().then(setCatalogue).catch(() => { });
+    }, []);
+    return catalogue;
+}
 
 // --- who she is -------------------------------------------------------------
 
 function MindSection({ config, update, updateSkill }) {
+    const { languages } = useVoiceCatalogue();
     return (
         <>
-            <Group title="Language" description="The default for speech recognition and for how she answers.">
+            <Group
+                title="Language"
+                description="She always answers in the language she was written to. This is what she transcribes as, and what she reaches for when she speaks first."
+            >
                 <Field label="She speaks" htmlFor="language">
-                    <Select id="language" value={config.language || 'en'} onChange={(e) => update('language', e.target.value)}>
-                        {LANGUAGES.map(([code, name]) => (
-                            <option key={code} value={code}>{name}</option>
+                    <Select id="language" value={config.language || 'auto'} onChange={(e) => update('language', e.target.value)}>
+                        {languages.map(({ code, label }) => (
+                            <option key={code} value={code}>{label}</option>
                         ))}
                     </Select>
                 </Field>
@@ -232,6 +241,14 @@ function EngineSection({ config, update, secrets }) {
 
 function VoiceSection({ config, update, secrets, devices }) {
     const provider = config.tts_provider;
+    const { providers } = useVoiceCatalogue();
+    const language = config.language || 'auto';
+    const chosen = providers.find((p) => p.id === provider);
+    // an engine with no voice in the language she is set to will be silent
+    // every time she answers in it, and the log is the only place that said so
+    const mute = chosen && language !== 'auto' && !chosen.languages.includes(language);
+    const forLanguage = (chosen?.voices || [])
+        .filter((v) => language === 'auto' || v.language === language);
 
     return (
         <>
@@ -240,18 +257,27 @@ function VoiceSection({ config, update, secrets, devices }) {
                     value={provider}
                     onChange={(id) => update('tts_provider', id)}
                     columns={3}
-                    options={[
-                        { id: 'edge', label: 'Edge', blurb: 'Free and quick, needs the network.' },
-                        { id: 'kokoro', label: 'Kokoro', blurb: 'Local ONNX. Best balance.' },
-                        { id: 'orpheus', label: 'Orpheus', blurb: 'Hosted, most expressive.' },
-                    ]}
+                    options={providers.map((p) => ({ id: p.id, label: p.label, blurb: p.blurb }))}
                 />
+                {mute && (
+                    <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+                        {chosen.label} has no voice in the language she is set to, so she
+                        will be silent whenever she answers in it. Edge speaks all of them.
+                    </p>
+                )}
             </Group>
 
             {provider === 'edge' && (
                 <Group title="Edge voice">
-                    <Field label="Voice" help="For example en-US-AvaNeural.">
-                        <TextInput value={config.tts_voice || ''} onChange={(e) => update('tts_voice', e.target.value)} className="font-mono" />
+                    <Field label="Voice" help="Any EdgeTTS id works; these are the ones worth starting from.">
+                        <Select value={config.tts_voice || ''} onChange={(e) => update('tts_voice', e.target.value)}>
+                            {!forLanguage.some((v) => v.id === config.tts_voice) && (
+                                <option value={config.tts_voice || ''}>{config.tts_voice || '—'}</option>
+                            )}
+                            {forLanguage.map((v) => (
+                                <option key={v.id} value={v.id}>{v.label}</option>
+                            ))}
+                        </Select>
                     </Field>
                     <div className="grid gap-3 sm:grid-cols-3">
                         <Field label="Pitch"><TextInput value={config.tts_pitch || ''} onChange={(e) => update('tts_pitch', e.target.value)} placeholder="+0Hz" /></Field>
@@ -262,22 +288,21 @@ function VoiceSection({ config, update, secrets, devices }) {
             )}
 
             {provider === 'kokoro' && (
-                <Group title="Kokoro voice">
-                    <Field label="Voice" help="af_bella, af_sarah, af_sky, am_adam, bm_george…">
-                        <TextInput value={config.kokoro_voice || ''} onChange={(e) => update('kokoro_voice', e.target.value)} className="font-mono" />
+                <Group title="Kokoro voice" description="The voice pack ships English only.">
+                    <Field label="Voice">
+                        <Select value={config.kokoro_voice || ''} onChange={(e) => update('kokoro_voice', e.target.value)}>
+                            {(chosen?.voices || []).map((v) => (
+                                <option key={v.id} value={v.id}>{v.label}</option>
+                            ))}
+                        </Select>
                     </Field>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                        <Field label="Speed">
-                            <TextInput
-                                type="number" step="0.1"
-                                value={config.kokoro_speed ?? 1}
-                                onChange={(e) => update('kokoro_speed', parseFloat(e.target.value))}
-                            />
-                        </Field>
-                        <Field label="Language">
-                            <TextInput value={config.kokoro_lang || ''} onChange={(e) => update('kokoro_lang', e.target.value)} placeholder="en-us" />
-                        </Field>
-                    </div>
+                    <Field label="Speed">
+                        <TextInput
+                            type="number" step="0.1"
+                            value={config.kokoro_speed ?? 1}
+                            onChange={(e) => update('kokoro_speed', parseFloat(e.target.value))}
+                        />
+                    </Field>
                 </Group>
             )}
 
@@ -290,7 +315,11 @@ function VoiceSection({ config, update, secrets, devices }) {
                         <SecretInput value={config.orpheus_endpoint || ''} onChange={(e) => update('orpheus_endpoint', e.target.value)} placeholder="https://model-…" />
                     </Field>
                     <Field label="Voice">
-                        <TextInput value={config.orpheus_voice || ''} onChange={(e) => update('orpheus_voice', e.target.value)} placeholder="tara" />
+                        <Select value={config.orpheus_voice || ''} onChange={(e) => update('orpheus_voice', e.target.value)}>
+                            {(chosen?.voices || []).map((v) => (
+                                <option key={v.id} value={v.id}>{v.label}</option>
+                            ))}
+                        </Select>
                     </Field>
                 </Group>
             )}

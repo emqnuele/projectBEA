@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from src.core import config as config_module
+from src.core import language
 from src.core.agent.registry import BACKGROUND, MIND, looks_like_missing_tool_support
 from src.core.config import BrainConfig
 from src.core.expression.tags import DIRECTIONS
@@ -38,6 +39,7 @@ from src.core.stage import installed_clips
 
 # the module itself is cheap; only the builders inside it import a backend
 from src.modules.STT.factory import LOCAL as STT_LOCAL
+from src.modules.tts.providers import warnings as voice_warnings
 
 ENV_FILE = Path(".env")
 
@@ -48,6 +50,26 @@ DASHBOARD = Path("src/web/frontend/dist/index.html")
 # it back is evidence rather than a coincidence. Words, not numbers: whisper
 # writes "one two three" back as "1, 2, 3" and a working install looked broken
 TEST_LINE = "the quick brown fox"
+
+# A line the configured language can actually be heard in. Synthesising English
+# proved only that the engine was up: an English voice handed Japanese returns
+# no audio at all, so the check that mattered was the one never run.
+TEST_LINES = {
+    "en": TEST_LINE,
+    "it": "una bella giornata",
+    "ja": "今日はいい天気ですね",
+    "es": "un buen día",
+    "fr": "une belle journée",
+    "de": "ein schöner Tag",
+    "pt": "um belo dia",
+    "zh": "今天天气很好",
+    "ko": "오늘 날씨가 좋네요",
+}
+
+
+def test_line(config: BrainConfig) -> str:
+    """What to make her say, in the language she is configured for."""
+    return TEST_LINES.get(language.resolve(config.language), TEST_LINE)
 
 # where the dashboard listens unless it is told otherwise
 DEFAULT_PORT = 8000
@@ -283,9 +305,10 @@ async def check_voice(config: BrainConfig) -> Finding:
         return failed(f"the {config.tts_provider} voice could not be built ({e})",
                       "Check `tts_provider` and its settings in config.json.")
 
+    line = test_line(config)
     try:
         audio, rate = await asyncio.wait_for(
-            tts.generate_audio(TEST_LINE), timeout=PROVIDER_CALL_TIMEOUT)
+            tts.generate_audio(line), timeout=PROVIDER_CALL_TIMEOUT)
     except asyncio.TimeoutError:
         return failed(f"{config.tts_provider} produced nothing in time", _voice_fix(config))
     except Exception as e:
@@ -294,8 +317,16 @@ async def check_voice(config: BrainConfig) -> Finding:
 
     seconds = (getattr(audio, "size", 0) or 0) / max(1, rate)
     if seconds <= 0:
-        return failed(f"{config.tts_provider} answered with silence", _voice_fix(config))
-    return passed(f"{config.tts_provider} said {TEST_LINE!r} in {seconds:.1f}s")
+        return failed(f"{config.tts_provider} answered with silence "
+                      f"for {line!r}", _voice_fix(config))
+
+    # built and audible, but not necessarily in the language she is set to
+    mismatch = voice_warnings(config)
+    if mismatch:
+        return warned(f"{config.tts_provider} said {line!r} in {seconds:.1f}s, "
+                      f"but {mismatch[0]}",
+                      "Pick a voice in that language in Settings → Her voice.")
+    return passed(f"{config.tts_provider} said {line!r} in {seconds:.1f}s")
 
 
 async def check_weights(config: BrainConfig) -> Finding:
@@ -779,9 +810,9 @@ def _ears_fix(config: BrainConfig) -> str:
 
 def _voice_fix(config: BrainConfig) -> str:
     if config.tts_provider == "kokoro":
-        return ("Delete ./kokoro-v0_19.onnx and ./voices.bin and check internet "
-                "access to github releases — kokoro downloads them on first "
-                "run, and silence means the download or the load failed.")
+        return (f"Delete ./{config.kokoro_model} and ./{config.kokoro_voices_file} "
+                "and check internet access to github releases — kokoro downloads "
+                "them on first run, and silence means the download or the load failed.")
     if config.tts_provider == "orpheus":
         return "Check ORPHEUS_API_KEY and `orpheus_endpoint`; the endpoint may be cold."
     return "EdgeTTS needs internet and no key. If you are online, the service may be down."

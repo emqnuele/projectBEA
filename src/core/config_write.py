@@ -14,12 +14,15 @@ whole payload is checked before any of it is applied, so a rejected save leaves
 the running config exactly as it was.
 """
 
+import copy
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Dict, Union, get_args, get_origin, get_type_hints
+from typing import Any, Dict, Tuple, Union, get_args, get_origin, get_type_hints
 
 from src.core.config import MASK, SECRET_ENV_VARS, BrainConfig, deep_merge
 from src.core.settings_schema import SECTIONS, Setting, coerce
+from src.modules.tts.providers import plan_for_language
+from src.modules.tts.providers import warnings as voice_warnings
 
 # `PUT /persona` owns this one: it refuses a blank name and a soul the size of
 # a novel, and a second way in would be a way around those
@@ -55,6 +58,13 @@ class Plan:
     # secret path (`groq_key`, `discord.token`) -> value, for `.env`
     secrets: Dict[str, str] = field(default_factory=dict)
     restart_required: bool = False
+    # what will be wrong once this is saved, in words the owner can act on.
+    # Reported, never enforced: a combination that cannot work is theirs to
+    # make, and being told beats discovering it live with no voice.
+    warnings: Tuple[str, ...] = ()
+    # fields that would put the setup back in step, for the ui to offer. Never
+    # applied here — swapping a voice somebody chose is not a save they asked for
+    suggested: Dict[str, Any] = field(default_factory=dict)
 
     def apply(self, config: BrainConfig) -> Dict[str, Any]:
         for key, value in self.changed.items():
@@ -156,6 +166,18 @@ def _fit_skills(
 # --- the save ---------------------------------------------------------------
 
 
+def _as_saved(config: BrainConfig, staged: Dict[str, Any]) -> BrainConfig:
+    """The config this save would produce, without touching the running one.
+
+    Shallow on purpose: only the fields a warning reads are replaced, and
+    nothing here is ever handed back to the engine.
+    """
+    after = copy.copy(config)
+    for key, value in staged.items():
+        setattr(after, key, value)
+    return after
+
+
 def _secret_paths(staged: Dict[str, Any]) -> Dict[str, str]:
     """The secrets in a staged payload, keyed the way `SECRET_ENV_VARS` is."""
     found: Dict[str, str] = {}
@@ -216,6 +238,7 @@ def plan_config(config: BrainConfig, payload: Dict[str, Any]) -> Plan:
         detail = "; ".join(f"{k}: {v}" for k, v in sorted(errors.items()))
         raise WriteRejected(detail)
 
+    after = _as_saved(config, staged)
     return Plan(
         changed=staged,
         secrets=_secret_paths(staged),
@@ -223,6 +246,8 @@ def plan_config(config: BrainConfig, payload: Dict[str, Any]) -> Plan:
             name in staged and staged[name] != getattr(config, name)
             for name in RESTART_FIELDS
         ),
+        warnings=voice_warnings(after),
+        suggested=plan_for_language(after, getattr(after, "language", "")),
     )
 
 
