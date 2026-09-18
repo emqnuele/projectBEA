@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
+from src.core import language as language_module
 from src.core.config import BrainConfig
 from src.interfaces.base_interfaces import STTInterface
 from src.utils.huggingface import directory_bytes, download_hint, quiet, watched
@@ -149,18 +150,17 @@ def announce_download(model: str, root: str,
         watcher.join(timeout=tick)
 
 
-# `language` reaches the hosted providers as free text and they shrug at a code
-# they do not know. Whisper raises, so the same config must not be able to
-# break only this backend — `jp` is one of the dashboard's own choices
-LANGUAGE_ALIASES = {"jp": "ja", "cn": "zh", "gr": "el", "kr": "ko"}
-
-
 def normalize_language(code: Optional[str]) -> Optional[str]:
-    """A language whisper knows, or None to let it work the language out itself."""
-    code = (code or "").strip().lower()
-    if not code:
+    """A language whisper knows, or None to let it work the language out itself.
+
+    `src.core.language` decides what the code means; this only adds the one
+    thing it cannot know, which is whether *this* build of whisper has the
+    language at all. Everything upstream — `jp`, `it-IT`, `Italiano` — has
+    already been resolved by the time it gets here.
+    """
+    code = language_module.whisper_code(code)
+    if code is None:
         return None
-    code = LANGUAGE_ALIASES.get(code, code)
 
     from faster_whisper.tokenizer import _LANGUAGE_CODES
 

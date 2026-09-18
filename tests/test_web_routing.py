@@ -32,6 +32,7 @@ SAMPLES = {
 # purpose rather than by accident.
 EXPECTED_PATHS = {
     "/config", "/settings", "/settings/{key}", "/secrets", "/audio/devices",
+    "/voices",
     "/persona", "/onboarding", "/onboarding/draft", "/onboarding/skip",
     "/history", "/sessions", "/sessions/{session_id}",
     "/sessions/{session_id}/activate", "/chat", "/interrupt",
@@ -160,6 +161,7 @@ def test_an_unknown_path_falls_through_to_the_dashboard(leaves):
 
 @pytest.mark.parametrize("method,url,expected", [
     ("GET", "/settings", "get_settings"),
+    ("GET", "/voices", "get_voices"),
     ("GET", "/settings/discord", "get_settings_section"),
     ("GET", "/stage", "stage_page"),
     ("GET", "/stage/clips", "stage_clips"),

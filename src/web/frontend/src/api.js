@@ -134,5 +134,6 @@ export const api = {
 
     // the stage: what she is drawn with
     stageClips: () => request('/stage/clips'),
+    voices: () => request('/voices'),
     vtsModel: () => request('/vts/model'),
 };

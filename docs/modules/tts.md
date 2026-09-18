@@ -11,14 +11,22 @@ array plus a sample rate; **`Expression`** (`src/core/expression/voice.py`) is
 what plays it, animates OBS around it and handles barge-in. No skill renders
 speech itself — there is exactly one output sink.
 
-The engine is selected with `tts_provider` and instantiated in `src/cli.py`.
+The engine is selected with `tts_provider` and built by `factory.py`.
 
 ```
 src/modules/tts/
+├── providers.py           every engine as data: its voices and their languages
+├── factory.py             builds the selected one, handed the voice it should use
 ├── edge_tts_wrapper.py    Microsoft EdgeTTS (free, online)
 ├── kokoro_tts_wrapper.py  Kokoro ONNX (local, no API)
 └── orpheus_tts_wrapper.py Orpheus (API, high quality)
 ```
+
+**An engine does not decide a language.** `providers.py` holds one row per
+engine — its voices, the language of each, and whatever else that engine needs
+to be told — and `providers.voice_for(config)` is the single answer to "which
+voice will actually be used". The wizard, the dashboard, `make doctor` and the
+factory all ask it, so they cannot drift. See [Languages](../languages.md).
 
 ---
 
@@ -79,15 +87,19 @@ audio, sr = await tts.generate_audio("Hello!")
 
 **Library:** `kokoro-onnx`  
 **Cost:** Free (runs entirely locally)  
-**Config keys:** `kokoro_model`, `kokoro_voices_file`, `kokoro_voice`, `kokoro_speed`, `kokoro_lang`
+**Config keys:** `kokoro_model`, `kokoro_voices_file`, `kokoro_voice`, `kokoro_speed` (`kokoro_lang` is derived from the voice)
 
 Runs the Kokoro TTS model locally via ONNX Runtime. No internet connection required after downloading the model files. Best for privacy or offline use.
 
-**Model files:** `kokoro-v0_19.onnx` and `voices.bin` are **downloaded automatically** on first launch if missing (from GitHub Releases, ~125 MB total). No manual download needed.
+**Model files:** `kokoro_model` and `kokoro_voices_file` are **downloaded automatically** on first launch if missing, each from the kokoro-onnx release asset of the same basename. The voice pack must be `voices.json`; the pinned library cannot read the `.bin` form, and a path ending in `voices.bin` is read as `voices.json` with a warning.
 
 To use a custom path, update `kokoro_model` and `kokoro_voices_file` in `config.json`.
 
 **Voice examples:** `af_bella`, `af_sarah`, `am_adam`, `bf_emma`
+
+**Languages:** English only — the v0.19 voice pack contains no other. The
+multilingual v1.0 pack needs a `kokoro-onnx` release requiring `numpy>=2`, which
+conflicts with this project's `numpy<2.0.0` pin.
 
 ---
 
@@ -115,10 +127,12 @@ play.
 
 ## Hot Reload
 
-`reload_config()` updates voice, pitch, rate and volume for EdgeTTS; voice,
-speed and lang for Kokoro; key, endpoint and voice for Orpheus. Changing
-`tts_provider` itself needs a restart — the object type changes, and the
-dashboard says so when you save.
+`reload_config()` updates pitch, rate and volume for EdgeTTS; speed for Kokoro;
+key and endpoint for Orpheus. All three take their **voice** from
+`providers.voice_for(config)` rather than reading a field of their own, and
+Kokoro takes its phonemiser language from `factory.kokoro_language(config)`.
+Changing `tts_provider` itself needs a restart — the object type changes, and
+the dashboard says so when you save.
 
 ---
 
@@ -127,5 +141,12 @@ dashboard says so when you save.
 1. Create `src/modules/tts/my_tts.py` and extend `TTSInterface`.
 2. Implement `async generate_audio(text) -> (np.ndarray, int)`, `speak()` and
    `reload_config()`.
-3. Add the instantiation branch in `src/cli.py` (`# tts`).
-4. Add the provider name to the `--tts-provider` choices, also in `src/cli.py`.
+3. Add one `VoiceProvider` row to `providers.py`, listing its voices and the
+   language each one speaks.
+4. Add a two-line builder to `BUILDERS` in `factory.py`. It is handed the
+   `Voice` to use — it does not look one up.
+
+That is all. The setup wizard, the dashboard menus, the language warnings and
+`make doctor` are all generated from the row; there is no branch to add in any
+of them. `test_tts_providers.py` fails if a row has no builder, if a builder has
+no row, or if a row names a config field that does not exist.

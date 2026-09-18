@@ -3,12 +3,19 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from src.core.language import write_in
+from src.core.persona import Persona
 from src.core.skills.social.people import record_person
 from src.utils.logger import get_logger
+from src.utils.prompts import load_text
 
 logger = get_logger("bea.skills.dream.dreamer")
 
 DAY_SECONDS = 86400
+
+DEFAULT_PROMPT_PATH = "data/prompts/dreamer.md"
+
+FALLBACK = "Summarize the conversation as JSON with title, self_facts, people, hot_facts."
 
 # names the LLM tends to invent when nobody real is in the chat
 _GENERIC_NAMES = {"user", "chat", "chatter", "someone", "audience", "viewer", "fan", "anon"}
@@ -24,7 +31,9 @@ class Dreamer:
     """
 
     def __init__(self, *, llm, history_manager, roster, people, selflore, recent,
-                 sessions, conversations_dir: str = "data/conversations"):
+                 sessions, conversations_dir: str = "data/conversations",
+                 persona=None, language: str = "",
+                 prompt_path: str = DEFAULT_PROMPT_PATH):
         self.llm = llm
         self.history = history_manager
         self.roster = roster
@@ -33,14 +42,14 @@ class Dreamer:
         self.recent = recent
         self.sessions = sessions
         self.conversations_dir = Path(conversations_dir)
-        self._prompt = self._load_prompt()
+        self.persona = persona or Persona()
+        self.language = language
+        self.prompt_path = prompt_path or DEFAULT_PROMPT_PATH
 
-    def _load_prompt(self) -> str:
-        p = Path(__file__).parent / "dreamer_prompt.txt"
-        try:
-            return p.read_text(encoding="utf-8")
-        except Exception:
-            return "Summarize the conversation as JSON with title, self_facts, people, hot_facts."
+    @property
+    def _prompt(self) -> str:
+        """Read per pass, not cached: it is an editable file like every other."""
+        return self.persona.fill(load_text(self.prompt_path, fallback=FALLBACK))
 
     def _processed(self) -> set:
         return self.sessions.dreamed()
@@ -82,7 +91,9 @@ class Dreamer:
     async def _dream_session(self, messages: List[Dict]) -> Optional[Dict]:
         convo = "\n".join(f"{m.get('role', '?')}: {m.get('content', '')}" for m in messages)
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        system = self._prompt.replace("{date}", today)
+        system = (self._prompt
+                  .replace("{date}", today)
+                  .replace("{language}", write_in(self.language)))
         try:
             res = await self.llm.complete_json(f"CONVERSATION:\n{convo}", system)
             return res if isinstance(res, dict) else None

@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.memory.rag import SOURCE_PERSON
+from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.memory.generator import DiaryGenerator
 from src.utils.logger import get_logger
@@ -52,7 +53,9 @@ class MemorySkill(Skill):
             return
         model_for = getattr(self.context, "model_for", None)
         if model_for is not None:
-            self.generator = DiaryGenerator(model_for("background"))
+            self.generator = DiaryGenerator(
+                model_for("background"),
+                persona=persona_of(self.config), language=self.config.language)
         else:
             logger.error("MemorySkill: no model available for the diary generator!")
         self.active = True

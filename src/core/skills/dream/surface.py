@@ -4,6 +4,7 @@ import time
 from typing import List, Optional
 
 from src.core.agent.tools import Tool
+from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.dream.dreamer import DAY_SECONDS, Dreamer
 from src.utils.logger import get_logger
@@ -91,6 +92,7 @@ class DreamSkill(Skill):
             llm=llm, history_manager=hm,
             roster=social.roster, people=social.people,
             selflore=self.selflore, recent=self.recent, sessions=self.sessions,
+            persona=persona_of(self.config), language=self.config.language,
         )
 
     # --- always-in-context --------------------------------------------------

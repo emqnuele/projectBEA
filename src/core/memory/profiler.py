@@ -9,6 +9,7 @@ leave a regular a stranger all evening.
 import asyncio
 from typing import Optional
 
+from src.core.language import write_in
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.memory.profiler")
@@ -37,9 +38,12 @@ Rules:
 
 class Profiler:
     def __init__(self, llm, store, *, first_profile_at: int = FIRST_PROFILE_AT,
-                 reprofile_every: int = REPROFILE_EVERY):
+                 reprofile_every: int = REPROFILE_EVERY, language: str = ""):
         self.llm = llm
         self.store = store
+        # a card written in English and injected into an Italian conversation
+        # pulls her back into English every turn it is retrieved
+        self.language = language
         self.first_profile_at = first_profile_at
         self.reprofile_every = reprofile_every
 
@@ -63,7 +67,7 @@ class Profiler:
         known = "; ".join(card.facts) or "(nothing yet)"
         payload = (f"PERSON: {card.primary_name}\nWHAT YOU ALREADY KNOW: {known}\n\n"
                    "THEIR MESSAGES:\n" + "\n".join(f"- {m}" for m in messages))
-        data = await self._ask(PERSON_PROMPT, payload)
+        data = await self._ask(f"{PERSON_PROMPT}\n{write_in(self.language)}", payload)
         if data is None:
             return False
 

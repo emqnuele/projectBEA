@@ -314,7 +314,8 @@ class AIVtuberBrain:
             self.skill_registry.register(skill)
 
         # background passes that keep the cards and summaries fresh between dreams
-        self.profiler = Profiler(self.model_for(BACKGROUND), self.memory)
+        self.profiler = Profiler(self.model_for(BACKGROUND), self.memory,
+                                 language=self.config.language)
 
         # how she has been feeling, read by the prompt and by her voice alike
         self.affect = AffectState(self.config, self.memory, events=self.event_manager)
@@ -408,8 +409,24 @@ class AIVtuberBrain:
         self._reload_stage()
         if self.stt:
             self.stt.reload_config(self.config)
+        self._reload_language()
 
         logger.info("Hot Reload Complete")
+
+    def _reload_language(self) -> None:
+        """Point the background passes at the language now configured.
+
+        The mind reads `config.language` on the turn it builds, but these four
+        copied it when they were built. Without this a language changed in the
+        dashboard kept writing memory in the old one until the next restart,
+        and memory injected every turn is exactly what pulls her back.
+        """
+        for holder in (self.profiler,
+                       getattr(self.consciousness, "_handoff", None),
+                       getattr(self.dream_skill, "dreamer", None),
+                       getattr(self.memory_skill, "generator", None)):
+            if holder is not None:
+                holder.language = self.config.language
 
     def _reload_stage(self) -> None:
         """Re-points the avatar and caption, rebuilding only what changed.

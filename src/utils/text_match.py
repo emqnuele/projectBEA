@@ -9,11 +9,20 @@ import re
 from functools import lru_cache
 from typing import Iterable
 
+from src.utils.text_utils import CJK
+
+# A word character for the purpose of a boundary: a letter, a digit or an
+# underscore that is NOT Japanese or Chinese. Those scripts run their words
+# together, so the honorific in "ベアちゃん" is `\w` and the plain `(?!\w)`
+# refused to see her name in the one form people actually address her by.
+_WORDISH = f"[^\\W{CJK}]"
+
 
 @lru_cache(maxsize=512)
 def _pattern(word: str) -> re.Pattern:
     # underscores count as word characters, which is right for usernames
-    return re.compile(r"(?<!\w)" + re.escape(word) + r"(?!\w)", re.IGNORECASE)
+    return re.compile(f"(?<!{_WORDISH})" + re.escape(word) + f"(?!{_WORDISH})",
+                      re.IGNORECASE)
 
 
 def contains_any_word(text: str, words: Iterable[str]) -> bool:

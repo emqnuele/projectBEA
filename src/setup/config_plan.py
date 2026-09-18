@@ -7,6 +7,8 @@ test can reach it without a terminal.
 
 from typing import Any, Dict
 
+from src.modules.tts.providers import plan_for_language
+
 # provider -> (config field for the key, env var the engine reads it from)
 PROVIDER_KEYS = {
     "openrouter": ("openrouter_key", "OPENROUTER_API_KEY"),
@@ -91,9 +93,24 @@ def apply_answers(config, answers: Dict[str, Any]):
     if answers.get("stt_model"):
         config.stt_model = answers["stt_model"]
 
+    # the language the wizard asked about, which it used to throw away: it was
+    # only ever a heading over the voice menu, so every install transcribed and
+    # answered in English no matter what was picked
+    if answers.get("language"):
+        config.language = answers["language"]
+
     config.tts_provider = answers.get("tts_provider", "edge")
     if answers.get("tts_voice"):
         config.tts_voice = answers["tts_voice"]
+    if answers.get("kokoro_voice"):
+        config.kokoro_voice = answers["kokoro_voice"]
+
+    # whatever the chosen engine still needs to be told about the language —
+    # kokoro's phonemiser, and a voice for an engine the wizard did not ask one
+    # for. Decided in one place for every engine: see modules/tts/providers.py
+    for field_name, value in plan_for_language(config, config.language).items():
+        setattr(config, field_name, value)
+
     if answers.get("orpheus_endpoint"):
         config.orpheus_endpoint = answers["orpheus_endpoint"]
     if answers.get("orpheus_voice"):

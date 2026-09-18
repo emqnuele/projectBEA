@@ -382,5 +382,5 @@ def test_an_unwritable_env_file_fails_the_whole_save(client, tmp_path, monkeypat
     res = api.post("/config", json={"config": {"groq_key": "gsk", "language": "it"}})
 
     assert res.status_code == 500
-    assert stub.config.language == "en"
+    assert stub.config.language == "auto"
     assert stub.reloads == 0

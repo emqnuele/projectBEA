@@ -516,6 +516,7 @@ same source.
 | [Architecture](docs/architecture.md) | System design, data flow, the event system |
 | [Setup & Install](docs/setup.md) | Installation, OBS setup, audio routing |
 | [Configuration](docs/configuration.md) | Every config field, CLI arg and `.env` var |
+| [Languages](docs/languages.md) | How a language is resolved, and what each voice engine can say |
 | [Updating](docs/updating.md) | How an update keeps the prompts you edited |
 | [Skills Overview](docs/skills/overview.md) | The `Skill` API, the registry, every tool |
 | [Modules](docs/modules/llm.md) | [LLM](docs/modules/llm.md) · [TTS](docs/modules/tts.md) · [STT](docs/modules/stt.md) · [Avatar](docs/modules/avatar.md) · [OBS](docs/modules/obs.md) |

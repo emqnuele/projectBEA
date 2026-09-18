@@ -19,15 +19,15 @@ import re
 from typing import List, Optional
 
 from src.core.expression.tags import open_tag, strip, visible_len
-
-# a sentence ends on . ! ? … — but only when what follows is a space or the end,
-# so "3.14" and "gg.wp" stay one thought. Closing quotes and brackets belong to
-# the sentence they close: cutting before them strands a lone `"` on the next
-# piece, which is how a seam becomes audible.
-_SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]]*(?=\s|$)")
+from src.utils.text_utils import SENTENCE_END as _SENTENCE_END
+from src.utils.text_utils import written_without_spaces as _written_without_spaces
 
 # a deliberate break in the line she wrote
 _HARD_BREAK = re.compile(r"\n+")
+
+# where a breath lands inside a sentence, in either kind of script
+_PAUSE = (", ", "; ", "、", "，", "；")
+
 
 # below this a piece is not worth its own synthesis round trip: "Ok." on its own
 # costs a whole request and buys nothing
@@ -45,6 +45,8 @@ MAX_CHARS = 220
 # where a forced cut stops being a pause and starts being a stumble: below a
 # third of the budget, a comma is too far back to be worth landing on
 _COMMA_FLOOR = 3
+
+
 
 
 class SpeechChunker:
@@ -143,7 +145,7 @@ class SpeechChunker:
     def _force(self) -> Optional[str]:
         """Cut an over-long stretch where a pause would sound deliberate."""
         window = self._buffer[:self._cut_ceiling()]
-        cut = max(window.rfind(", "), window.rfind("; "))
+        cut = max(window.rfind(mark) for mark in _PAUSE)
         # how far back that comma is has to be measured in words, not in raw
         # characters: a window with three tags in it is not a longer window, and
         # counting them would accept a comma that is really much too early
@@ -151,6 +153,11 @@ class SpeechChunker:
             cut += 1  # the comma belongs to the pause, not to what comes after
         else:
             cut = window.rfind(" ")
+        if cut <= 0 and _written_without_spaces(window):
+            # "leave one very long word whole" is the right answer in a script
+            # that has words. Japanese does not put spaces between them, so
+            # every line looked like one long word and nothing was ever cut.
+            cut = len(window)
         if cut <= 0 or open_tag(self._buffer[:cut]):
             return None  # one very long word: leave it whole rather than cut inside it
 
@@ -198,7 +205,10 @@ def split_for_speech(text: str, min_chars: int = MIN_CHARS,
 
     if len(pieces) > 1 and visible_len(pieces[-1]) < min_chars:
         scrap = pieces.pop()
-        pieces[-1] = f"{pieces[-1]} {scrap}"
+        # no space when neither side has one: Japanese does not separate words,
+        # and a seam that invents one is audible
+        joint = "" if _written_without_spaces(pieces[-1] + scrap) else " "
+        pieces[-1] = f"{pieces[-1]}{joint}{scrap}"
     return pieces or [text]
 
 

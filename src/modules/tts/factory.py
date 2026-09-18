@@ -4,6 +4,10 @@ Same shape as `avatar/factory.py` and `llm/factory.py`. It exists because the
 engine was not the only thing that needed to build one: the diagnostic has to
 build the *same* voice the engine would, or it is testing something else.
 
+Which voice that is comes from `providers.voice_for`, not from each builder
+reading its own field: the language policy lives in one place, and a builder is
+only the two or three lines that hand an engine what it needs.
+
 Imports live inside the builders, so choosing EdgeTTS never pays for loading
 onnxruntime.
 """
@@ -11,32 +15,33 @@ onnxruntime.
 from typing import Callable, Dict
 
 from src.interfaces.base_interfaces import TTSInterface
+from src.modules.tts import providers
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.tts.factory")
 
-DEFAULT_BACKEND = "edge"
+DEFAULT_BACKEND = providers.DEFAULT_PROVIDER
 
 
-def _edge(config) -> TTSInterface:
+def _edge(config, voice: providers.Voice) -> TTSInterface:
     from src.modules.tts.edge_tts_wrapper import EdgeTTSWrapper
-    return EdgeTTSWrapper(voice=config.tts_voice, pitch=config.tts_pitch,
+    return EdgeTTSWrapper(voice=voice.id, pitch=config.tts_pitch,
                           rate=config.tts_rate, volume=config.tts_volume)
 
 
-def _kokoro(config) -> TTSInterface:
+def _kokoro(config, voice: providers.Voice) -> TTSInterface:
     from src.modules.tts.kokoro_tts_wrapper import KokoroTTSWrapper
     return KokoroTTSWrapper(model_path=config.kokoro_model,
                             voices_path=config.kokoro_voices_file,
-                            voice=config.kokoro_voice, speed=config.kokoro_speed,
-                            lang=config.kokoro_lang)
+                            voice=voice.id, speed=config.kokoro_speed,
+                            lang=kokoro_language(config))
 
 
-def _orpheus(config) -> TTSInterface:
+def _orpheus(config, voice: providers.Voice) -> TTSInterface:
     from src.modules.tts.orpheus_tts_wrapper import OrpheusTTSWrapper
     return OrpheusTTSWrapper(api_key=config.orpheus_key,
                              endpoint_url=config.orpheus_endpoint,
-                             voice=config.orpheus_voice)
+                             voice=voice.id)
 
 
 BUILDERS: Dict[str, Callable[..., TTSInterface]] = {
@@ -44,6 +49,23 @@ BUILDERS: Dict[str, Callable[..., TTSInterface]] = {
     "kokoro": _kokoro,
     "orpheus": _orpheus,
 }
+
+
+def kokoro_language(config) -> str:
+    """Which language Kokoro phonemises in, derived rather than configured.
+
+    `kokoro_lang` is still read, because a config.json that set it meant it —
+    but only as the fallback. The voice is the better answer: `if_sara` is
+    Italian whatever the field says, and the two drifting apart is how the
+    engine ended up reading Italian with an English phonemiser.
+    """
+    kokoro = providers.PROVIDERS["kokoro"]
+    voice = providers.voice_for(config)
+    spoken = providers.language_of(kokoro, voice.id)
+    if spoken == providers.AUTO:
+        spoken = getattr(config, "language", "")
+    return providers.engine_language(kokoro, spoken) \
+        or str(getattr(config, "kokoro_lang", "") or "en-us")
 
 
 def backend_name(config) -> str:
@@ -61,6 +83,9 @@ def backend_name(config) -> str:
 
 def build_tts(config) -> TTSInterface:
     name = backend_name(config)
-    tts = BUILDERS[name](config)
-    logger.info(f"TTS backend: {name}")
+    voice = providers.voice_for(config)
+    tts = BUILDERS[name](config, voice)
+    logger.info(f"TTS backend: {name}, voice {voice.id!r}.")
+    for warning in providers.warnings(config):
+        logger.warning(warning)
     return tts

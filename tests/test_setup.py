@@ -214,16 +214,17 @@ def test_every_backend_the_wizard_offers_is_one_the_engine_can_build():
     from src.modules.avatar.factory import BUILDERS as AVATARS
     from src.modules.caption.factory import BUILDERS as CAPTIONS
     from src.modules.STT.factory import BUILDERS as TRANSCRIBERS
+    from src.modules.tts import providers
     from src.modules.tts.factory import BUILDERS as VOICES
     from src.setup.wizard import AVATARS as OFFERED_AVATARS
     from src.setup.wizard import CAPTIONS as OFFERED_CAPTIONS
     from src.setup.wizard import STT_ENGINES as OFFERED_TRANSCRIBERS
-    from src.setup.wizard import TTS_ENGINES as OFFERED_VOICES
 
     assert {a[0] for a in OFFERED_AVATARS} <= set(AVATARS)
     assert {c[0] for c in OFFERED_CAPTIONS} <= set(CAPTIONS)
     assert {e[0] for e in OFFERED_TRANSCRIBERS} <= set(TRANSCRIBERS)
-    assert {e[0] for e in OFFERED_VOICES} <= set(VOICES)
+    # the voice menu is derived from the engine table now, per language
+    assert {p.id for p in providers.PROVIDERS.values()} <= set(VOICES)
 
 
 def test_saved_config_carries_no_secret(tmp_path, monkeypatch):
