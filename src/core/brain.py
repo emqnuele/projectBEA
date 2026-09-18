@@ -602,6 +602,15 @@ class AIVtuberBrain:
         skill = self.skill_registry.get("donation") if self.skill_registry else None
         return skill if isinstance(skill, DonationSkill) else None
 
+    def ask_minecraft_for_a_word(self) -> bool:
+        """The dashboard asking her to say what her body is up to, right now.
+
+        Says whether it landed: the caller turns a False into a 409 rather than
+        a button that quietly does nothing while she is out of the game.
+        """
+        surface = self._surface("game:mc")
+        return bool(surface is not None and surface.ask_for_a_word())
+
     def perceive_discord_text(self, text: str, username: str, channel_id: str,
                               message_id: Optional[str] = None, user_id: Optional[str] = None,
                               is_dm: bool = False, whitelisted: bool = True) -> None:

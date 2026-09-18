@@ -113,6 +113,12 @@ seconds because Bea closes objectives herself while the stream runs.
 The owner can also close, reopen, reorder and delete objectives — you are
 watching the stream too, and it is faster than telling her.
 
+While the Minecraft skill is active the page also carries a **What are you
+doing?** button, which asks her to say what her body is up to without waiting
+for her own clock. It is the Minecraft
+[commentary nudge](minecraft.md#speaking-without-being-spoken-to) fired by hand,
+not a separate prompt, and it is hidden when she is not in the game.
+
 See the [API reference](../web/api.md#stream-plan) for the endpoints.
 
 ---

@@ -13,6 +13,7 @@ import types
 import pytest
 
 from src.core.agent.types import AssistantMessage, ToolCall
+from src.core.brain import AIVtuberBrain
 from src.core.perception.bus import PerceptionBus
 from src.core.perception.types import Perception, PerceptionKind
 from src.core.skills.minecraft.agent import GameAgent
@@ -135,8 +136,11 @@ class Config:
 
 
 class Bus:
+    def __init__(self):
+        self.items = []
+
     def put(self, perception):
-        pass
+        self.items.append(perception)
 
 
 class NeverDone:
@@ -212,3 +216,76 @@ def test_the_idle_clock_only_starts_once_the_body_stops(surface):
     working(surface, since=30)
     surface._nudge()
     assert surface._idle_since == 0.0
+
+
+# --- the owner asking, off the clock ----------------------------------------
+
+
+def test_the_button_asks_her_without_waiting_for_the_clock(surface):
+    working(surface, since=0)
+    assert surface._nudge() is None
+    assert surface.ask_for_a_word() is True
+    assert "get a stone pickaxe" in surface.bus.items[-1].content
+
+
+def test_the_button_works_with_the_body_standing_still(surface):
+    """A fair question to ask of someone standing around doing nothing."""
+    assert surface.ask_for_a_word() is True
+    assert "standing still" in surface.bus.items[-1].content
+
+
+def test_the_button_says_so_when_she_is_not_in_the_game(surface):
+    surface.active = False
+    assert surface.ask_for_a_word() is False
+    assert surface.bus.items == []
+
+
+def test_asking_pushes_the_next_automatic_word_back(surface):
+    """Answering the owner and then commenting a second later is babbling."""
+    working(surface, since=300)
+    surface.ask_for_a_word()
+    assert surface._nudge() is None
+
+
+# --- and from the dashboard --------------------------------------------------
+
+
+@pytest.fixture
+def api(surface):
+    from fastapi.testclient import TestClient
+
+    from src.web import app as web
+    from src.web import deps
+
+    class BrainStub:
+        def __init__(self):
+            self.surface = surface
+
+        def _surface(self, name):
+            return self.surface if name == "game:mc" else None
+
+        # borrowed, not reimplemented: a stub of its own would not notice the
+        # day the surface stops being called "game:mc"
+        ask_minecraft_for_a_word = AIVtuberBrain.ask_minecraft_for_a_word
+
+    stub = BrainStub()
+    previous = deps.brain_instance
+    deps.brain_instance = stub
+    try:
+        yield TestClient(web.app), surface
+    finally:
+        deps.brain_instance = previous
+
+
+def test_the_dashboard_can_ask_her(api):
+    client, surface = api
+    working(surface, since=0)
+    assert client.post("/minecraft/ask").status_code == 200
+    assert surface.bus.items
+
+
+def test_the_dashboard_is_told_when_she_is_not_in_the_game(api):
+    """A button that silently does nothing is worse than one that says why."""
+    client, surface = api
+    surface.active = False
+    assert client.post("/minecraft/ask").status_code == 409

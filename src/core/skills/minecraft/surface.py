@@ -146,8 +146,7 @@ class MinecraftSurface(Skill):
         """The body is mid-goal, and only milestones were reaching her.
 
         Between two of those, minutes of nothing: she stands there mining while
-        the people watching hear silence. This hands her what the body is doing
-        and what it last thought, and asks for words, not for a decision.
+        the people watching hear silence.
         """
         every = float(self.skill_config.get("commentary_seconds", COMMENTARY_SECONDS))
         if every <= 0:
@@ -158,12 +157,35 @@ class MinecraftSurface(Skill):
         if now - max(self.agent.started_at, self._last_commentary) < every:
             return None
         self._last_commentary = now
+        return self._commentary()
 
-        lines = [f"Your body is {self.agent.describe()}."]
-        if self.agent.last_thought:
+    def ask_for_a_word(self) -> bool:
+        """The owner pressing "what are you doing?" on the dashboard.
+
+        The same perception the clock produces, off the clock, so what the
+        button does and what she does on her own can never drift apart. It
+        works with the body standing still too: that is a fair question to ask
+        of someone standing still.
+        """
+        if not self.active or self.agent is None:
+            return False
+        self._last_commentary = time.time()
+        self.bus.put(self._commentary(asked=True))
+        return True
+
+    def _commentary(self, asked: bool = False) -> Perception:
+        """What the body is doing, and a request for words rather than a decision."""
+        working = self.agent.busy
+        lines = [f"Your body is {self.agent.describe()}." if working
+                 else "Your body is standing still in Minecraft."]
+        if working and self.agent.last_thought:
             lines.append(f'It is thinking: "{self.agent.last_thought}"')
-        lines.append("Say what is going on — out loud for the stream, in game chat, or "
-                     "both. Don't hand it a new goal: it is already working.")
+        lines.append("Someone watching just asked what you are up to. Tell them."
+                     if asked else
+                     "Say what is going on — out loud for the stream, in game chat, or both.")
+        if working:
+            # a second goal replaces the running one: she must not answer with one
+            lines.append("Don't hand it a new goal: it is already working.")
         return Perception(
             PerceptionKind.GAME, self.name, " ".join(lines), salience=0.5,
             # declared: commentary the gate drops is a streamer who goes quiet

@@ -42,6 +42,7 @@ EXPECTED_PATHS = {
     "/skills/logs", "/events", "/events/stream", "/overview", "/health",
     "/plan", "/plan/directive", "/plan/objectives",
     "/plan/objectives/{objective_id}", "/plan/order", "/plan/reset",
+    "/minecraft/ask",
     "/memory/save", "/memory/overview", "/memory/people", "/memory/roster",
     "/memory/self", "/memory/search",
     "/test/llm", "/test/tts", "/test/obs", "/test/vts", "/vts/model",

@@ -132,6 +132,13 @@ happens without setting out to do anything.
 Both declare themselves addressed, so the gate always lets them through, and
 both take `0` to turn off.
 
+**And on demand** — `POST /minecraft/ask`, the *What are you doing?* button on
+the [Stream Plan](plan.md) page, puts the same commentary perception on the bus
+immediately and pushes the next automatic one back. It is the one nudge that
+works with the body standing still too, because that is a fair question to ask
+of someone standing around. Deliberately the same perception rather than a
+second kind of prompt: the button and the clock cannot drift apart.
+
 Neither one is free: each is a turn on her own model. `commentary_seconds` is
 the knob that decides how present she is and how much she costs, and it is the
 same trade either way.
