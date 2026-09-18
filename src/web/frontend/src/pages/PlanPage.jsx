@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, Reorder, useDragControls } from 'framer-motion';
-import { Ban, Check, GripVertical, Play, Plus, RotateCcw, Trash2, Undo2 } from 'lucide-react';
+import { Ban, Check, GripVertical, Megaphone, Play, Plus, RotateCcw, Trash2, Undo2 } from 'lucide-react';
 import { api } from '../api';
 import { cn } from '../lib/cn';
 import { useToast } from '../state/ToastProvider';
@@ -23,6 +23,8 @@ export default function PlanPage() {
     const [newObjective, setNewObjective] = useState('');
     const [order, setOrder] = useState([]);
     const [savingDirective, setSavingDirective] = useState(false);
+    const [inGame, setInGame] = useState(false);
+    const [asking, setAsking] = useState(false);
 
     const dirty = useRef(false);
     const toast = useToast();
@@ -40,6 +42,12 @@ export default function PlanPage() {
         } catch (e) {
             setPlan({ directive: '', objectives: [] });
             toast.error('Could not load the plan', e.message);
+        }
+        // asking what she is doing only means anything while she has a body in there
+        try {
+            setInGame(Boolean((await api.skills())?.minecraft?.active));
+        } catch {
+            setInGame(false);
         }
     }, [apply, toast]);
 
@@ -67,6 +75,17 @@ export default function PlanPage() {
         setSavingDirective(false);
         // only forget the local edit once the server has it
         if (ok) { dirty.current = false; toast.success('Orders saved'); }
+    };
+
+    const askWhatSheIsDoing = async () => {
+        setAsking(true);
+        try {
+            await api.askMinecraft();
+            toast.success('Asked her');
+        } catch (e) {
+            toast.error('She did not hear that', e.message);
+        }
+        setAsking(false);
     };
 
     const addObjective = async () => {
@@ -134,6 +153,11 @@ export default function PlanPage() {
                         </span>
                         {savingDirective && <span className="text-[10px] text-faint">saving…</span>}
                         <span className="ml-auto flex items-center gap-3">
+                            {inGame && (
+                                <Button size="sm" onClick={askWhatSheIsDoing} loading={asking}>
+                                    <Megaphone size={13} /> What are you doing?
+                                </Button>
+                            )}
                             {objectives.length > 0 && (
                                 <ProgressRing value={progress} size={30} thickness={2.5} />
                             )}

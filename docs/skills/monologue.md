@@ -34,6 +34,10 @@ Two consequences worth knowing:
   anything else — the bus only emits one after `idle_after` seconds of true
   silence, so it arrives with low priority and she speaks only if something is
   genuinely worth saying.
+- **Texture does not count as silence broken.** A surface that heartbeats marks
+  it `noise`, and a batch of nothing but noise is swallowed without restarting
+  the timer. The game body ticks every few seconds, so without this rule
+  Minecraft alone would be enough to keep her from ever noticing a silence.
 - **With the toggle off she never self-triggers.** The loop blocks on
   `bus.drain()` instead, so nothing but a real input can wake her.
 

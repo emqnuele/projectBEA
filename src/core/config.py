@@ -225,6 +225,7 @@ class BrainConfig:
             "enabled": False,
             "server_url": "ws://127.0.0.1:8080",
             "idle_nudge_seconds": 90,   # 0 = she only ever reacts, never starts
+            "commentary_seconds": 20,   # 0 = she plays in silence between milestones
             "system_prompt_path": "data/prompts/minecraft.md",
             "body_prompt_path": "data/prompts/minecraft_body.md"
         },

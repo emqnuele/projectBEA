@@ -102,6 +102,8 @@ export const api = {
     reorderPlan: (ids) => request('/plan/order', { method: 'POST', body: { ids } }),
     resetPlan: () => request('/plan/reset', { method: 'POST' }),
 
+    askMinecraft: () => request('/minecraft/ask', { method: 'POST' }),
+
     dreamRun: () => request('/dream/run', { method: 'POST' }),
     dreamWake: () => request('/dream/wake', { method: 'POST' }),
     saveMemory: () => request('/memory/save', { method: 'POST' }),

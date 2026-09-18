@@ -485,6 +485,23 @@ Clears the headline and every objective — a new stream from nothing.
 
 ---
 
+### Minecraft
+
+#### `POST /minecraft/ask`
+
+Asks her, right now, to say what her body is up to. It puts the same perception
+the skill produces on its own every `commentary_seconds` — off the clock, and
+pushing the next automatic one back so she does not answer twice in a row.
+
+`409` when the skill is not active: a button that silently does nothing is worse
+than one that says why.
+
+```json
+{ "status": "asked" }
+```
+
+---
+
 ### Overview
 
 #### `GET /overview`

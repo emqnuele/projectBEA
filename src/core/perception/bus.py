@@ -63,13 +63,31 @@ class PerceptionBus:
 
         This replaces the monologue idle timer: 'nothing happened' becomes a
         first-class perception the consciousness can react to (start a monologue).
-        """
-        try:
-            first = await asyncio.wait_for(self._queue.get(), timeout=idle_after)
-        except asyncio.TimeoutError:
-            return [Perception(kind=PerceptionKind.IDLE, surface="idle", content="(nothing is happening)", salience=0.1)]
 
-        items = [first]
-        items.extend(self.drain_nowait())
-        items.sort(key=lambda p: p.ts)
-        return items
+        A surface that heartbeats marks its texture `noise`, and texture is not
+        something happening: counting it would reset the deadline forever and
+        she would never notice the silence at all. The game body heartbeats
+        every few seconds, so this is the difference between a mind that can
+        start on its own while playing and one that cannot.
+        """
+        deadline = time.monotonic() + idle_after
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return [self._idle()]
+            try:
+                first = await asyncio.wait_for(self._queue.get(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return [self._idle()]
+
+            items = [first]
+            items.extend(self.drain_nowait())
+            if all((p.meta or {}).get("noise") for p in items):
+                continue
+            items.sort(key=lambda p: p.ts)
+            return items
+
+    @staticmethod
+    def _idle() -> Perception:
+        return Perception(kind=PerceptionKind.IDLE, surface="idle",
+                          content="(nothing is happening)", salience=0.1)

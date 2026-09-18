@@ -172,7 +172,11 @@ answering on it.
 
 1. **Drain the bus.** With the `idle` skill active, `bus.wait_or_idle(idle_after)`
    synthesises an `IDLE` perception after the timeout; otherwise `bus.drain()`
-   blocks until something real happens.
+   blocks until something real happens. A batch of pure texture — everything in
+   it marked `noise`, like the game body's heartbeat — does not count as
+   something happening: it is swallowed and the timer keeps running, or a
+   surface that ticks faster than `idle_after` would hold the silence off
+   forever and she would never notice it.
 2. **Barge-in.** If Bea is speaking and the batch contains anything that is not
    `IDLE`, her voice is interrupted.
 3. **Correlations.** Collect the `correlation_id`s in the batch — HTTP callers
@@ -335,13 +339,20 @@ Python side (`src/core/skills/minecraft/`):
 turn is usually right, and is much of what makes a persona playing multiplayer
 worth watching.
 
-**The idle nudge.** The heartbeat is marked `noise` so a quiet server costs
-nothing. What makes her *start* something is the stream plan: when the body is
-idle and an objective is still open, `surface.py` emits one perception carrying
-`meta["addressed"]`, at
-most every `idle_nudge_seconds` (90 by default, 0 to disable). Declaring itself
-addressed is what makes it survive the gate: a nudge filed under "noticed" is a
-nudge that never happened.
+**The two nudges.** The heartbeat is marked `noise` so a quiet server costs
+nothing, which also means nothing in the game ever makes her speak on its own.
+Two perceptions do, and `surface.py` emits at most one per tick:
+
+- the body is **working** — it carries what the body is doing and the last
+  thing it thought, and asks for words rather than a decision, at most every
+  `commentary_seconds` (20 by default, 0 to disable). Without it the only thing
+  reaching her mid-goal is a milestone, and those are minutes apart.
+- the body is **standing still** with an objective still open on the stream
+  plan — it asks her to hand the body a goal, at most every
+  `idle_nudge_seconds` (90 by default, 0 to disable).
+
+Both carry `meta["addressed"]`, which is what makes them survive the gate: a
+nudge filed under "noticed" is a nudge that never happened.
 
 ---
 
