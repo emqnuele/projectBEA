@@ -134,15 +134,16 @@ class MinecraftSurface(Skill):
         a silent streamer is the wrong answer: the body working unwatched, and
         the body standing around with the plan unfinished.
         """
-        if self.agent is None:
+        agent = self.agent
+        if agent is None:
             return None
-        if self.agent.busy:
+        if agent.busy:
             # the idle clock only starts once the body actually stops
             self._idle_since = 0.0
-            return self._working_nudge()
+            return self._working_nudge(agent)
         return self._idle_nudge()
 
-    def _working_nudge(self) -> Optional[Perception]:
+    def _working_nudge(self, agent: GameAgent) -> Optional[Perception]:
         """The body is mid-goal, and only milestones were reaching her.
 
         Between two of those, minutes of nothing: she stands there mining while
@@ -154,10 +155,10 @@ class MinecraftSurface(Skill):
 
         now = time.time()
         # the turn that set the goal already said something: start the clock there
-        if now - max(self.agent.started_at, self._last_commentary) < every:
+        if now - max(agent.started_at, self._last_commentary) < every:
             return None
         self._last_commentary = now
-        return self._commentary()
+        return self._commentary(agent)
 
     def ask_for_a_word(self) -> bool:
         """The owner pressing "what are you doing?" on the dashboard.
@@ -167,19 +168,20 @@ class MinecraftSurface(Skill):
         works with the body standing still too: that is a fair question to ask
         of someone standing still.
         """
-        if not self.active or self.agent is None:
+        agent = self.agent
+        if not self.active or agent is None:
             return False
         self._last_commentary = time.time()
-        self.bus.put(self._commentary(asked=True))
+        self.bus.put(self._commentary(agent, asked=True))
         return True
 
-    def _commentary(self, asked: bool = False) -> Perception:
+    def _commentary(self, agent: GameAgent, asked: bool = False) -> Perception:
         """What the body is doing, and a request for words rather than a decision."""
-        working = self.agent.busy
-        lines = [f"Your body is {self.agent.describe()}." if working
+        working = agent.busy
+        lines = [f"Your body is {agent.describe()}." if working
                  else "Your body is standing still in Minecraft."]
-        if working and self.agent.last_thought:
-            lines.append(f'It is thinking: "{self.agent.last_thought}"')
+        if working and agent.last_thought:
+            lines.append(f'It is thinking: "{agent.last_thought}"')
         lines.append("Someone watching just asked what you are up to. Tell them."
                      if asked else
                      "Say what is going on — out loud for the stream, in game chat, or both.")
