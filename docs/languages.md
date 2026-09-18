@@ -124,6 +124,13 @@ provider, so the same config.json behaves identically on each. The local one
 additionally checks the code against the languages its build of whisper has,
 falling back to detection with a warning.
 
+A code outside the table — `el`, `nl`, `ru` — resolves to detection rather than
+to itself, so it is no longer a pin. faster-whisper used to accept any code its
+build knew; now the table is the one list of languages this engine claims, and
+adding a row to `LANGUAGES` is what makes a pin available again. Detection is
+the default and measures better than a pin anyway, so what is lost is the
+ability to force one of those languages, not the ability to transcribe it.
+
 See [STT modules](modules/stt.md).
 
 ---
