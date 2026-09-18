@@ -20,9 +20,14 @@ class EdgeTTSWrapper(TTSInterface):
         self.output_file = output_file
 
     def reload_config(self, config) -> None:
-        if config.tts_voice != self.voice:
-            logger.info(f"voice updated to {config.tts_voice}")
-            self.voice = config.tts_voice
+        # asked for rather than read off the config: which voice a setup means
+        # is one decision, made in `tts/providers.py` for every engine at once
+        from src.modules.tts.providers import voice_for
+
+        chosen = voice_for(config).id
+        if chosen and chosen != self.voice:
+            logger.info(f"voice updated to {chosen}")
+            self.voice = chosen
         if config.tts_pitch != self.pitch:
              self.pitch = config.tts_pitch
         if config.tts_rate != self.rate:

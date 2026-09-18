@@ -39,9 +39,13 @@ class OrpheusTTSWrapper(TTSInterface):
             logger.info("endpoint updated.")
             self.endpoint_url = config.orpheus_endpoint
 
-        if config.orpheus_voice != self.voice:
-            logger.info(f"voice updated to {config.orpheus_voice}")
-            self.voice = config.orpheus_voice
+        # one decision, one place: see `tts/providers.py`
+        from src.modules.tts.providers import voice_for
+
+        chosen = voice_for(config).id
+        if chosen and chosen != self.voice:
+            logger.info(f"voice updated to {chosen}")
+            self.voice = chosen
 
     def _download_audio_sync(self, text: str, filename: str):
         """downloads audio from baseten to a file."""

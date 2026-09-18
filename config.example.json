@@ -31,7 +31,7 @@
     "orpheus_endpoint": "",
     "orpheus_voice": "zoe",
     "kokoro_model": "kokoro-v0_19.onnx",
-    "kokoro_voices_file": "voices.bin",
+    "kokoro_voices_file": "voices.json",
     "kokoro_voice": "af_bella",
     "kokoro_speed": 1,
     "kokoro_lang": "en-us",

@@ -134,7 +134,7 @@ class BrainConfig:
 
     # kokoro tts (onnx)
     kokoro_model: str = "kokoro-v0_19.onnx"
-    kokoro_voices_file: str = "voices.bin"
+    kokoro_voices_file: str = "voices.json"
     kokoro_voice: str = "af_bella"
     kokoro_speed: float = 1.0
     kokoro_lang: str = "en-us"
