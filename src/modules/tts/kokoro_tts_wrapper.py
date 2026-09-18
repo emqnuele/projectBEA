@@ -27,9 +27,10 @@ VOICES = "voices.json"
 def normalize_voices_file(path: str) -> str:
     """The voice pack, under a name the pinned library can actually read."""
     path = (path or "").strip() or VOICES
-    if os.path.basename(path) != LEGACY_VOICES:
+    # split on both separators so posix and windows behave the same
+    if path.replace("\\", "/").split("/")[-1] != LEGACY_VOICES:
         return path
-    fixed = os.path.join(os.path.dirname(path), VOICES)
+    fixed = path[: -len(LEGACY_VOICES)] + VOICES
     logger.warning(f"{LEGACY_VOICES} is not a format kokoro-onnx can read; "
                    f"using {fixed} instead.")
     return fixed
@@ -50,7 +51,9 @@ class KokoroTTSWrapper(TTSInterface):
     def _ensure_models_exist(self):
         """Downloads model files if they are missing."""
         for path in (self.model_path, self.voices_path):
-            self._download_file(f"{RELEASE}/{os.path.basename(path)}", path)
+            # split on both separators so posix and windows behave the same
+            name = path.replace("\\", "/").split("/")[-1]
+            self._download_file(f"{RELEASE}/{name}", path)
 
     def _download_file(self, url, filename):
         if os.path.exists(filename):
