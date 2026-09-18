@@ -283,3 +283,71 @@ def test_a_download_that_dies_half_way_leaves_nothing_behind(monkeypatch, tmp_pa
 
     assert not target.exists()
     assert not (tmp_path / "voices.json.part").exists()
+
+
+def test_the_old_binary_pack_under_the_new_name_is_thrown_away(tmp_path):
+    """Renaming the file left every existing install mute: the bytes were wrong."""
+    from src.modules.tts.kokoro_tts_wrapper import discard_unreadable_voices
+
+    target = tmp_path / "voices.json"
+    target.write_bytes(b"\x93NUMPY\x01\x00v\x00")
+
+    discard_unreadable_voices(str(target))
+
+    assert not target.exists()
+
+
+def test_a_voice_pack_that_reads_is_kept(tmp_path):
+    """It is megabytes of json and downloading it again is not free."""
+    from src.modules.tts.kokoro_tts_wrapper import discard_unreadable_voices
+
+    target = tmp_path / "voices.json"
+    target.write_text('\n  {"af_bella": [[0.0]]}')
+
+    discard_unreadable_voices(str(target))
+
+    assert target.exists()
+
+
+def test_an_empty_voice_pack_is_thrown_away_too(tmp_path):
+    """A download killed before the `.part` rename existed left one of these."""
+    from src.modules.tts.kokoro_tts_wrapper import discard_unreadable_voices
+
+    target = tmp_path / "voices.json"
+    target.write_bytes(b"")
+
+    discard_unreadable_voices(str(target))
+
+    assert not target.exists()
+
+
+def test_nothing_is_checked_for_a_pack_that_is_not_json(tmp_path):
+    """The model itself is binary on purpose, and so is a `voices.bin` kept by hand."""
+    from src.modules.tts.kokoro_tts_wrapper import discard_unreadable_voices
+
+    target = tmp_path / "kokoro-v0_19.onnx"
+    target.write_bytes(b"\x08\x07onnx")
+
+    discard_unreadable_voices(str(target))
+
+    assert target.exists()
+
+
+def test_a_corrupt_pack_is_fetched_again_on_startup(monkeypatch, tmp_path):
+    """The whole point: the engine has to recover without anyone deleting a file."""
+    from src.modules.tts import kokoro_tts_wrapper
+
+    target = tmp_path / "voices.json"
+    target.write_bytes(b"\x93NUMPY\x01\x00")
+
+    asked = []
+    monkeypatch.setattr(kokoro_tts_wrapper.KokoroTTSWrapper, "_download_file",
+                        lambda self, url, filename: asked.append(filename))
+    monkeypatch.setattr(kokoro_tts_wrapper.KokoroTTSWrapper, "_initialize_model",
+                        lambda self: None)
+
+    kokoro_tts_wrapper.KokoroTTSWrapper(model_path=str(tmp_path / "kokoro-v0_19.onnx"),
+                                        voices_path=str(target))
+
+    assert not target.exists()
+    assert str(target) in asked

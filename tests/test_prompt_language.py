@@ -193,3 +193,50 @@ def test_she_is_told_nothing_when_there_is_someone_to_mirror():
 def test_detection_names_no_opening_language_even_when_alone():
     briefing = _mind("auto")._briefing([_idle_perception()], is_idle=True)
     assert "[LANGUAGE]" not in briefing["content"]
+
+
+# --- a language changed while she is running --------------------------------
+
+
+def _holders(language: str):
+    """A brain-shaped stand-in holding the four passes that copy the language."""
+    from types import SimpleNamespace
+
+    from src.core.memory.profiler import Profiler
+    from src.core.mind.handoff import HandoffWorker
+    from src.core.skills.dream.dreamer import Dreamer
+    from src.core.skills.memory.generator import DiaryGenerator
+
+    return SimpleNamespace(
+        config=SimpleNamespace(language=language),
+        profiler=Profiler(None, None, language="en"),
+        consciousness=SimpleNamespace(_handoff=HandoffWorker(language="en")),
+        dream_skill=SimpleNamespace(dreamer=Dreamer(
+            llm=None, history_manager=None, roster=None, people=None,
+            selflore=None, recent=None, sessions=None, language="en")),
+        memory_skill=SimpleNamespace(generator=DiaryGenerator(None, language="en")),
+    )
+
+
+def test_a_language_changed_in_the_dashboard_reaches_the_background_passes():
+    """Chat follows `config.language` live; these four used to need a restart."""
+    from src.core.brain import AIVtuberBrain
+
+    brain = _holders("it")
+    AIVtuberBrain._reload_language(brain)
+
+    assert brain.profiler.language == "it"
+    assert brain.consciousness._handoff.language == "it"
+    assert brain.dream_skill.dreamer.language == "it"
+    assert brain.memory_skill.generator.language == "it"
+
+
+def test_a_pass_that_has_not_been_built_yet_is_not_a_crash():
+    """The dreamer and the diary appear only once their skill starts."""
+    from types import SimpleNamespace
+
+    from src.core.brain import AIVtuberBrain
+
+    brain = SimpleNamespace(config=SimpleNamespace(language="ja"), profiler=None,
+                            consciousness=None, dream_skill=None, memory_skill=None)
+    AIVtuberBrain._reload_language(brain)

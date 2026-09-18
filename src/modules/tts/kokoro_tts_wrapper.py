@@ -36,6 +36,32 @@ def normalize_voices_file(path: str) -> str:
     return fixed
 
 
+def discard_unreadable_voices(path: str) -> None:
+    """Delete a voice pack that is not the format the library can read.
+
+    Renaming the file is only half the fix: an install from before it was
+    downloaded the binary pack into whatever name the config gave it, so the
+    upgrade finds a `voices.json` full of bytes `Kokoro()` cannot parse and
+    `os.path.exists` keeps forever. The first byte tells the two apart.
+    """
+    if not path.lower().endswith(".json") or not os.path.exists(path):
+        return
+    try:
+        with open(path, "rb") as f:
+            head = f.read(64).lstrip()
+    except OSError as e:
+        logger.warning(f"could not read {path}: {e}")
+        return
+    if head.startswith(b"{"):
+        return
+    logger.warning(f"{path} is not the json voice pack — it is the old binary "
+                   "one under a new name; removing it so it can be fetched again.")
+    try:
+        os.remove(path)
+    except OSError as e:
+        logger.error(f"could not remove {path}: {e}")
+
+
 class KokoroTTSWrapper(TTSInterface):
     def __init__(self, model_path: str, voices_path: str, voice: str = "af_bella", speed: float = 1.0, lang: str = "en-us"):
         self.model_path = model_path
@@ -50,6 +76,7 @@ class KokoroTTSWrapper(TTSInterface):
 
     def _ensure_models_exist(self):
         """Downloads model files if they are missing."""
+        discard_unreadable_voices(self.voices_path)
         for path in (self.model_path, self.voices_path):
             # split on both separators so posix and windows behave the same
             name = path.replace("\\", "/").split("/")[-1]
