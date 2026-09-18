@@ -62,7 +62,11 @@ def deep_merge(base: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]
 
 @dataclass
 class BrainConfig:
-    language: str = "en" # default language
+    # what she hears and, when she speaks first, what she reaches for. `auto`
+    # lets the transcriber detect and leaves her mirroring whoever is talking:
+    # measured on real audio, detection matched or beat a pin every time, and a
+    # wrong pin turns Italian speech into invented Japanese. See core/language.py
+    language: str = "auto"
     soul_path: str = "data/prompts/soul.md"  # shared persona, prepended to every context
     system_prompt_path: str = "data/prompts/chat.md"  # deprecated: fallback when operating manual is absent
     operating_prompt_path: str = "data/prompts/operating.md"  # unified operating manual (speak tool, moods, perception)

@@ -2,9 +2,10 @@
 import os
 from typing import Optional
 
-from groq import Groq
+from groq import Groq, omit
 
 from src.core.config import BrainConfig
+from src.core.language import whisper_code
 from src.interfaces.base_interfaces import STTInterface
 from src.utils.logger import get_logger
 
@@ -28,8 +29,9 @@ class GroqSTT(STTInterface):
         self.model = self.config.stt_model or "whisper-large-v3-turbo"
 
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
-        # use provided language or fall back to global config
-        lang = language if language else self.config.language
+        # resolved rather than passed through: the api rejects `jp` and `it-IT`,
+        # and an unset language has to become "detect it" rather than the word
+        lang = whisper_code(language if language else self.config.language)
 
         if not self.client:
             logger.error("Client not initialized.")
@@ -45,7 +47,9 @@ class GroqSTT(STTInterface):
                     file=(os.path.basename(audio_path), file.read()),
                     model=self.model,
                     temperature=0.0,
-                    language=lang,
+                    # the sdk's own sentinel rather than None: "detect it" is an
+                    # omitted field here, and null is not a value it declares
+                    language=lang if lang else omit,
                     response_format="verbose_json",
                 )
                 logger.info(f"Transcription result: '{transcription.text}'")

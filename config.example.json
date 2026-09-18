@@ -1,5 +1,5 @@
 {
-    "language": "en",
+    "language": "auto",
     "soul_path": "data/prompts/soul.md",
     "system_prompt_path": "data/prompts/chat.md",
     "operating_prompt_path": "data/prompts/operating.md",

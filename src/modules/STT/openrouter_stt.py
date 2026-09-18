@@ -5,6 +5,7 @@ from typing import Optional
 import requests
 
 from src.core.config import BrainConfig
+from src.core.language import whisper_code
 from src.interfaces.base_interfaces import STTInterface
 from src.utils.logger import get_logger
 
@@ -29,8 +30,9 @@ class OpenRouterSTT(STTInterface):
             self.model = raw_model
 
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
-        # use provided language or fall back to global config
-        lang = language if language else self.config.language
+        # resolved rather than passed through: the api rejects `jp` and `it-IT`,
+        # and an unset language has to become "detect it" rather than the word
+        lang = whisper_code(language if language else self.config.language)
 
         if not self.key:
             logger.error("OpenRouter API Key not configured.")

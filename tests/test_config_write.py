@@ -107,7 +107,7 @@ def test_a_boolean_is_not_a_port(config):
 def test_an_object_is_not_a_name(config):
     # str({"a": 1}) is a perfectly good string, which is the trap
     assert "language" in rejected(config, {"language": {"a": 1}})
-    assert config.language == "en"
+    assert config.language == "auto"
 
 
 def test_a_block_has_to_be_an_object(config):
@@ -155,7 +155,7 @@ def test_every_offending_key_is_named(config):
 def test_planning_writes_nothing_on_its_own(config):
     plan = plan_config(config, {"language": "it"})
 
-    assert config.language == "en"
+    assert config.language == "auto"
     plan.apply(config)
     assert config.language == "it"
 
