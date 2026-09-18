@@ -142,6 +142,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
             "enabled": false,
             "server_url": "ws://127.0.0.1:8080",
             "idle_nudge_seconds": 90,
+            "commentary_seconds": 20,
             "system_prompt_path": "data/prompts/minecraft.md",
             "body_prompt_path": "data/prompts/minecraft_body.md"
         },
@@ -489,7 +490,7 @@ the single source of truth** — Bea can never arm a capability herself.
 | `social_memory` | `enabled` only | [social](skills/social.md) |
 | `dream` | `hour` | [dream](skills/dream.md) |
 | `monologue` | `prompt_path` — the timer is `consciousness.idle_after` | [monologue](skills/monologue.md) |
-| `minecraft` | `server_url`, `idle_nudge_seconds`, `system_prompt_path`, `body_prompt_path` | [minecraft](skills/minecraft.md) |
+| `minecraft` | `server_url`, `idle_nudge_seconds`, `commentary_seconds`, `system_prompt_path`, `body_prompt_path` | [minecraft](skills/minecraft.md) |
 | `discord` | `api_port`, `brain_api_url`, `admin_id`, `duck_threshold_ms`, `interrupt_threshold_ms`, `fill_silences`, `silence_seconds`, `silence_jitter_seconds`, `silence_min_gap_seconds`, `unprompted_per_minute`, `token` | [discord](skills/discord.md) |
 | `telegram` | `owner_id`, `allowed_chats`, `token` | [telegram](skills/telegram.md) |
 | `twitch` | `channel`, `nick`, `oauth_token` | [twitch](skills/twitch.md) |

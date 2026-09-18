@@ -20,6 +20,11 @@ logger = get_logger("bea.skills.minecraft")
 # body tells her about it. 0 turns the nudge off.
 IDLE_NUDGE_SECONDS = 90.0
 
+# how often she is asked to say something while the body is busy. Milestones
+# are minutes apart, and a streamer who goes quiet for minutes is the whole
+# problem this exists to solve. 0 turns it off.
+COMMENTARY_SECONDS = 20.0
+
 
 class MinecraftSurface(Skill):
     """The game body: perceives game events and state, exposes in-game actions.
@@ -46,6 +51,7 @@ class MinecraftSurface(Skill):
         self._poll_task: Optional[asyncio.Task] = None
         self._idle_since: float = 0.0
         self._last_nudge: float = 0.0
+        self._last_commentary: float = 0.0
 
     @property
     def skill_config(self) -> dict:
@@ -104,7 +110,7 @@ class MinecraftSurface(Skill):
                 break
             events = self.client.drain_events()
             if not events:
-                nudge = self._idle_nudge()
+                nudge = self._nudge()
                 if nudge:
                     self.bus.put(nudge)
                 else:
@@ -120,20 +126,57 @@ class MinecraftSurface(Skill):
                 meta={"event": "interrupted"} if interrupted else {},
             ))
 
-    # --- standing still with a plan ------------------------------------------
+    # --- her body reporting in -----------------------------------------------
+
+    def _nudge(self) -> Optional[Perception]:
+        """The game heartbeat is noise, so nothing in the world ever makes her
+        speak on its own. These two perceptions do, in the two situations where
+        a silent streamer is the wrong answer: the body working unwatched, and
+        the body standing around with the plan unfinished.
+        """
+        if self.agent is None:
+            return None
+        if self.agent.busy:
+            # the idle clock only starts once the body actually stops
+            self._idle_since = 0.0
+            return self._working_nudge()
+        return self._idle_nudge()
+
+    def _working_nudge(self) -> Optional[Perception]:
+        """The body is mid-goal, and only milestones were reaching her.
+
+        Between two of those, minutes of nothing: she stands there mining while
+        the people watching hear silence. This hands her what the body is doing
+        and what it last thought, and asks for words, not for a decision.
+        """
+        every = float(self.skill_config.get("commentary_seconds", COMMENTARY_SECONDS))
+        if every <= 0:
+            return None
+
+        now = time.time()
+        # the turn that set the goal already said something: start the clock there
+        if now - max(self.agent.started_at, self._last_commentary) < every:
+            return None
+        self._last_commentary = now
+
+        lines = [f"Your body is {self.agent.describe()}."]
+        if self.agent.last_thought:
+            lines.append(f'It is thinking: "{self.agent.last_thought}"')
+        lines.append("Say what is going on — out loud for the stream, in game chat, or "
+                     "both. Don't hand it a new goal: it is already working.")
+        return Perception(
+            PerceptionKind.GAME, self.name, " ".join(lines), salience=0.5,
+            # declared: commentary the gate drops is a streamer who goes quiet
+            meta={"addressed": "body-commentary", "event": "body_commentary"},
+        )
 
     def _idle_nudge(self) -> Optional[Perception]:
         """Her body reporting that it is standing around with work outstanding.
 
-        The game heartbeat is deliberately noise, which is also why nothing ever
-        pushed her to start playing: she only reacted. This is the one game
-        perception that wakes her, and it only exists while the owner's plan has
-        something open and the body has nothing to do.
+        It only exists while the owner's plan has something open: with an empty
+        plan she has nothing she is supposed to be doing, and inventing one
+        would be noise.
         """
-        if self.agent is None or self.agent.busy:
-            self._idle_since = 0.0
-            return None
-
         pending = self._pending_objectives()
         if not pending:
             self._idle_since = 0.0

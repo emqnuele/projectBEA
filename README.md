@@ -148,8 +148,11 @@ goes and does that. The body runs its own think/act/observe loop on the cheap
 model pool, up to 24 steps, with a survival guide and a notebook it rewrites as
 it goes.
 
-Only a milestone climbs back up to her mid-goal: a block mined, a tool crafted,
-an interrupt, a death. Moving and looking are means, not results.
+Only a milestone interrupts her mid-goal: a block mined, a tool crafted, an
+interrupt, a death. Moving and looking are means, not results. But she does not
+play in silence either — every twenty seconds she is handed what the body is
+doing and the last thing it thought, and says something about it, out loud or in
+game chat.
 
 Players who talk to her in game chat get an `Author` like anyone else, so the
 roster, the person cards and the attention gate all work in-game with no

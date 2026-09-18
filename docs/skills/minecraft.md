@@ -72,6 +72,7 @@ The mod streams a lot. Most of it is filtered before it costs a thought.
 | combat | `GAME`; a hit **by a player** is a social event, at higher salience |
 | death | `GAME` at salience 1.0, with cause, coordinates and what she dropped |
 | a body milestone | `GAME` — only for tools whose outcome is a real step forward |
+| the body working, every `commentary_seconds` | `GAME`, declared addressed: what it is doing and what it last thought |
 
 The game state itself lives in `live_state()` rather than in a perception: it is
 *where she is*, always true, not an event that should make her think. `state.py`
@@ -103,19 +104,37 @@ thing in chat.
 
 ---
 
-## Starting something on her own
+## Speaking without being spoken to
 
-The heartbeat is marked `noise`, so an idle server costs nothing. What gets her
-moving is the [stream plan](plan.md): objectives the owner writes on the
-dashboard.
+The heartbeat is marked `noise`, so an idle server costs nothing — and it also
+means nothing in the game ever makes her open her mouth by itself. Two
+perceptions do. The surface emits at most one per tick, and which one depends
+on whether the body is busy.
 
-When the body is standing still and an objective is still open, the surface puts
-one perception on the bus saying so, at most once every `idle_nudge_seconds`. It
-declares itself addressed, so the gate always lets it through, and she answers
-it by handing the body a goal.
+**While the body works** — every `commentary_seconds` (20 by default) she gets
+a line saying what the body is doing, how long it has been at it, and the last
+thing it thought, and asking her to say something rather than to decide
+something. It explicitly tells her *not* to hand out a new goal, because a new
+goal replaces the running one.
 
-With an empty plan there is no nudge, and she reacts to whatever happens without
-setting out to do anything.
+This is what stops her from going quiet for the length of a mining trip. The
+body reasons in prose at every step; `GameAgent` keeps the freshest line in
+`last_thought` and the surface reads it when it asks her to talk. Milestones
+are still the only thing that interrupts her *out of turn* — commentary waits
+for its slot.
+
+**While the body stands still** — the [stream plan](plan.md) is what gets her
+moving. With an objective still open, the surface says so at most every
+`idle_nudge_seconds` (90 by default), and she answers by handing the body a
+goal. With an empty plan there is no nudge at all: she reacts to whatever
+happens without setting out to do anything.
+
+Both declare themselves addressed, so the gate always lets them through, and
+both take `0` to turn off.
+
+Neither one is free: each is a turn on her own model. `commentary_seconds` is
+the knob that decides how present she is and how much she costs, and it is the
+same trade either way.
 
 ---
 
@@ -135,8 +154,9 @@ GameAgent.pursue(goal)
 the model rewrites in full via `update_notebook`. It is re-injected every cycle
 so a plan survives history trimming, and it is never spoken.
 
-**Milestones** are the only thing that reaches the mind mid-goal. Movement and
-looking are means, not results; `craft_item`, `mine_block`, `place_block`,
+**Milestones** are the only thing that *interrupts* the mind mid-goal — the
+commentary nudge waits its turn instead. Movement and looking are means, not
+results; `craft_item`, `mine_block`, `place_block`,
 `smelt_item`, `find_block`, `equip_item`, `store_item`, `retrieve_item`,
 `attack_entity` and `give_item` produce one when they succeed or fail badly. An
 interrupt or a death always does.
@@ -231,6 +251,7 @@ locks.
   "enabled": false,
   "server_url": "ws://127.0.0.1:8080",
   "idle_nudge_seconds": 90,
+  "commentary_seconds": 20,
   "system_prompt_path": "data/prompts/minecraft.md",
   "body_prompt_path": "data/prompts/minecraft_body.md"
 }
@@ -240,6 +261,7 @@ locks.
 |---|---|
 | `server_url` | WebSocket URL of the BeaCraft mod |
 | `idle_nudge_seconds` | How long the body may stand still with an open objective before it tells her. `0` disables it |
+| `commentary_seconds` | How long she may play without saying a word while the body works. `0` disables it |
 | `system_prompt_path` | What the **mind** knows about having a body |
 | `body_prompt_path` | The survival guide and crafting chains, for the **body** |
 

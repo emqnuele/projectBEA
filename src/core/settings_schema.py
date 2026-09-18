@@ -241,6 +241,10 @@ MINECRAFT = Section(
         Setting("idle_nudge_seconds", "Nudge her after", "int",
                 "Seconds of nothing happening before she does something on her own. 0 never.",
                 90, minimum=0, maximum=3600),
+        Setting("commentary_seconds", "Say something every", "int",
+                "Seconds between one word and the next while her body is busy playing. "
+                "0 keeps her quiet until something finishes.",
+                20, minimum=0, maximum=600),
     ],
 )
 

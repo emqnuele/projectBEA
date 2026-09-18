@@ -84,7 +84,10 @@ is a nudge that never happened, and she would go straight back to waiting to be
 spoken to.
 
 It fires at most every `skills.minecraft.idle_nudge_seconds` (90 by default,
-`0` disables it), and never when the plan is empty.
+`0` disables it), never when the plan is empty, and never while the body is
+already busy — a working body gets the
+[commentary nudge](minecraft.md#speaking-without-being-spoken-to) instead,
+because a second goal would replace the one it is running.
 
 ---
 

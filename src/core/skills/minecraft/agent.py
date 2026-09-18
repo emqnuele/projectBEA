@@ -29,6 +29,9 @@ REFRESH_EVERY = 3
 
 OnMilestone = Callable[[str], None]
 
+# the body's own words, kept short: this is a line she reads out, not a log
+THOUGHT_LIMIT = 220
+
 
 class GameAgent:
     """Pursues one goal at a time using the game tools and the notebook."""
@@ -46,6 +49,7 @@ class GameAgent:
 
         self.goal: str = ""
         self.started_at: float = 0.0
+        self.last_thought: str = ""
         self._task: Optional[asyncio.Task] = None
 
     @property
@@ -69,6 +73,7 @@ class GameAgent:
 
         self.goal = goal
         self.started_at = time.time()
+        self.last_thought = ""
         logger.info(f"GameAgent: pursuing '{goal}'")
 
         messages: List[Dict[str, Any]] = [
@@ -78,7 +83,7 @@ class GameAgent:
 
         runner = AgentRunner(
             self.llm, tools=self.registry, max_steps=self.max_steps,
-            hooks=AgentHooks(on_tool_result=self._observe),
+            hooks=AgentHooks(on_thought=self._think, on_tool_result=self._observe),
         )
         try:
             final = await runner.run(messages)
@@ -103,6 +108,18 @@ class GameAgent:
         if first:
             parts.append("Write or update the notebook first, then start.")
         return "\n\n".join(parts)
+
+    # --- what the mind can hear --------------------------------------------
+
+    def _think(self, content: str) -> None:
+        """The body reasoning out loud, kept for whoever asks what it is doing.
+
+        Not pushed anywhere: a thought per step would be a stream of interrupts.
+        The surface reads the freshest one when it decides she should comment.
+        """
+        text = " ".join(str(content or "").split())
+        if text:
+            self.last_thought = _clip(text, THOUGHT_LIMIT)
 
     # --- milestones ---------------------------------------------------------
 
