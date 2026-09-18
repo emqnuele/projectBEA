@@ -39,8 +39,15 @@ class STTInterface(ABC):
 Returns the transcript, or an empty string on failure. Both methods are
 `@abstractmethod` — omitting either raises `TypeError` at instantiation.
 
-`language` falls back to `config.language`, which measurably improves accuracy
-on non-English speech.
+`language` falls back to `config.language`, resolved through
+[`src/core/language.py`](../languages.md) before it reaches any provider: `jp`,
+`it-IT` and `Italiano` all mean the same thing on all three, and `auto` becomes
+a missing field rather than a literal.
+
+A pin is only worth setting when the language is known in advance. A wrong one
+is worse than none — whisper will transcribe *into* the language it was told,
+so Italian speech pinned to `ja` comes back as invented Japanese. The default
+is `auto`.
 
 ---
 
@@ -78,15 +85,15 @@ offers to download them at the end rather than leaving the wait to her first
 sentence, and a refusal — a shared IP against Hugging Face's anonymous rate
 limit — is logged with what would fix it, `HF_TOKEN` in `.env`.
 
-**Two things it normalises, so the same config.json works on every provider:**
+**What it normalises, so the same config.json works on every provider:**
 
 - `stt_model`. The hosted spelling `whisper-large-v3-turbo`, or
   `openai/whisper-large-v3-turbo`, becomes `large-v3-turbo` — switching
   `stt_provider` does not also mean editing the model.
-- `language`. Whisper raises on a code it does not know, where the hosted
-  providers shrug. `jp` — one of the dashboard's own choices — becomes `ja`, and
-  anything else it has never heard of falls back to auto-detection with a
-  warning, rather than taking the transcript down to an empty string.
+- `language`. Resolved by `core/language.py` for every provider alike, then
+  checked here against the languages this build of whisper actually has. One it
+  does not have falls back to auto-detection with a warning, rather than raising
+  and taking the transcript down to an empty string.
 
 > Nothing else about her becomes local by choosing this. The mind is still a
 > hosted model, and it is still sent what she heard.

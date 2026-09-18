@@ -38,6 +38,7 @@ reactive chat path — the consciousness is the only mind.
 | `Consciousness` | `src/core/consciousness.py` | the mind: one context, one loop |
 | `EventManager` | `src/core/events.py` | 200-event ring buffer for the dashboard |
 | `HistoryManager` | `src/utils/history_manager.py` | one session = one JSON in `data/conversations/` |
+| `language` | `src/core/language.py` | what a language code means, for the prompt, the transcriber and the voices |
 
 Skills are registered in this order (`brain.py`, `_build_consciousness`):
 `ChatSurface`, `VoiceSurface`, `TelegramSkill`, `TwitchSkill`, `DonationSkill`,

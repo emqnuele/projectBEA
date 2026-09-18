@@ -199,7 +199,7 @@ Kokoro runs **entirely locally** — no API key required.
 
 The engine automatically downloads the model files on first launch if they are missing:
 - `kokoro-v0_19.onnx` (~95 MB)
-- `voices.bin` (~30 MB)
+- `voices.json` (~30 MB)
 
 No manual steps needed. Just set `tts_provider` to `kokoro` in `config.json` and start the engine. The download happens once and is cached in the project root.
 

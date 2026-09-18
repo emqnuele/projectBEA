@@ -41,7 +41,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
 
 ```json
 {
-    "language": "en",
+    "language": "auto",
     "soul_path": "data/prompts/soul.md",
     "system_prompt_path": "data/prompts/chat.md",
     "operating_prompt_path": "data/prompts/operating.md",
@@ -73,7 +73,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "orpheus_endpoint": "",
     "orpheus_voice": "zoe",
     "kokoro_model": "kokoro-v0_19.onnx",
-    "kokoro_voices_file": "voices.bin",
+    "kokoro_voices_file": "voices.json",
     "kokoro_voice": "af_bella",
     "kokoro_speed": 1,
     "kokoro_lang": "en-us",
@@ -242,7 +242,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
 
 | Key | Default | Description |
 |---|---|---|
-| `language` | `"en"` | Passed to the STT for transcription accuracy |
+| `language` | `"auto"` | Pins the transcriber, and names the language she uses when she speaks first. What she *answers* in is the language of the message she is answering — see [Languages](languages.md) |
 | `soul_path` | `data/prompts/soul.md` | Who she is. Prepended to every context, never edited by the engine |
 | `operating_prompt_path` | `data/prompts/operating.md` | How she exists: the `speak` tool, the moods, what she notices |
 | `system_prompt_path` | `data/prompts/chat.md` | Deprecated. Only used if the operating manual is missing |
@@ -375,8 +375,9 @@ continues. [OBS module →](modules/obs.md)
 | `tts_provider` | `"edge"` | `edge`, `kokoro` or `orpheus`. **Changing it needs a restart** |
 | `tts_voice` / `tts_pitch` / `tts_rate` / `tts_volume` | `en-US-AvaNeural`, `+5Hz`, `+10%`, `+33%` | EdgeTTS |
 | `orpheus_voice` | `"zoe"` | Orpheus. Key and endpoint come from the environment |
-| `kokoro_model` / `kokoro_voices_file` | `kokoro-v0_19.onnx`, `voices.bin` | Downloaded on first run if missing |
-| `kokoro_voice` / `kokoro_speed` / `kokoro_lang` | `af_bella`, `1.0`, `en-us` | Kokoro |
+| `kokoro_model` / `kokoro_voices_file` | `kokoro-v0_19.onnx`, `voices.json` | Downloaded on first run if missing, each from the release asset of the same basename. The voice pack must be the `.json` form; a path ending in `voices.bin` is read as `voices.json` |
+| `kokoro_voice` / `kokoro_speed` | `af_bella`, `1.0` | Kokoro |
+| `kokoro_lang` | `en-us` | Derived from the chosen voice, then from `language`. Only read as a last fallback — see [Languages](languages.md) |
 
 [TTS modules →](modules/tts.md)
 
