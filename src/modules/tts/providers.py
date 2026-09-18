@@ -81,7 +81,7 @@ EDGE_VOICES: Tuple[Voice, ...] = (
     *_edge("ko", ("ko-KR-SunHiNeural", "SunHi"), ("ko-KR-InJoonNeural", "InJoon")),
 )
 
-# The eleven voices in the v0.19 pack, which is the one this project pins:
+# The ten voices in the v0.19 pack, which is the one this project pins:
 # the first letter is the accent (a American, b British) and the second the
 # gender. Enumerated from the voice file rather than remembered.
 #

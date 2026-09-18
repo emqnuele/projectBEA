@@ -18,7 +18,12 @@ _WIDE = ("W", "F")
 # so "3.14" and "gg.wp" stay one thought. Closing quotes and brackets belong to
 # the sentence they close. 。！？ are the same thing in Japanese and Chinese and
 # take no space after them, which is why requiring one left those lines whole.
-SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]]*(?=\s|$)|[。！？]+[\"'”’)\]」』）]*")
+# An ellipsis ends a thought the same way when what follows it is Japanese or
+# Chinese — "待って…分かった" is two — while "wait…what" stays one, as before.
+SENTENCE_END = re.compile(
+    r"[.!?…][\"'”’)\]]*(?=\s|$)"
+    r"|[。！？]+[\"'”’)\]」』）]*"
+    rf"|…+[\"'”’)\]」』）]*(?=[{CJK}])")
 
 
 def written_without_spaces(text: str) -> bool:
@@ -70,6 +75,29 @@ def _clip_to_width(text: str, width: int) -> str:
     return "".join(out)
 
 
+def _last_space(line: List[str]) -> Optional[int]:
+    """Where to break a full line so a latin word survives it, or None."""
+    for i in range(len(line) - 1, 0, -1):
+        if line[i].isspace():
+            return i
+    return None
+
+
+def join_sentences(pieces: List[str]) -> str:
+    """Sentences back into a paragraph, with a space only where one belongs.
+
+    Joining on " " unconditionally put spaces inside Japanese, which is not how
+    the script is written and reads as a stutter on the caption.
+    """
+    out = ""
+    for piece in pieces:
+        if not out:
+            out = piece
+            continue
+        out += ("" if written_without_spaces(out[-1] + piece[0]) else " ") + piece
+    return out
+
+
 def wrap_to_width(message: str, width: int) -> List[str]:
     """Wrap to a column budget, breaking mid-run where a script has no spaces.
 
@@ -77,20 +105,33 @@ def wrap_to_width(message: str, width: int) -> List[str]:
     twice as wide as the box it was measured for and had no break to find.
     """
     message = message or ""
-    if not written_without_spaces(message):
+    width = max(1, width)
+    # Any Japanese or Chinese at all, not a line made only of it: one latin
+    # word in an otherwise Japanese caption used to hand the whole line back
+    # to `textwrap`, which counts characters and drew it twice too wide.
+    if not _HAS_CJK.search(message):
         return textwrap.wrap(message, width=width)
 
     lines, line, used = [], [], 0
     for char in message:
         step = display_width(char)
         if used + step > width and line:
-            lines.append("".join(line))
-            line, used = [], 0
+            cut = _last_space(line)
+            if cut is None:
+                lines.append("".join(line))
+                line, used = [], 0
+            else:
+                # a space in reach is still the better break, even here
+                lines.append("".join(line[:cut]).rstrip())
+                line = line[cut + 1:]
+                used = display_width("".join(line))
+        if char.isspace() and not line:
+            continue
         line.append(char)
         used += step
     if line:
-        lines.append("".join(line))
-    return lines
+        lines.append("".join(line).rstrip())
+    return [line for line in lines if line]
 
 
 def fit_text_for_box(
@@ -169,7 +210,7 @@ def paginate_text_for_box(
     for sent in pieces:
         # try adding to current page
         candidate_list = current_page_sentences + [sent]
-        candidate_text = " ".join(candidate_list)
+        candidate_text = join_sentences(candidate_list)
 
         if measure_lines(candidate_text) <= max_lines:
             current_page_sentences.append(sent)
@@ -177,7 +218,7 @@ def paginate_text_for_box(
             # if current page has content, flush it
             if current_page_sentences:
                 pages.append("\n".join(
-                    wrap_to_width(" ".join(current_page_sentences), target_width)))
+                    wrap_to_width(join_sentences(current_page_sentences), target_width)))
                 current_page_sentences = []
 
             # now handle the new sentence
@@ -194,6 +235,6 @@ def paginate_text_for_box(
 
     if current_page_sentences:
         pages.append("\n".join(
-            wrap_to_width(" ".join(current_page_sentences), target_width)))
+            wrap_to_width(join_sentences(current_page_sentences), target_width)))
 
     return pages, target_size

@@ -27,8 +27,10 @@ VOICES = "voices.json"
 def normalize_voices_file(path: str) -> str:
     """The voice pack, under a name the pinned library can actually read."""
     path = (path or "").strip() or VOICES
-    # split on both separators so posix and windows behave the same
-    if path.replace("\\", "/").split("/")[-1] != LEGACY_VOICES:
+    # split on both separators so posix and windows behave the same, and
+    # match the name the way the filesystems that hold it do: `Voices.bin`
+    # is the same file on macos and windows
+    if path.replace("\\", "/").split("/")[-1].lower() != LEGACY_VOICES:
         return path
     fixed = path[: -len(LEGACY_VOICES)] + VOICES
     logger.warning(f"{LEGACY_VOICES} is not a format kokoro-onnx can read; "

@@ -111,3 +111,57 @@ def test_a_word_that_merely_starts_with_her_name_is_still_not_her():
     for text in ("beautiful sunset", "beato lui", "that beats everything"):
         assert not contains_any_word(text, ["bea"]), text
         assert not contains_any_word_fuzzy(text, ["bea"]), text
+
+
+# --- the caption box --------------------------------------------------------
+
+
+def test_an_ellipsis_ends_a_japanese_thought():
+    """No space follows it, so the ascii rule left the two halves as one."""
+    assert sentences("待って…分かった") == ["待って…", "分かった"]
+
+
+def test_an_ellipsis_mid_word_is_still_one_english_thought():
+    assert sentences("wait…what") == ["wait…what"]
+
+
+def test_one_latin_word_does_not_hand_a_japanese_caption_back_to_textwrap():
+    """`textwrap` counts characters, so the line came out twice the box wide."""
+    from src.utils.text_utils import display_width, wrap_to_width
+
+    lines = wrap_to_width("このpingを見なさいよ、ここで一番上手いのは私なんだから。", 20)
+    assert all(display_width(line) <= 20 for line in lines), lines
+    assert len(lines) > 1
+
+
+def test_a_latin_word_in_a_japanese_line_is_not_cut_in_half():
+    from src.utils.text_utils import wrap_to_width
+
+    lines = wrap_to_width("私の名前は Supercalifragilistic です", 20)
+    assert any("Supercalifragilistic" in line for line in lines), lines
+
+
+def test_english_wrapping_is_left_exactly_as_it_was():
+    import textwrap
+
+    from src.utils.text_utils import wrap_to_width
+
+    text = "Oh please. I hit that shot and you know it, look at the ping."
+    assert wrap_to_width(text, 20) == textwrap.wrap(text, width=20)
+
+
+def test_a_page_of_japanese_is_not_given_spaces_it_never_had():
+    from src.utils.text_utils import paginate_text_for_box
+
+    pages, _ = paginate_text_for_box("待って。分かった。", line_width=40, max_lines=4,
+                                     base_font_size=40, min_font_size=20, font_step=4)
+    assert pages == ["待って。分かった。"]
+
+
+def test_english_pages_still_read_as_sentences():
+    from src.utils.text_utils import paginate_text_for_box
+
+    pages, _ = paginate_text_for_box("One thing. Then another.", line_width=40,
+                                     max_lines=4, base_font_size=40,
+                                     min_font_size=20, font_step=4)
+    assert pages == ["One thing. Then another."]

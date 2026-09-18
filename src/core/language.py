@@ -70,9 +70,6 @@ ALIASES: Dict[str, str] = {
     "português (br)": "pt", "portuguese (br)": "pt",
 }
 
-# what an unset language falls back to when something insists on a real one
-FALLBACK = "en"
-
 
 def resolve(raw: Optional[str]) -> str:
     """A code this engine knows, or `AUTO`.
@@ -145,12 +142,13 @@ _MIRROR = (
 _SPEAKS_FIRST = "[LANGUAGE] Nobody has written to you. Speak {endonym}."
 
 
-def directive(raw: Optional[str]) -> str:
+def directive(_raw: Optional[str] = None) -> str:
     """The `## LANGUAGE` block for the system prompt.
 
-    The same block whatever the configured language is, which is the point: the
-    only rule that belongs in a cached, always-present prompt is the one that is
-    always true. Naming a fallback language here too is what made her answer
+    The configured language is taken and ignored, and the underscore says so:
+    the block is the same whatever it is, which is the point: the only rule
+    that belongs in a cached, always-present prompt is the one that is always
+    true. Naming a fallback language here too is what made her answer
     English in Italian roughly one turn in eight — the model has to decide each
     turn which of the two sentences it is in, and sometimes it decides wrong.
 

@@ -239,6 +239,23 @@ function EngineSection({ config, update, secrets }) {
 
 // --- how she sounds ---------------------------------------------------------
 
+// A voice set by hand, or left behind by an engine that no longer lists it,
+// has to stay visible: a select that silently drops it shows the wrong voice.
+function VoiceOptions({ voices, current }) {
+    return (
+        <>
+            {!voices.some((v) => v.id === current) && (
+                // nothing set shows as nothing set, rather than as the first voice
+                <option value={current || ''}>{current || '—'}</option>
+            )}
+            {voices.map((v) => (
+                <option key={v.id} value={v.id}>{v.label}</option>
+            ))}
+        </>
+    );
+}
+
+
 function VoiceSection({ config, update, secrets, devices }) {
     const provider = config.tts_provider;
     const { providers } = useVoiceCatalogue();
@@ -271,12 +288,7 @@ function VoiceSection({ config, update, secrets, devices }) {
                 <Group title="Edge voice">
                     <Field label="Voice" help="Any EdgeTTS id works; these are the ones worth starting from.">
                         <Select value={config.tts_voice || ''} onChange={(e) => update('tts_voice', e.target.value)}>
-                            {!forLanguage.some((v) => v.id === config.tts_voice) && (
-                                <option value={config.tts_voice || ''}>{config.tts_voice || '—'}</option>
-                            )}
-                            {forLanguage.map((v) => (
-                                <option key={v.id} value={v.id}>{v.label}</option>
-                            ))}
+                            <VoiceOptions voices={forLanguage} current={config.tts_voice} />
                         </Select>
                     </Field>
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -291,9 +303,7 @@ function VoiceSection({ config, update, secrets, devices }) {
                 <Group title="Kokoro voice" description="The voice pack ships English only.">
                     <Field label="Voice">
                         <Select value={config.kokoro_voice || ''} onChange={(e) => update('kokoro_voice', e.target.value)}>
-                            {(chosen?.voices || []).map((v) => (
-                                <option key={v.id} value={v.id}>{v.label}</option>
-                            ))}
+                            <VoiceOptions voices={chosen?.voices || []} current={config.kokoro_voice} />
                         </Select>
                     </Field>
                     <Field label="Speed">
@@ -316,9 +326,7 @@ function VoiceSection({ config, update, secrets, devices }) {
                     </Field>
                     <Field label="Voice">
                         <Select value={config.orpheus_voice || ''} onChange={(e) => update('orpheus_voice', e.target.value)}>
-                            {(chosen?.voices || []).map((v) => (
-                                <option key={v.id} value={v.id}>{v.label}</option>
-                            ))}
+                            <VoiceOptions voices={chosen?.voices || []} current={config.orpheus_voice} />
                         </Select>
                     </Field>
                 </Group>
