@@ -13,6 +13,7 @@ import asyncio
 import time
 from typing import Any, List
 
+from src.core.language import write_in
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.mind.handoff")
@@ -75,8 +76,13 @@ class HandoffWorker:
     old window intact — losing a bridge must never lose the turns it was for.
     """
 
-    def __init__(self, llm: Any = None, *, noop_retry_seconds: float = 300.0) -> None:
+    def __init__(self, llm: Any = None, *, noop_retry_seconds: float = 300.0,
+                 language: str = "") -> None:
         self._llm = llm
+        # the recap is prose dropped straight into her context: written in the
+        # wrong language it is the single loudest pull away from the one the
+        # conversation is actually in
+        self.language = language
         self.running = False
         self.last_prose = ""
         self.swaps = 0
@@ -121,7 +127,7 @@ class HandoffWorker:
                 self._noop_until = time.time() + self.noop_retry_seconds
                 return ""
             reply = await self._llm.complete([
-                {"role": "system", "content": HANDOFF_SYSTEM},
+                {"role": "system", "content": f"{HANDOFF_SYSTEM} {write_in(self.language)}"},
                 {"role": "user", "content": build_handoff_payload(cold_text, self.last_prose)},
             ], tools=None)
             prose = normalize_handoff(getattr(reply, "content", ""))

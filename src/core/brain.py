@@ -314,7 +314,8 @@ class AIVtuberBrain:
             self.skill_registry.register(skill)
 
         # background passes that keep the cards and summaries fresh between dreams
-        self.profiler = Profiler(self.model_for(BACKGROUND), self.memory)
+        self.profiler = Profiler(self.model_for(BACKGROUND), self.memory,
+                                 language=self.config.language)
 
         # how she has been feeling, read by the prompt and by her voice alike
         self.affect = AffectState(self.config, self.memory, events=self.event_manager)

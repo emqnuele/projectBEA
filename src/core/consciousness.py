@@ -11,6 +11,7 @@ from src.core.agent.types import AssistantMessage, ToolCall, Usage
 from src.core.events import EventCategory
 from src.core.expression.chunking import spoken_prefix
 from src.core.expression.live import LiveLine
+from src.core.language import directive
 from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.handoff import HandoffWorker
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
@@ -95,7 +96,7 @@ class Consciousness:
             target_tokens=int(cc.get("handoff_target_tokens", 50_000)),
         ), hot_tokens=int(cc.get("hot_tokens", 30_000)),
             hot_seconds=float(cc.get("hot_seconds", 1800.0)))
-        self._handoff = HandoffWorker()
+        self._handoff = HandoffWorker(language=getattr(config, "language", ""))
         self._handoff_task: Optional[asyncio.Task] = None
         self._handoff_enabled = bool(cc.get("context_handoff", True))
         # the follow-up gate reads the one window, never sqlite: without this
@@ -541,8 +542,14 @@ class Consciousness:
         # the monologue rules are only true on an idle turn, so they belong to
         # the briefing rather than in here
         sections = self.surfaces.context_sections(exclude=("idle",))
+        # right after who she is, and in the cached half on purpose: which
+        # language to answer in is true for the whole session, and a Japanese
+        # line came back in English 5 times out of 8 without it — the prompt
+        # around it is ~16k characters of English and outweighed one message
+        language = directive(getattr(self.config, "language", ""))
         return {"role": "system",
-                "content": compose(self._get_soul(), self._get_operating(), *sections)}
+                "content": compose(self._get_soul(), language,
+                                   self._get_operating(), *sections)}
 
     def _briefing(self, batch: List[Perception], is_idle: bool = False,
                   dynamic: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
