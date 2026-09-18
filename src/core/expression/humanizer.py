@@ -10,14 +10,18 @@ can record what went out.
 
 import asyncio
 import random
-import re
 from typing import Awaitable, Callable, List, NamedTuple, Optional
+
+from src.utils.text_utils import display_width, sentences
 
 # discord's per-message ceiling. Telegram allows 4096 and twitch only 500, so
 # each platform overrides it — this is the safe default, not the truth
 HARD_LIMIT = 2000
 
-# past this, a single line gets broken by sentence — more human than one wall
+# past this, a single line gets broken by sentence — more human than one wall.
+# Measured in columns rather than characters: a kana is drawn twice as wide as
+# a latin letter, so counting characters made this twice as permissive in
+# Japanese and a wall of text arrived as one message.
 SOFT_SPLIT_THRESHOLD = 350
 
 
@@ -34,7 +38,9 @@ def _hard_split(text: str, limit: int = HARD_LIMIT) -> List[str]:
         return [text]
     chunks: List[str] = []
     current = ""
-    for sentence in re.split(r"(?<=[.!?])\s+", text):
+    # the same sentence rule the spoken side uses: two regexes that disagreed
+    # about what a sentence is left a Japanese line unsplit here and unspoken there
+    for sentence in sentences(text):
         if len(current) + len(sentence) + 1 <= limit:
             current = f"{current} {sentence}".strip()
             continue
@@ -52,10 +58,10 @@ def _hard_split(text: str, limit: int = HARD_LIMIT) -> List[str]:
 
 def _soft_split_long(line: str, limit: int = HARD_LIMIT) -> List[str]:
     """A long line, still under the limit: split by sentence to look human."""
-    if len(line) <= min(SOFT_SPLIT_THRESHOLD, limit):
+    if display_width(line) <= min(SOFT_SPLIT_THRESHOLD, limit):
         return [line]
-    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", line) if s.strip()]
-    return sentences if len(sentences) > 1 else [line]
+    pieces = sentences(line)
+    return pieces if len(pieces) > 1 else [line]
 
 
 class TextHumanizer:
