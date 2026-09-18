@@ -44,6 +44,7 @@ One resolver. Nothing else parses a language code.
 | `whisper_code(raw)` | a code to pin a transcriber to, or `None` to detect |
 | `options()` | `(code, label)` pairs for a menu, `AUTO` first |
 | `directive(raw)` | the `## LANGUAGE` block for the system prompt |
+| `speaks_first(raw)` | the line for a turn with nobody to mirror, or `""` |
 | `write_in(raw)` | one line telling a background pass which language to write in |
 
 `resolve` accepts a bare code (`it`), a regional tag (`it-IT`, `ja_JP`), an
@@ -132,9 +133,15 @@ See [STT modules](modules/stt.md).
 Every prompt in `data/prompts/` is editable and survives an update.
 
 The system prompt is composed as **soul → language directive → operating manual
-→ active skill sections**. The directive belongs in this cached half: which
-language to answer in is true for the whole session, and a volatile line at the
-top of a request costs the provider's prompt cache on every turn.
+→ active skill sections**. The directive belongs in this cached half: it says to
+mirror, which is true for the whole session, and a volatile line at the top of a
+request costs the provider's prompt cache on every turn.
+
+`directive()` returns the same block whatever `config.language` says. The
+language she *opens* in is `speaks_first()`, added to the per-turn briefing only
+on turns where no perception in the batch has an author. Whether anyone has
+written to her is something the loop knows, so it is stated rather than left for
+the model to infer — the same reasoning as the `[WHERE YOU ARE]` block.
 
 The shipped prompts are written in English and the directive carries the
 language. To change her voice and register in another language, point

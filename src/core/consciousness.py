@@ -11,7 +11,7 @@ from src.core.agent.types import AssistantMessage, ToolCall, Usage
 from src.core.events import EventCategory
 from src.core.expression.chunking import spoken_prefix
 from src.core.expression.live import LiveLine
-from src.core.language import directive
+from src.core.language import directive, speaks_first
 from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.handoff import HandoffWorker
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
@@ -563,6 +563,14 @@ class Consciousness:
         parts: List[str] = [
             f"CURRENT DATE: {datetime.datetime.now().strftime('%Y-%m-%d')}"
         ]
+
+        # whether anyone has written to her is something the loop knows, so it
+        # is told rather than inferred: the system prompt only ever says to
+        # mirror, and this is the turn where there is nobody to mirror
+        if not any(p.author for p in batch):
+            opening = speaks_first(getattr(self.config, "language", ""))
+            if opening:
+                parts.append(opening)
 
         if is_idle:
             idle = self.surfaces.get("idle")

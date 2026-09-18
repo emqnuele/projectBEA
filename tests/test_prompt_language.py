@@ -128,7 +128,68 @@ def test_the_system_prompt_carries_the_directive():
     built = compose(soul, directive("it"), operating)
 
     assert "language you were addressed in" in built
-    assert "speak Italiano" in built
     # it sits above the operating manual, so the manual's own English does not
     # get the last word on how to answer
     assert built.index("## LANGUAGE") < built.index(operating[:40])
+
+
+# --- who she opens in, told per turn ----------------------------------------
+
+
+def _mind(language: str):
+    """A Consciousness with everything around it stubbed but the config."""
+    from unittest.mock import MagicMock
+
+    from src.core.consciousness import Consciousness
+
+    config = MagicMock()
+    config.consciousness = {}
+    config.language = language
+
+    surfaces = MagicMock()
+    surfaces.live_states.return_value = []
+    surfaces.dynamic_context.return_value = []
+    surfaces.get.return_value = None
+
+    mind = Consciousness(
+        config=config, llm=MagicMock(), bus=MagicMock(), expression=MagicMock(),
+        surfaces=surfaces, history_manager=MagicMock(), event_manager=MagicMock(),
+        soul_getter=lambda: "soul", operating_getter=lambda: "operating",
+    )
+    mind.affect = None
+    return mind
+
+
+def _chat_perception():
+    from src.core.perception.types import Author, Perception, PerceptionKind
+
+    return Perception(PerceptionKind.CHAT, "telegram", "ciao",
+                      author=Author(platform="telegram", native_id="1",
+                                    display_name="Enzo"))
+
+
+def _idle_perception():
+    from src.core.perception.types import Perception, PerceptionKind
+
+    return Perception(PerceptionKind.IDLE, "stage", "nothing has happened")
+
+
+def test_she_is_told_which_language_to_open_in_when_nobody_wrote():
+    briefing = _mind("it")._briefing([_idle_perception()], is_idle=True)
+    assert "Speak Italiano" in briefing["content"]
+
+
+def test_an_empty_turn_counts_as_nobody_having_written():
+    briefing = _mind("ja")._briefing([])
+    assert "日本語" in briefing["content"]
+
+
+def test_she_is_told_nothing_when_there_is_someone_to_mirror():
+    """The system prompt already says to mirror; naming a language here fights it."""
+    briefing = _mind("it")._briefing([_chat_perception()])
+    assert "[LANGUAGE]" not in briefing["content"]
+
+
+def test_detection_names_no_opening_language_even_when_alone():
+    briefing = _mind("auto")._briefing([_idle_perception()], is_idle=True)
+    assert "[LANGUAGE]" not in briefing["content"]

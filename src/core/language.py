@@ -139,23 +139,38 @@ _MIRROR = (
     "when the line above it was English."
 )
 
-_SPEAKS_FIRST = (
-    "\nWhen you speak first and there is no one to mirror — thinking out loud, "
-    "starting something yourself — speak {endonym}."
-)
+# Scoped hard, and with the mirror restated after it. Left as one loose sentence
+# it bled into the answering case: a pinned language had her replying to English
+# in it, which is the exact failure the mirror exists to prevent.
+_SPEAKS_FIRST = "[LANGUAGE] Nobody has written to you. Speak {endonym}."
 
 
 def directive(raw: Optional[str]) -> str:
     """The `## LANGUAGE` block for the system prompt.
 
-    It belongs in the cached half of the prompt, not in the per-turn briefing:
-    it is true for the whole session, and a volatile line at the top of a
-    request costs the entire prompt cache on every single turn.
+    The same block whatever the configured language is, which is the point: the
+    only rule that belongs in a cached, always-present prompt is the one that is
+    always true. Naming a fallback language here too is what made her answer
+    English in Italian roughly one turn in eight — the model has to decide each
+    turn which of the two sentences it is in, and sometimes it decides wrong.
+
+    It belongs in the cached half of the prompt rather than in the per-turn
+    briefing: it is true for the whole session, and a volatile line at the top
+    of a request costs the entire prompt cache on every single turn.
+    """
+    return _MIRROR
+
+
+def speaks_first(raw: Optional[str]) -> str:
+    """The line for a turn where there is nobody to mirror, or "".
+
+    Injected per turn, because whether anyone has written to her is something
+    the loop knows for certain and the model would only be inferring. The same
+    reasoning as `[WHERE YOU ARE]`: deterministic facts about this moment come
+    from code, not from asking prose to work them out.
     """
     language = named(raw)
-    if language is None:
-        return _MIRROR
-    return _MIRROR + _SPEAKS_FIRST.format(endonym=language.endonym)
+    return "" if language is None else _SPEAKS_FIRST.format(endonym=language.endonym)
 
 
 def write_in(raw: Optional[str]) -> str:

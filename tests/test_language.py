@@ -8,6 +8,7 @@ from src.core.language import (
     named,
     options,
     resolve,
+    speaks_first,
     whisper_code,
     write_in,
 )
@@ -109,15 +110,23 @@ def test_the_directive_always_says_to_mirror():
         assert "language you were addressed in" in directive(code)
 
 
-def test_a_named_language_only_decides_who_speaks_first():
-    text = directive("it")
-    assert "speak Italiano" in text
-    # it must not claim to override the person she is talking to
-    assert "whatever language" not in text
+def test_the_directive_is_the_same_whatever_language_is_configured():
+    """The only rule an always-present prompt can carry is the always-true one."""
+    assert directive("it") == directive("ja") == directive("auto")
+    # naming a fallback here too leaves the model deciding which sentence it is
+    # in; which language she opens in is told per turn instead
+    assert "Italiano" not in directive("it")
 
 
-def test_detection_names_no_language_to_fall_back_on():
-    assert "speak " not in directive("auto")
+def test_the_opening_line_names_the_configured_language():
+    assert "日本語" in speaks_first("jp")
+    assert "Italiano" in speaks_first("it-IT")
+    assert "Nobody has written to you" in speaks_first("en")
+
+
+def test_detection_gives_no_opening_line_to_fall_back_on():
+    assert speaks_first("auto") == ""
+    assert speaks_first("klingon") == ""
 
 
 def test_background_passes_are_told_which_language_to_write_in():
