@@ -153,7 +153,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
             "brain_api_url": "http://127.0.0.1:8000",
             "admin_id": "",
             "duck_threshold_ms": 400,
-            "interrupt_threshold_ms": 3000,
+            "interrupt_threshold_ms": 4000,
             "fill_silences": true,
             "silence_seconds": 6.0,
             "silence_jitter_seconds": 2.0,

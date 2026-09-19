@@ -257,7 +257,7 @@ it never reads as local changes to the updater; an old
   "brain_api_url": "http://127.0.0.1:8000",
   "admin_id": "",
   "duck_threshold_ms": 400,
-  "interrupt_threshold_ms": 3000
+  "interrupt_threshold_ms": 4000
 }
 ```
 
@@ -273,7 +273,7 @@ it never reads as local changes to the updater; an old
 | `silence_jitter_seconds` | Random spread on that wait |
 | `silence_min_gap_seconds` | How long before she may fill another silence |
 | `unprompted_per_minute` | Hard limit on speaking up unasked |
-| `interrupt_threshold_ms` | Overlapping voiced speech before `POST /interrupt` (default `3000`). Overlap, not turn length — see [Barge-in](#the-bot) |
+| `interrupt_threshold_ms` | Overlapping voiced speech before `POST /interrupt` (default `4000`). Overlap, not turn length — see [Barge-in](#the-bot) |
 
 ---
 
