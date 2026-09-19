@@ -11,7 +11,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { createVoiceActivity, HANGOVER_MS, ONSET_MS } = require('../classes/VoiceActivity');
+const { createVoiceActivity, HANGOVER_MS, ONSET_MS, MAX_VOICE_MS } = require('../classes/VoiceActivity');
 const { createSpeechBuffer } = require('../classes/SpeechBuffer');
 const { downsampleMono16k, pcmToWav, BYTES_PER_MS } = require('../classes/Pcm');
 
@@ -40,6 +40,11 @@ const fan = (amp = 6000) => (t) => amp * (0.8 * Math.sin(2 * Math.PI * 70 * t)
     + 0.4 * Math.sin(2 * Math.PI * 140 * t) + 0.1 * (Math.random() * 2 - 1));
 
 const hiss = (amp = 6000) => (t) => amp * Math.sin(2 * Math.PI * 9000 * t);
+
+// steady, and sitting squarely in the speech band: music, a game, a television
+// left on in the room. Every per-frame question answers "voice" about this.
+const music = (amp = 4000) => (t) => amp * (Math.sin(2 * Math.PI * 400 * t)
+    + 0.6 * Math.sin(2 * Math.PI * 600 * t) + 0.4 * Math.sin(2 * Math.PI * 900 * t));
 const keyboard = (amp = 9000) => () => amp * (Math.random() * 2 - 1);
 const silence = () => () => 0;
 
@@ -170,6 +175,53 @@ test('a gap where nothing was transmitted does not teach it a new noise floor', 
 
     vad.silence(5000);
     assert.equal(vad.floor, learned, 'a client that stopped transmitting is not a quiet room');
+});
+
+test('music in somebody\'s room does not hold the gate open for the whole call', () => {
+    const vad = createVoiceActivity();
+    // nothing to learn a floor from first: this is the case where the very
+    // first packet anybody sends is already the thing that is not a voice
+    const seen = feed(vad, pcm(MAX_VOICE_MS + 2000, music()));
+
+    assert.ok(seen.some((f) => f.ended), 'it never let go');
+    assert.equal(vad.speaking, false, 'the room is still holding the floor');
+    assert.ok(vad.floor > 0, 'it let go without ever learning what the room sounds like');
+});
+
+test('the sound that held the floor too long does not take it again next frame', () => {
+    const vad = createVoiceActivity();
+    feed(vad, pcm(MAX_VOICE_MS + 2000, music()));
+
+    const after = feed(vad, pcm(3000, music()));
+    assert.ok(!after.some((f) => f.started), 'the same music was heard as a new voice');
+});
+
+test('a room that gets louder while somebody talks is still learned from', () => {
+    const vad = createVoiceActivity();
+    feed(vad, ROOM);
+    feed(vad, VOICE);
+    assert.equal(vad.speaking, true);
+
+    // they keep the floor, but what arrives now has no voice in it
+    feed(vad, pcm(2000, hiss(4000)));
+    assert.ok(vad.floor > 1000, `the floor never followed the room, sat at ${vad.floor}`);
+});
+
+test('a voice still cannot raise the bar it is measured against', () => {
+    const vad = createVoiceActivity();
+    feed(vad, ROOM);
+    feed(vad, pcm(3000, speech()));
+    assert.ok(vad.floor < 500, `a voice taught the gate its own level: ${vad.floor}`);
+});
+
+test('the hangover is not counted as somebody still talking', () => {
+    const vad = createVoiceActivity();
+    feed(vad, ROOM);
+    const said = feed(vad, pcm(400, speech())).reduce((sum, f) => sum + f.voicedMs, 0);
+    const waited = feed(vad, pcm(400, silence())).reduce((sum, f) => sum + f.voicedMs, 0);
+
+    assert.ok(said >= 300, `only ${said}ms of four tenths of a second of speech`);
+    assert.equal(waited, 0, 'the silence after it was counted as speech');
 });
 
 // --- one person's turn, out of the pieces discord delivers it in ----------

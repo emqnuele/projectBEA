@@ -20,8 +20,11 @@
  *  - **A noise floor that moves.** How far over *this person's own* background
  *    a sound has to climb, rather than over a number picked once. It follows a
  *    room getting quieter at once and a room getting louder slowly, and it is
- *    never updated while a voice is being heard — a voice must not raise the
- *    bar it is being measured against.
+ *    only ever learned from frames with no voice in them — a voice must not
+ *    raise the bar it is being measured against.
+ *  - **A limit on how long a voice can be one voice.** Everything above is a
+ *    question about a frame, and no question about a frame can tell a sentence
+ *    from a record playing. The answer that can is how long it has gone on.
  *
  * The floor is also left alone across the gaps where discord sends nothing at
  * all. Those gaps are not silence anybody heard: they are the other client
@@ -81,6 +84,19 @@ const ONSET_MS = 60;
  */
 const HANGOVER_MS = 500;
 
+/**
+ * And how long one unbroken run of it can last before it is not a voice at all.
+ *
+ * Nobody talks for fifteen seconds without a half-second pause. Something that
+ * does is steady and sits in the speech band — music, a game, a television, a
+ * stream playing in somebody's room — and the gate had no way to ever conclude
+ * that. The floor is only learned while nobody is talking, so a sound that
+ * latched the gate on its first packet froze the floor at zero, and the level
+ * it then had to fall under to be released was 100: digital silence. It held
+ * the gate open for the rest of the call.
+ */
+const MAX_VOICE_MS = 15000;
+
 // how fast the floor follows the room: down at once, up slowly
 const FLOOR_FALL = 0.25;
 const FLOOR_RISE = 0.02;
@@ -122,6 +138,7 @@ function createVoiceActivity(options = {}) {
     const {
         onsetMs = ONSET_MS,
         hangoverMs = HANGOVER_MS,
+        maxVoiceMs = MAX_VOICE_MS,
         minFocus = MIN_FOCUS,
     } = options;
 
@@ -140,6 +157,11 @@ function createVoiceActivity(options = {}) {
     let loudSince = null;
     let quietSince = null;
     let startedAt = null;
+    // the quietest this run has ever been. For a person it is the gap between
+    // two words, which is the room; for a sound that never stops it is the
+    // sound itself, which is what makes it the right thing to call the floor
+    // when a run has gone on too long to be anybody talking.
+    let quietest = null;
 
     /** One frame's loudness, and how much of it sits in the speech band. */
     function measure(block, offset) {
@@ -210,7 +232,15 @@ function createVoiceActivity(options = {}) {
                 const voiced = last.focus >= minFocus;
                 const loud = last.level > enter && voiced;
 
-                if (speaking) voicedMs += FRAME_MS;
+                // ms of this run that were actually a voice, rather than ms the
+                // run happened to span. The hangover holds the gate open across
+                // half a second of nothing, and counting that as speech is what
+                // let four tenths of a second of sound spread over three and a
+                // half count as somebody talking over her without stopping.
+                if (speaking) {
+                    if (voiced && last.level > exit) voicedMs += FRAME_MS;
+                    quietest = quietest === null ? last.level : Math.min(quietest, last.level);
+                }
 
                 if (!speaking) {
                     // the floor is only what this person's room sounds like when
@@ -226,9 +256,18 @@ function createVoiceActivity(options = {}) {
                             startedAt = loudSince;
                             loudSince = null;
                             quietSince = null;
+                            quietest = last.level;
                         }
                     }
                 } else if (last.level < exit || !voiced) {
+                    // a frame with no voice in it is the room, whoever is
+                    // holding the floor over it. Learning from those is what
+                    // lets the floor keep up with a room that got louder while
+                    // somebody was talking; a *voiced* frame still never raises
+                    // the bar it is itself measured against.
+                    if (!voiced) {
+                        floor += (last.level - floor) * (last.level < floor ? FLOOR_FALL : FLOOR_RISE);
+                    }
                     if (quietSince === null) quietSince = clock - FRAME_MS;
                     if (clock - quietSince >= hangoverMs) {
                         speaking = false;
@@ -238,6 +277,18 @@ function createVoiceActivity(options = {}) {
                     }
                 } else {
                     quietSince = null;
+                }
+
+                // longer than anybody speaks without pausing: it was never a
+                // voice. Its own quietest moment is what the room really sounds
+                // like, and adopting it is what stops the same sound taking the
+                // floor again on the very next frame.
+                if (speaking && clock - startedAt >= maxVoiceMs) {
+                    floor = Math.max(floor, quietest === null ? floor : quietest);
+                    speaking = false;
+                    ended = true;
+                    quietSince = null;
+                    startedAt = null;
                 }
             }
 
@@ -272,6 +323,7 @@ function createVoiceActivity(options = {}) {
             loudSince = null;
             quietSince = null;
             startedAt = null;
+            quietest = null;
         },
     };
 }
@@ -282,6 +334,7 @@ module.exports = {
     FRAME_BYTES,
     ONSET_MS,
     HANGOVER_MS,
+    MAX_VOICE_MS,
     MIN_FOCUS,
     SPEECH_LOW_HZ,
     SPEECH_HIGH_HZ,
