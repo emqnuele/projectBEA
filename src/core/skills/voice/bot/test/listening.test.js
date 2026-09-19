@@ -196,6 +196,31 @@ test('the sound that held the floor too long does not take it again next frame',
     assert.ok(!after.some((f) => f.started), 'the same music was heard as a new voice');
 });
 
+test('the pauses inside a sentence are not a quieter room', () => {
+    const vad = createVoiceActivity();
+    const background = music(900);
+
+    // the music has been on long enough for the gate to conclude it is the room
+    feed(vad, pcm(MAX_VOICE_MS + 1000, background));
+    assert.equal(vad.speaking, false, 'the music still has the floor');
+    const learned = vad.floor;
+    assert.ok(learned > 500, `the room was never learned, floor sat at ${learned}`);
+
+    // somebody talks, and a sentence has silence in it — quieter than the room
+    // has ever been, and not what the room sounds like
+    for (let i = 0; i < 4; i += 1) {
+        feed(vad, pcm(300, speech()));
+        feed(vad, pcm(200, silence()));
+    }
+    assert.ok(vad.floor > learned / 2,
+        `the gaps between words were learned as the room: ${vad.floor} from ${learned}`);
+
+    // they stop, and the music is all that is left
+    const after = feed(vad, pcm(3000, background));
+    assert.ok(after.some((f) => f.ended),
+        'the music kept the floor once the sentence over it had ended');
+});
+
 test('a room that gets louder while somebody talks is still learned from', () => {
     const vad = createVoiceActivity();
     feed(vad, ROOM);

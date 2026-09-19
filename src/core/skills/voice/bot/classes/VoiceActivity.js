@@ -261,12 +261,15 @@ function createVoiceActivity(options = {}) {
                     }
                 } else if (last.level < exit || !voiced) {
                     // a frame with no voice in it is the room, whoever is
-                    // holding the floor over it. Learning from those is what
-                    // lets the floor keep up with a room that got louder while
-                    // somebody was talking; a *voiced* frame still never raises
-                    // the bar it is itself measured against.
-                    if (!voiced) {
-                        floor += (last.level - floor) * (last.level < floor ? FLOOR_FALL : FLOOR_RISE);
+                    // holding the floor over it — so the floor keeps up with a
+                    // room that got louder while somebody was talking. Only
+                    // upward, though: the pauses inside a sentence are the
+                    // quietest the room ever is, and letting the floor drop to
+                    // them is what left a steady sound under the exit threshold
+                    // again the moment the sentence ended. A *voiced* frame
+                    // still never raises the bar it is itself measured against.
+                    if (!voiced && last.level > floor) {
+                        floor += (last.level - floor) * FLOOR_RISE;
                     }
                     if (quietSince === null) quietSince = clock - FRAME_MS;
                     if (clock - quietSince >= hangoverMs) {
