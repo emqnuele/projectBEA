@@ -14,11 +14,10 @@
  * socket in the meantime, and only then goes anywhere.
  *
  * The other thing this owns is what to do about somebody talking over her,
- * because that decision needs exactly the same signal: how long they have held
- * the floor *without stopping*. What was here before counted every loud block
- * since the stream opened and never put the count back, so a fan that cleared
- * the gate accumulated its way to an interruption in three seconds of nobody
- * saying anything.
+ * and that is a question about the two of them rather than about either one:
+ * how long they have been talking *while she was*. Counting how long they have
+ * been talking at all is what cut her off the instant she answered anybody
+ * already mid-sentence, which in a call is simply what answering looks like.
  *
  * Pure: audio and a clock in, decisions out. It holds a buffer, it does not
  * hold a socket.
@@ -31,6 +30,20 @@ const { BYTES_PER_MS, downsampleMono16k } = require('./Pcm');
 const MIN_SPEECH_MS = 250;
 
 /**
+ * How much of the run-up to somebody talking is kept in front of their turn.
+ *
+ * Every packet used to be appended, from whenever the last turn was sent, and
+ * the buffer was only ever emptied by sending one. So a turn arrived carrying
+ * however long the room had been transmitting before anybody opened their
+ * mouth — half a minute of it, in a room the gate never stopped listening to —
+ * and two sentences a quarter of a minute apart reached her as one.
+ *
+ * The onset is sixty milliseconds long and a hard consonant lives inside it,
+ * so the run-up is worth keeping. The rest of the room is not.
+ */
+const PREROLL_MS = 400;
+
+/**
  * How long a turn can run before it is cut and sent as it stands. Somebody who
  * talks for a minute straight should reach her in pieces rather than as a
  * minute of silence followed by a minute of audio — and nothing that grows
@@ -41,7 +54,7 @@ const MAX_TURN_MS = 30000;
 function createSpeechBuffer(options = {}) {
     const {
         duckMs = 400,
-        interruptMs = 3000,
+        interruptMs = 4000,
         minSpeechMs = MIN_SPEECH_MS,
         maxTurnMs = MAX_TURN_MS,
         hangoverMs = HANGOVER_MS,
@@ -54,6 +67,11 @@ function createSpeechBuffer(options = {}) {
     let heldMs = 0;
     let voicedMs = 0;
 
+    // and the last moments before it, kept rolling so that the start of a word
+    // is not the first thing thrown away
+    let preroll = [];
+    let prerollMs = 0;
+
     // what belongs to this unbroken run of talking, which is usually the same
     // thing — except when somebody talks for so long that the turn is cut and
     // sent while they are still going. Re-ducking her at every cut, or telling
@@ -65,6 +83,10 @@ function createSpeechBuffer(options = {}) {
     let overheard = false;
     let started = false;
 
+    // how long they have been talking *over her*, which is not how long they
+    // have been talking. See `act`.
+    let overlapMs = 0;
+
     let lastAt = null;
 
     function clearTurn() {
@@ -73,12 +95,18 @@ function createSpeechBuffer(options = {}) {
         voicedMs = 0;
     }
 
+    function clearPreroll() {
+        preroll = [];
+        prerollMs = 0;
+    }
+
     function clearRun() {
         ducking = false;
         pressed = false;
         interrupted = false;
         overheard = false;
         started = false;
+        overlapMs = 0;
     }
 
     /**
@@ -98,19 +126,33 @@ function createSpeechBuffer(options = {}) {
             overheard = Boolean(beaSpeaking);
         }
 
-        if (frame.speaking && beaSpeaking) {
-            if (!ducking && frame.speakingMs >= duckMs) {
+        if (beaSpeaking && frame.speaking) {
+            // seconds of somebody talking *over her*, counted from the moment
+            // she opened her mouth and out of frames that were actually a voice.
+            //
+            // What was counted before was the length of *their* run, which
+            // starts when they started. She decides to speak when she has
+            // something to say, not when the room goes quiet, so answering
+            // somebody already three seconds into a sentence met the threshold
+            // on the first frame and cut her off inside twenty milliseconds.
+            overlapMs += frame.voicedMs;
+            if (!ducking && overlapMs >= duckMs) {
                 ducking = true;
                 report.duck = true;
             }
-            if (!pressed && frame.speakingMs >= interruptMs) {
+            if (!pressed && overlapMs >= interruptMs) {
                 pressed = true;
                 interrupted = true;
                 report.interrupt = true;
             }
+        } else if (!beaSpeaking) {
+            // she has the floor to herself: there is nothing to talk over, and
+            // the next thing she says starts the count again from nothing
+            overlapMs = 0;
+            pressed = false;
         }
 
-        if (!frame.speaking && ducking) {
+        if (ducking && (!frame.speaking || !beaSpeaking)) {
             ducking = false;
             report.released = true;
         }
@@ -135,8 +177,28 @@ function createSpeechBuffer(options = {}) {
             // kept at 16 khz mono because that is the only form it ever leaves
             // in, and holding half a minute of 48 khz stereo per person in the
             // call to throw five sixths of it away at the end is a waste
-            chunks.push(downsampleMono16k(pcm));
-            heldMs += pcm.length / BYTES_PER_MS;
+            const mono = downsampleMono16k(pcm);
+            const ms = pcm.length / BYTES_PER_MS;
+
+            if (chunks.length || frame.started || frame.speaking) {
+                // the run-up comes with them the moment they are believed
+                if (!chunks.length) {
+                    for (const held of preroll) {
+                        chunks.push(held.pcm);
+                        heldMs += held.ms;
+                    }
+                    clearPreroll();
+                }
+                chunks.push(mono);
+                heldMs += ms;
+            } else {
+                preroll.push({ pcm: mono, ms });
+                prerollMs += ms;
+                while (preroll.length > 1 && prerollMs - preroll[0].ms >= PREROLL_MS) {
+                    prerollMs -= preroll.shift().ms;
+                }
+            }
+
             voicedMs += frame.voicedMs;
             return act(frame, beaSpeaking);
         },
@@ -171,6 +233,7 @@ function createSpeechBuffer(options = {}) {
         /** Somebody left mid-sentence: drop what they were saying. */
         abandon() {
             clearTurn();
+            clearPreroll();
             clearRun();
             activity.reset();
             lastAt = null;
@@ -178,4 +241,4 @@ function createSpeechBuffer(options = {}) {
     };
 }
 
-module.exports = { createSpeechBuffer, MIN_SPEECH_MS, MAX_TURN_MS };
+module.exports = { createSpeechBuffer, MIN_SPEECH_MS, MAX_TURN_MS, PREROLL_MS };

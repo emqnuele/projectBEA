@@ -379,6 +379,101 @@ test('a turn cut for length does not duck her all over again', () => {
     assert.equal(rest.filter((r) => r.interrupt).length, 0, 'the brain was told twice');
 });
 
+test('answering somebody already mid-sentence does not cut her off', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    // they have been going for four seconds. She decides to answer, which is
+    // what answering somebody looks like — the room does not go quiet first.
+    say(pcm(4000, speech()), buf, clock, false);
+    const seen = say(pcm(1000, speech()), buf, clock, true);
+
+    assert.ok(!seen.some((r) => r.interrupt),
+        'she was cut off for a second of overlap because they had started first');
+});
+
+test('the overlap is what stops her, and it is counted from when she started', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    say(pcm(4000, speech()), buf, clock, false);
+    const seen = say(pcm(3600, speech()), buf, clock, true);
+
+    const stoppedAt = seen.findIndex((r) => r.interrupt);
+    assert.ok(stoppedAt > 0, 'she never gave up the floor');
+    assert.ok(Math.abs(stoppedAt * 20 - 3000) < 200,
+        `stopped after ${stoppedAt * 20}ms of overlap, not 3000`);
+});
+
+test('each time she opens her mouth the count starts again', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    // they lean on her, she stops, and they carry straight on talking
+    const first = say(pcm(3600, speech()), buf, clock, true);
+    assert.ok(first.some((r) => r.interrupt));
+
+    say(pcm(2000, speech()), buf, clock, false);
+    const second = say(pcm(1000, speech()), buf, clock, true);
+    assert.ok(!second.some((r) => r.interrupt),
+        'the next thing she said was cut off by an overlap that was already over');
+});
+
+test('short interjections do not add up to somebody taking the floor', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    // "mh", "sì", a chair, a key: a tenth of a second at a time, with the
+    // hangover holding the run open across every gap between them. Six seconds
+    // of run, one second of anybody actually saying anything.
+    const seen = [];
+    for (let i = 0; i < 12; i += 1) {
+        seen.push(...say(pcm(100, speech()), buf, clock, true));
+        seen.push(...say(pcm(400, silence()), buf, clock, true));
+    }
+    assert.ok(!seen.some((r) => r.interrupt),
+        'a second of sound spread over six stopped her');
+});
+
+test('she comes back up when she stops, not only when they do', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    const over = say(pcm(800, speech()), buf, clock, true);
+    assert.ok(over.some((r) => r.duck), 'she was never turned down');
+
+    // she finished her sentence; they are still going
+    const after = say(pcm(400, speech()), buf, clock, false);
+    assert.ok(after.some((r) => r.released),
+        'she stays ducked for as long as somebody keeps talking near her');
+});
+
+test('a turn carries what was said, not the room before it', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    // the client transmits room tone for ten seconds before anybody speaks
+    say(pcm(10000, silence()), buf, clock);
+    say(pcm(1000, speech()), buf, clock);
+    quiet(HANGOVER_MS + 200, buf, clock);
+
+    const said = buf.take();
+    assert.ok(said, 'the sentence was thrown away');
+    assert.ok(said.ms < 2000, `${said.ms}ms of turn for a second of speech`);
+});
+
+test('the run-up to a word is kept, so the first consonant survives', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    say(pcm(3000, silence()), buf, clock);
+    say(pcm(1000, speech()), buf, clock);
+    quiet(HANGOVER_MS + 200, buf, clock);
+
+    const said = buf.take();
+    assert.ok(said.ms > 1000, `nothing was kept from before the onset: ${said.ms}ms`);
+});
+
 test('what is kept is what gets sent: mono, sixteen kilohertz', () => {
     const clock = { at: 0 };
     const buf = turn();
