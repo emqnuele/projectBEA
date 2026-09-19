@@ -63,7 +63,14 @@ by `DiscordTransport.start()`. The token is never written to `config.json` by
 the dashboard — `GET /config` masks it.
 
 If the bot process dies, `_watch_transport()` notices within two seconds and
-marks the capability inactive.
+brings it back after `restart_backoff`; a bot that never stays up for
+`healthy_after` seconds is refusing to run rather than crashing, so after
+`max_failed_starts` the surface says why once and goes inactive.
+
+`start()` checks that `api_port` is free before spawning anything. The bot binds
+that port only after it has logged into discord, so a port already in use — a
+previous bot that outlived its brain, or a second copy of her — used to reach
+the owner as a node stack trace, three restarts and a line blaming the token.
 
 ---
 
