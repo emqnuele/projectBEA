@@ -231,3 +231,27 @@ def test_a_hosted_engine_that_never_says_what_it_heard_still_works(monkeypatch, 
     engine.transcribe(clip(3.0))
     assert engine.transcribe(clip(0.4)) == "ok"
     assert "language" not in sent[-1], "a language was invented for it"
+
+
+# --- saying which language it is listening in --------------------------------
+
+
+def test_the_log_says_which_language_her_ears_are_pinned_to(caplog):
+    """The one setting that decides whether she hears anything usable, and the
+    only one nothing else would ever mention."""
+    from src.modules.STT.factory import build_stt
+
+    config = BrainConfig()
+    config.stt_provider = "groq"
+    config.groq_key = "gsk-test"
+
+    config.language = "it"
+    with caplog.at_level("INFO"):
+        build_stt(config)
+    assert "Italian" in caplog.text
+
+    caplog.clear()
+    config.language = "auto"
+    with caplog.at_level("INFO"):
+        build_stt(config)
+    assert "whatever language" in caplog.text
