@@ -1,5 +1,7 @@
+import errno
 import os
 import secrets
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +39,23 @@ class DiscordTransport:
 
     def _port(self) -> int:
         return self.config.skills.get("discord", {}).get("api_port", 3030)
+
+    def port_is_taken(self) -> bool:
+        """Is something already listening on the bot's API port?
+
+        The node bot binds the port only after it has logged into discord, so a
+        collision used to read as "the bot quit immediately" — three restarts
+        and a lecture about the token, for a port. Asking first costs one bind
+        and says the true thing instead.
+        """
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            # no SO_REUSEADDR on purpose: the question is whether the address is
+            # free, and reusing it is exactly what must not be allowed here
+            try:
+                probe.bind((LOOPBACK, self._port()))
+            except OSError as e:
+                return e.errno in (errno.EADDRINUSE, errno.EACCES)
+        return False
 
     def _brain_api_url(self) -> str:
         # where the node bot calls back into the brain (its senses)
@@ -85,6 +104,12 @@ class DiscordTransport:
         if node is None:
             logger.error("The discord bot is a node program and node is not installed. "
                          "Get node 20 or newer from https://nodejs.org.")
+            return False
+
+        if self.port_is_taken():
+            logger.error(f"Port {LOOPBACK}:{self._port()} is already in use, so the discord "
+                         "bot has nowhere to listen. Another copy of her is probably still "
+                         "running — close it, or give this one a different discord.api_port.")
             return False
 
         self.api_url = f"http://{LOOPBACK}:{self._port()}"

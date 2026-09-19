@@ -3,6 +3,7 @@ import asyncio
 import dataclasses
 import faulthandler
 import os
+import time
 
 from dotenv import load_dotenv
 
@@ -161,6 +162,59 @@ def apply_cli_overrides(config: BrainConfig, args) -> None:
         logger.info(f"CLI override: {name} = {value}")
 
 
+# what each shutdown step may hold the exit for. The save talks to an LLM, so
+# it gets the longer one; stopping the skills is local work that kills
+# subprocesses, and that has to happen even when she is asked to leave now.
+SAVE_GRACE = 30.0
+STOP_GRACE = 10.0
+
+
+async def run_to_completion(label: str, coro, grace: float) -> None:
+    """Runs one shutdown step whether or not ctrl+c is cancelling us.
+
+    ctrl+c cancels the task running `main`, and the cancellation lands on the
+    first `await` of the shutdown. `except Exception` never caught it —
+    CancelledError is not one — so every step after that await was skipped:
+    the discord bot outlived the brain and sat on its port until the next start
+    died on it. A step is shielded from that cancellation and bounded by its
+    own deadline instead, so a second ctrl+c still gets her out.
+    """
+    task = asyncio.ensure_future(coro)
+    deadline = time.monotonic() + grace
+    while not task.done():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.warning(f"{label} did not finish in {grace:.0f}s; carrying on without it.")
+            task.cancel()
+            # let it unwind, or the loop closes on a pending task and says so
+            try:
+                await asyncio.wait({task}, timeout=1.0)
+            except asyncio.CancelledError:
+                pass
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), remaining)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            continue
+        except Exception:
+            break
+    error = None if task.cancelled() else task.exception()
+    if error is not None:
+        logger.error(f"{label} failed: {error}")
+
+
+async def shutdown(brain: AIVtuberBrain) -> None:
+    """Puts her down: everything she was told, then everything she was holding."""
+    # save on ANY exit (clean stop, crash, ctrl+c): save_all_pending is
+    # idempotent (guards on entry_exists), so a double call is harmless
+    if brain.memory_skill and brain.memory_skill.enabled:
+        logger.info("Saving pending memories...")
+        await run_to_completion("Saving pending memories",
+                                brain.memory_skill.save_all_pending(), SAVE_GRACE)
+    await run_to_completion("Stopping the skills", brain.stop_skills(), STOP_GRACE)
+    brain.shutdown()
+
+
 async def main(args=None):
     args = args or parse_args()
 
@@ -224,16 +278,7 @@ async def main(args=None):
     except KeyboardInterrupt:
         logger.info("Stopping...")
     finally:
-        # save on ANY exit (clean stop, crash, ctrl+c): save_all_pending is
-        # idempotent (guards on entry_exists), so a double call is harmless
-        if brain.memory_skill and brain.memory_skill.enabled:
-            logger.info("Saving pending memories...")
-            try:
-                await brain.memory_skill.save_all_pending()
-            except Exception as e:
-                logger.error(f"Failed to save pending memories on shutdown: {e}")
-        await brain.stop_skills()
-        brain.shutdown()
+        await shutdown(brain)
 
 
 def run():
@@ -264,7 +309,12 @@ def run():
     if args.update:
         from src.core.update.console import run_update
         raise SystemExit(run_update(rebuild=not args.no_rebuild))
-    asyncio.run(main(args))
+    try:
+        asyncio.run(main(args))
+    except KeyboardInterrupt:
+        # ctrl+c is how this program is meant to be stopped, and a stack trace
+        # is not what "stop" should print
+        pass
 
 
 if __name__ == "__main__":

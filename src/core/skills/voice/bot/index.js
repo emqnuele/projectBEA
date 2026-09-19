@@ -5,7 +5,7 @@ const path = require('path');
 const config = require('./config');
 const whitelist = require('./whitelist');
 const messageHandler = require('./handlers/messages');
-const { createServer } = require('./api/server');
+const { createServer, listen } = require('./api/server');
 const VoiceManager = require('./classes/VoiceManager');
 
 if (!config.TOKEN) {
@@ -64,8 +64,15 @@ client.login(config.TOKEN).then(() => {
         token: config.API_TOKEN,
     });
     // BIND_HOST is loopback: the API has no business being on the network
-    app.listen(config.PORT, config.BIND_HOST, () => {
-        console.log(`Bot API listening on ${config.BIND_HOST}:${config.PORT}`);
+    listen(app, {
+        port: config.PORT,
+        host: config.BIND_HOST,
+        // a bot that is logged in but unreachable is worse than no bot: the
+        // brain would keep handing it work it cannot do
+        onError: () => {
+            client.destroy();
+            process.exit(1);
+        },
     });
 }).catch((err) => {
     console.error('Failed to login to Discord:', err);

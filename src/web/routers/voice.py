@@ -65,7 +65,10 @@ async def voice_push_channel(ws: WebSocket):
         await ws.close(code=1011)
         return
     if ws.headers.get("authorization") != f"Bearer {expected}":
-        logger.warning("Refused an unauthenticated connection to the voice channel")
+        # the usual sender is a bot left over from a previous run: it holds the
+        # token that process minted, and nothing on this one will take it
+        logger.warning("Refused an unauthenticated connection to the voice channel "
+                       "(a discord bot from an earlier run?)")
         await ws.close(code=1008)
         return
 

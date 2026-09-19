@@ -80,9 +80,15 @@ The generator runs on the **`background`** model pool, never on the mind's — a
 diary is not worth the good model, and it must not compete with the part of her
 that talks to people.
 
-On shutdown, `save_all_pending()` is awaited in the `finally` block of
-`src/cli.py`, so the current session is written on a clean stop, a crash **and**
-a Ctrl+C. It guards on existence, so a double call is harmless.
+On shutdown, `save_all_pending()` is awaited by `shutdown()` in `src/cli.py`,
+so the current session is written on a clean stop, a crash **and** a Ctrl+C. It
+guards on existence, so a double call is harmless.
+
+Every shutdown step runs through `run_to_completion()`, which shields it from
+the cancellation Ctrl+C aims at `main` and bounds it with its own deadline
+(`SAVE_GRACE`, 30s — the save talks to an LLM). A step that is interrupted or
+runs out of time is logged and skipped; the steps after it still run, because
+the last of them is what stops the skills and kills their subprocesses.
 
 `POST /memory/save` triggers the same pass for the live session from the
 dashboard.

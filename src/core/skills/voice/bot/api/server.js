@@ -176,4 +176,23 @@ function createServer({ client, voiceManager, token, env = process.env }) {
     return app;
 }
 
-module.exports = { createServer };
+// listening is where the bot meets the rest of the machine, and express throws
+// an unhandled 'error' event at the process when that goes wrong: a v8 stack
+// trace for a busy port, which says nothing to whoever has to fix it.
+function listen(app, { port, host, onError }) {
+    const server = app.listen(port, host, () => {
+        console.log(`Bot API listening on ${host}:${port}`);
+    });
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.error(`Bot API port ${host}:${port} is already taken — another bot is `
+                + 'still running on it. Close it, or change discord.api_port.');
+        } else {
+            console.error(`Bot API could not listen on ${host}:${port}:`, err.message);
+        }
+        onError(err);
+    });
+    return server;
+}
+
+module.exports = { createServer, listen };
