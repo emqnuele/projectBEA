@@ -41,6 +41,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
 
 ```json
 {
+    "config_version": 1,
     "language": "auto",
     "soul_path": "data/prompts/soul.md",
     "system_prompt_path": "data/prompts/chat.md",
@@ -152,7 +153,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
             "brain_api_url": "http://127.0.0.1:8000",
             "admin_id": "",
             "duck_threshold_ms": 400,
-            "interrupt_threshold_ms": 3000,
+            "interrupt_threshold_ms": 4000,
             "fill_silences": true,
             "silence_seconds": 6.0,
             "silence_jitter_seconds": 2.0,
@@ -243,6 +244,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
 
 | Key | Default | Description |
 |---|---|---|
+| `config_version` | `1` | Config schema version (`src/core/config.py`). Bump only on meaning change. See [Languages](languages.md#config_version) |
 | `language` | `"auto"` | Pins the transcriber, and names the language she uses when she speaks first. What she *answers* in is the language of the message she is answering — see [Languages](languages.md) |
 | `soul_path` | `data/prompts/soul.md` | Who she is. Prepended to every context, never edited by the engine |
 | `operating_prompt_path` | `data/prompts/operating.md` | How she exists: the `speak` tool, the moods, what she notices |

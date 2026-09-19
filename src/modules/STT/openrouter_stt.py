@@ -7,6 +7,7 @@ import requests
 from src.core.config import BrainConfig
 from src.core.language import whisper_code
 from src.interfaces.base_interfaces import STTInterface
+from src.modules.STT.heard import HeardLanguage, clip_seconds
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stt.openrouter")
@@ -29,6 +30,10 @@ class OpenRouterSTT(STTInterface):
         else:
             self.model = raw_model
 
+        # a turn too short to place borrows the last one that was not. Same
+        # problem here as on the local engine: it is the audio, not the api
+        self.heard = HeardLanguage()
+
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         # resolved rather than passed through: the api rejects `jp` and `it-IT`,
         # and an unset language has to become "detect it" rather than the word
@@ -41,6 +46,9 @@ class OpenRouterSTT(STTInterface):
         if not os.path.exists(audio_path):
             logger.error(f"Audio file not found at {audio_path}")
             return ""
+
+        seconds = clip_seconds(audio_path)
+        pin = self.heard.pin_for(lang, seconds)
 
         try:
             # get audio format from file extension
@@ -63,13 +71,18 @@ class OpenRouterSTT(STTInterface):
                     "format": ext
                 }
             }
-            if lang:
-                payload["language"] = lang
+            if pin:
+                payload["language"] = pin
 
             response = requests.post(url, headers=headers, json=payload, timeout=30)
             if response.status_code == 200:
                 result = response.json()
                 text = result.get("text", "")
+                # not every model behind this endpoint says what it heard; one
+                # that does not simply never settles a language, which leaves
+                # short turns exactly where they were
+                if pin is None:
+                    self.heard.remember(result.get("language"), seconds)
                 logger.info(f"OpenRouter Transcription result: '{text}'")
                 return text
             else:

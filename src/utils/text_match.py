@@ -3,9 +3,17 @@
 A plain `in` makes "bea" fire on "beautiful" and "beach". These match on word
 boundaries, with a fuzzy variant that tolerates one typo so "beatrcie" still
 reaches her.
+
+The other question here is looser: how much of one line is made of another.
+Two things ask it — telling her own voice off somebody's speakers from
+something they said, and telling whether the transcriber heard the line the
+diagnostic just made her say — and both get their text from a transcriber, so
+both need an answer that survives the edges being wrong.
 """
 
 import re
+import unicodedata
+from difflib import SequenceMatcher
 from functools import lru_cache
 from typing import Iterable
 
@@ -124,3 +132,34 @@ def contains_any_word_fuzzy(text: str, words: Iterable[str]) -> bool:
             if _within_one_edit(token, target) or _within_one_edit(squeezed, _squeeze(target)):
                 return True
     return False
+
+
+# --- how much of one line is the other ---------------------------------------
+
+
+def plain(text: str) -> str:
+    """Letters and digits, lowercase, single-spaced. Punctuation is noise here.
+
+    A transcriber's punctuation is its own invention — the same sentence comes
+    back with a full stop one time and a question mark the next — so nothing
+    that compares two transcripts should be looking at any of it.
+    """
+    kept = [
+        character.lower() if unicodedata.category(character)[0] in "LN" else " "
+        for character in unicodedata.normalize("NFKC", text or "")
+    ]
+    return " ".join("".join(kept).split())
+
+
+def overlap(heard: str, said: str) -> float:
+    """How much of `heard` is made of runs of `said`, from 0 to 1.
+
+    Character by character rather than word by word: a transcriber gets the
+    edges wrong ("could you say it again" comes back as "could you say that
+    again"), and a script written without spaces has no words to compare.
+    Both arguments are expected to have been through `plain` already.
+    """
+    if not heard or not said:
+        return 0.0
+    matcher = SequenceMatcher(None, said, heard, autojunk=False)
+    return sum(block.size for block in matcher.get_matching_blocks()) / len(heard)

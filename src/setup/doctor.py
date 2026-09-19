@@ -40,6 +40,7 @@ from src.core.stage import installed_clips
 # the module itself is cheap; only the builders inside it import a backend
 from src.modules.STT.factory import LOCAL as STT_LOCAL
 from src.modules.tts.providers import warnings as voice_warnings
+from src.utils.text_match import overlap, plain
 
 ENV_FILE = Path(".env")
 
@@ -76,6 +77,10 @@ DEFAULT_PORT = 8000
 
 # how long a network call gets before the check counts it as down. A diagnostic
 # that hangs on one cold provider is worse than one that says so.
+# how much of what came back has to be the line she was made to say. Not all of
+# it: a transcriber adding a comma or dropping a final vowel is not a fault.
+EARS_HEARD_ENOUGH = 0.5
+
 PROVIDER_CALL_TIMEOUT = 30.0
 EARS_ROUND_TRIP_TIMEOUT = 60.0
 # a local transcriber's first run downloads a few hundred MB before it hears
@@ -380,24 +385,34 @@ async def check_ears(config: BrainConfig) -> Finding:
         return failed(f"{config.stt_provider} could not transcribe ({e})",
                       _ears_fix(config))
 
+    line = test_line(config)
     if not heard:
         return failed(f"{config.stt_provider} heard nothing at all",
                       _ears_fix(config))
-    words = {w.strip(".,!?").lower() for w in heard.split()}
-    if not words & set(TEST_LINE.split()):
-        return warned(f"it heard {heard!r} instead of {TEST_LINE!r}",
+    # compared as text rather than as words: half the languages this line comes
+    # in are written without spaces, and the old word-set comparison scored
+    # every one of them zero
+    if overlap(plain(heard), plain(line)) < EARS_HEARD_ENOUGH:
+        return warned(f"it heard {heard!r} instead of {line!r}",
                       "Not necessarily wrong — but a different STT model may "
                       "serve you better.")
     return passed(f"{config.stt_provider} heard {heard.strip()!r}")
 
 
 def _round_trip(config: BrainConfig) -> str:
-    """The ears check's sync body: build both sides, say a line, hear it back."""
+    """The ears check's sync body: build both sides, say a line, hear it back.
+
+    In the language she is configured for, which is the whole point of the
+    check. Saying an english line and hearing it back proved only that the two
+    engines were alive: an install pinned to the wrong language passed this
+    exactly as cleanly as a working one, which is how a transcriber that turned
+    every italian sentence into english went unnoticed.
+    """
     from src.modules.STT.factory import build_stt
     from src.modules.tts.factory import build_tts
 
     stt = build_stt(config)
-    audio, rate = asyncio.run(build_tts(config).generate_audio(TEST_LINE))
+    audio, rate = asyncio.run(build_tts(config).generate_audio(test_line(config)))
     return _transcribe(stt, audio, rate)
 
 

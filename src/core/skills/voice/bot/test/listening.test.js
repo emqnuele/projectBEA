@@ -11,9 +11,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { createVoiceActivity, HANGOVER_MS, ONSET_MS } = require('../classes/VoiceActivity');
+const { createVoiceActivity, HANGOVER_MS, ONSET_MS, MAX_VOICE_MS } = require('../classes/VoiceActivity');
 const { createSpeechBuffer } = require('../classes/SpeechBuffer');
-const { downsampleMono16k, pcmToWav, BYTES_PER_MS } = require('../classes/Pcm');
+const { createDownsampler, downsampleMono16k, pcmToWav, BYTES_PER_MS } = require('../classes/Pcm');
 
 const RATE = 48000;
 
@@ -40,6 +40,11 @@ const fan = (amp = 6000) => (t) => amp * (0.8 * Math.sin(2 * Math.PI * 70 * t)
     + 0.4 * Math.sin(2 * Math.PI * 140 * t) + 0.1 * (Math.random() * 2 - 1));
 
 const hiss = (amp = 6000) => (t) => amp * Math.sin(2 * Math.PI * 9000 * t);
+
+// steady, and sitting squarely in the speech band: music, a game, a television
+// left on in the room. Every per-frame question answers "voice" about this.
+const music = (amp = 4000) => (t) => amp * (Math.sin(2 * Math.PI * 400 * t)
+    + 0.6 * Math.sin(2 * Math.PI * 600 * t) + 0.4 * Math.sin(2 * Math.PI * 900 * t));
 const keyboard = (amp = 9000) => () => amp * (Math.random() * 2 - 1);
 const silence = () => () => 0;
 
@@ -170,6 +175,78 @@ test('a gap where nothing was transmitted does not teach it a new noise floor', 
 
     vad.silence(5000);
     assert.equal(vad.floor, learned, 'a client that stopped transmitting is not a quiet room');
+});
+
+test('music in somebody\'s room does not hold the gate open for the whole call', () => {
+    const vad = createVoiceActivity();
+    // nothing to learn a floor from first: this is the case where the very
+    // first packet anybody sends is already the thing that is not a voice
+    const seen = feed(vad, pcm(MAX_VOICE_MS + 2000, music()));
+
+    assert.ok(seen.some((f) => f.ended), 'it never let go');
+    assert.equal(vad.speaking, false, 'the room is still holding the floor');
+    assert.ok(vad.floor > 0, 'it let go without ever learning what the room sounds like');
+});
+
+test('the sound that held the floor too long does not take it again next frame', () => {
+    const vad = createVoiceActivity();
+    feed(vad, pcm(MAX_VOICE_MS + 2000, music()));
+
+    const after = feed(vad, pcm(3000, music()));
+    assert.ok(!after.some((f) => f.started), 'the same music was heard as a new voice');
+});
+
+test('the pauses inside a sentence are not a quieter room', () => {
+    const vad = createVoiceActivity();
+    const background = music(900);
+
+    // the music has been on long enough for the gate to conclude it is the room
+    feed(vad, pcm(MAX_VOICE_MS + 1000, background));
+    assert.equal(vad.speaking, false, 'the music still has the floor');
+    const learned = vad.floor;
+    assert.ok(learned > 500, `the room was never learned, floor sat at ${learned}`);
+
+    // somebody talks, and a sentence has silence in it — quieter than the room
+    // has ever been, and not what the room sounds like
+    for (let i = 0; i < 4; i += 1) {
+        feed(vad, pcm(300, speech()));
+        feed(vad, pcm(200, silence()));
+    }
+    assert.ok(vad.floor > learned / 2,
+        `the gaps between words were learned as the room: ${vad.floor} from ${learned}`);
+
+    // they stop, and the music is all that is left
+    const after = feed(vad, pcm(3000, background));
+    assert.ok(after.some((f) => f.ended),
+        'the music kept the floor once the sentence over it had ended');
+});
+
+test('a room that gets louder while somebody talks is still learned from', () => {
+    const vad = createVoiceActivity();
+    feed(vad, ROOM);
+    feed(vad, VOICE);
+    assert.equal(vad.speaking, true);
+
+    // they keep the floor, but what arrives now has no voice in it
+    feed(vad, pcm(2000, hiss(4000)));
+    assert.ok(vad.floor > 1000, `the floor never followed the room, sat at ${vad.floor}`);
+});
+
+test('a voice still cannot raise the bar it is measured against', () => {
+    const vad = createVoiceActivity();
+    feed(vad, ROOM);
+    feed(vad, pcm(3000, speech()));
+    assert.ok(vad.floor < 500, `a voice taught the gate its own level: ${vad.floor}`);
+});
+
+test('the hangover is not counted as somebody still talking', () => {
+    const vad = createVoiceActivity();
+    feed(vad, ROOM);
+    const said = feed(vad, pcm(400, speech())).reduce((sum, f) => sum + f.voicedMs, 0);
+    const waited = feed(vad, pcm(400, silence())).reduce((sum, f) => sum + f.voicedMs, 0);
+
+    assert.ok(said >= 300, `only ${said}ms of four tenths of a second of speech`);
+    assert.equal(waited, 0, 'the silence after it was counted as speech');
 });
 
 // --- one person's turn, out of the pieces discord delivers it in ----------
@@ -327,6 +404,101 @@ test('a turn cut for length does not duck her all over again', () => {
     assert.equal(rest.filter((r) => r.interrupt).length, 0, 'the brain was told twice');
 });
 
+test('answering somebody already mid-sentence does not cut her off', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    // they have been going for four seconds. She decides to answer, which is
+    // what answering somebody looks like — the room does not go quiet first.
+    say(pcm(4000, speech()), buf, clock, false);
+    const seen = say(pcm(1000, speech()), buf, clock, true);
+
+    assert.ok(!seen.some((r) => r.interrupt),
+        'she was cut off for a second of overlap because they had started first');
+});
+
+test('the overlap is what stops her, and it is counted from when she started', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    say(pcm(4000, speech()), buf, clock, false);
+    const seen = say(pcm(3600, speech()), buf, clock, true);
+
+    const stoppedAt = seen.findIndex((r) => r.interrupt);
+    assert.ok(stoppedAt > 0, 'she never gave up the floor');
+    assert.ok(Math.abs(stoppedAt * 20 - 3000) < 200,
+        `stopped after ${stoppedAt * 20}ms of overlap, not 3000`);
+});
+
+test('each time she opens her mouth the count starts again', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    // they lean on her, she stops, and they carry straight on talking
+    const first = say(pcm(3600, speech()), buf, clock, true);
+    assert.ok(first.some((r) => r.interrupt));
+
+    say(pcm(2000, speech()), buf, clock, false);
+    const second = say(pcm(1000, speech()), buf, clock, true);
+    assert.ok(!second.some((r) => r.interrupt),
+        'the next thing she said was cut off by an overlap that was already over');
+});
+
+test('short interjections do not add up to somebody taking the floor', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    // "mh", "sì", a chair, a key: a tenth of a second at a time, with the
+    // hangover holding the run open across every gap between them. Six seconds
+    // of run, one second of anybody actually saying anything.
+    const seen = [];
+    for (let i = 0; i < 12; i += 1) {
+        seen.push(...say(pcm(100, speech()), buf, clock, true));
+        seen.push(...say(pcm(400, silence()), buf, clock, true));
+    }
+    assert.ok(!seen.some((r) => r.interrupt),
+        'a second of sound spread over six stopped her');
+});
+
+test('she comes back up when she stops, not only when they do', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    const over = say(pcm(800, speech()), buf, clock, true);
+    assert.ok(over.some((r) => r.duck), 'she was never turned down');
+
+    // she finished her sentence; they are still going
+    const after = say(pcm(400, speech()), buf, clock, false);
+    assert.ok(after.some((r) => r.released),
+        'she stays ducked for as long as somebody keeps talking near her');
+});
+
+test('a turn carries what was said, not the room before it', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    // the client transmits room tone for ten seconds before anybody speaks
+    say(pcm(10000, silence()), buf, clock);
+    say(pcm(1000, speech()), buf, clock);
+    quiet(HANGOVER_MS + 200, buf, clock);
+
+    const said = buf.take();
+    assert.ok(said, 'the sentence was thrown away');
+    assert.ok(said.ms < 2000, `${said.ms}ms of turn for a second of speech`);
+});
+
+test('the run-up to a word is kept, so the first consonant survives', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    say(pcm(3000, silence()), buf, clock);
+    say(pcm(1000, speech()), buf, clock);
+    quiet(HANGOVER_MS + 200, buf, clock);
+
+    const said = buf.take();
+    assert.ok(said.ms > 1000, `nothing was kept from before the onset: ${said.ms}ms`);
+});
+
 test('what is kept is what gets sent: mono, sixteen kilohertz', () => {
     const clock = { at: 0 };
     const buf = turn();
@@ -351,15 +523,31 @@ test('a turn abandoned leaves nothing behind for the next one', () => {
 
 // --- the samples on the way out ------------------------------------------
 
-test('the rate is dropped by averaging, not by throwing samples away', () => {
-    // 16 khz is exactly the frequency that folds onto silence when two samples
-    // in three are dropped; keeping one would let it through at full strength
-    const fold = pcm(200, (t) => 10000 * Math.sin(2 * Math.PI * 16000 * t));
-    const out = downsampleMono16k(fold);
+/** The level of 16khz mono output, past the filter's ramp-in. */
+function level(out, skipSamples = 200) {
+    let sum = 0;
+    let counted = 0;
+    for (let i = skipSamples * 2; i + 1 < out.length; i += 2) {
+        const sample = out.readInt16LE(i);
+        sum += sample * sample;
+        counted += 1;
+    }
+    return counted ? Math.sqrt(sum / counted) : 0;
+}
 
-    let peak = 0;
-    for (let i = 0; i < out.length; i += 2) peak = Math.max(peak, Math.abs(out.readInt16LE(i)));
-    assert.ok(peak < 1000, `a 16 khz tone came through at ${peak}`);
+const tone = (hz, amp = 12000) => (t) => amp * Math.sin(2 * Math.PI * hz * t);
+
+test('nothing above eight kilohertz is folded down onto the speech', () => {
+    // everything up there arrives somewhere under 8 khz when two samples in
+    // three are thrown away, and 10 khz lands at 6: squarely on a voice
+    const reference = level(downsampleMono16k(pcm(500, tone(1000))));
+
+    for (const [hz, lands] of [[10000, 6000], [13000, 3000], [20000, 4000]]) {
+        const folded = level(downsampleMono16k(pcm(500, tone(hz))));
+        const down = 20 * Math.log10(Math.max(folded, 1e-9) / reference);
+        assert.ok(down < -40,
+            `${hz} Hz folded onto ${lands} Hz only ${(-down).toFixed(1)} dB down`);
+    }
 });
 
 test('a voice survives the trip down to sixteen kilohertz', () => {
@@ -367,6 +555,39 @@ test('a voice survives the trip down to sixteen kilohertz', () => {
     let peak = 0;
     for (let i = 0; i < out.length; i += 2) peak = Math.max(peak, Math.abs(out.readInt16LE(i)));
     assert.ok(peak > 3000, `a voice came out at ${peak}`);
+});
+
+test('the speech band comes through at the level it went in at', () => {
+    // it runs in front of a gate that reads levels: a resampler that quietly
+    // changes the volume would move the threshold somebody has to clear
+    for (const hz of [300, 1000, 3000]) {
+        const before = level(pcm(500, tone(hz)), 0) / 1;
+        const after = level(downsampleMono16k(pcm(500, tone(hz))));
+        assert.ok(Math.abs(20 * Math.log10(after / before)) < 1,
+            `${hz} Hz came out ${(20 * Math.log10(after / before)).toFixed(1)} dB off`);
+    }
+});
+
+test('a stream filtered packet by packet is the same audio as one buffer', () => {
+    // discord hands over twenty milliseconds at a time, and a filter restarted
+    // at every packet puts a discontinuity into the audio fifty times a second
+    const whole = pcm(500, speech());
+    const atOnce = downsampleMono16k(whole);
+
+    const downsample = createDownsampler();
+    const step = Math.round(20 * BYTES_PER_MS);
+    const pieces = [];
+    for (let at = 0; at + step <= whole.length; at += step) {
+        pieces.push(downsample(whole.subarray(at, at + step)));
+    }
+    const streamed = Buffer.concat(pieces);
+
+    assert.equal(streamed.length, atOnce.length, 'a different number of samples came out');
+    let worst = 0;
+    for (let i = 0; i + 1 < streamed.length; i += 2) {
+        worst = Math.max(worst, Math.abs(streamed.readInt16LE(i) - atOnce.readInt16LE(i)));
+    }
+    assert.ok(worst <= 1, `the packet boundaries moved samples by up to ${worst}`);
 });
 
 test('the wav header says what the file actually is', () => {

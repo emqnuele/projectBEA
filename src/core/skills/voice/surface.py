@@ -9,6 +9,7 @@ from src.core.floor import FloorController
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.platform import PlatformSkill
 from src.core.skills.voice.channel import VoiceChannel
+from src.core.skills.voice.echo import is_echo
 from src.core.skills.voice.latency import TRANSPORT, VoiceLatency
 from src.core.skills.voice.transport import DiscordTransport
 from src.utils.logger import get_logger
@@ -262,7 +263,15 @@ class VoiceSurface(PlatformSkill):
 
     def perceive(self, transcript: str, user: str, meta: Optional[Dict[str, Any]] = None,
                  user_id: Optional[str] = None, whitelisted: bool = True,
-                 listeners: Optional[int] = None) -> Perception:
+                 listeners: Optional[int] = None) -> Optional[Perception]:
+        """One thing heard in the call. None when it was her own voice."""
+        # anybody in the call on speakers sends her back to herself, and the
+        # transcriber has no way to know it was her. Deposited as a perception
+        # she answers it, and the answer comes back too. See voice/echo.py
+        if is_echo(transcript, self.channel.recent_texts()):
+            logger.info(f"Ignored her own voice coming back from {user}: '{transcript}'")
+            return None
+
         # `listeners` is how many humans are in the call with her. At one, every
         # word is said to her and the gate can stop rolling dice — the rule has
         # always been in attention/rules.py, nobody was ever setting the flag

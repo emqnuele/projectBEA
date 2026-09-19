@@ -130,11 +130,51 @@ def test_a_fresh_config_detects_rather_than_assuming_english():
     assert normalize_language(BrainConfig().language) is None
 
 
-def test_an_existing_config_keeps_the_language_it_was_given(tmp_path, monkeypatch):
-    """The new default must not rewrite a config.json that already says `en`."""
+def test_a_config_written_before_the_setting_existed_stops_pinning_english(
+        tmp_path, monkeypatch):
+    """`en` there is the default it used to have, not an answer anybody gave.
+
+    This test used to assert the opposite, and the opposite is what every
+    updated install shipped with: whisper does not fail on a wrong pin, it
+    translates, so italian speech came back as fluent english and nothing said
+    why. A file with no `config_version` predates the question being asked.
+    """
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.json").write_text('{"language": "en"}', encoding="utf-8")
     config = BrainConfig()
     config.load_from_file()
+    assert config.language == "auto"
+    assert os.path.exists("config.json"), "her config was rewritten underneath her"
+
+
+def test_english_chosen_since_then_is_left_alone(tmp_path, monkeypatch):
+    """Once the file says which shape it is, `en` is an answer and is kept."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.json").write_text(
+        '{"config_version": 1, "language": "en"}', encoding="utf-8")
+    config = BrainConfig()
+    config.load_from_file()
     assert config.language == "en"
-    assert os.path.exists("config.json")
+
+
+def test_any_other_language_is_never_touched(tmp_path, monkeypatch):
+    """Only english was ever a default; everything else was chosen."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.json").write_text('{"language": "it"}', encoding="utf-8")
+    config = BrainConfig()
+    config.load_from_file()
+    assert config.language == "it"
+
+
+def test_saving_writes_down_which_shape_the_file_is(tmp_path, monkeypatch):
+    """So the migration above runs once rather than every time she starts."""
+    import json
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.json").write_text('{"language": "en"}', encoding="utf-8")
+    config = BrainConfig()
+    config.language = "en"
+    config.save_to_file()
+
+    assert json.loads((tmp_path / "config.json").read_text())["config_version"] == 1
+    assert BrainConfig().language == "en", "the choice was migrated away again"

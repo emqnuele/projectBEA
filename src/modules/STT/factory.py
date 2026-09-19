@@ -6,6 +6,7 @@ at, and a transcriber nobody configured should not be a startup error.
 
 from typing import Callable, Dict, Optional
 
+from src.core import language as language_module
 from src.interfaces.base_interfaces import STTInterface
 from src.utils.logger import get_logger
 
@@ -48,5 +49,11 @@ def build_stt(config) -> Optional[STTInterface]:
                        f"Valid: {', '.join(sorted(BUILDERS))}.")
         return None
     stt = builder(config)
-    logger.info(f"STT backend: {name}")
+    # said out loud because it is the setting that decides whether she hears
+    # anything usable, and the only one nothing else would ever mention: a
+    # transcriber pinned to the wrong language does not fail, it translates
+    pinned = language_module.named(getattr(config, "language", ""))
+    logger.info(f"STT backend: {name}, listening in "
+                + (f"{pinned.english_name} ({pinned.code})" if pinned
+                   else "whatever language it hears"))
     return stt

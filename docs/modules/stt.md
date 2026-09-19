@@ -45,9 +45,18 @@ Returns the transcript, or an empty string on failure. Both methods are
 a missing field rather than a literal.
 
 A pin is only worth setting when the language is known in advance. A wrong one
-is worse than none — whisper will transcribe *into* the language it was told,
-so Italian speech pinned to `ja` comes back as invented Japanese. The default
-is `auto`.
+is worse than none: whisper transcribes *into* the language it was told, so
+Italian pinned to `ja` comes back as Japanese and Italian pinned to `en` comes
+back as English. No error is raised, so `build_stt()` logs the effective
+language at startup (`src/modules/STT/factory.py`):
+
+```
+STT backend: faster_whisper, listening in Italian (it)
+STT backend: faster_whisper, listening in whatever language it hears
+```
+
+The default is `auto`. Turns shorter than `MIN_DETECT_SECONDS` reuse the last
+reliable detection — see [Languages](../languages.md#short-turns).
 
 ---
 
@@ -84,6 +93,13 @@ The weights come from a public repo: no account, no key. `uv run bea --setup`
 offers to download them at the end rather than leaving the wait to her first
 sentence, and a refusal — a shared IP against Hugging Face's anonymous rate
 limit — is logged with what would fix it, `HF_TOKEN` in `.env`.
+
+**Degenerate decodes.** faster-whisper retries a decode that trips
+`compression_ratio_threshold` at increasing temperatures, so this provider
+passes a ladder — `TEMPERATURES = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)`
+(`src/modules/STT/faster_whisper_stt.py`). A single `0.0` would leave the
+retry loop with nowhere to go. On Groq/OpenRouter, `temperature=0.0` already
+requests the server-side equivalent.
 
 **What it normalises, so the same config.json works on every provider:**
 
@@ -140,11 +156,14 @@ from the Groq config keeps working.
 
 ## The Discord path
 
-The bot decodes Opus to PCM in Node (`prism-media`) and posts **WAV files**.
-Python never handles raw Opus.
+The bot decodes Opus to PCM in Node (`prism-media`), resamples 48 kHz stereo
+to 16 kHz mono (`Pcm.js`) and posts **WAV files**. Python never handles raw
+Opus. Turn segmentation happens in the bot — see
+[Discord](../skills/discord.md#voice-input-turn-segmentation).
 
-Each chunk is transcribed and deposited on the perception bus as its own
-`VOICE` perception. The [bus](../architecture.md#the-consciousness-loop)
+Each turn is transcribed and deposited on the perception bus as its own
+`VOICE` perception, unless dropped by the echo guard (see
+[Discord](../skills/discord.md#echo-suppression)). The [bus](../architecture.md#the-consciousness-loop)
 coalesces a burst into a single batch, and the attention gate decides what
 deserves a reasoning cycle — so two people talking at once become one batch, one
 turn, one answer.

@@ -249,8 +249,21 @@ def test_the_hint_reaches_the_log_when_the_download_is_refused(tmp_path, monkeyp
 # --- a device that loads but cannot hear --------------------------------------
 
 
-def _said(text):
-    return ([SimpleNamespace(text=text)], None)
+def _said(text, language="en", probability=0.99):
+    return ([SimpleNamespace(text=text)],
+            SimpleNamespace(language=language, language_probability=probability))
+
+
+def _wav(path, seconds=2.0, rate=16000):
+    """A wav the decoder will actually open: the turn is decoded before it is heard."""
+    import wave
+
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        out.writeframes(b"\x00\x00" * int(seconds * rate))
+    return str(path)
 
 
 class CudaDeafModel:
@@ -289,19 +302,20 @@ def test_a_failed_turn_is_retried_on_cpu_not_dropped(tmp_path, monkeypatch):
         def __init__(self, name, device=None, **kwargs):
             self.device = device
 
-        def transcribe(self, path, **kwargs):
-            if isinstance(path, str) and self.device == "cuda":
+        def transcribe(self, audio, **kwargs):
+            # the boot probe runs its second of silence straight at the model;
+            # a real turn is the one that goes through the vad
+            if kwargs.get("vad_filter") and self.device == "cuda":
                 raise RuntimeError("Library cublas64_12.dll is not found")
             return _said("parola")
 
     monkeypatch.setattr(faster_whisper, "WhisperModel", FlakyCudaModel)
     stt = FasterWhisperSTT(config(tmp_path, monkeypatch, stt_model="base",
-                                  faster_whisper_device="cuda"))
+                                  faster_whisper_device="cuda",
+                                  faster_whisper_vad=True))
     assert stt.degraded is False
 
-    wav = tmp_path / "turn.wav"
-    wav.write_bytes(b"RIFF" + b"\0" * 100)
-    assert stt.transcribe(str(wav)) == "parola"
+    assert stt.transcribe(_wav(tmp_path / "turn.wav")) == "parola"
     assert (stt.device, stt.compute_type) == ("cpu", "int8")
     assert stt.degraded is True
 
@@ -324,9 +338,7 @@ def test_a_cpu_that_cannot_hear_says_so(tmp_path, monkeypatch):
     assert stt.degraded is True
     assert "no backend" in (stt.last_error or "")
 
-    wav = tmp_path / "turn.wav"
-    wav.write_bytes(b"RIFF" + b"\0" * 100)
-    assert stt.transcribe(str(wav)) == ""
+    assert stt.transcribe(_wav(tmp_path / "turn.wav")) == ""
 
 
 def test_status_reports_the_device_and_the_fallback(tmp_path, monkeypatch):

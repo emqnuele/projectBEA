@@ -174,7 +174,7 @@ DISCORD = Section(
                 400, minimum=100, maximum=5000),
         Setting("interrupt_threshold_ms", "Interrupt after", "int",
                 "How long someone must keep talking before she stops to listen.",
-                3000, minimum=200, maximum=10000),
+                4000, minimum=200, maximum=10000),
         Setting("fill_silences", "Break silences", "bool",
                 "Whether she may speak into a quiet call without being asked. "
                 "She still decides there is something worth saying.",

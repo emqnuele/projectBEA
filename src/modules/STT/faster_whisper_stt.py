@@ -16,12 +16,24 @@ from typing import Any, Callable, Iterator, Optional
 from src.core import language as language_module
 from src.core.config import BrainConfig
 from src.interfaces.base_interfaces import STTInterface
+from src.modules.STT.heard import HeardLanguage
 from src.utils.huggingface import directory_bytes, download_hint, quiet, watched
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stt.faster_whisper")
 
 DEFAULT_MODEL = "small"
+
+# what whisper is built around, and what the discord bot already sends
+SAMPLE_RATE = 16000
+
+# What whisper falls back to when a decode comes out degenerate. The library's
+# own default, spelled out because it used to be `0.0` here: a single
+# temperature leaves the fallback loop with nowhere to go, so a decode that
+# blew the compression-ratio threshold was *detected* as a repetition and then
+# returned anyway. That is what "I'm sorry I'm sorry I'm sorry" forty times
+# over is — one degenerate decode, accepted because there was no second try.
+TEMPERATURES = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 
 # the hosted providers name the same weights differently, and a model id copied
 # from a groq or openrouter config is the most likely thing to arrive here
@@ -267,6 +279,8 @@ class FasterWhisperSTT(STTInterface):
         # guessing from the config.
         self.degraded = False
         self.last_error: Optional[str] = None
+        # what the last turn worth asking about turned out to be in
+        self.heard = HeardLanguage()
         self._load()
         self._probe()
 
@@ -401,15 +415,34 @@ class FasterWhisperSTT(STTInterface):
 
     def _transcribe_file(self, audio_path: str, lang: Optional[str]) -> str:
         """One attempt, raising. The caller decides what a failure is worth."""
+        from faster_whisper.audio import decode_audio
+
         model = self.model
         if model is None:
             raise RuntimeError("Local whisper is not loaded.")
-        segments, _ = model.transcribe(audio_path,
-                                       language=normalize_language(lang),
-                                       temperature=0.0,
-                                       vad_filter=self.vad)
+
+        # decoded here rather than inside `transcribe`, because how long a turn
+        # is decides whether its language is worth asking about, and that has to
+        # be known before the question is put. The array goes on to the model,
+        # so nothing is decoded twice.
+        decoded = decode_audio(audio_path, sampling_rate=SAMPLE_RATE)
+        # it only ever answers with a pair when asked to split stereo, which
+        # nothing here does
+        audio = decoded[0] if isinstance(decoded, tuple) else decoded
+        seconds = len(audio) / SAMPLE_RATE
+        pin = self.heard.pin_for(normalize_language(lang), seconds)
+
+        segments, info = model.transcribe(audio, language=pin,
+                                          temperature=TEMPERATURES,
+                                          vad_filter=self.vad)
         text = "".join(segment.text for segment in segments).strip()
-        logger.info(f"Local transcription result: '{text}'")
+
+        if pin is None:
+            self.heard.remember(info.language, seconds, info.language_probability)
+
+        logger.info(f"Local transcription in {info.language}"
+                    f"{'' if pin else f' (detected, p={info.language_probability:.2f})'}"
+                    f": '{text}'")
         return text
 
     def status(self) -> dict:

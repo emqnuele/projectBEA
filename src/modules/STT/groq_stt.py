@@ -7,6 +7,7 @@ from groq import Groq, omit
 from src.core.config import BrainConfig
 from src.core.language import whisper_code
 from src.interfaces.base_interfaces import STTInterface
+from src.modules.STT.heard import HeardLanguage, clip_seconds
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stt.groq")
@@ -27,6 +28,9 @@ class GroqSTT(STTInterface):
             self.client = Groq(api_key=key)
 
         self.model = self.config.stt_model or "whisper-large-v3-turbo"
+        # a turn too short to place borrows the last one that was not. Same
+        # problem here as on the local engine: it is the audio, not the api
+        self.heard = HeardLanguage()
 
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         # resolved rather than passed through: the api rejects `jp` and `it-IT`,
@@ -41,17 +45,28 @@ class GroqSTT(STTInterface):
             logger.error(f"Audio file not found at {audio_path}")
             return ""
 
+        seconds = clip_seconds(audio_path)
+        pin = self.heard.pin_for(lang, seconds)
+
         try:
             with open(audio_path, "rb") as file:
                 transcription = self.client.audio.transcriptions.create(
                     file=(os.path.basename(audio_path), file.read()),
                     model=self.model,
+                    # zero here means the opposite of what it means to the local
+                    # library: this api raises the temperature itself until the
+                    # decode clears its thresholds, which is the fallback the
+                    # local one had to be given back by hand
                     temperature=0.0,
                     # the sdk's own sentinel rather than None: "detect it" is an
                     # omitted field here, and null is not a value it declares
-                    language=lang if lang else omit,
+                    language=pin if pin else omit,
                     response_format="verbose_json",
                 )
+                # verbose_json answers with what it heard, as a name rather than
+                # a code — `src.core.language` knows both
+                if pin is None:
+                    self.heard.remember(getattr(transcription, "language", None), seconds)
                 logger.info(f"Transcription result: '{transcription.text}'")
                 return transcription.text
         except Exception as e:
