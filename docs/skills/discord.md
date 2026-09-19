@@ -57,9 +57,9 @@ Both directions are HTTP over localhost.
 └──────────────────────────────────────────────────────────┘
 ```
 
-`BRAIN_API_URL`, `PORT`, `DISCORD_TOKEN`, `ADMIN_ID` and
+`BRAIN_API_URL`, `PORT`, `DISCORD_TOKEN`, `ADMIN_ID`, `DUCK_THRESHOLD_MS` and
 `INTERRUPT_THRESHOLD_MS` are passed to the subprocess as environment variables
-by `DiscordTransport.start()`. The token is never written to `config.json` by
+by `DiscordTransport.start()` (`src/core/skills/voice/transport.py`). The token is never written to `config.json` by
 the dashboard — `GET /config` masks it.
 
 If the bot process dies, `_watch_transport()` notices within two seconds and
@@ -136,20 +136,66 @@ src/core/skills/voice/bot/
 `POST /reply`, `POST /typing`, `POST /react`, `POST /dm`, `POST /summon`,
 `GET /voice/channels`, `POST /voice/join`, `POST /voice/leave`.
 
-**Voice in:** per-user Opus stream → `prism-media` decoder → PCM → WAV →
-`POST /discord/audio` → transcription → a perception. The request ends there.
+**Voice in:** per-user Opus stream → `prism-media` decoder → 48 kHz stereo PCM →
+VAD gate + turn buffer → 16 kHz mono WAV → `POST /discord/audio` (or
+`POST /voice/transcript`) → transcription → a perception. The request ends there.
+
+### Voice input: turn segmentation
+
+Discord exposes per-client transmit streams, not utterances. Segmentation is
+implemented in `src/core/skills/voice/bot/classes/` as pure functions
+(audio + clock in, decisions out). One `SpeechBuffer` + one `VoiceActivity` +
+one downsampler per speaker.
+
+**`VoiceActivity.js`** — frame classifier, 20 ms frames (`FRAME_MS`).
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `SPEECH_LOW_HZ` / `SPEECH_HIGH_HZ` | `200` / `3400` | two-pole band-pass; `MIN_FOCUS` is the surviving-energy ratio |
+| `MIN_FOCUS` | `0.32` | minimum in-band energy ratio to count as voice |
+| `ENTER_OVER_FLOOR` / `EXIT_OVER_FLOOR` | `2.2` / `1.35` | relative level vs. per-speaker noise floor (hysteresis) |
+| `ENTER_MARGIN` / `EXIT_MARGIN` | `200` / `100` | absolute level guards (digital-silence floor = 0) |
+| `ONSET_MS` | `60` | sustained voice before `started` |
+| `HANGOVER_MS` | `500` | sustained silence before `ended` |
+| `MAX_VOICE_MS` | `15000` | continuous run released as non-voice (music/noise); floor set to run minimum |
+
+Floor adaptation: learned from non-voiced frames only (`FLOOR_FALL = 0.25`
+down, `FLOOR_RISE = 0.02` up); while speaking, only unvoiced frames above the
+floor can raise it. `silence(ms)` (no packets received) advances the hangover
+only, without touching the floor.
+
+**`SpeechBuffer.js`** — per-speaker turn accumulator.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `PREROLL_MS` | `400` | pre-voice audio prepended at `started` |
+| `MIN_SPEECH_MS` | `250` | minimum voiced audio, else `take()` returns `null` |
+| `MAX_TURN_MS` | `30000` | turn cut and sent as-is |
+| `duckMs` / `interruptMs` | from `duck_threshold_ms` / `interrupt_threshold_ms` | barge-in thresholds (overlap, see below) |
+
+Turns are emitted after `HANGOVER_MS` of silence regardless of socket
+boundaries. `take()` returns `{pcm, ms, voicedMs, overheard, interrupted}`.
+
+**`Pcm.js`** — 48 kHz stereo → 16 kHz mono.
+
+63-tap Hamming-windowed sinc low-pass, `CUTOFF_HZ = 6600`, applied before
+3:1 decimation. Stateful per speaker; use one `createDownsampler()` instance
+per stream so packet boundaries do not introduce discontinuities.
 
 **Voice out:** the mind → TTS → 48 kHz stereo PCM → `play` frames on
 `WS /voice/ws` → `PassThrough` → `PcmGain` → `AudioPlayer`. Playback starts at
 the first chunk, and the gain stage reports how many milliseconds actually
 reached the room.
 
-**Barge-in, in two stages.** People do two different things with the same
-energy. After `duck_threshold_ms` of someone talking over her she drops to a
-quarter volume without giving up the floor; if they stop there — a "sì sì", a
-laugh — she comes back up and finishes the sentence. Only after
-`interrupt_threshold_ms` does she fade out over 200ms and the bot call
-`POST /interrupt`.
+**Barge-in, in two stages.** After `duck_threshold_ms` of overlapping speech
+she ducks to 0.25 gain; after `interrupt_threshold_ms` she fades out over
+200 ms and the bot calls `POST /interrupt`.
+
+Both thresholds measure **overlap**: voiced milliseconds where both sides are
+speaking, accumulated from `SpeechBuffer` `voicedMs` frames. The counter resets
+when she stops, and unvoiced hold time (`HANGOVER_MS`) is excluded. Rationale:
+she often starts answering mid-sentence, so total turn length would trigger on
+the first frame.
 
 The bot then reports `played_ms`, and the next perception frame tells her where
 she actually stopped:
@@ -162,6 +208,18 @@ there. Nobody heard the rest, so do not talk as if they did.
 Without that line her history holds the whole sentence and she goes on
 referring to a second half nobody heard — which reads as a bot far more than
 any amount of latency does.
+
+### Echo suppression
+
+Speakers recycle her output into a microphone input. The audio is already lost
+at that point, so filtering is text-side in `src/core/skills/voice/echo.py`,
+consumed by `VoiceSurface.perceive` (returns `None` on echo).
+
+- Reference: `VoiceChannel.recent_texts()` (default `RECENT_SECONDS = 25.0`).
+- Comparison: `plain()` + `overlap()` in `src/utils/text_match.py`
+  (character-based; survives transcription edge errors and spaceless scripts).
+- Thresholds: `MATCH = 0.72` minimum overlap ratio, `MIN_CHARS = 12` minimum
+  normalized transcript length (short utterances are never dropped).
 
 **Filling a silence.** A call that goes quiet is not a call that has nothing
 left in it, and a bot that only ever answers is obviously a bot. The reflex
@@ -209,13 +267,13 @@ it never reads as local changes to the updater; an old
 | `api_port` | Port for the bot's Express API; passed to the subprocess as `PORT` |
 | `brain_api_url` | Where the bot calls back into the brain |
 | `admin_id` | Discord user id allowed to run `!wl` |
-| `duck_threshold_ms` | How long someone talks over her before she drops her volume |
+| `duck_threshold_ms` | Overlapping voiced speech before ducking to 0.25 gain (default `400`) |
 | `fill_silences` | Whether she may speak into a quiet call unasked |
 | `silence_seconds` | How long the call stays quiet before the door opens |
 | `silence_jitter_seconds` | Random spread on that wait |
 | `silence_min_gap_seconds` | How long before she may fill another silence |
 | `unprompted_per_minute` | Hard limit on speaking up unasked |
-| `interrupt_threshold_ms` | How long someone must speak to interrupt her |
+| `interrupt_threshold_ms` | Overlapping voiced speech before `POST /interrupt` (default `3000`). Overlap, not turn length — see [Barge-in](#the-bot) |
 
 ---
 

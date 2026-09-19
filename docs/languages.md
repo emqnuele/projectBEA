@@ -131,6 +131,50 @@ adding a row to `LANGUAGES` is what makes a pin available again. Detection is
 the default and measures better than a pin anyway, so what is lost is the
 ability to force one of those languages, not the ability to transcribe it.
 
+### Short turns
+
+Source: `src/modules/STT/heard.py`. Detection below ~1s of audio is unreliable and shared by all three
+transcribers. `HeardLanguage` keeps the last reliable result and lends it to
+turns too short to detect.
+
+Constants:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `MIN_DETECT_SECONDS` | `1.2` | minimum audio length trusted for detection |
+| `HEARD_FOR_SECONDS` | `300.0` | TTL of the stored language |
+| `CONFIDENT` | `0.85` | minimum detector confidence stored by `remember()` |
+
+API: `pin_for(configured, seconds)`, `remember(reported, seconds,
+probability)`, `borrowed` property.
+
+| Condition | `language` sent to the provider |
+|---|---|
+| `config.language` set | the configured pin |
+| `seconds >= MIN_DETECT_SECONDS` or `seconds <= 0` (unknown) | `None` (detect), result stored if confidence `>= CONFIDENT` |
+| short turn, valid entry in `borrowed` | the stored code |
+| short turn, no valid entry | `None` (detect) |
+
+Duration source: local provider uses decoded sample count; hosted providers
+use the WAV header via `clip_seconds()` (unreadable header = `0.0` = treated
+as long). Groq reports the detected language in `verbose_json` (name form,
+e.g. `italian`, resolved via `resolve()`); a backend that reports nothing
+never populates the store.
+
+### `config_version`
+
+Source: `src/core/config.py`. `CONFIG_VERSION = 1`, exposed as `BrainConfig.config_version`. Bump only when
+the meaning of an existing field changes; new fields never need it (absent =
+default).
+
+- v1: `language` changed from install pin (default `"en"`) to detection
+  policy (default `"auto"`).
+- Migration in `load_from_file()`: file without `config_version` and
+  `language == "en"` is loaded as `"auto"` with a warning log; nothing is
+  rewritten until the next save, which stamps `config_version: 1`.
+- Only `"en"` is migrated (it was the only historical default). An explicit
+  `"en"` written after v1 is kept as a pin.
+
 See [STT modules](modules/stt.md).
 
 ---
