@@ -139,3 +139,53 @@ def test_the_doctor_falls_back_to_english_when_detecting():
     config = BrainConfig()
     config.language = "auto"
     assert test_line(config) == TEST_LINE
+
+
+def test_the_ears_check_says_the_line_it_is_going_to_listen_for(monkeypatch):
+    """It used to synthesise english whatever she was set to, and compare
+    against english too — so an install pinned to the wrong language passed it
+    exactly as cleanly as a working one."""
+    import asyncio
+
+    from src.setup import doctor
+
+    said = {}
+
+    class FakeTTS:
+        async def generate_audio(self, line):
+            said["line"] = line
+            return b"", 16000
+
+    monkeypatch.setattr(doctor, "_transcribe", lambda stt, audio, rate: said["line"])
+    monkeypatch.setattr("src.modules.STT.factory.build_stt", lambda config: object())
+    monkeypatch.setattr("src.modules.tts.factory.build_tts", lambda config: FakeTTS())
+
+    config = BrainConfig()
+    config.language = "it"
+    config.stt_provider = "faster_whisper"
+
+    finding = asyncio.run(doctor.check_ears(config))
+    assert said["line"] == "una bella giornata", "it tested english on an italian install"
+    assert finding.ok, f"a clean round trip was reported as {finding.detail!r}"
+
+
+def test_a_language_written_without_spaces_is_not_reported_as_mishearing(monkeypatch):
+    """The word-set comparison scored every one of those zero."""
+    import asyncio
+
+    from src.setup import doctor
+
+    class FakeTTS:
+        async def generate_audio(self, line):
+            return b"", 16000
+
+    monkeypatch.setattr(doctor, "_transcribe",
+                        lambda stt, audio, rate: "今日はいい天気ですね。")
+    monkeypatch.setattr("src.modules.STT.factory.build_stt", lambda config: object())
+    monkeypatch.setattr("src.modules.tts.factory.build_tts", lambda config: FakeTTS())
+
+    config = BrainConfig()
+    config.language = "ja"
+    config.stt_provider = "faster_whisper"
+
+    assert asyncio.run(doctor.check_ears(config)).ok

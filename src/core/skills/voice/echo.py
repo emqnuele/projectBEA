@@ -20,9 +20,9 @@ transcript that is mostly a run of something she said a moment ago did not come
 out of the room.
 """
 
-import unicodedata
-from difflib import SequenceMatcher
 from typing import Iterable
+
+from src.utils.text_match import overlap, plain
 
 # How much of what was heard has to be a run of what she just said. Compared
 # character by character rather than word by word, because the transcriber gets
@@ -39,24 +39,6 @@ MATCH = 0.72
 MIN_CHARS = 12
 
 
-def normalize(text: str) -> str:
-    """Letters and digits, lowercase, single-spaced. Punctuation is noise here."""
-    kept = [
-        character.lower() if unicodedata.category(character)[0] in "LN" else " "
-        for character in unicodedata.normalize("NFKC", text or "")
-    ]
-    return " ".join("".join(kept).split())
-
-
-def overlap(heard: str, said: str) -> float:
-    """How much of `heard` is made of runs of `said`, from 0 to 1."""
-    if not heard or not said:
-        return 0.0
-    matcher = SequenceMatcher(None, said, heard, autojunk=False)
-    matched = sum(block.size for block in matcher.get_matching_blocks())
-    return matched / len(heard)
-
-
 def is_echo(transcript: str, spoken: Iterable[str], threshold: float = MATCH) -> bool:
     """Whether this transcript is her own voice rather than somebody else's.
 
@@ -64,7 +46,7 @@ def is_echo(transcript: str, spoken: Iterable[str], threshold: float = MATCH) ->
     said again ten minutes later is somebody quoting her, which is a real thing
     for her to hear.
     """
-    heard = normalize(transcript)
+    heard = plain(transcript)
     if len(heard) < MIN_CHARS:
         return False
-    return any(overlap(heard, normalize(said)) >= threshold for said in spoken)
+    return any(overlap(heard, plain(said)) >= threshold for said in spoken)
