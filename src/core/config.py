@@ -60,8 +60,21 @@ def deep_merge(base: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]
             merged[key] = value
     return merged
 
+# What the shape of config.json is understood to mean, so that a default which
+# changed can be told from a value somebody chose. Bumped only when a *meaning*
+# changes; a new field needs nothing, because an absent field already has one.
+#
+#   1  `language` became a policy rather than a pin, and its default became
+#      `auto`. Before it, every install carried `"language": "en"` whether or
+#      not anybody had ever wanted english.
+CONFIG_VERSION = 1
+
+
 @dataclass
 class BrainConfig:
+    # which meaning of this file to read it with. See CONFIG_VERSION.
+    config_version: int = CONFIG_VERSION
+
     # what she hears and, when she speaks first, what she reaches for. `auto`
     # lets the transcriber detect and leaves her mirroring whoever is talking:
     # measured on real audio, detection matched or beat a pin every time, and a
@@ -363,6 +376,21 @@ class BrainConfig:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
+                # migration: a config written before `language` was a policy
+                # carries the old default, and the old default is a pin. An
+                # install updated from there kept transcribing italian speech
+                # as english — whisper does not fail on a wrong pin, it
+                # translates — and nothing anywhere said so.
+                if data.get("config_version") is None and data.get("language") == "en":
+                    data["language"] = "auto"
+                    logger.warning(
+                        "config.json predates the language setting and pins her ears "
+                        "to english, which is what it defaulted to rather than "
+                        "something anybody chose. Detecting instead. To keep "
+                        "english, set it in Settings -> Language, which writes the "
+                        "choice down as one."
+                    )
+
                 # migration: image to avatar source
                 if "obs_image_source" in data and "obs_avatar_source" not in data:
                     data["obs_avatar_source"] = data.pop("obs_image_source")
@@ -379,6 +407,10 @@ class BrainConfig:
 
                 # update fields
                 for key, value in data.items():
+                    if key == "config_version":
+                        # what this build understands, not what was written by
+                        # whatever wrote the file last
+                        continue
                     if hasattr(self, key):
                         # env always wins for secrets; config.json only fills a
                         # var that is not set
