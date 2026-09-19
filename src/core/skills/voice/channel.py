@@ -20,6 +20,7 @@ middle of an utterance then loses that utterance, not the parser's mind.
 import asyncio
 import json
 import struct
+import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
@@ -31,6 +32,11 @@ logger = get_logger("bea.skills.voice.channel")
 
 # how many finished utterances stay addressable for a late playback report
 HISTORY = 8
+
+# how far back to look when asking what she has just said. Longer than the
+# longest turn the bot will ever send, so a line still counts as recent while
+# its own echo is still being gathered up and transcribed.
+RECENT_SECONDS = 25.0
 
 
 def frame(header: Dict[str, Any], payload: bytes = b"") -> bytes:
@@ -59,6 +65,9 @@ class Utterance:
     played_ms: int = 0
     state: str = "pending"  # pending | playing | done | stopped
     done: asyncio.Event = field(default_factory=asyncio.Event)
+    # monotonic: this is only ever used to ask "how long ago", and a wall clock
+    # that steps backwards would answer that with a negative number
+    at: float = field(default_factory=time.monotonic)
 
     @property
     def complete(self) -> bool:
@@ -128,6 +137,9 @@ class VoiceChannel:
         if utterance is None:
             utterance = self._track(Utterance(id=utterance_id, text=text))
             self.current = utterance
+        # a line arrives in pieces and the first of them is not all of it
+        if text and len(text) > len(utterance.text):
+            utterance.text = text
         utterance.sent_ms += duration_ms(pcm)
         return await self._send(frame(
             {"type": "play", "utterance_id": utterance_id, "seq": seq, "last": last},
@@ -220,6 +232,17 @@ class VoiceChannel:
                 self.current = None
 
     # --- internals ----------------------------------------------------------
+
+    def recent_texts(self, within: float = RECENT_SECONDS) -> "list[str]":
+        """What she has said out loud in the last few seconds, newest first.
+
+        Read by the echo guard, which has to tell her own voice coming back off
+        somebody's speakers from something they actually said. Bounded in time
+        on purpose: the same sentence ten minutes later is somebody quoting her.
+        """
+        now = time.monotonic()
+        return [u.text for u in reversed(self.utterances.values())
+                if u.text and now - u.at <= within]
 
     def _track(self, utterance: Utterance) -> Utterance:
         self.utterances[utterance.id] = utterance
