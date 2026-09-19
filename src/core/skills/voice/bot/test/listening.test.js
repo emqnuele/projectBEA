@@ -13,7 +13,7 @@ const assert = require('node:assert');
 
 const { createVoiceActivity, HANGOVER_MS, ONSET_MS, MAX_VOICE_MS } = require('../classes/VoiceActivity');
 const { createSpeechBuffer } = require('../classes/SpeechBuffer');
-const { downsampleMono16k, pcmToWav, BYTES_PER_MS } = require('../classes/Pcm');
+const { createDownsampler, downsampleMono16k, pcmToWav, BYTES_PER_MS } = require('../classes/Pcm');
 
 const RATE = 48000;
 
@@ -498,15 +498,31 @@ test('a turn abandoned leaves nothing behind for the next one', () => {
 
 // --- the samples on the way out ------------------------------------------
 
-test('the rate is dropped by averaging, not by throwing samples away', () => {
-    // 16 khz is exactly the frequency that folds onto silence when two samples
-    // in three are dropped; keeping one would let it through at full strength
-    const fold = pcm(200, (t) => 10000 * Math.sin(2 * Math.PI * 16000 * t));
-    const out = downsampleMono16k(fold);
+/** The level of 16khz mono output, past the filter's ramp-in. */
+function level(out, skipSamples = 200) {
+    let sum = 0;
+    let counted = 0;
+    for (let i = skipSamples * 2; i + 1 < out.length; i += 2) {
+        const sample = out.readInt16LE(i);
+        sum += sample * sample;
+        counted += 1;
+    }
+    return counted ? Math.sqrt(sum / counted) : 0;
+}
 
-    let peak = 0;
-    for (let i = 0; i < out.length; i += 2) peak = Math.max(peak, Math.abs(out.readInt16LE(i)));
-    assert.ok(peak < 1000, `a 16 khz tone came through at ${peak}`);
+const tone = (hz, amp = 12000) => (t) => amp * Math.sin(2 * Math.PI * hz * t);
+
+test('nothing above eight kilohertz is folded down onto the speech', () => {
+    // everything up there arrives somewhere under 8 khz when two samples in
+    // three are thrown away, and 10 khz lands at 6: squarely on a voice
+    const reference = level(downsampleMono16k(pcm(500, tone(1000))));
+
+    for (const [hz, lands] of [[10000, 6000], [13000, 3000], [20000, 4000]]) {
+        const folded = level(downsampleMono16k(pcm(500, tone(hz))));
+        const down = 20 * Math.log10(Math.max(folded, 1e-9) / reference);
+        assert.ok(down < -40,
+            `${hz} Hz folded onto ${lands} Hz only ${(-down).toFixed(1)} dB down`);
+    }
 });
 
 test('a voice survives the trip down to sixteen kilohertz', () => {
@@ -514,6 +530,39 @@ test('a voice survives the trip down to sixteen kilohertz', () => {
     let peak = 0;
     for (let i = 0; i < out.length; i += 2) peak = Math.max(peak, Math.abs(out.readInt16LE(i)));
     assert.ok(peak > 3000, `a voice came out at ${peak}`);
+});
+
+test('the speech band comes through at the level it went in at', () => {
+    // it runs in front of a gate that reads levels: a resampler that quietly
+    // changes the volume would move the threshold somebody has to clear
+    for (const hz of [300, 1000, 3000]) {
+        const before = level(pcm(500, tone(hz)), 0) / 1;
+        const after = level(downsampleMono16k(pcm(500, tone(hz))));
+        assert.ok(Math.abs(20 * Math.log10(after / before)) < 1,
+            `${hz} Hz came out ${(20 * Math.log10(after / before)).toFixed(1)} dB off`);
+    }
+});
+
+test('a stream filtered packet by packet is the same audio as one buffer', () => {
+    // discord hands over twenty milliseconds at a time, and a filter restarted
+    // at every packet puts a discontinuity into the audio fifty times a second
+    const whole = pcm(500, speech());
+    const atOnce = downsampleMono16k(whole);
+
+    const downsample = createDownsampler();
+    const step = Math.round(20 * BYTES_PER_MS);
+    const pieces = [];
+    for (let at = 0; at + step <= whole.length; at += step) {
+        pieces.push(downsample(whole.subarray(at, at + step)));
+    }
+    const streamed = Buffer.concat(pieces);
+
+    assert.equal(streamed.length, atOnce.length, 'a different number of samples came out');
+    let worst = 0;
+    for (let i = 0; i + 1 < streamed.length; i += 2) {
+        worst = Math.max(worst, Math.abs(streamed.readInt16LE(i) - atOnce.readInt16LE(i)));
+    }
+    assert.ok(worst <= 1, `the packet boundaries moved samples by up to ${worst}`);
 });
 
 test('the wav header says what the file actually is', () => {

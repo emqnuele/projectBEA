@@ -24,7 +24,7 @@
  */
 
 const { createVoiceActivity, HANGOVER_MS } = require('./VoiceActivity');
-const { BYTES_PER_MS, downsampleMono16k } = require('./Pcm');
+const { BYTES_PER_MS, createDownsampler } = require('./Pcm');
 
 // under this much actual voice a turn is a cough, a chair, a click: not words
 const MIN_SPEECH_MS = 250;
@@ -61,6 +61,9 @@ function createSpeechBuffer(options = {}) {
     } = options;
 
     const activity = createVoiceActivity({ hangoverMs });
+    // one per speaker, because the filter in front of it carries the tail of
+    // the last packet into the next one
+    const downsample = createDownsampler();
 
     // what belongs to this turn, and is gone once it has been sent
     let chunks = [];
@@ -177,7 +180,7 @@ function createSpeechBuffer(options = {}) {
             // kept at 16 khz mono because that is the only form it ever leaves
             // in, and holding half a minute of 48 khz stereo per person in the
             // call to throw five sixths of it away at the end is a waste
-            const mono = downsampleMono16k(pcm);
+            const mono = downsample(pcm);
             const ms = pcm.length / BYTES_PER_MS;
 
             if (chunks.length || frame.started || frame.speaking) {
