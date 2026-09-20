@@ -6,6 +6,7 @@ import { CopyField, Group, ProviderChoice, SecretState, TestButton } from './par
 import { StagePreview } from './StagePreview';
 import { PromptEditor } from './PromptEditor';
 import { createSchemaSection } from './SchemaSection';
+import BodyPanel from '../../components/console/BodyPanel';
 import { PersonalitySection } from './PersonalitySection';
 
 // What the engine can speak, asked of the engine. The copy that used to live
@@ -745,57 +746,50 @@ function StreamSection({ config, update, setConfig }) {
 
 // --- her body ---------------------------------------------------------------
 
+const MinecraftSettings = createSchemaSection('minecraft');
+
 function WorldSection({ config, updateSkill }) {
-    const [promptOpen, setPromptOpen] = useState(false);
+    const [editing, setEditing] = useState(null);
     const minecraft = config.skills?.minecraft || {};
+
+    // her instructions and her body's are different documents for different
+    // readers: hers is how to be a person in a game, its is how to play one
+    const prompts = [
+        {
+            key: 'system_prompt',
+            title: 'How she behaves in the world',
+            blurb: 'Her side: two audiences, the people around her, what to do when the body reports in.',
+        },
+        {
+            key: 'body_prompt',
+            title: 'How her body plays',
+            blurb: 'Its side: the survival guide, the crafting chains, when to call a goal finished.',
+        },
+    ];
 
     return (
         <>
-            <Group title="The server" description="She connects to the mod over a WebSocket.">
-                <CheckRow
-                    checked={minecraft.enabled}
-                    onChange={(value) => updateSkill('minecraft', 'enabled', value)}
-                    title="Give her a body on the server"
-                />
-                <Field label="Mod address">
-                    <TextInput
-                        value={minecraft.server_url || ''}
-                        onChange={(e) => updateSkill('minecraft', 'server_url', e.target.value)}
-                        placeholder="ws://127.0.0.1:8080"
-                        className="font-mono"
-                    />
-                </Field>
-            </Group>
+            <BodyPanel />
 
-            <Group title="What she does with a thought in-game">
-                <CheckRow
-                    checked={minecraft.auto_chat_thoughts}
-                    onChange={(value) => updateSkill('minecraft', 'auto_chat_thoughts', value)}
-                    title="Post it to the game chat"
-                    help="Other players on the server see it."
-                />
-                <CheckRow
-                    checked={minecraft.auto_speak_thoughts}
-                    onChange={(value) => updateSkill('minecraft', 'auto_speak_thoughts', value)}
-                    title="Say it out loud"
-                    help="Goes straight to the voice engine and the stream overlay."
-                />
-            </Group>
+            <MinecraftSettings />
 
-            <Group title="Instructions" description="How she behaves in the world. Uses the engine's main model.">
-                <div className="flex items-center justify-between gap-3 rounded-b2 border border-line bg-fill p-3">
-                    <span className="text-[12px] text-dim">
-                        {minecraft.system_prompt
-                            ? `Custom instructions — ${minecraft.system_prompt.length} characters`
-                            : 'Using the default instructions'}
-                    </span>
-                    <Button size="sm" variant="outline" onClick={() => setPromptOpen(true)}>Edit</Button>
-                </div>
+            <Group title="Instructions" description="Leave one empty and she uses the shipped file.">
+                {prompts.map(({ key, title, blurb }) => (
+                    <div key={key} className="flex items-center justify-between gap-3 rounded-b2 border border-line bg-fill p-3">
+                        <div className="min-w-0">
+                            <p className="text-[12px] text-text">{title}</p>
+                            <p className="mt-0.5 text-[11px] leading-snug text-faint">
+                                {minecraft[key] ? `Rewritten — ${minecraft[key].length} characters` : blurb}
+                            </p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => setEditing(key)}>Edit</Button>
+                    </div>
+                ))}
                 <PromptEditor
-                    open={promptOpen}
-                    value={minecraft.system_prompt || ''}
-                    onClose={() => setPromptOpen(false)}
-                    onSave={(text) => { updateSkill('minecraft', 'system_prompt', text); setPromptOpen(false); }}
+                    open={Boolean(editing)}
+                    value={(editing && minecraft[editing]) || ''}
+                    onClose={() => setEditing(null)}
+                    onSave={(text) => { updateSkill('minecraft', editing, text); setEditing(null); }}
                 />
             </Group>
         </>

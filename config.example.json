@@ -119,6 +119,9 @@
             "server_url": "ws://127.0.0.1:8080",
             "idle_nudge_seconds": 90,
             "commentary_seconds": 20,
+            "steps_per_goal": 40,
+            "tick_seconds": 0.4,
+            "body_context_rounds": 12,
             "system_prompt_path": "data/prompts/minecraft.md",
             "body_prompt_path": "data/prompts/minecraft_body.md"
         },
@@ -179,7 +182,8 @@
         "background": [
             "openrouter:google/gemma-4-31b-it:free",
             "groq:openai/gpt-oss-20b"
-        ]
+        ],
+        "minecraft": []
     },
     "attention": {
         "enabled": true,
