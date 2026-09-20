@@ -477,3 +477,29 @@ def test_the_same_milestone_twice_is_one_interruption(surface):
     surface._emit_milestone("your body finished craft_item: SUCCESS")
     surface._emit_milestone("your body finished craft_item: SUCCESS")
     assert len(surface.bus.items) == 1
+
+
+# --- the races the two of them can now have ---------------------------------
+
+
+async def test_a_late_finish_cannot_close_the_goal_that_replaced_it():
+    """She changed her mind mid-round; the old round must not report on the new goal."""
+    a = agent(FakeLLMClient())
+    a.set_goal("get wood")
+    stale = a.goal
+    a._round_goal = stale
+    a.set_goal("get stone")
+
+    assert "Too late" in a._tool_done("four logs")
+    assert a.goal.status == RUNNING and a.goal.text == "get stone"
+
+
+async def test_a_goal_closes_once_however_many_times_it_is_told_to():
+    closed = []
+    a = agent(FakeLLMClient())
+    a.on_goal_closed = closed.append
+    a.set_goal("get wood")
+    a._round_goal = a.goal
+    a._tool_done("four logs")
+    a._tool_blocked("actually no")
+    assert len(closed) == 1 and a.goal.status == DONE

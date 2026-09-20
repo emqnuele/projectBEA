@@ -82,6 +82,9 @@ class GameAgent:
         self.refresh_every = max(0, int(refresh_every))
 
         self.goal: Optional[Goal] = None
+        # the goal this round is about. She can replace the goal mid-round, and
+        # a `goal_done` from the old one must not close the new one
+        self._round_goal: Optional[Goal] = None
         self.last_thought: str = ""
         self.ctx = BodyContext(keep_rounds)
 
@@ -148,9 +151,10 @@ class GameAgent:
                 await self._work.wait()
                 continue
 
+            task = asyncio.create_task(self._step(goal))
+            self._step_task = task
             try:
-                self._step_task = asyncio.create_task(self._step(goal))
-                await self._step_task
+                await task
             except asyncio.CancelledError:
                 # the loop itself going down, or the mind taking the body for
                 # something of its own. Only the first one is the end
@@ -257,6 +261,7 @@ class GameAgent:
     # --- one round ----------------------------------------------------------
 
     async def _step(self, goal: Goal) -> None:
+        self._round_goal = goal
         if goal.steps == 0 or (self.refresh_every and goal.steps % self.refresh_every == 0):
             self.ctx.observe(self._state_note(), tag=STATE_TAG)
 
@@ -299,9 +304,11 @@ class GameAgent:
         self._check_health(goal)
 
     def _declare(self, status: str, text: str) -> str:
-        goal = self.goal
+        goal = self._round_goal or self.goal
         if goal is None:
             return "There was no goal to close."
+        if goal is not self.goal:
+            return "Too late — she has already given you something else."
         self._close(goal, status, text)
         return "Noted — she has been told." if status == DONE else "Noted — she will pick it up."
 
@@ -314,6 +321,8 @@ class GameAgent:
                         f"ran out of room after {goal.steps} steps without getting there")
 
     def _close(self, goal: Goal, status: str, outcome: str) -> None:
+        if not goal.open:
+            return  # two tool calls in one reply, or a race with her calling it off
         goal.status = status
         goal.outcome = " ".join(str(outcome or "").split()) or (
             "finished" if status == DONE else "could not get there")

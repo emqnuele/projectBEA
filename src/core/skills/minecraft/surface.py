@@ -232,8 +232,6 @@ class MinecraftSurface(Skill):
         if not pending:
             self._idle_since = 0.0
             return None
-        if self.agent is not None and self.agent.busy:
-            return None
 
         every = float(self.skill_config.get("idle_nudge_seconds", IDLE_NUDGE_SECONDS))
         if every <= 0:
