@@ -6,6 +6,7 @@ what the body stops needing: somebody to start it again every time it finishes.
 """
 
 import asyncio
+import types
 
 import pytest
 
@@ -503,3 +504,71 @@ async def test_a_goal_closes_once_however_many_times_it_is_told_to():
     a._tool_done("four logs")
     a._tool_blocked("actually no")
     assert len(closed) == 1 and a.goal.status == DONE
+
+
+# --- the whole thing, started the way the brain starts it -------------------
+
+
+class LiveClient(FakeClient):
+    """Enough of the mod for the surface to come up and stay up."""
+
+    def __init__(self):
+        super().__init__()
+        self.stopped = False
+
+    def connect(self):
+        pass
+
+    def stop(self):
+        self.stopped = True
+
+    async def wait_until_ready(self):
+        return None
+
+    async def wait_for_event_or_timeout(self, timeout):
+        await asyncio.sleep(0.01)
+
+    def drain_events(self):
+        return []
+
+
+async def test_the_skill_comes_up_playing(monkeypatch):
+    """The wiring: switch the skill on and the body is already looping."""
+    from src.core.skills.minecraft import surface as module
+
+    client = LiveClient()
+    monkeypatch.setattr(module, "MinecraftClient", lambda *a, **k: client)
+
+    llm = FakeLLMClient([calls("find_block", block="log"), done("Four logs.")])
+    config = Config()
+    config.skills["minecraft"]["tick_seconds"] = 0
+    skill = MinecraftSurface(config, bus=_Bus(), expression=None,
+                             context=types.SimpleNamespace(model_for=lambda role: llm,
+                                                           memory=None))
+    skill.initialize()
+    await skill.start()
+    try:
+        assert skill.agent is not None
+        skill.agent.set_goal("get wood")
+        await _until(lambda: skill.agent is not None and not skill.agent.busy)
+        assert skill.agent.goal.status == DONE
+        assert any(p.meta.get("event") == "goal_done" for p in skill.bus.items)
+    finally:
+        await skill.stop()
+    assert client.stopped
+
+
+async def test_switching_the_skill_off_stops_the_body(monkeypatch):
+    """A loop outliving the socket spends a minute timing out on every move."""
+    from src.core.skills.minecraft import surface as module
+
+    monkeypatch.setattr(module, "MinecraftClient", lambda *a, **k: LiveClient())
+    skill = MinecraftSurface(Config(), bus=_Bus(), expression=None,
+                             context=types.SimpleNamespace(model_for=lambda role: FakeLLMClient(),
+                                                           memory=None))
+    skill.initialize()
+    await skill.start()
+    body = skill.agent
+    body.set_goal("get wood")
+    await skill.stop()
+    assert body._loop_task is None and not skill.active
