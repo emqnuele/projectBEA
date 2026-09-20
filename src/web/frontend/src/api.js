@@ -103,6 +103,9 @@ export const api = {
     resetPlan: () => request('/plan/reset', { method: 'POST' }),
 
     askMinecraft: () => request('/minecraft/ask', { method: 'POST' }),
+    minecraftBody: () => request('/minecraft/body'),
+    setMinecraftGoal: (goal) => request('/minecraft/goal', { method: 'POST', body: { goal } }),
+    stopMinecraftBody: () => request('/minecraft/stop', { method: 'POST' }),
 
     dreamRun: () => request('/dream/run', { method: 'POST' }),
     dreamWake: () => request('/dream/wake', { method: 'POST' }),

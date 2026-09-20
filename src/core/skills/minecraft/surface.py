@@ -1,13 +1,16 @@
 import asyncio
 import time
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
+from src.core.agent.registry import MINECRAFT
 from src.core.agent.tools import Tool
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
-from src.core.skills.minecraft.agent import GameAgent
+from src.core.skills.minecraft.agent import STEPS_PER_GOAL, TICK_SECONDS, GameAgent
 from src.core.skills.minecraft.client import MinecraftClient
+from src.core.skills.minecraft.context import KEEP_ROUNDS
+from src.core.skills.minecraft.goal import ABANDONED, DONE, Goal
 from src.core.skills.minecraft.notebook import Notebook
 from src.core.skills.minecraft.state import render_state
 from src.core.skills.minecraft.tools import build_minecraft_tools
@@ -24,6 +27,11 @@ IDLE_NUDGE_SECONDS = 90.0
 # are minutes apart, and a streamer who goes quiet for minutes is the whole
 # problem this exists to solve. 0 turns it off.
 COMMENTARY_SECONDS = 20.0
+
+# the shortest gap between two milestones reaching her. The body can finish
+# things faster than anyone can react to them, and a mind interrupted twice a
+# second is not a mind that is playing, it is one being shouted at
+MILESTONE_GAP = 8.0
 
 
 class MinecraftSurface(Skill):
@@ -52,6 +60,8 @@ class MinecraftSurface(Skill):
         self._idle_since: float = 0.0
         self._last_nudge: float = 0.0
         self._last_commentary: float = 0.0
+        self._last_milestone: str = ""
+        self._last_milestone_at: float = 0.0
 
     @property
     def skill_config(self) -> dict:
@@ -63,6 +73,7 @@ class MinecraftSurface(Skill):
             return
         url = self.skill_config.get("server_url", "ws://127.0.0.1:8080")
         loop = asyncio.get_running_loop()
+        cfg = self.skill_config
         self.client = MinecraftClient(url, loop, on_event=self._on_mod_event)
         self._registry = build_minecraft_tools(self.client, self.notebook)
         self.agent = GameAgent(
@@ -72,14 +83,26 @@ class MinecraftSurface(Skill):
             state_getter=self._latest_state,
             rules=self._body_rules,
             on_milestone=self._emit_milestone,
+            on_goal_closed=self._on_goal_closed,
+            steps_per_goal=int(cfg.get("steps_per_goal", STEPS_PER_GOAL)),
+            tick_seconds=float(cfg.get("tick_seconds", TICK_SECONDS)),
+            keep_rounds=int(cfg.get("body_context_rounds", KEEP_ROUNDS)),
         )
         self.client.connect()
         self.active = True
+        # the body's loop lives as long as the skill does: it idles for free
+        # until she gives it something, and never needs restarting after
+        self.agent.start()
         self._poll_task = asyncio.create_task(self._perceive_loop())
         logger.info("MinecraftSurface started.")
 
     async def stop(self) -> None:
         self.active = False
+        # the body first: a loop that outlives the socket it acts through
+        # spends a minute timing out on every move it tries to make
+        if self.agent:
+            await self.agent.stop()
+            self.agent = None
         if self._poll_task:
             self._poll_task.cancel()
             try:
@@ -154,8 +177,10 @@ class MinecraftSurface(Skill):
             return None
 
         now = time.time()
+        goal = agent.goal
         # the turn that set the goal already said something: start the clock there
-        if now - max(agent.started_at, self._last_commentary) < every:
+        since = max(goal.set_at if goal else 0.0, self._last_commentary)
+        if now - since < every:
             return None
         self._last_commentary = now
         return self._commentary(agent)
@@ -179,7 +204,7 @@ class MinecraftSurface(Skill):
         """What the body is doing, and a request for words rather than a decision."""
         working = agent.busy
         lines = [f"Your body is {agent.describe()}." if working
-                 else "Your body is standing still in Minecraft."]
+                 else "Your body is standing still in Minecraft, with nothing to do."]
         if working and agent.last_thought:
             lines.append(f'It is thinking: "{agent.last_thought}"')
         lines.append("Someone watching just asked what you are up to. Tell them."
@@ -188,6 +213,8 @@ class MinecraftSurface(Skill):
         if working:
             # a second goal replaces the running one: she must not answer with one
             lines.append("Don't hand it a new goal: it is already working.")
+        else:
+            lines.append("If you want it doing something, that is what play_minecraft is for.")
         return Perception(
             PerceptionKind.GAME, self.name, " ".join(lines), salience=0.5,
             # declared: commentary the gate drops is a streamer who goes quiet
@@ -388,15 +415,68 @@ class MinecraftSurface(Skill):
         return self._rules or None
 
     def _body_model(self):
+        """What the body thinks with.
+
+        Its own pool when one is configured, and otherwise hers: playing well
+        is not clerical work, and a body on the cheap background model spent
+        its steps failing to work out that a pickaxe needs sticks.
+        """
         model_for = getattr(self.context, "model_for", None)
-        return model_for("background") if model_for else getattr(self.context, "llm", None)
+        return model_for(MINECRAFT) if model_for else getattr(self.context, "llm", None)
 
     def _emit_milestone(self, text: str) -> None:
-        """Something worth interrupting her for; the rest stays in the body."""
+        """Something worth interrupting her for; the rest stays in the body.
+
+        The same line twice is never news, and two in the same breath is the
+        body talking over itself. A death does not come through here — it has
+        its own perception at full salience — so nothing that matters is lost
+        to the gap.
+        """
+        now = time.time()
+        if text == self._last_milestone or now - self._last_milestone_at < MILESTONE_GAP:
+            logger.debug(f"milestone held back: {text}")
+            return
+        self._last_milestone, self._last_milestone_at = text, now
         self.bus.put(Perception(
             PerceptionKind.GAME, self.name, text, salience=0.6,
             meta={"event": "milestone"},
         ))
+
+    def _on_goal_closed(self, goal: Goal) -> None:
+        """The body reached the end of what she gave it, one way or the other.
+
+        She replaced it herself, so she already knows — anything else is news,
+        and being stuck is news she has to answer: nothing else will move the
+        body until she does.
+        """
+        if goal.status == ABANDONED:
+            return
+        done = goal.status == DONE
+        if done:
+            content = (f"Your body finished what you gave it — {goal.text}: {goal.outcome}. "
+                       f"Say something about it, and give it the next thing if there is one.")
+        else:
+            content = (f"Your body got stuck on {goal.text}: {goal.outcome}. It has stopped "
+                       f"and it is waiting on you. Work out what it does instead.")
+        self.bus.put(Perception(
+            PerceptionKind.GAME, self.name, content,
+            salience=0.75 if done else 0.9,
+            meta={"addressed": "body-goal",
+                  "event": "goal_done" if done else "goal_stuck"},
+        ))
+
+    def body_snapshot(self) -> Dict[str, Any]:
+        """What her body is up to, for the dashboard."""
+        connected = bool(self.client is not None and self.client.is_connected)
+        base: Dict[str, Any] = {
+            "active": bool(self.active),
+            "connected": connected,
+            "mod_version": self.client.mod_version if self.client else "",
+        }
+        base.update(self.agent.snapshot() if self.agent else
+                    {"goal": "", "status": "off", "steps": 0, "steps_budget": 0,
+                     "elapsed": 0.0, "outcome": "", "thought": "", "notebook": ""})
+        return base
 
     # --- what the MIND can do (seven tools, not twenty-five) ----------------
 
@@ -410,25 +490,39 @@ class MinecraftSurface(Skill):
 
         def body(action: str, rename: Optional[dict] = None):
             """Binds a mod action, renaming arguments where the mod calls them
-            something else (LookSkill takes `player`, not `name`)."""
+            something else (LookSkill takes `player`, not `name`).
+
+            The goal is put down for the duration and picked back up after: one
+            body, and two things wanting it at once is two sets of movement
+            orders arriving at the same legs.
+            """
             rename = rename or {}
+            why = action.replace("_", " ")
 
             async def handler(**kwargs):
                 args = {rename.get(k, k): v for k, v in kwargs.items()}
-                return await client.execute(action, args)
+                agent = self.agent
+                if agent is not None:
+                    agent.borrow()
+                try:
+                    return await client.execute(action, args)
+                finally:
+                    if agent is not None:
+                        agent.give_back(f"she had you {why}")
             return handler
 
         return [
             Tool(
                 "play_minecraft",
-                "Give your body something to achieve in the game (\"get a stone pickaxe\", "
-                "\"build a shelter before dark\", \"find iron\"). It goes and does it while "
-                "you carry on doing whatever else you're doing, and tells you when something "
-                "worth knowing happens. One goal at a time — a new one replaces the old.",
+                "Point your body at something (\"get a stone pickaxe\", \"build a shelter "
+                "before dark\", \"find iron\"). It works at it without stopping while you "
+                "carry on doing whatever else you're doing, and tells you when it finishes, "
+                "gets stuck, or something worth knowing happens. One goal at a time — a new "
+                "one replaces the old one immediately.",
                 {"type": "object", "properties": {
                     "goal": {"type": "string", "description": "what you want done, in plain words"}},
                  "required": ["goal"]},
-                self._tool_play, long_running=True, surface=self.name,
+                self._tool_play,
             ),
             Tool(
                 "mc_chat",
@@ -441,7 +535,8 @@ class MinecraftSurface(Skill):
             ),
             Tool(
                 "mc_stop",
-                "Put your body down: it stops whatever it was doing and stands still.",
+                "Put your body down: it drops the goal it was working on and stands still "
+                "until you give it another one.",
                 {"type": "object", "properties": {}, "required": []},
                 self._tool_stop,
             ),
@@ -482,9 +577,14 @@ class MinecraftSurface(Skill):
         ]
 
     async def _tool_play(self, goal: str) -> str:
+        """Hands the body a direction and comes straight back.
+
+        It used to wait here until the whole goal was over, which is why a tool
+        that claimed not to block her spent twenty minutes doing exactly that.
+        """
         if self.agent is None:
             return "FAILED: your body isn't connected."
-        return await self.agent.pursue(goal)
+        return self.agent.set_goal(goal)
 
     async def _tool_chat(self, message: str) -> str:
         if self.client is None:
@@ -493,21 +593,32 @@ class MinecraftSurface(Skill):
         return "Typed it in game chat."
 
     async def _tool_stop(self) -> str:
-        if self.client is None:
+        if self.client is None or self.agent is None:
             return "FAILED: your body isn't connected."
+        said = self.agent.clear_goal("she told it to stop")
         await self.client.execute("stop_moving", {}, instant=True)
-        return "Body stopped."
+        return said
 
 
     def live_state(self) -> Optional[str]:
+        """Where she is and what her body is on, in every frame she thinks in.
+
+        This is the difference between a mind that can answer "what are you
+        doing" and one that has to be told. It is deliberately three lines and
+        a state dump: the body's reasoning stays in the body.
+        """
         if not self.active:
             return None
-        parts = []
-        # where she is, always true: not an event that should make her think
-        body = render_state(self._latest_state())
-        doing = self.agent.describe() if self.agent else ""
+        agent = self.agent
+        lines = []
+        doing = agent.describe() if agent else ""
         if doing:
-            body = f"- {doing}\n{body}" if body else f"- {doing}"
-        if body:
-            parts.append("YOUR BODY IN MINECRAFT (right now):\n" + body)
-        return "\n\n".join(parts)
+            lines.append(f"- {doing}")
+            if agent is not None and agent.last_thought:
+                lines.append(f'- it is thinking: "{agent.last_thought}"')
+        else:
+            lines.append("- no goal: your body is standing still, waiting on you")
+        state = render_state(self._latest_state())
+        if state:
+            lines.append(state)
+        return "YOUR BODY IN MINECRAFT (right now):\n" + "\n".join(lines)

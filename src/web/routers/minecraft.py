@@ -1,11 +1,18 @@
 """Her body in the game, reached from the dashboard."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from src.core.brain import AIVtuberBrain
 from src.web.deps import get_brain
 
 router = APIRouter(tags=["minecraft"])
+
+NOT_PLAYING = "She is not in the game right now"
+
+
+class GoalRequest(BaseModel):
+    goal: str = Field(min_length=1, max_length=500)
 
 
 @router.post("/minecraft/ask")
@@ -16,5 +23,36 @@ def ask_what_she_is_doing(brain: AIVtuberBrain = Depends(get_brain)):
     button cannot drift away from the behaviour it stands in for.
     """
     if not brain.ask_minecraft_for_a_word():
-        raise HTTPException(status_code=409, detail="She is not in the game right now")
+        raise HTTPException(status_code=409, detail=NOT_PLAYING)
     return {"status": "asked"}
+
+
+@router.get("/minecraft/body")
+def what_the_body_is_doing(brain: AIVtuberBrain = Depends(get_brain)):
+    """The goal, how far it has got, and what it is thinking.
+
+    The same three things her own context carries, so the dashboard and she
+    are never looking at different bodies.
+    """
+    snapshot = brain.minecraft_body()
+    if snapshot is None:
+        return {"active": False, "connected": False, "status": "off"}
+    return snapshot
+
+
+@router.post("/minecraft/goal")
+def point_the_body_at_something(request: GoalRequest,
+                                brain: AIVtuberBrain = Depends(get_brain)):
+    """The owner setting the goal instead of her."""
+    result = brain.direct_minecraft_body(request.goal)
+    if result is None:
+        raise HTTPException(status_code=409, detail=NOT_PLAYING)
+    return {"status": "set", "detail": result}
+
+
+@router.post("/minecraft/stop")
+def put_the_body_down(brain: AIVtuberBrain = Depends(get_brain)):
+    result = brain.stop_minecraft_body()
+    if result is None:
+        raise HTTPException(status_code=409, detail=NOT_PLAYING)
+    return {"status": "stopped", "detail": result}

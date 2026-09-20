@@ -245,6 +245,18 @@ MINECRAFT = Section(
                 "Seconds between one word and the next while her body is busy playing. "
                 "0 keeps her quiet until something finishes.",
                 20, minimum=0, maximum=600),
+        Setting("steps_per_goal", "Give up after", "int",
+                "Tries her body spends on one goal before it admits it is stuck and "
+                "hands the problem back to her. It keeps playing either way.",
+                40, minimum=4, maximum=200),
+        Setting("tick_seconds", "Breathing room", "float",
+                "Seconds between two of her body's moves. Most of the pacing is the "
+                "game itself; this is what keeps a cheap goal from spinning.",
+                0.4, minimum=0.0, maximum=5.0),
+        Setting("body_context_rounds", "Body memory", "int",
+                "How many of its own moves her body remembers. Everything older lives "
+                "in its notebook. Higher costs more per move.",
+                12, minimum=2, maximum=60),
     ],
 )
 
@@ -377,6 +389,10 @@ MODELS = Section(
                 [], restart=True),
         Setting("background", "Background pool", "list",
                 "Diary, summaries, person cards. Slow and cheap is fine here.",
+                [], restart=True),
+        Setting("minecraft", "Body pool", "list",
+                "What her body in the game thinks with. Empty means the mind pool: "
+                "playing well is reasoning, not clerical work.",
                 [], restart=True),
         Setting("reasoning", "Thinking", "select",
                 "Off is what makes her quick enough for a voice call. Auto leaves each "

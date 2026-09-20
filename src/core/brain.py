@@ -1,6 +1,6 @@
 import asyncio
 import threading
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.affect.state import AffectState
 from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
@@ -610,6 +610,29 @@ class AIVtuberBrain:
         """
         surface = self._surface("game:mc")
         return bool(surface is not None and surface.ask_for_a_word())
+
+    def minecraft_body(self) -> Optional[Dict[str, Any]]:
+        """What her body is doing, for the dashboard. None when she is not in."""
+        surface = self._surface("game:mc")
+        return surface.body_snapshot() if surface is not None and surface.active else None
+
+    def direct_minecraft_body(self, goal: str) -> Optional[str]:
+        """The owner pointing the body somewhere, over her head.
+
+        The same door the console already is: she is told nothing, because the
+        goal arriving is indistinguishable from one she set herself — which is
+        the point of a control the person running the stream can reach.
+        """
+        surface = self._surface("game:mc")
+        if surface is None or not surface.active or surface.agent is None:
+            return None
+        return surface.agent.set_goal(goal)
+
+    def stop_minecraft_body(self) -> Optional[str]:
+        surface = self._surface("game:mc")
+        if surface is None or not surface.active or surface.agent is None:
+            return None
+        return surface.agent.clear_goal("the dashboard stopped it")
 
     def perceive_discord_text(self, text: str, username: str, channel_id: str,
                               message_id: Optional[str] = None, user_id: Optional[str] = None,
