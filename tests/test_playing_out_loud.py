@@ -99,21 +99,39 @@ def thinking(text: str, tool: str, **args) -> AssistantMessage:
                             tool_calls=[ToolCall(id="c1", name=tool, arguments=args)])
 
 
+def finished(summary: str) -> AssistantMessage:
+    return AssistantMessage(
+        tool_calls=[ToolCall(id="c9", name="goal_done", arguments={"summary": summary})])
+
+
+async def play(agent: GameAgent, goal: str, timeout: float = 2.0) -> None:
+    """Runs the body's real loop until the goal closes."""
+    closed = asyncio.Event()
+    agent.on_goal_closed = lambda _g: closed.set()
+    agent.tick_seconds = 0
+    agent.start()
+    agent.set_goal(goal)
+    try:
+        await asyncio.wait_for(closed.wait(), timeout)
+    finally:
+        await agent.stop()
+
+
 async def test_the_body_thinking_out_loud_is_kept_for_her():
     """It reasoned in prose at every step and all of it was thrown away."""
     seen = []
     agent = body(FakeLLMClient([thinking("the iron is under the lava", "find_block",
                                          block="iron_ore"),
-                                AssistantMessage(content="Found it.")]))
+                                finished("Found it.")]))
     agent.on_milestone = lambda _: seen.append(agent.last_thought)
-    await agent.pursue("find iron")
+    await play(agent, "find iron")
     assert seen == ["the iron is under the lava"]
 
 
 async def test_a_new_goal_starts_without_the_last_one_thought():
-    agent = body(FakeLLMClient([AssistantMessage(content="")]))
+    agent = body(FakeLLMClient())
     agent.last_thought = "the iron is under the lava"
-    await agent.pursue("build a shelter")
+    agent.set_goal("build a shelter")
     assert agent.last_thought == ""
 
 
@@ -143,11 +161,6 @@ class Bus:
         self.items.append(perception)
 
 
-class NeverDone:
-    def done(self):
-        return False
-
-
 @pytest.fixture
 def surface():
     s = MinecraftSurface(Config(), bus=Bus(), expression=None, context=Context())
@@ -156,14 +169,14 @@ def surface():
     s.client = FakeClient()
     s._registry = build_minecraft_tools(s.client, s.notebook)
     s.agent = GameAgent(llm=FakeLLMClient(), registry=s._registry, notebook=s.notebook,
-                        state_getter=s._latest_state, rules="body")
+                        state_getter=s._latest_state, rules="body", tick_seconds=0)
     return s
 
 
 def working(surface, since: float) -> None:
-    surface.agent.goal = "get a stone pickaxe"
-    surface.agent.started_at = time.time() - since
-    surface.agent._task = NeverDone()
+    """Her body mid-goal, set `since` seconds ago. No loop, no model calls."""
+    surface.agent.set_goal("get a stone pickaxe")
+    surface.agent.goal.set_at = time.time() - since
 
 
 def test_she_is_asked_to_say_something_while_her_body_works(surface):

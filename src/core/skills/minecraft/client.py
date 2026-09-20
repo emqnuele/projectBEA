@@ -1,7 +1,9 @@
 import asyncio
+import itertools
 import json
 import threading
 import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 
 import websocket
@@ -15,6 +17,10 @@ ACTION_TIMEOUT = 60.0
 
 # the wire format this client speaks; the mod announces its own on connect
 PROTOCOL_VERSION = 1
+
+# how many unclaimed actions to remember. Only ever a handful in practice; the
+# cap is there so a mod that never completes anything cannot grow this forever
+MAX_ABANDONED = 32
 
 # statuses the mod sends when a long-running action finishes
 _COMPLETION = {"FINISHED", "IDLE"}
@@ -45,7 +51,15 @@ class MinecraftClient:
         self.mod_version: str = "unknown"
         self.mc_version: str = "unknown"
         self.actions: set = set()
-        self._pending: Optional[asyncio.Future] = None
+        # every in-flight action, oldest first. A single slot used to mean the
+        # second caller overwrote the first, who then waited out the whole
+        # timeout while somebody else's completion resolved the wrong await
+        self._waiting: "OrderedDict[str, asyncio.Future]" = OrderedDict()
+        # actions nobody is waiting for any more (timed out, or the body was
+        # taken off the goal mid-swing). The mod finishes them anyway, and the
+        # completion that arrives belongs to them, not to whoever asked next
+        self._abandoned: "OrderedDict[str, None]" = OrderedDict()
+        self._ids = itertools.count(1)
         self._events: "asyncio.Queue[str]" = asyncio.Queue()
         self._connected = asyncio.Event()
         self._first_state = asyncio.Event()
@@ -86,21 +100,27 @@ class MinecraftClient:
             return (f"FAILED: your body cannot '{action}'. The installed mod "
                     f"(beacraft {self.mod_version}) is older than the brain — update the jar.")
 
-        payload = {"action": action, "parameters": params}
+        payload: Dict[str, Any] = {"action": action, "parameters": params}
 
         if instant:
             self._send(payload)
             return "SENT"
 
+        # the mod echoes it back when it is new enough to know about ids; older
+        # jars ignore it and are matched in order instead
+        request_id = f"r{next(self._ids)}"
+        payload["id"] = request_id
         fut = self.loop.create_future()
-        self._pending = fut
+        self._waiting[request_id] = fut
         self._send(payload)
         try:
             return await asyncio.wait_for(fut, timeout=ACTION_TIMEOUT)
         except asyncio.TimeoutError:
             return "TIMEOUT: no completion event from the mod (action may still be running)."
         finally:
-            self._pending = None
+            self._waiting.pop(request_id, None)
+            if not fut.done():
+                self._abandon(request_id)
 
     def drain_events(self) -> List[str]:
         """Returns and clears any notable events (interrupts) seen since last call."""
@@ -195,9 +215,7 @@ class MinecraftClient:
             reason = data.get("reason") or data.get("event", {}).get("reason", "unknown emergency")
             observation = f"INTERRUPTED: {reason}"
             logger.warning(observation)
-            if self._pending and not self._pending.done():
-                self._pending.set_result(observation)
-            else:
+            if not self._settle(observation, data.get("id")):
                 self._events.put_nowait(observation)
             return
 
@@ -205,8 +223,7 @@ class MinecraftClient:
             result = data.get("result", "SUCCESS")
             message = data.get("message", "")
             observation = f"{result}" + (f": {message}" if message else "")
-            if self._pending and not self._pending.done():
-                self._pending.set_result(observation)
+            self._settle(observation, data.get("id"))
 
     def _on_handshake(self, data: Dict[str, Any]) -> None:
         """What the mod says it is, checked before she tries to use it.
@@ -247,6 +264,45 @@ class MinecraftClient:
         except Exception as e:
             logger.error(f"Handling mod event '{kind}' failed: {e}")
 
+    def _settle(self, observation: str, request_id: Any = None) -> bool:
+        """Hands `observation` to the caller that asked for it.
+
+        By id when the mod names one, and otherwise to the oldest action still
+        waiting: the mod finishes what it was told to do in the order it was
+        told, so first-in-first-out is right often enough, and it is always
+        better than the caller who hangs for sixty seconds.
+        """
+        key = str(request_id) if request_id not in (None, "") else None
+        if key is not None:
+            if key in self._abandoned:
+                del self._abandoned[key]
+                return True
+            fut = self._waiting.pop(key, None)
+            if fut is not None:
+                if not fut.done():
+                    fut.set_result(observation)
+                return True
+        if self._abandoned:
+            # the oldest thing still outstanding is one nobody wants the answer
+            # to; handing this to the next caller would answer the wrong question
+            self._abandoned.popitem(last=False)
+            return True
+        if not self._waiting:
+            return False
+        _, fut = self._waiting.popitem(last=False)
+        if not fut.done():
+            fut.set_result(observation)
+        return True
+
+    def _abandon(self, request_id: str) -> None:
+        self._abandoned[request_id] = None
+        while len(self._abandoned) > MAX_ABANDONED:
+            self._abandoned.popitem(last=False)
+
     def _resolve_pending(self, observation: str) -> None:
-        if self._pending and not self._pending.done():
-            self._pending.set_result(observation)
+        """Something ended everything at once (a death): nothing is still running."""
+        self._abandoned.clear()
+        while self._waiting:
+            _, fut = self._waiting.popitem(last=False)
+            if not fut.done():
+                fut.set_result(observation)

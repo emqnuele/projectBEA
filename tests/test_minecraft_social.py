@@ -91,10 +91,18 @@ def test_dying_also_ends_whatever_she_was_doing():
     """Leaving the caller to time out for a minute would misreport what happened."""
     loop = asyncio.new_event_loop()
     client = MinecraftClient("ws://x", loop, on_event=lambda k, d: None)
-    client._pending = loop.create_future()
+    waiting = _awaiting(client, loop, "r1")
     client._handle({"type": "death_event", "details": {}})
-    assert client._pending.done()
-    assert "died" in client._pending.result()
+    assert waiting.done() and "died" in waiting.result()
+
+
+def test_dying_ends_every_action_at_once():
+    """Nothing survives it, so nothing should be left waiting on the mod."""
+    loop = asyncio.new_event_loop()
+    client = MinecraftClient("ws://x", loop, on_event=lambda k, d: None)
+    first, second = _awaiting(client, loop, "r1"), _awaiting(client, loop, "r2")
+    client._handle({"type": "death_event", "details": {}})
+    assert first.done() and second.done()
 
 
 def test_a_combat_packet_reaches_the_surface():
@@ -118,9 +126,68 @@ def test_a_state_snapshot_still_updates_the_state():
 def test_completion_events_still_resolve_an_action():
     loop = asyncio.new_event_loop()
     client = MinecraftClient("ws://x", loop)
-    client._pending = loop.create_future()
+    waiting = _awaiting(client, loop, "r1")
     client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "mined 3 logs"})
-    assert client._pending.result() == "SUCCESS: mined 3 logs"
+    assert waiting.result() == "SUCCESS: mined 3 logs"
+
+
+# --- two things wanting the body at once -------------------------------------
+
+
+def _awaiting(client, loop, request_id: str):
+    """An action already sent, whose completion has not come back yet."""
+    fut = loop.create_future()
+    client._waiting[request_id] = fut
+    return fut
+
+
+def test_each_action_is_answered_with_its_own_result():
+    """One slot meant the second caller overwrote the first, who then hung.
+
+    Her reflexes and her body's goal both reach for the same socket now, so
+    two in flight at once is the normal case rather than the strange one.
+    """
+    loop = asyncio.new_event_loop()
+    client = MinecraftClient("ws://x", loop)
+    mining, walking = _awaiting(client, loop, "r1"), _awaiting(client, loop, "r2")
+
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "mined", "id": "r1"})
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "walked", "id": "r2"})
+
+    assert mining.result() == "SUCCESS: mined"
+    assert walking.result() == "SUCCESS: walked"
+
+
+def test_an_older_mod_is_answered_in_order():
+    """A jar that does not echo the id still has to finish what it started."""
+    loop = asyncio.new_event_loop()
+    client = MinecraftClient("ws://x", loop)
+    first, second = _awaiting(client, loop, "r1"), _awaiting(client, loop, "r2")
+
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "one"})
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "two"})
+
+    assert first.result() == "SUCCESS: one" and second.result() == "SUCCESS: two"
+
+
+def test_the_answer_to_an_abandoned_action_is_not_given_to_the_next_caller():
+    """Taking the body off a goal mid-swing leaves the mod still swinging.
+
+    That completion belongs to nobody. Handed to whoever asked next, it
+    answers a question they did not ask — and it always looks like a success.
+    """
+    loop = asyncio.new_event_loop()
+    client = MinecraftClient("ws://x", loop)
+    client._waiting["r1"] = loop.create_future()
+    client._waiting.pop("r1")
+    client._abandon("r1")
+    walking = _awaiting(client, loop, "r2")
+
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "the old one"})
+    assert not walking.done()
+
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "walked"})
+    assert walking.result() == "SUCCESS: walked"
 
 
 # --- the surface builds a real identity --------------------------------------
