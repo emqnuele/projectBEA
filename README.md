@@ -143,10 +143,11 @@ Not "Minecraft integration". A body, on a vanilla server, that other people can
 walk up to.
 
 She does not pilot it block by block. She hands it an intention, *get a stone
-pickaxe*, and carries on with the conversation she was already having while it
-goes and does that. The body runs its own think/act/observe loop on the cheap
-model pool, up to 24 steps, with a survival guide and a notebook it rewrites as
-it goes.
+pickaxe*, and carries straight on with the conversation she was already having.
+The body runs its own think/act/observe loop, continuously, for as long as she
+is in the game: a survival guide, a notebook it rewrites as it goes, and the
+world re-read every few moves. It tells her when it finishes and when it gets
+stuck, and otherwise gets on with it.
 
 Only a milestone interrupts her mid-goal: a block mined, a tool crafted, an
 interrupt, a death. Moving and looking are means, not results. But she does not
@@ -392,10 +393,11 @@ ollama pull qwen3:8b
 ```
 
 Pick **Local models** in the setup, and that is the whole configuration. Her
-mind and her background are separate pools, so give the talking to a capable
-model and the diary, the dreamer and the Minecraft body to a small one — or
+mind, her background and her Minecraft body are separate pools, so give the
+talking to a capable model and the diary and the dreamer to a small one — or
 mix a local model with a cloud key, and the pool falls over when the laptop
-sleeps.
+sleeps. The body borrows the mind's pool unless you give it one: playing well
+is reasoning, not clerical work.
 
 **[Local setup →](docs/setup.md#7c-local-models-optional-and-the-interesting-one)**
 

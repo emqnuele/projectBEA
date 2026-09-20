@@ -144,6 +144,9 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
             "server_url": "ws://127.0.0.1:8080",
             "idle_nudge_seconds": 90,
             "commentary_seconds": 20,
+            "steps_per_goal": 40,
+            "tick_seconds": 0.4,
+            "body_context_rounds": 12,
             "system_prompt_path": "data/prompts/minecraft.md",
             "body_prompt_path": "data/prompts/minecraft_body.md"
         },
@@ -201,7 +204,8 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         "background": [
             "openrouter:google/gemma-4-31b-it:free",
             "groq:openai/gpt-oss-20b"
-        ]
+        ],
+        "minecraft": []
     },
     "attention": {
         "enabled": true,
@@ -263,7 +267,8 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
 ```json
 "models": {
   "mind":       ["openrouter:deepseek/deepseek-v4-flash", "groq:openai/gpt-oss-120b"],
-  "background": ["openrouter:google/gemma-4-31b-it:free", "groq:openai/gpt-oss-20b"]
+  "background": ["openrouter:google/gemma-4-31b-it:free", "groq:openai/gpt-oss-20b"],
+  "minecraft":  []
 }
 ```
 
@@ -274,10 +279,14 @@ rate limits and fall back down the list on failure.
 | Role | Used by | Requirement |
 |---|---|---|
 | `mind` | the consciousness | **must support tool calling** |
-| `background` | diary, dreamer, profiler, summaries, the Minecraft body | anything |
+| `background` | diary, dreamer, profiler, summaries | anything |
+| `minecraft` | her body in the game | **must support tool calling** |
 
 An empty pool falls back to `llm_provider` + `<provider>_model`, so a
-pre-pool config keeps working. If a role ends up with no usable client the
+pre-pool config keeps working. `minecraft` is the exception: left empty it
+borrows the `mind` pool rather than the legacy fields, because playing well is
+reasoning and a cheap body plays badly. Put something smaller in it if you
+would rather trade play for cost. If a role ends up with no usable client the
 engine refuses to start and says which key is missing.
 
 [LLM modules →](modules/llm.md)
@@ -492,7 +501,7 @@ the single source of truth** — Bea can never arm a capability herself.
 | `social_memory` | `enabled` only | [social](skills/social.md) |
 | `dream` | `hour` | [dream](skills/dream.md) |
 | `monologue` | `prompt_path` — the timer is `consciousness.idle_after` | [monologue](skills/monologue.md) |
-| `minecraft` | `server_url`, `idle_nudge_seconds`, `commentary_seconds`, `system_prompt_path`, `body_prompt_path` | [minecraft](skills/minecraft.md) |
+| `minecraft` | `server_url`, `idle_nudge_seconds`, `commentary_seconds`, `steps_per_goal`, `tick_seconds`, `body_context_rounds`, `system_prompt_path`, `body_prompt_path` | [minecraft](skills/minecraft.md) |
 | `discord` | `api_port`, `brain_api_url`, `admin_id`, `duck_threshold_ms`, `interrupt_threshold_ms`, `fill_silences`, `silence_seconds`, `silence_jitter_seconds`, `silence_min_gap_seconds`, `unprompted_per_minute`, `token` | [discord](skills/discord.md) |
 | `telegram` | `owner_id`, `allowed_chats`, `token` | [telegram](skills/telegram.md) |
 | `twitch` | `channel`, `nick`, `oauth_token` | [twitch](skills/twitch.md) |

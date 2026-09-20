@@ -260,7 +260,7 @@ truth**. Bea can never arm a capability by herself.
 | `TwitchSkill` | `chat:twitch` | `twitch` | anonymous IRC read; every message is tallied, all of them reach the one frame with a priority |
 | `DonationSkill` | `donation` | `donations` | `POST /webhook/donation`; always reacts, promotes the donor immediately |
 | `IdleSurface` | `idle` | `monologue` | produces no input: supplies the monologue rules on a pure-idle frame |
-| `MinecraftSurface` | `game:mc` | `minecraft` | WebSocket client to the mod; **7** tools to the mind, the other 24 to the `GameAgent` |
+| `MinecraftSurface` | `game:mc` | `minecraft` | WebSocket client to the mod; **7** tools to the mind, the other 24 (plus `goal_done`/`goal_blocked`) to the `GameAgent` |
 | `MemorySkill` | `memory` | `memory` | RAG over `bea.db`, injected via `context_for` in two labelled blocks; no tools |
 | `SocialMemory` | `social` | `social_memory` | roster tally + person cards; injects `[WHO YOU'RE TALKING TO]` |
 | `DreamSkill` | `dream` | `dream` | self-lore + hot facts always in context; morning pass; `go_to_sleep`; offline dreamer |
@@ -326,10 +326,16 @@ Python side (`src/core/skills/minecraft/`):
   on the player's UUID. That one detail is what switches the entire social stack
   on inside the game: the roster, person cards, promotion and the attention gate
   are all keyed on `Author`, so none of them needed Minecraft-specific code.
-- `agent.py` — the `GameAgent`. The mind decides an **intention**
-  (`play_minecraft("get a stone pickaxe")`); the body pursues it on the
-  `background` model with all 24 game tools and the notebook, and reports only
-  milestones. The mind keeps seven tools and its personality.
+- `agent.py` — the `GameAgent`, a loop that runs for as long as the skill does.
+  The mind decides an **intention** (`play_minecraft("get a stone pickaxe")`)
+  and returns to what it was doing; the body works at it with all 24 game tools
+  and the notebook, re-reading the world as it goes, and reports only
+  milestones and how the goal ended. It idles for free when it has no goal, so
+  she is never what keeps her own body alive. The mind keeps seven tools and
+  its personality.
+- `goal.py` / `context.py` — the intention as a thing with a status and a step
+  count, and the body's own bounded window. It trims whole think/act rounds, so
+  a `tool` message can never be orphaned from the `tool_calls` that asked for it.
 - `state.py` — renders the state packet as a few readable lines instead of a wall
   of JSON, and it lives in `live_state()` rather than in a perception: it is
   *where she is*, always true, not an event that should make her think.

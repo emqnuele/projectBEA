@@ -11,12 +11,16 @@ reads game chat, answers it, recognises the players across sessions, reacts to
 being hit or killed, and pursues goals she sets for herself.
 
 She does not pilot the body block by block. She gives it an **intention** and it
-goes and does it while she carries on talking.
+goes and does it while she carries on talking. The body is a loop that runs for
+as long as the skill is on: it idles for free when it has no goal, works when it
+has one, and never needs starting again.
 
 ```
 src/core/skills/minecraft/
 ├── surface.py   MinecraftSurface — the senses, and 7 tools for the mind
-├── agent.py     GameAgent — the body, pursuing one goal at a time
+├── agent.py     GameAgent — the body's endless loop
+├── goal.py      one intention, and how far the body has got with it
+├── context.py   the body's own sliding window
 ├── client.py    WebSocket bridge to the mod
 ├── state.py     the state packet, rendered as a few readable lines
 ├── tools.py     26 game tools, for the body
@@ -37,10 +41,10 @@ src/core/skills/minecraft/
 └────────────────────┬───────────────────────────────────┘
                      │  play_minecraft("get a stone pickaxe")
 ┌────────────────────▼───────────────────────────────────┐
-│ the body — GameAgent, background model                 │
-│ 26 tools + the survival guide + the notebook           │
-│ think → act → observe, up to 24 steps per goal         │
-│ reports back: milestones, and one line at the end      │
+│ the body — GameAgent, one loop that never ends         │
+│ 28 tools + the survival guide + the notebook           │
+│ think → act → observe, paced, re-reading the world     │
+│ reports back: milestones, and how the goal ended       │
 └────────────────────┬───────────────────────────────────┘
                      │  WebSocket ws://127.0.0.1:8080
 ┌────────────────────▼───────────────────────────────────┐
@@ -48,13 +52,15 @@ src/core/skills/minecraft/
 └────────────────────────────────────────────────────────┘
 ```
 
-The body runs on the **`background`** pool. Working out that a pickaxe needs
-sticks is not what her good model is for, and it must not compete with the part
-of her that talks to people.
+The body runs on the **`minecraft`** pool, which falls back to **`mind`** when
+nothing is configured for it. Playing well is reasoning — working out that a
+pickaxe needs sticks, that the iron is under the lava, that this cave is a dead
+end — and a body on a cheap model spends its steps failing at exactly that. Put
+something smaller in `models.minecraft` if you would rather trade play for cost.
 
-`play_minecraft` is `long_running`, so it starts a task and returns immediately:
-she keeps talking while the body works. One goal at a time — a new one replaces
-the old.
+`play_minecraft` sets the goal and returns immediately. It does not wait for the
+goal to finish, because the goal may never finish: it is a direction, not an
+errand. One goal at a time — a new one replaces the old the moment she says it.
 
 ---
 
@@ -71,7 +77,9 @@ The mod streams a lot. Most of it is filtered before it costs a thought.
 | join / leave | a `CHAT` perception |
 | combat | `GAME`; a hit **by a player** is a social event, at higher salience |
 | death | `GAME` at salience 1.0, with cause, coordinates and what she dropped |
-| a body milestone | `GAME` — only for tools whose outcome is a real step forward |
+| a body milestone | `GAME` — only for tools whose outcome is a real step forward, and at most one every 8s |
+| the goal finished | `GAME`, declared addressed: what it got, and a nudge toward the next thing |
+| the goal got stuck | `GAME` at 0.9, declared addressed: nothing moves the body until she answers |
 | the body working, every `commentary_seconds` | `GAME`, declared addressed: what it is doing and what it last thought |
 
 The game state itself lives in `live_state()` rather than in a perception: it is
@@ -129,6 +137,10 @@ moving. With an objective still open, the surface says so at most every
 goal. With an empty plan there is no nudge at all: she reacts to whatever
 happens without setting out to do anything.
 
+This is now only ever about *direction*. The body does not stop because it ran
+out of loop, so a silent body is a body with nothing to do — and that is the
+one thing she has to supply.
+
 Both declare themselves addressed, so the gate always lets them through, and
 both take `0` to turn off.
 
@@ -148,28 +160,52 @@ same trade either way.
 ## The body's loop
 
 ```python
-GameAgent.pursue(goal)
-    ├─ system: the survival guide + "GOAL FROM BEA: <goal>"
-    ├─ user:   the goal, the rendered state, the notebook
-    └─ AgentRunner, max 24 steps
-            ├─ tool call → mod command → await completion → observation
-            └─ every observation passes through _observe()
-                    └─ worth interrupting her for? almost never
+GameAgent.run()                      # started with the skill, stopped with it
+    └─ while alive
+         ├─ no goal → wait on an Event (no model call, no cost)
+         └─ a goal  → one round:
+                ├─ every REFRESH_EVERY steps: fresh GAME STATE + the notebook
+                ├─ model call → tool calls → mod commands → observations
+                ├─ goal_done / goal_blocked → the goal closes, she is told
+                └─ out of steps, or failing the same way → stuck, she is told
 ```
 
+**It re-reads the world.** The state is re-injected every third step, and the
+previous snapshot is dropped rather than kept: state from nine steps ago is not
+history, it is a wrong answer to *where am I*. Before this the body was handed
+the world once and then played blind, which is why it walked back into lava it
+had already climbed out of.
+
+**Its window is bounded.** `context.py` keeps the rules, the goal and the last
+`body_context_rounds` rounds, and trims whole rounds rather than messages — a
+`tool` message whose `tool_calls` were trimmed away is a malformed conversation
+that most providers reject outright.
+
 **The notebook** (`notebook.py`) is the body's working memory: one freeform blob
-the model rewrites in full via `update_notebook`. It is re-injected every cycle
-so a plan survives history trimming, and it is never spoken.
+the model rewrites in full via `update_notebook`. It is the only thing a trim
+cannot take, which makes it the body's long-term memory rather than a scratchpad.
+
+**A goal ends when the body says so**, through `goal_done(summary)` or
+`goal_blocked(reason)`. It used to end when the model stopped calling tools —
+which is also what a model does when it is confused, or answers in prose. Those
+are not the same event, and the mind was being told they were. Prose now costs
+a round and earns a correction.
+
+**It gives up rather than grinding.** `steps_per_goal` rounds, or five rounds in
+a row where every call failed, and the goal is `stuck`: the body stops and hands
+the problem to her. The loop itself keeps running.
+
+**She can borrow it.** `mc_goto_player` and friends suspend the goal, use the
+body, and hand it back with a line saying it was taken away. Turning to look at
+someone who said hello no longer costs her the house she was building.
 
 **Milestones** are the only thing that *interrupts* the mind mid-goal — the
 commentary nudge waits its turn instead. Movement and looking are means, not
-results; `craft_item`, `mine_block`, `place_block`,
-`smelt_item`, `find_block`, `equip_item`, `store_item`, `retrieve_item`,
-`attack_entity` and `give_item` produce one when they succeed or fail badly. An
-interrupt or a death always does.
-
-A goal that has not landed in 24 steps is stuck, and saying so is more useful
-than grinding on.
+results; `craft_item`, `mine_block`, `place_block`, `smelt_item`, `find_block`,
+`equip_item`, `store_item`, `retrieve_item`, `attack_entity` and `give_item`
+produce one when they succeed or fail badly. An interrupt or a death always
+does. The same line twice is never sent twice, and two never arrive within
+8 seconds of each other.
 
 ---
 
@@ -186,6 +222,9 @@ than grinding on.
 | `mc_follow_player(name)` | tag along until she stops |
 | `mc_look_at_player(name)` | make it obvious she noticed |
 | `mc_give_item(name, item, count)` | walk over and drop it at their feet |
+
+**The body's own two:** `goal_done(summary)` and `goal_blocked(reason)` — the
+only two ways a goal ends.
 
 **The body's twenty-six:** `mine_block`, `attack_entity`, `move_to`,
 `stop_moving`, `request_screenshot`, `look_at`, `place_block`, `select_slot`,
@@ -237,8 +276,18 @@ out the 60-second timeout for something that is never coming.
 **Brain → mod:**
 
 ```json
-{ "action": "mine_block", "parameters": { "x": 100, "y": 64, "z": 100 } }
+{ "id": "r41", "action": "mine_block", "parameters": { "x": 100, "y": 64, "z": 100 } }
 ```
+
+`id` is new, and a mod that ignores it still works. The brain keeps every action
+in flight in an ordered map: a completion carrying an `id` goes to the caller
+that asked for it, and one without goes to the oldest action still waiting.
+A single slot used to mean two concurrent actions — a reflex of hers and the
+body's goal, which now genuinely overlap — overwrote each other, leaving one
+caller hanging for the full 60-second timeout while somebody else's completion
+resolved the wrong `await`. Actions nobody is waiting for any more are
+remembered too, so their late completion is discarded rather than handed to
+whoever asked next.
 
 ---
 
@@ -259,6 +308,9 @@ locks.
   "server_url": "ws://127.0.0.1:8080",
   "idle_nudge_seconds": 90,
   "commentary_seconds": 20,
+  "steps_per_goal": 40,
+  "tick_seconds": 0.4,
+  "body_context_rounds": 12,
   "system_prompt_path": "data/prompts/minecraft.md",
   "body_prompt_path": "data/prompts/minecraft_body.md"
 }
@@ -269,11 +321,40 @@ locks.
 | `server_url` | WebSocket URL of the BeaCraft mod |
 | `idle_nudge_seconds` | How long the body may stand still with an open objective before it tells her. `0` disables it |
 | `commentary_seconds` | How long she may play without saying a word while the body works. `0` disables it |
+| `steps_per_goal` | Rounds the body spends on one goal before calling it stuck and handing it back |
+| `tick_seconds` | Pause between two rounds. Most pacing is the game itself; this stops a goal of instant tools from spinning |
+| `body_context_rounds` | How many of its own rounds the body remembers. Everything older lives in the notebook |
 | `system_prompt_path` | What the **mind** knows about having a body |
 | `body_prompt_path` | The survival guide and crafting chains, for the **body** |
 
 Two prompts, because they are for two different readers: recipe trees belong to
 the body, not in her head.
 
-The body uses the `background` model pool; the mind uses `mind`. Neither takes a
-Minecraft-specific key.
+The body uses the `minecraft` model pool and the mind uses `mind`. Leave
+`models.minecraft` empty and the body thinks with her own model, which is the
+default and the right one for playing.
+
+```json
+"models": {
+  "mind": ["openrouter:deepseek/deepseek-v4-flash"],
+  "minecraft": []
+}
+```
+
+## From the dashboard
+
+Minecraft's settings page carries a live panel for the body: the goal, how far
+it has got, how long it has been at it, and the line it last thought. It reads
+the same three things her own context does, so the two can never show different
+bodies.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /minecraft/body` | the goal, status, steps, elapsed time and last thought |
+| `POST /minecraft/goal` | point the body at something, over her head |
+| `POST /minecraft/stop` | drop the goal and stand still |
+| `POST /minecraft/ask` | ask her to say what she is up to, off the clock |
+
+Setting a goal here is the owner deciding instead of her. She is not told it
+came from outside: an arriving goal is indistinguishable from one she set
+herself, which is what makes it usable mid-stream.
