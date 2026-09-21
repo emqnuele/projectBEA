@@ -5,7 +5,7 @@ OpenRouter ids keep their `/` and their `:free` suffix.
 
 - `mind` — the consciousness. Must support tool calling: she speaks only
   through tools, so a model without it would never say anything.
-- `background` — diary, dreamer, summaries, profiles. Slow and cheap is fine,
+- `background` — diary, dreamer, profiles. Slow and cheap is fine,
   and it must never compete with the mind.
 - `minecraft` — her body in the game. Falls back to the mind's pool rather than
   to a cheap one: playing is reasoning, not clerical work.

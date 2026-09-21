@@ -469,7 +469,7 @@ class SelfLore:
 
 
 class Conversations:
-    """The whole stream, and the rolling summary of each conversation in it.
+    """The whole stream: everything the dream consolidates and recall reads.
 
     Every perception the bus carries lands here as it is drained, and so does
     everything she says back. `role` separates the three things a row can be:
@@ -559,58 +559,6 @@ class Conversations:
             "SELECT COUNT(*) FROM messages WHERE conversation_key = ? AND role = 'user' "
             "AND ts >= ?", (conversation_key, reference - window_seconds),
         ))
-
-    # --- summaries ----------------------------------------------------------
-
-    def history(self, conversation_key: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """The last `limit` rows of one conversation, oldest first."""
-        rows = self.db.query(
-            "SELECT display_name, role, kind, content, ts, author_identity, "
-            "       addressee_identity FROM messages WHERE conversation_key = ? "
-            "ORDER BY id DESC LIMIT ?", (conversation_key, limit),
-        )
-        return [dict(r) for r in reversed(rows)]
-
-    def summary(self, conversation_key: str) -> str:
-        return str(self.db.scalar(
-            "SELECT summary FROM summaries WHERE conversation_key = ?",
-            (conversation_key,), default="",
-        ))
-
-    def save_summary(self, conversation_key: str, summary: str) -> None:
-        self.db.execute(
-            "INSERT INTO summaries (conversation_key, summary, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(conversation_key) DO UPDATE SET summary = excluded.summary, "
-            "updated_at = excluded.updated_at",
-            (conversation_key, summary, time.time()),
-        )
-
-    def summary_due(self, conversation_key: str, every: int) -> bool:
-        """Have `every` messages passed since the last summary?
-
-        A delta, not a modulo: the counter jumps by more than one, so an exact
-        multiple would be stepped over and never fire.
-        """
-        total = self.count(conversation_key)
-        last = int(self.db.scalar(
-            "SELECT last_count FROM summaries WHERE conversation_key = ?",
-            (conversation_key,), default=0,
-        ))
-        return total - last >= every
-
-    def mark_summarized(self, conversation_key: str) -> None:
-        """Moves the counter without touching the text.
-
-        The two are written by separate statements — the pass marks first so a
-        model that answers nothing does not retry on every turn — so this one
-        must leave `summary` exactly as it found it.
-        """
-        self.db.execute(
-            "INSERT INTO summaries (conversation_key, last_count, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(conversation_key) DO UPDATE SET last_count = excluded.last_count, "
-            "updated_at = excluded.updated_at",
-            (conversation_key, self.count(conversation_key), time.time()),
-        )
 
     def dashboard_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         """What the dashboard shows: the live room stream, oldest first.

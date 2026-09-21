@@ -1003,12 +1003,11 @@ class Consciousness:
             logger.warning(f"Could not log her reply to memory: {e}")
 
     def _profile_background(self, batch: List[Perception]) -> None:
-        """Keeps person cards and conversation summaries fresh after answering."""
+        """Keeps person cards fresh after answering, never in the way of it."""
         if self.profiler is None:
             return
         identities = {p.author.identity for p in batch if p.author}
-        keys = {conversation_key(p) for p in batch}
-        if not identities and not keys:
+        if not identities:
             return
         profiler = self.profiler
 
@@ -1020,13 +1019,6 @@ class Consciousness:
                     raise
                 except Exception as e:
                     logger.warning(f"Background profiling failed: {e}")
-            for key in keys:
-                try:
-                    await profiler.maybe_summarize(key)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.warning(f"Background summary failed: {e}")
 
         task = asyncio.create_task(work())
         self._bg_tasks.add(task)

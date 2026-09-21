@@ -139,8 +139,9 @@ class DreamSkill(Skill):
         if gap is not None and gap >= 1:
             self.recent.add(f"you haven't streamed in {gap} day(s)", ttl, "morning_pass")
 
-        # 3. what happened the last time round, from the rolling summaries: she
-        # should be able to pick a conversation up, not restart it every day
+        # 3. what happened the last time round, from the dream's conversation
+        # recaps: she should be able to pick a conversation up, not restart it
+        # every day
         for line in self._yesterday():
             self.recent.add(line, ttl, "morning_pass")
 
@@ -159,19 +160,25 @@ class DreamSkill(Skill):
                     )
 
     def _yesterday(self, limit: int = 2) -> List[str]:
-        """One line per conversation that was going somewhere recently."""
+        """One line per conversation that was going somewhere recently.
+
+        Reads the recaps the dreamer keeps per conversation key, newest first:
+        the same thread the consolidation wrote last night is what the morning
+        picks back up.
+        """
         memory = getattr(self.context, "memory", None)
         if memory is None:
             return []
         try:
             rows = memory.db.query(
-                "SELECT conversation_key, summary FROM summaries "
-                "WHERE summary != '' ORDER BY updated_at DESC LIMIT ?", (limit,),
+                "SELECT scope_key, text FROM memories "
+                "WHERE scope = 'conversation' AND text != '' "
+                "ORDER BY created_at DESC LIMIT ?", (limit,),
             )
         except Exception as e:
-            logger.warning(f"DreamSkill: could not read the summaries: {e}")
+            logger.warning(f"DreamSkill: could not read the recaps: {e}")
             return []
-        return [f"last time in {r['conversation_key']}: {_first_line(r['summary'])}"
+        return [f"last time in {r['scope_key']}: {_first_line(r['text'])}"
                 for r in rows]
 
     def _days_since_last_session(self) -> Optional[int]:

@@ -313,7 +313,7 @@ class AIVtuberBrain:
             skill.initialize()
             self.skill_registry.register(skill)
 
-        # background passes that keep the cards and summaries fresh between dreams
+        # background pass that keeps the cards fresh between dreams
         self.profiler = Profiler(self.model_for(BACKGROUND), self.memory,
                                  language=self.config.language)
 
@@ -363,7 +363,7 @@ class AIVtuberBrain:
     def model_for(self, role: str = BACKGROUND):
         """A client for `role`, falling back to the mind's if the pool is empty.
 
-        Background work (diary, dreamer, summaries) must not run on the mind's
+        Background work (diary, dreamer, profiles) must not run on the mind's
         model, but a missing background pool should degrade, not crash.
         """
         try:
