@@ -28,6 +28,10 @@ def render_state(state: Optional[Dict[str, Any]]) -> str:
     if inventory:
         lines.append(inventory)
 
+    worn = _worn_line(state.get("inventory") or {})
+    if worn:
+        lines.append(worn)
+
     craftable = _craftable_line(state.get("inventory") or {})
     if craftable:
         lines.append(craftable)
@@ -63,18 +67,49 @@ def _player_lines(state: Dict[str, Any]) -> List[str]:
     return lines
 
 
-def _inventory_line(inv: Dict[str, Any]) -> str:
-    held = _item_name(inv.get("hand_main"))
+def count_items(state: Optional[Dict[str, Any]]) -> Dict[str, int]:
+    """Everything she has, worn or carried, by short name.
+
+    `hand_main` is one of the hotbar slots rather than a slot of its own, so it
+    is left out: counting it would report every held tool twice.
+    """
+    inv = (state or {}).get("inventory") or {}
+    slots = list(inv.get("hotbar") or []) + list(inv.get("main") or [])
+    slots += list(inv.get("armor") or [])
+    off = inv.get("hand_off")
+    if off:
+        slots.append(off)
+    return _tally(slots)
+
+
+def _tally(slots: List[Any]) -> Dict[str, int]:
     counts: Dict[str, int] = {}
-    for slot in list(inv.get("hotbar") or []) + list(inv.get("main") or []):
+    for slot in slots:
         name = _item_name(slot)
         if name:
-            counts[name] = counts.get(name, 0) + int(slot.get("count", 0) or 0)
+            counts[name] = counts.get(name, 0) + int((slot or {}).get("count", 0) or 0)
+    return counts
+
+
+def _inventory_line(inv: Dict[str, Any]) -> str:
+    held = _item_name(inv.get("hand_main"))
+    counts = _tally(list(inv.get("hotbar") or []) + list(inv.get("main") or []))
 
     if not counts:
         return f"- holding: {held or 'nothing'}; inventory empty"
     carried = ", ".join(f"{n}×{c}" for n, c in sorted(counts.items(), key=lambda kv: -kv[1]))
     return f"- holding: {held or 'nothing'}; carrying: {carried}"
+
+
+def _worn_line(inv: Dict[str, Any]) -> str:
+    worn = [n for n in (_item_name(s) for s in (inv.get("armor") or [])) if n]
+    off = _item_name(inv.get("hand_off"))
+    parts = []
+    if worn:
+        parts.append("wearing: " + ", ".join(worn))
+    if off:
+        parts.append(f"off hand: {off}")
+    return "- " + "; ".join(parts) if parts else ""
 
 
 def _craftable_line(inv: Dict[str, Any]) -> str:
