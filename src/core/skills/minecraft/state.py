@@ -7,15 +7,13 @@ a fortune in tokens. Pure: a dict in, a string out.
 
 from typing import Any, Dict, List, Optional
 
-# blocks worth naming individually; everything else becomes a tally
-INTERESTING = (
-    "ore", "chest", "barrel", "furnace", "crafting", "water", "lava", "bed",
-    "door", "torch", "spawner", "portal", "anvil", "shulker", "hopper",
-)
-
 MAX_ENTITIES = 8
 MAX_BLOCK_KINDS = 5
 MAX_CRAFTABLE = 8
+# blocks named one by one, with the coordinates she would act on
+MAX_BLOCKS = 12
+# so a row of torches cannot spend the whole budget and hide the ore behind it
+MAX_PER_KIND = 3
 
 
 def render_state(state: Optional[Dict[str, Any]]) -> str:
@@ -34,9 +32,7 @@ def render_state(state: Optional[Dict[str, Any]]) -> str:
     if craftable:
         lines.append(craftable)
 
-    surroundings = _lidar_line(state.get("lidar") or {})
-    if surroundings:
-        lines.append(surroundings)
+    lines.extend(_lidar_lines(state.get("lidar") or {}))
 
     entities = _entities_line(state.get("entities") or [])
     if entities:
@@ -93,28 +89,67 @@ def _craftable_line(inv: Dict[str, Any]) -> str:
     return f"- can craft now: {', '.join(names)}{more}"
 
 
-def _lidar_line(lidar: Dict[str, Any]) -> str:
-    blocks = lidar.get("blocks") or []
-    if not blocks:
-        return ""
-    counts: Dict[str, int] = {}
-    notable: Dict[str, int] = {}
-    for b in blocks:
+def _lidar_lines(lidar: Dict[str, Any]) -> List[str]:
+    """What is around her, in the terms the tools take.
+
+    Every block the mod names arrives with a coordinate, and `mine_block`,
+    `place_block` and `use_block` all require one. Tallying them by name threw
+    away the only part the model could act on, and left it to guess a number.
+    """
+    lines: List[str] = []
+
+    shown: List[str] = []
+    per_kind: Dict[str, int] = {}
+    leftover: Dict[str, int] = {}
+    for b in sorted(lidar.get("blocks") or [], key=_distance):
         name = _short(str(b.get("name", "")))
         if not name:
             continue
-        counts[name] = counts.get(name, 0) + 1
-        if any(k in name for k in INTERESTING):
-            notable[name] = notable.get(name, 0) + 1
+        if len(shown) < MAX_BLOCKS and per_kind.get(name, 0) < MAX_PER_KIND:
+            per_kind[name] = per_kind.get(name, 0) + 1
+            shown.append(_block_at(name, b))
+        else:
+            leftover[name] = leftover.get(name, 0) + 1
+    if shown:
+        lines.append("- nearby: " + ", ".join(shown))
+    if leftover:
+        more = sorted(leftover.items(), key=lambda kv: -kv[1])[:MAX_BLOCK_KINDS]
+        lines.append("- more of the same: " + ", ".join(f"{n}×{c}" for n, c in more))
 
-    parts = []
-    if notable:
-        parts.append("nearby: " + ", ".join(f"{n}×{c}" for n, c in sorted(notable.items())))
-    bulk = sorted(((n, c) for n, c in counts.items() if n not in notable),
-                  key=lambda kv: -kv[1])[:MAX_BLOCK_KINDS]
+    # the two blocks that decide whether she can walk and whether she can jump;
+    # standing on air means she is already falling
+    ground, ceiling = lidar.get("standing_on"), lidar.get("above_head")
+    if ground or ceiling:
+        lines.append(f"- standing on {ground or 'nothing'}, "
+                     f"{ceiling or 'nothing'} above your head")
+
+    bulk = lidar.get("surrounded_by") or {}
     if bulk:
-        parts.append("surrounded by " + ", ".join(f"{n}×{c}" for n, c in bulk))
-    return "- " + "; ".join(parts) if parts else ""
+        top = sorted(bulk.items(), key=lambda kv: -_int(kv[1]))[:MAX_BLOCK_KINDS]
+        lines.append("- surrounded by: " + ", ".join(f"{n}×{c}" for n, c in top))
+    return lines
+
+
+def _block_at(name: str, b: Dict[str, Any]) -> str:
+    where = f"({_int(b.get('x'))}, {_int(b.get('y'))}, {_int(b.get('z'))})"
+    distance = b.get("distance")
+    if distance is None:
+        return f"{name} {where}"
+    return f"{name} {where} {float(distance):.1f}m"
+
+
+def _distance(b: Dict[str, Any]) -> float:
+    try:
+        return float(b.get("distance", 999) or 999)
+    except (TypeError, ValueError):
+        return 999.0
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _entities_line(entities: List[Dict[str, Any]]) -> str:

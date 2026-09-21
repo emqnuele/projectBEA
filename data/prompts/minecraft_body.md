@@ -78,7 +78,9 @@ the state and carry on.
    `eat_food()` before you starve.
 
 ## RULES
-- **Trust the lidar.** If the state says lava, there is lava.
+- **Trust the lidar.** If the state says lava, there is lava. Every block it
+  names comes with the coordinates to act on — pass them straight to
+  `mine_block` / `use_block` instead of guessing a number.
 - **Inventory is luxury.** `discard_item` the garbage (dirt, cobble) when full.
   Keep a weapon and food in the hotbar.
 - **Don't fall like an idiot.** `bridge` over gaps, `pillar_up` to climb.
