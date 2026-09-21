@@ -510,6 +510,10 @@ class SelfLore:
 # --- conversations ----------------------------------------------------------
 
 
+# how much of one sitting the consolidation reads at once. The pass has its
+# own context window, and a night in a game writes a few hundred rows an hour.
+STREAM_LIMIT = 2000
+
 # the one surface whose incoming lines belong in the dashboard chat: the owner
 # typing or speaking into it. Everything else reaching the stage is someone
 # else in another room.
@@ -566,18 +570,32 @@ class Conversations:
             )
             return cur.rowcount
 
-    def stream(self, session_id: str, limit: int = 2000) -> List[Dict[str, Any]]:
+    def stream(self, session_id: str, limit: int = STREAM_LIMIT) -> List[Dict[str, Any]]:
         """Everything that happened in one sitting, oldest first.
 
-        What the consolidation reads. Capped because a long twitch night is
-        tens of thousands of lines and the pass has a context window.
+        What the consolidation reads. Capped because a long night in a game is
+        thousands of lines and the pass has a context window of its own; the
+        newest are kept, so what is dropped is the start of the evening. That
+        is a real hole in a memory, so it says so rather than truncating
+        quietly — see `stream_overflow`.
         """
         rows = self.db.query(
             "SELECT conversation_key, platform, role, kind, surface, display_name, "
             "       author_identity, content, ts FROM messages "
             "WHERE session_id = ? ORDER BY id DESC LIMIT ?", (session_id, limit),
         )
+        if len(rows) >= limit:
+            logger.warning(
+                f"Session {session_id} is longer than {limit} rows: the consolidation "
+                f"reads the most recent {limit} and the start of it is not in the pass."
+            )
         return [dict(r) for r in reversed(rows)]
+
+    def stream_overflow(self, session_id: str, limit: int = STREAM_LIMIT) -> int:
+        """How many rows of this sitting `stream` would leave behind."""
+        total = int(self.db.scalar(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?", (session_id,)))
+        return max(0, total - limit)
 
     def sessions_with_content(self, exclude_dreamed: bool = True) -> List[str]:
         """Sessions the stream has anything for, oldest first."""
