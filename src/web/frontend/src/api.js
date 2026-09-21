@@ -115,6 +115,8 @@ export const api = {
     roster: (limit = 60) => request(`/memory/roster?limit=${limit}`),
     selfLore: () => request('/memory/self'),
     recall: (q, k = 8) => request(`/memory/search?q=${encodeURIComponent(q)}&k=${k}`),
+    browse: (scope = 'diary', limit = 20) =>
+        request(`/memory/browse?scope=${encodeURIComponent(scope)}&limit=${limit}`),
 
     secrets: () => request('/secrets'),
 

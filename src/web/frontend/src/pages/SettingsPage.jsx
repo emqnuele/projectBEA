@@ -81,13 +81,20 @@ export default function SettingsPage() {
         setSaving(true);
         try {
             const result = await api.saveConfig(config);
-            setSaved(JSON.stringify(config));
             if (result.restart_required) {
                 toast.info('Saved — restart to apply', 'Switching provider needs the engine restarted.');
             } else {
                 toast.success('Settings saved', 'She is already using them.');
             }
             await refreshOverview();
+            // the page holds one object while embedded sections save their own:
+            // read back what the server holds so the next save cannot write
+            // values a section already replaced
+            try {
+                const fresh = await api.config();
+                setConfig(fresh);
+                setSaved(JSON.stringify(fresh));
+            } catch { /* the save itself succeeded; this is just hygiene */ }
         } catch (e) {
             toast.error('Nothing was saved', e.message);
         } finally {

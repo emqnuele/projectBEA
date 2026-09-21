@@ -79,7 +79,7 @@ export default function BootPage() {
     const results = {
         reachable: state.phase === 'ready' ? 'ok' : state.phase === 'down' ? 'fail' : 'wait',
         model: overview ? (overview.engine.model ? 'ok' : 'fail') : state.phase === 'down' ? 'fail' : 'wait',
-        voice: overview ? 'ok' : state.phase === 'down' ? 'fail' : 'wait',
+        voice: overview ? (overview.engine.tts_provider ? 'ok' : 'fail') : state.phase === 'down' ? 'fail' : 'wait',
         skills: overview ? (overview.skills.some((s) => s.enabled) ? 'ok' : 'fail') : state.phase === 'down' ? 'fail' : 'wait',
     };
     const detail = {

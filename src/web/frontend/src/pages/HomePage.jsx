@@ -44,7 +44,7 @@ export default function HomePage() {
             : <LoadingBento />;
     }
 
-    const { plan, skills, memory, engine, session, context } = overview;
+    const { plan, skills, memory, engine, session, context, dream } = overview;
     const ctxPct = context?.enabled && context.max_tokens
         ? Math.min(1, context.total_tokens / context.max_tokens)
         : 0;
@@ -245,6 +245,9 @@ export default function HomePage() {
                         {memory.rag_ready
                             ? `${memory.self_facts} things she has worked out about herself, ${memory.hot_facts} live right now.`
                             : 'Recall is off — enable the memory ability to let her search what she remembers.'}
+                    </p>
+                    <p className="mt-1 font-mono text-[10px] text-faint">
+                        {dream?.last_night ? `Last dreamed ${dream.last_night}` : 'She has not dreamt yet'}
                     </p>
                 </Tile>
 

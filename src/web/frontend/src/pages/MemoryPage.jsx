@@ -11,6 +11,7 @@ import { Badge, EmptyState, Skeleton, Spinner } from '../components/ui/feedback'
 const TABS = [
     { value: 'people', label: 'People she knows' },
     { value: 'roster', label: 'Everyone she has met' },
+    { value: 'diary', label: 'Diary' },
     { value: 'recall', label: 'Recall' },
     { value: 'self', label: 'Herself' },
 ];
@@ -86,6 +87,8 @@ export default function MemoryPage() {
                     <PeopleGrid people={people} />
                 ) : tab === 'roster' ? (
                     <RosterTable roster={roster} />
+                ) : tab === 'diary' ? (
+                    <DiaryPanel />
                 ) : tab === 'recall' ? (
                     <RecallPanel />
                 ) : (
@@ -244,6 +247,7 @@ function RecallPanel() {
     const [query, setQuery] = useState('');
     const [result, setResult] = useState(null);
     const [busy, setBusy] = useState(false);
+    const [scope, setScope] = useState('all');
     const toast = useToast();
 
     const search = async (event) => {
@@ -259,6 +263,8 @@ function RecallPanel() {
             setBusy(false);
         }
     };
+
+    const inScope = (item) => scope === 'all' || (item.scope || 'diary') === scope;
 
     return (
         <div className="mx-auto w-full max-w-3xl space-y-2.5">
@@ -288,20 +294,35 @@ function RecallPanel() {
             {busy && <div className="flex justify-center py-8"><Spinner size={20} /></div>}
 
             {result && !busy && (
-                <div className="grid gap-2.5 md:grid-cols-2">
-                    <RecallColumn
-                        title="What people told her"
-                        tone="var(--flux-in)"
-                        items={result.facts}
-                        empty="Nothing close enough in what others have said."
-                    />
-                    <RecallColumn
-                        title="Things she said herself"
-                        tone="var(--vital)"
-                        items={result.hers}
-                        empty="She has not said anything close to this."
-                    />
-                </div>
+                <>
+                    <div className="flex justify-center">
+                        <Segmented
+                            value={scope}
+                            onChange={setScope}
+                            size="sm"
+                            options={[
+                                { value: 'all', label: 'Everything' },
+                                { value: 'diary', label: 'Diary' },
+                                { value: 'conversation', label: 'Recaps' },
+                                { value: 'person', label: 'Notes' },
+                            ]}
+                        />
+                    </div>
+                    <div className="grid gap-2.5 md:grid-cols-2">
+                        <RecallColumn
+                            title="What people told her"
+                            tone="var(--flux-in)"
+                            items={result.facts.filter(inScope)}
+                            empty="Nothing close enough in what others have said."
+                        />
+                        <RecallColumn
+                            title="Things she said herself"
+                            tone="var(--vital)"
+                            items={result.hers.filter(inScope)}
+                            empty="She has not said anything close to this."
+                        />
+                    </div>
+                </>
             )}
         </div>
     );
@@ -320,6 +341,7 @@ function RecallColumn({ title, tone, items, empty }) {
                             <p className="text-[12px] leading-snug text-text">{item.text}</p>
                             <p className="mt-1.5 flex items-center gap-2 font-mono text-[10px] text-faint">
                                 {item.who && <span>{item.who}</span>}
+                                {item.scope && <Badge color="var(--cognition)">{scopeLabel(item.scope)}</Badge>}
                                 <span>{dayAndTime(item.created_at)}</span>
                                 <span className="ml-auto">{Math.round(item.similarity * 100)}% match</span>
                             </p>
@@ -328,6 +350,70 @@ function RecallColumn({ title, tone, items, empty }) {
                 </ul>
             )}
         </Glass>
+    );
+}
+
+function scopeLabel(scope) {
+    return { diary: 'diary', conversation: 'recap', person: 'note' }[scope] || scope;
+}
+
+function DiaryPanel() {
+    const [pages, setPages] = useState(null);
+    const [open, setOpen] = useState(null);
+    const toast = useToast();
+
+    useEffect(() => {
+        api.browse('diary', 20)
+            .then(setPages)
+            .catch((e) => {
+                setPages([]);
+                toast.error('Could not read the diary', e.message);
+            });
+    }, [toast]);
+
+    if (pages === null) {
+        return (
+            <div className="grid gap-2.5 sm:grid-cols-2">
+                {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-40" />)}
+            </div>
+        );
+    }
+
+    if (pages.length === 0) {
+        return (
+            <EmptyState icon={Sparkles} title="No pages yet">
+                One page lands here per session, written by the dream pass from the
+                whole stream — not just her own lines.
+            </EmptyState>
+        );
+    }
+
+    return (
+        <div className="mx-auto grid w-full max-w-4xl gap-2.5">
+            {pages.map((page, index) => {
+                const expanded = open === index;
+                const long = page.text.length > 420;
+                return (
+                    <Glass quiet key={`${page.scope_key}-${index}`} className="rounded-b3 p-4">
+                        <p className="mb-2 flex items-center gap-2 font-mono text-[10px] text-faint">
+                            <span>{dayAndTime(page.created_at)}</span>
+                            {page.who && <span>· {page.who}</span>}
+                        </p>
+                        <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-dim">
+                            {expanded || !long ? page.text : `${page.text.slice(0, 420)}…`}
+                        </p>
+                        {long && (
+                            <button
+                                onClick={() => setOpen(expanded ? null : index)}
+                                className="mt-2 text-[11px] font-medium text-dim transition-colors hover:text-text"
+                            >
+                                {expanded ? 'Show less' : 'Read the whole page'}
+                            </button>
+                        )}
+                    </Glass>
+                );
+            })}
+        </div>
     );
 }
 
