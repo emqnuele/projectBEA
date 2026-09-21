@@ -101,16 +101,6 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_key, id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
 
--- Rolling summary per conversation. `last_count` is the message count at the
--- last regeneration: the trigger is a delta, not a modulo, because the counter
--- jumps by more than one and an exact multiple would be stepped over.
-CREATE TABLE IF NOT EXISTS summaries (
-    conversation_key TEXT PRIMARY KEY,
-    summary          TEXT NOT NULL DEFAULT '',
-    last_count       INTEGER NOT NULL DEFAULT 0,
-    updated_at       REAL NOT NULL
-);
-
 -- The one sliding context window, mirrored as it is written.
 --
 -- Her working memory, not her history: what was said, who she was answering
