@@ -681,22 +681,6 @@ class Conversations:
             })
         return out
 
-    def prune(self, keep_per_conversation: int = 500) -> int:
-        """Caps history per conversation. A twitch channel would grow forever."""
-        removed = 0
-        for row in self.db.query("SELECT DISTINCT conversation_key FROM messages"):
-            key = row["conversation_key"]
-            excess = self.count(key) - keep_per_conversation
-            if excess <= 0:
-                continue
-            self.db.execute(
-                "DELETE FROM messages WHERE id IN ("
-                "  SELECT id FROM messages WHERE conversation_key = ? ORDER BY id ASC LIMIT ?)",
-                (key, excess),
-            )
-            removed += excess
-        return removed
-
 
 # --- the sliding window -----------------------------------------------------
 
