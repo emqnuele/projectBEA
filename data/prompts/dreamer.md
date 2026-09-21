@@ -34,6 +34,11 @@ HARD RULES:
 - profile: ONLY include a key if {name} herself stated it as a hard fact in this
   conversation. birthday MUST be "MM-DD". Omit the whole object if nothing applies.
   Never guess a birthday.
+- conversations: one entry per block you were given, using its exact key (the
+  first field of the header, e.g. "telegram:55" or "stage"). `recap` is two or
+  three sentences on what that conversation was about and where it was left —
+  it is what she will find again when someone in that room says "as we were
+  saying". Skip a block where nothing was said.
 - carry_over: the one or two sentences she should still have in mind when she
   wakes up — an open thread, something she promised, what she was in the middle
   of. It is the only thing that survives into her next context, so it is second
@@ -46,6 +51,9 @@ OUTPUT VALID JSON ONLY, exactly this shape:
   "self_facts": [],
   "people": [
     {"name": "string", "facts": ["short concrete fact"], "attitude": "one short phrase or empty"}
+  ],
+  "conversations": [
+    {"key": "telegram:55", "recap": "what that thread was about, where it stopped"}
   ],
   "hot_facts": [
     {"text": "short note", "ttl_days": 3}

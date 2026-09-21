@@ -24,6 +24,10 @@ RECALL_LIMIT = 3
 # a sitting with fewer spoken lines than this has nothing to write a page about
 MIN_SPOKEN_LINES = 2
 
+# every scope the consolidation writes: the diary of a sitting, the recap of a
+# conversation, and what she knows about one person
+RECALL_SCOPES = ("diary", "conversation", "person")
+
 
 def _clean_for_query(rendered: str) -> str:
     return _PREFIX_RE.sub("", rendered).strip() or rendered
@@ -82,11 +86,20 @@ class MemorySkill(Skill):
         """Two blocks, explicitly labelled: facts, and things she made up."""
         if self.rag is None:
             return ""
-        try:
-            facts, hers = self.rag.recall_split(query, scope="diary", k=limit)
-        except Exception as e:
-            logger.error(f"MemorySkill: recall failed: {e}")
-            return ""
+        facts, hers = [], []
+        # one query per scope rather than one unscoped query: a scope is what
+        # the vector index is partitioned by, and asking without one sends
+        # every recall down the full scan
+        for scope in RECALL_SCOPES:
+            try:
+                found, said = self.rag.recall_split(query, scope=scope, k=limit)
+            except Exception as e:
+                logger.error(f"MemorySkill: recall in '{scope}' failed: {e}")
+                continue
+            facts.extend(found)
+            hers.extend(said)
+        facts.sort(key=lambda r: r.similarity, reverse=True)
+        hers.sort(key=lambda r: r.similarity, reverse=True)
 
         parts = []
         if facts:

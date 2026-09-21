@@ -101,6 +101,7 @@ class DreamSkill(Skill):
             roster=social.roster, people=social.people,
             selflore=self.selflore, recent=self.recent, sessions=self.sessions,
             conversations=self.brain.memory.conversations,
+            rag=getattr(self.brain.memory, "rag", None),
             persona=persona_of(self.config), language=self.config.language,
         )
 
