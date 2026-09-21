@@ -20,6 +20,8 @@ from src.core.skills.social.people import (
 )
 from src.core.skills.social.social import SocialMemory
 
+DAY = 86400
+
 
 @pytest.fixture
 def memory():
@@ -119,6 +121,29 @@ def test_the_repair_is_a_noop_the_second_time(memory):
 
     assert repair_duplicate_cards(memory.roster, memory.people) == 1
     assert repair_duplicate_cards(memory.roster, memory.people) == 0
+
+
+def test_inherited_warmth_starts_decaying_from_the_merge(memory):
+    """Warmth is read already decayed to now, so its clock has to move with it.
+
+    Left at the loser's old `warmth_at`, warmth folded in from a card last
+    touched weeks ago would keep decaying from that reading and fade in
+    minutes instead of days.
+    """
+    import time
+
+    _c1, c2 = _two_cards(memory)
+    memory.people.nudge_warmth(c2.person_id, 0.8)
+    memory.db.execute("UPDATE people SET warmth_at = ? WHERE person_id = ?",
+                      (time.time() - 60 * DAY, c2.person_id))
+
+    repair_duplicate_cards(memory.roster, memory.people)
+
+    survivor = memory.people.all()[0]
+    fresh = float(memory.db.scalar(
+        "SELECT warmth_at FROM people WHERE person_id = ?", (survivor.person_id,)))
+    assert survivor.warmth > 0
+    assert time.time() - fresh < 5
 
 
 # --- she can say who is in front of her -------------------------------------
