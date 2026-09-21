@@ -111,6 +111,24 @@ CREATE TABLE IF NOT EXISTS summaries (
     updated_at       REAL NOT NULL
 );
 
+-- The one sliding context window, mirrored as it is written.
+--
+-- Her working memory, not her history: what was said, who she was answering
+-- and which rooms are still alive. Kept on disk so a restart is not amnesia,
+-- and emptied by exactly one event — the consolidation she does in her sleep.
+-- `seq` is the window's own ordering; the bridge line written by a handoff
+-- is seq 0 and sorts first.
+CREATE TABLE IF NOT EXISTS context_window (
+    seq        INTEGER PRIMARY KEY,
+    ts         REAL    NOT NULL,
+    tokens     INTEGER NOT NULL DEFAULT 0,
+    role       TEXT    NOT NULL,
+    content    TEXT    NOT NULL,
+    conv_key   TEXT    NOT NULL DEFAULT 'stage',
+    author     TEXT    NOT NULL DEFAULT '',
+    addressee  TEXT    NOT NULL DEFAULT ''
+);
+
 -- --- long-term memory -------------------------------------------------------
 
 -- Embedded recollections. `source` separates what someone said from what Bea
@@ -193,8 +211,9 @@ CREATE TABLE IF NOT EXISTS objectives (
 );
 CREATE INDEX IF NOT EXISTS idx_objectives_order ON objectives(position, id);
 
--- Small owner-set values that are not memories either; today just the plan's
--- headline ("today you play minecraft with the mod team").
+-- Small named values that are not memories: the plan's headline ("today you
+-- play minecraft with the mod team"), and the engine's own bookkeeping (which
+-- night the last dream ran, which version the context window is on).
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

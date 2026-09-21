@@ -576,6 +576,73 @@ class Conversations:
         return removed
 
 
+# --- the sliding window -----------------------------------------------------
+
+
+class WindowStore:
+    """The one sliding context window, mirrored row by row as it is written.
+
+    Write-through rather than a dump at shutdown: ctrl+c cancels the task
+    running the shutdown, and a window that only reached disk there would be
+    lost exactly when it mattered. Every write here is one small statement on
+    the loop thread, which is the same thread that owns the window.
+    """
+
+    VERSION_KEY = "context_window.version"
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def add(self, row: Dict[str, Any]) -> None:
+        self.db.execute(
+            "INSERT INTO context_window (seq, ts, tokens, role, content, conv_key, "
+            "author, addressee) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(seq) DO UPDATE SET ts = excluded.ts, tokens = excluded.tokens, "
+            "role = excluded.role, content = excluded.content, "
+            "conv_key = excluded.conv_key, author = excluded.author, "
+            "addressee = excluded.addressee",
+            (int(row["seq"]), float(row["ts"]), int(row["tokens"]), str(row["role"]),
+             str(row["content"]), str(row["key"]), str(row["author"]),
+             str(row["addressee"])),
+        )
+
+    def drop(self, seq: int) -> None:
+        self.db.execute("DELETE FROM context_window WHERE seq = ?", (int(seq),))
+
+    def replace(self, rows: List[Dict[str, Any]], version: int = 0) -> None:
+        """The whole window at once, in one transaction: what a swap produces."""
+        with self.db.cursor() as cur:
+            cur.execute("DELETE FROM context_window")
+            cur.executemany(
+                "INSERT INTO context_window (seq, ts, tokens, role, content, conv_key, "
+                "author, addressee) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [(int(r["seq"]), float(r["ts"]), int(r["tokens"]), str(r["role"]),
+                  str(r["content"]), str(r["key"]), str(r["author"]),
+                  str(r["addressee"])) for r in rows],
+            )
+            cur.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (self.VERSION_KEY, str(int(version))),
+            )
+
+    def load(self) -> List[Dict[str, Any]]:
+        rows = self.db.query(
+            "SELECT seq, ts, tokens, role, content, conv_key, author, addressee "
+            "FROM context_window ORDER BY seq"
+        )
+        return [{"seq": r["seq"], "ts": r["ts"], "tokens": r["tokens"], "role": r["role"],
+                 "content": r["content"], "key": r["conv_key"], "author": r["author"],
+                 "addressee": r["addressee"]} for r in rows]
+
+    def version(self) -> int:
+        try:
+            return int(self.db.scalar(
+                "SELECT value FROM settings WHERE key = ?", (self.VERSION_KEY,), default=0))
+        except (TypeError, ValueError):
+            return 0
+
+
 # --- sessions ---------------------------------------------------------------
 
 
@@ -634,6 +701,7 @@ class MemoryStore:
         self.hot = HotFacts(self.db)
         self.selflore = SelfLore(self.db)
         self.conversations = Conversations(self.db)
+        self.window = WindowStore(self.db)
         self.sessions = Sessions(self.db)
         self.plan = StreamPlan(self.db)
         self.agenda = Agenda(self.db)

@@ -97,7 +97,8 @@ class Consciousness:
             trigger_tokens=int(cc.get("handoff_trigger_tokens", 120_000)),
             target_tokens=int(cc.get("handoff_target_tokens", 50_000)),
         ), hot_tokens=int(cc.get("hot_tokens", 30_000)),
-            hot_seconds=float(cc.get("hot_seconds", 1800.0)))
+            hot_seconds=float(cc.get("hot_seconds", 1800.0)),
+            store=memory.window)
         self._handoff = HandoffWorker(language=getattr(config, "language", ""))
         self._handoff_task: Optional[asyncio.Task] = None
         self._handoff_enabled = bool(cc.get("context_handoff", True))
@@ -146,6 +147,12 @@ class Consciousness:
 
     async def start(self):
         self.alive = True
+        # before the first turn, not after: the follow-up gate and the
+        # cooldowns read the window, and a restart used to leave them blind to
+        # a conversation that was two minutes old
+        restored = self.sliding_window.restore()
+        if restored:
+            logger.info(f"Window restored: {restored} entr(ies) from the last run.")
         for s in self.surfaces.all():
             try:
                 await s.start()
@@ -1010,6 +1017,21 @@ class Consciousness:
         task = asyncio.create_task(work())
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
+
+    def forget_window(self, bridge: str = "") -> None:
+        """Empties the one window, leaving the bridge the consolidation wrote.
+
+        The single caller is the dream: sleeping is what starts her over, and
+        nothing else in the system is allowed to take the evening away from
+        her. A pending handoff is cancelled first — landing a swap onto a
+        window that has just been emptied would put the evening back.
+        """
+        if self._handoff_task and not self._handoff_task.done():
+            self._handoff_task.cancel()
+            self._handoff_task = None
+        self._handoff.last_prose = ""
+        self.sliding_window.clear(bridge)
+        logger.info("Window cleared by the consolidation.")
 
     def window_status(self) -> Dict[str, Any]:
         """Budget state for the dashboard."""

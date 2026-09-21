@@ -8,8 +8,12 @@ verbatim, rather than sitting pinned at the ceiling.
 
 Every entry is tagged with the conversation `key` it belongs to ("stage" for
 the live room). The follow-up gate and the cooldowns read these tags — never
-SQLite — so "are they answering me" survives a restart of nothing but the
-process, and costs no query.
+the message stream — so "are they answering me" costs no query.
+
+The window itself is mirrored into a `store` as it is written, so a restart
+is not amnesia: it is rebuilt from disk at start-up and emptied by exactly one
+event, the consolidation she does in her sleep. A window built without a store
+behaves the same and simply forgets on exit.
 """
 
 import time
@@ -23,6 +27,9 @@ from src.core.mind.token_budget import (
     split_hot_cold,
     truncate_to_budget,
 )
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.mind.window")
 
 # verbatim overlap carried across a swap so a sentence or decision is never
 # cut in half at the boundary
@@ -39,8 +46,11 @@ class SingleContext:
     """
 
     def __init__(self, budget: Optional[TokenBudget] = None, *, hot_tokens: int = 30_000,
-                 hot_seconds: float = 1800.0):
+                 hot_seconds: float = 1800.0, store: Optional[Any] = None):
         self.budget = budget or TokenBudget()
+        # duck-typed on purpose: the window knows nothing about SQLite, only
+        # that something may want add/drop/replace/load/version
+        self.store = store
         # the hot present can never exceed the ceiling: promising more verbatim
         # than fits forces the swap to silently drop the present it just kept
         self.hot_tokens = min(max(1_000, int(hot_tokens)), max(1_000, self.budget.max_tokens))
@@ -107,6 +117,7 @@ class SingleContext:
                 only.payload["content"] = shrunk
             self._total += only.tokens
 
+        self._mirror(entry)
         return entry
 
     def _evict_oldest(self) -> None:
@@ -117,10 +128,102 @@ class SingleContext:
                 self._total -= e.tokens
                 self.evicted_tokens += e.tokens
                 del self._entries[i]
+                self._forget(e.seq)
                 return
         oldest = self._entries.pop(0)
         self._total -= oldest.tokens
         self.evicted_tokens += oldest.tokens
+        self._forget(oldest.seq)
+
+    def clear(self, bridge: str = "") -> None:
+        """Empties the window. The one thing allowed to call this is the
+        consolidation: she wakes up with what she dreamt, not with the evening.
+
+        `bridge` is what that consolidation wants to hand the next window —
+        the same `[EARLIER]` system entry a handoff produces, pinned against
+        the valve rather than trimmed first.
+        """
+        self._entries = []
+        self._total = 0
+        if bridge:
+            tokens = estimate_tokens(bridge) + MESSAGE_OVERHEAD_TOKENS
+            self._entries.append(BudgetEntry(
+                tokens=tokens, ts=time.time(),
+                payload={"role": "system", "content": bridge, "key": "stage",
+                         "author": "", "addressee": ""},
+                seq=0))
+            self._total = tokens
+        self.version += 1
+        self._persist()
+
+    # --- mirroring --------------------------------------------------------
+
+    @staticmethod
+    def _row(entry: BudgetEntry) -> Dict[str, Any]:
+        payload = entry.payload if isinstance(entry.payload, dict) else {}
+        return {"seq": entry.seq, "ts": entry.ts, "tokens": entry.tokens,
+                "role": payload.get("role", "user"),
+                "content": payload.get("content", ""),
+                "key": payload.get("key", "stage"),
+                "author": payload.get("author", ""),
+                "addressee": payload.get("addressee", "")}
+
+    def to_rows(self) -> List[Dict[str, Any]]:
+        """The window as plain rows, oldest first."""
+        return [self._row(e) for e in self._entries]
+
+    def _mirror(self, entry: BudgetEntry) -> None:
+        if self.store is None:
+            return
+        try:
+            self.store.add(self._row(entry))
+        except Exception as e:  # a window that cannot be saved still works
+            logger.warning(f"Could not mirror a window entry: {e}")
+
+    def _forget(self, seq: int) -> None:
+        if self.store is None:
+            return
+        try:
+            self.store.drop(seq)
+        except Exception as e:
+            logger.warning(f"Could not drop a window entry: {e}")
+
+    def _persist(self) -> None:
+        """The whole window at once: what a swap or a clear produces."""
+        if self.store is None:
+            return
+        try:
+            self.store.replace(self.to_rows(), self.version)
+        except Exception as e:
+            logger.warning(f"Could not save the window: {e}")
+
+    def restore(self) -> int:
+        """Rebuilds the window from the store. Returns how many entries came back.
+
+        Called once at start-up, before the first turn: the follow-up gate and
+        the cooldowns read the window, so without this a restart leaves them
+        blind to a conversation that is minutes old.
+        """
+        if self.store is None:
+            return 0
+        try:
+            rows = self.store.load()
+            version = int(self.store.version())
+        except Exception as e:
+            logger.warning(f"Could not restore the window: {e}")
+            return 0
+        self._entries = [
+            BudgetEntry(tokens=int(r["tokens"]), ts=float(r["ts"]),
+                        payload={"role": r["role"], "content": r["content"],
+                                 "key": r["key"], "author": r["author"],
+                                 "addressee": r["addressee"]},
+                        seq=int(r["seq"]))
+            for r in rows
+        ]
+        self._total = sum(e.tokens for e in self._entries)
+        self._next_seq = max((e.seq for e in self._entries), default=0) + 1
+        self.version = version
+        return len(self._entries)
 
     # --- reading ----------------------------------------------------------
 
@@ -292,6 +395,7 @@ class SingleContext:
         self._entries = new_entries
         self._total = sum(e.tokens for e in new_entries)
         self.version += 1
+        self._persist()
         # window breathes after a swap: report whether it landed near target
         return {**self.status(), "carried_hot": kept_hot}
 
