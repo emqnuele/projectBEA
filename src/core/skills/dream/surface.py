@@ -13,6 +13,11 @@ logger = get_logger("bea.skills.dream")
 
 REGULAR_ABSENCE_DAYS = 10
 
+# the date of the last nightly pass, so a restart inside the dreaming hour
+# neither skips a night nor doubles one
+LAST_NIGHT_KEY = "dream.last_night"
+
+
 
 class DreamSkill(Skill):
     """Sleep and dream: self-knowledge, hot facts, offline consolidation.
@@ -33,6 +38,9 @@ class DreamSkill(Skill):
         self.dreamer: Optional[Dreamer] = None
         self._dreaming = False
         self._night_task: Optional[asyncio.Task] = None
+        # held, not fired and forgotten: the loop keeps only a weak reference,
+        # so an unheld dream can be collected in the middle of consolidating
+        self._dream_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         await super().start()
@@ -59,13 +67,12 @@ class DreamSkill(Skill):
         a night nor doubles one.
         """
         hour = int(self.config.skills.get("dream", {}).get("hour", 4))
-        last_dreamed_on = None
         while self.active:
             await asyncio.sleep(300)
             now = datetime.datetime.now()
-            if now.hour != hour or last_dreamed_on == now.date():
+            if now.hour != hour or self._dreamed_tonight(now.date()):
                 continue
-            last_dreamed_on = now.date()
+            self._mark_dreamed_tonight(now.date())
             logger.info("DreamSkill: nightly consolidation starting.")
             try:
                 await self.run_dream()
@@ -188,20 +195,29 @@ class DreamSkill(Skill):
         )]
 
     async def _tool_go_to_sleep(self, reason: str = "") -> str:
-        consc = getattr(self.context, "consciousness", None)
-        if consc:
-            consc.sleep(reason or "tired")
-        asyncio.create_task(self.run_dream())
+        # falling asleep belongs to `run_dream` alone. Sleeping here and
+        # queueing the dream separately meant a request that arrived mid-dream
+        # bailed at the guard and then ran a second consolidation the moment
+        # the first one released it
+        if self._dreaming:
+            return "Already asleep, dreaming."
+        self._dream_task = asyncio.create_task(self.run_dream(reason or "tired"))
+        self._dream_task.add_done_callback(self._dream_finished)
         return "Zzz... going to sleep."
 
-    async def run_dream(self) -> dict:
+    def _dream_finished(self, task: asyncio.Task) -> None:
+        self._dream_task = None
+        if not task.cancelled() and task.exception() is not None:
+            logger.error(f"DreamSkill: the dream task died: {task.exception()}")
+
+    async def run_dream(self, reason: str = "dreaming") -> dict:
         """Sleep -> consolidate -> refresh hot facts -> wake. Safe to call from UI."""
         if self._dreaming:
             return {"ok": False, "error": "already dreaming"}
         self._dreaming = True
         consc = getattr(self.context, "consciousness", None)
-        if consc and not consc.sleeping:
-            consc.sleep("dreaming")
+        if consc:
+            consc.sleep(reason)
         summary = {"ok": True}
         try:
             if self.dreamer:
@@ -215,6 +231,37 @@ class DreamSkill(Skill):
             if consc:
                 consc.wake()
         return summary
+
+    # --- once a night, across restarts --------------------------------------
+
+    def _dreamed_tonight(self, today: Optional[datetime.date] = None) -> bool:
+        """Whether tonight's pass already ran.
+
+        On disk rather than in a local: the hour is checked every five minutes,
+        so a restart at 4:30 used to find an empty variable and dream the same
+        night a second time.
+        """
+        today = today or datetime.datetime.now().date()
+        return self._last_night() == today.isoformat()
+
+    def _mark_dreamed_tonight(self, today: Optional[datetime.date] = None) -> None:
+        today = today or datetime.datetime.now().date()
+        memory = getattr(self.context, "memory", None)
+        if memory is None:
+            return
+        memory.db.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (LAST_NIGHT_KEY, today.isoformat()),
+        )
+
+    def _last_night(self) -> str:
+        memory = getattr(self.context, "memory", None)
+        if memory is None:
+            return ""
+        return str(memory.db.scalar(
+            "SELECT value FROM settings WHERE key = ?", (LAST_NIGHT_KEY,), default="",
+        ))
 
 
 def _first_line(text: str, limit: int = 120) -> str:
