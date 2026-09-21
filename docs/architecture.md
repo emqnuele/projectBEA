@@ -198,7 +198,9 @@ answering on it.
       `say_nothing`) the turn ends without burning another model call.
 7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **mirror** the turn into the sliding
     window (`_record_window`) — retention is token-budgeted (150k ceiling),
-    never message-count-trimmed. A handoff is **scheduled** when the budget
+    never message-count-trimmed. The turn only marks the window dirty; a flush
+    behind it writes it in one transaction, and stopping the mind flushes it
+    synchronously. A handoff is **scheduled** when the budget
     hits the trigger (`_schedule_handoff`) — see below.
 
 Details that matter:
@@ -212,10 +214,12 @@ Details that matter:
 
 ## The sliding window
 
-One mind, one log. Every live turn is mirrored into `SingleContext`
+One mind, one log. Every live turn lands in `SingleContext`
 (`src/core/mind/single_context.py`), a token-budgeted append-only log that
 replaces message-count trimming with a real ceiling: **150k max, handoff
-trigger at 120k, rest near ~50k**.
+trigger at 120k, rest near ~50k**. The window lives in RAM while she talks —
+appends never touch the disk — and a flush after each turn, plus a synchronous
+one at shutdown, carries it over in a single transaction.
 
 When the trigger hits, `HandoffWorker` (`src/core/mind/handoff.py`) runs on
 the background pool, in parallel with the loop:

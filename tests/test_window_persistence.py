@@ -3,8 +3,9 @@
 It is her working memory: what was said an hour ago, who she was answering,
 which rooms are still alive. All of that used to live only in RAM, so a
 restart left the follow-up gate blind and the next turn started from nothing.
-It is now mirrored into the database as it is written, and it is emptied by
-exactly one event: the consolidation she does in her sleep.
+It lives in RAM still — the turn never waits on the disk — and a flush after
+each turn, plus a synchronous one at shutdown, is what carries it over. It is
+emptied by exactly one event: the consolidation she does in her sleep.
 """
 
 import pytest
@@ -39,6 +40,7 @@ def test_a_window_written_by_one_process_comes_back_in_the_next(memory):
     live = window(memory)
     live.append("user", "[marco] ciao", key="telegram:55", author="telegram:7")
     live.append("assistant", "ei marco", key="telegram:55", addressee="telegram:7")
+    assert live.flush()
 
     after = reopened(memory)
 
@@ -49,6 +51,7 @@ def test_the_conversation_tags_survive_the_restart(memory):
     live = window(memory)
     live.append("user", "[marco] ciao", key="telegram:55", author="telegram:7")
     live.append("assistant", "ei marco", key="telegram:55", addressee="telegram:7")
+    live.flush()
 
     after = reopened(memory)
 
@@ -64,6 +67,7 @@ def test_the_next_entry_does_not_reuse_a_restored_sequence_number(memory):
     live = window(memory)
     live.append("user", "uno")
     live.append("user", "due")
+    live.flush()
 
     after = reopened(memory)
     entry = after.append("user", "tre")
@@ -74,6 +78,7 @@ def test_the_next_entry_does_not_reuse_a_restored_sequence_number(memory):
 def test_the_budget_is_rebuilt_from_what_came_back(memory):
     live = window(memory)
     live.append("user", "qualcosa di abbastanza lungo da contare")
+    live.flush()
 
     after = reopened(memory)
 
@@ -100,6 +105,7 @@ def test_what_the_valve_throws_away_is_thrown_away_on_disk_too(memory):
     live = window(memory, max_tokens=40, trigger_tokens=30, target_tokens=20)
     live.append("user", "x" * 200)
     live.append("user", "y" * 200)
+    live.flush()
 
     after = reopened(memory)
 
@@ -148,6 +154,7 @@ async def test_the_mind_rebuilds_its_window_when_it_starts(memory):
 
     before = window(memory)
     before.append("user", "[marco] ciao", key="telegram:55", author="telegram:7")
+    before.flush()
 
     mind, _bus, _memory = build(memory=memory)
     await mind.start()
@@ -162,5 +169,8 @@ async def test_a_fresh_mind_writes_its_window_where_the_next_one_looks(memory):
 
     mind, _bus, _memory = build(memory=memory)
     mind.sliding_window.append("user", "[marco] ciao", key="telegram:55")
+
+    assert [r["content"] for r in memory.window.load()] == []
+    await mind.stop()
 
     assert [r["content"] for r in memory.window.load()] == ["[marco] ciao"]

@@ -198,7 +198,7 @@ def _duplicate_names(people) -> List[str]:
 
 def _cards_named(people, low: str) -> List[PersonCard]:
     """Every card with exactly this primary name, case-insensitive."""
-    return [people._card(r) for r in people.db.query(
+    return [people.card_from_row(r) for r in people.db.query(
         "SELECT * FROM people WHERE LOWER(primary_name) = ?", (low,))]
 
 

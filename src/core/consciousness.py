@@ -106,7 +106,14 @@ class Consciousness:
             store=memory.window)
         self._handoff = HandoffWorker(language=getattr(config, "language", ""))
         self._handoff_task: Optional[asyncio.Task] = None
+        self._persist_task: Optional[asyncio.Task] = None
         self._handoff_enabled = bool(cc.get("context_handoff", True))
+        # ram first: the turn only marks the window dirty, and the write
+        # happens behind it — never inside it
+        self._persist_after_turn = bool(cc.get("window_persist_after_turn", True))
+        # how long a turn waits for retrieved context before answering
+        # without it: the disk must never hold the conversation hostage
+        self._dynamic_timeout = float(cc.get("dynamic_context_timeout", 5.0))
         # the follow-up gate reads the one window, never sqlite: without this
         # the gate is blind and every "are they answering me" is a flat no
         if attention is not None and getattr(attention, "window", None) is None:
@@ -206,6 +213,22 @@ class Consciousness:
 
     async def stop(self):
         self.alive = False
+        # a background flush still in flight must land first: otherwise it
+        # could overwrite with an older snapshot what is flushed below
+        if self._persist_task and not self._persist_task.done():
+            try:
+                await asyncio.shield(self._persist_task)
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._persist_task = None
+        # the one synchronous write: stopping is the moment blocking on the
+        # disk is correct, and this is what a restart wakes up to
+        try:
+            if self.sliding_window.flush():
+                logger.info("Window flushed at shutdown.")
+            self._save_bridge()
+        except Exception as e:
+            logger.warning(f"Could not flush the window at shutdown: {e}")
         if self._loop_task:
             self._loop_task.cancel()
             try:
@@ -363,10 +386,12 @@ class Consciousness:
                     self._publish_cost(steps, spent, elapsed_ms)
                     self._write_down(context, self._batch, steps, spent, elapsed_ms)
                     self._record_window(frames)
+                    self._schedule_persist()
                     self._profile_background(self._batch)
                     self._schedule_handoff()
                 else:
                     self._record_window(frames)
+                    self._schedule_persist()
                     self._schedule_handoff()
             except asyncio.CancelledError:
                 break
@@ -548,8 +573,21 @@ class Consciousness:
 
     async def _build_briefing(self, batch: List[Perception],
                               is_idle: bool = False) -> Optional[Dict[str, Any]]:
-        """Builds it off the loop: a slow retrieval must not stall speech."""
-        dynamic = await asyncio.to_thread(self.surfaces.dynamic_context, batch) if batch else []
+        """Builds it off the loop: a slow retrieval must not stall speech.
+
+        Bounded, not just background: if the disk hangs, the turn goes on
+        without the retrieved block rather than late with it.
+        """
+        dynamic: List[str] = []
+        if batch:
+            try:
+                dynamic = await asyncio.wait_for(
+                    asyncio.to_thread(self.surfaces.dynamic_context, batch),
+                    timeout=self._dynamic_timeout)
+            except TimeoutError:
+                logger.warning("Dynamic context timed out; answering without it.")
+            except Exception as e:
+                logger.warning(f"Dynamic context failed; answering without it: {e}")
         return self._briefing(batch, is_idle=is_idle, dynamic=dynamic)
 
     def _system_message(self) -> Dict[str, Any]:
@@ -953,28 +991,28 @@ class Consciousness:
         """The stream, written down as it leaves the bus.
 
         Append-only and durable: the dream, recall and the dashboard read it,
-        and no context is ever built from it. It used to run at the end of a
-        turn and keep only perceptions carrying an `Author`, which silently
-        cost her every game event, every body action and everything that
-        arrived on a batch she did not answer.
+        and no context is ever built from it. One transaction per drain, not
+        one per row: N small commits would serialize the conversation behind
+        fsyncs, and the dream reads this minutes later — never mid-turn.
         """
         session = self._session_id
         try:
-            conversations = self.memory.conversations
+            entries = []
             for p in batch:
                 if not self._is_memorable(p):
                     continue
                 author = p.author
-                conversations.add(
-                    conversation_key=conversation_key(p),
-                    role="user" if author else "world",
-                    kind=p.kind.value, surface=p.surface, content=p.content,
-                    platform=author.platform if author else "",
-                    channel_id=str((p.meta or {}).get("channel_id", "")),
-                    author_identity=author.identity if author else None,
-                    display_name=author.display_name if author else "",
-                    session_id=session, ts=p.ts,
-                )
+                entries.append({
+                    "conversation_key": conversation_key(p),
+                    "role": "user" if author else "world",
+                    "kind": p.kind.value, "surface": p.surface, "content": p.content,
+                    "platform": author.platform if author else "",
+                    "channel_id": str((p.meta or {}).get("channel_id", "")),
+                    "author_identity": author.identity if author else None,
+                    "display_name": author.display_name if author else "",
+                    "session_id": session, "ts": p.ts,
+                })
+            self.memory.conversations.add_many(entries)
         except Exception as e:
             logger.warning(f"Could not write the stream down: {e}")
 
@@ -1021,6 +1059,43 @@ class Consciousness:
                     logger.warning(f"Background profiling failed: {e}")
 
         task = asyncio.create_task(work())
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
+    def _schedule_persist(self) -> None:
+        """Carries the ram window over to the disk, behind the turn.
+
+        The snapshot is built on the loop thread — plain data, no io — and
+        the single transaction runs elsewhere. A flush snapshotted before a
+        swap lands on an older version and is dropped by the version guard,
+        which is correct: the swap persisted its own newer window.
+        """
+        if not self._persist_after_turn or not self.sliding_window.needs_flush:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # not now; shutdown flushes what is left
+        snapshot = self.sliding_window.flush_snapshot()
+        if snapshot is None:
+            return
+        rows, version = snapshot
+
+        async def work() -> None:
+            try:
+                written = await asyncio.to_thread(
+                    self.memory.window.replace, rows, version, version)
+                if not written:
+                    self.sliding_window.mark_dirty()
+            except asyncio.CancelledError:
+                self.sliding_window.mark_dirty()
+                raise
+            except Exception as e:
+                logger.warning(f"Background window persist failed: {e}")
+                self.sliding_window.mark_dirty()
+
+        task = asyncio.create_task(work())
+        self._persist_task = task
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
 

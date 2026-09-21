@@ -35,8 +35,6 @@ Rules:
 """
 
 
-
-
 class Profiler:
     def __init__(self, llm, store, *, first_profile_at: int = FIRST_PROFILE_AT,
                  reprofile_every: int = REPROFILE_EVERY, language: str = ""):

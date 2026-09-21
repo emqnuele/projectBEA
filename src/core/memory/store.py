@@ -222,14 +222,14 @@ class PeopleStore:
 
     def get(self, person_id: str) -> Optional[PersonCard]:
         row = self.db.query_one("SELECT * FROM people WHERE person_id = ?", (person_id,))
-        return self._card(row) if row else None
+        return self.card_from_row(row) if row else None
 
     def get_by_identity(self, identity: str) -> Optional[PersonCard]:
         row = self.db.query_one(
             "SELECT p.* FROM people p JOIN identities i ON i.person_id = p.person_id "
             "WHERE i.identity = ?", (identity,),
         )
-        return self._card(row) if row else None
+        return self.card_from_row(row) if row else None
 
     def find_by_name(self, name: str) -> Optional[PersonCard]:
         low = name.strip().lower()
@@ -243,7 +243,7 @@ class PeopleStore:
         ) or self.db.query_one(
             "SELECT * FROM people WHERE LOWER(primary_name) LIKE ? LIMIT 1", (f"%{low}%",)
         )
-        return self._card(row) if row else None
+        return self.card_from_row(row) if row else None
 
     def find_exact_name(self, name: str) -> Optional[PersonCard]:
         """A card with exactly this primary name, case-insensitive.
@@ -256,7 +256,7 @@ class PeopleStore:
             return None
         row = self.db.query_one(
             "SELECT * FROM people WHERE LOWER(primary_name) = ?", (low,))
-        return self._card(row) if row else None
+        return self.card_from_row(row) if row else None
 
     def create_from_entry(self, entry: RosterEntry, reason: str = "",
                           seed_facts: Optional[List[str]] = None,
@@ -328,7 +328,7 @@ class PeopleStore:
 
     def all(self) -> List[PersonCard]:
         rows = self.db.query("SELECT * FROM people ORDER BY updated_at DESC")
-        return [self._card(r) for r in rows]
+        return [self.card_from_row(r) for r in rows]
 
     def profile_due(self, person_id: str, total: int, *, first: int, every: int) -> bool:
         """Should this person's card be (re)built?
@@ -350,7 +350,7 @@ class PeopleStore:
             (total, time.time(), person_id),
         )
 
-    def _card(self, row) -> PersonCard:
+    def card_from_row(self, row) -> PersonCard:
         pid = row["person_id"]
         idents = self.db.query(
             "SELECT identity, display_name FROM identities WHERE person_id = ? "
@@ -507,6 +507,30 @@ class Conversations:
              kind, surface, session_id),
         )
 
+    def add_many(self, entries: List[Dict[str, Any]]) -> int:
+        """A drained batch in one transaction, not one per row.
+
+        The loop thread calls this once per drain: N small commits would
+        serialize the conversation behind fsyncs, one commit does not.
+        """
+        if not entries:
+            return 0
+        now = time.time()
+        with self.db.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO messages (conversation_key, platform, channel_id, author_identity, "
+                "display_name, role, content, ts, addressee_identity, kind, surface, session_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(e.get("conversation_key", ""), e.get("platform", ""),
+                  e.get("channel_id", ""), e.get("author_identity"),
+                  e.get("display_name", ""), e.get("role", "user"),
+                  e.get("content", ""), e.get("ts", now),
+                  e.get("addressee_identity", "") or "", e.get("kind", "chat"),
+                  e.get("surface", ""), e.get("session_id", ""))
+                 for e in entries],
+            )
+            return cur.rowcount
+
     def stream(self, session_id: str, limit: int = 2000) -> List[Dict[str, Any]]:
         """Everything that happened in one sitting, oldest first.
 
@@ -622,12 +646,13 @@ class Conversations:
 
 
 class WindowStore:
-    """The one sliding context window, mirrored row by row as it is written.
+    """The one sliding context window, carried over in one transaction.
 
-    Write-through rather than a dump at shutdown: ctrl+c cancels the task
-    running the shutdown, and a window that only reached disk there would be
-    lost exactly when it mattered. Every write here is one small statement on
-    the loop thread, which is the same thread that owns the window.
+    ram first: the window lives in memory while she talks, and a flush after
+    each turn — plus a synchronous one at shutdown — is what writes it. A
+    per-entry write-through used to stall every turn behind its own commit;
+    a window that only reached disk at shutdown would instead be lost exactly
+    when ctrl+c cancels the shutdown. One transaction per turn is neither.
     """
 
     VERSION_KEY = "context_window.version"
@@ -635,25 +660,23 @@ class WindowStore:
     def __init__(self, db: Database):
         self.db = db
 
-    def add(self, row: Dict[str, Any]) -> None:
-        self.db.execute(
-            "INSERT INTO context_window (seq, ts, tokens, role, content, conv_key, "
-            "author, addressee) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(seq) DO UPDATE SET ts = excluded.ts, tokens = excluded.tokens, "
-            "role = excluded.role, content = excluded.content, "
-            "conv_key = excluded.conv_key, author = excluded.author, "
-            "addressee = excluded.addressee",
-            (int(row["seq"]), float(row["ts"]), int(row["tokens"]), str(row["role"]),
-             str(row["content"]), str(row["key"]), str(row["author"]),
-             str(row["addressee"])),
-        )
+    def replace(self, rows: List[Dict[str, Any]], version: int = 0,
+                expect_version: Optional[int] = None) -> bool:
+        """The whole window at once, in one transaction: what a swap produces.
 
-    def drop(self, seq: int) -> None:
-        self.db.execute("DELETE FROM context_window WHERE seq = ?", (int(seq),))
-
-    def replace(self, rows: List[Dict[str, Any]], version: int = 0) -> None:
-        """The whole window at once, in one transaction: what a swap produces."""
+        With `expect_version`, writes only when the stored version still
+        matches: a background flush snapshotted pages ago must not land on
+        top of a swap that has since persisted a newer window. Returns
+        whether anything was written.
+        """
         with self.db.cursor() as cur:
+            if expect_version is not None:
+                cur.execute("SELECT value FROM settings WHERE key = ?",
+                            (self.VERSION_KEY,))
+                row = cur.fetchone()
+                current = int(row[0]) if row is not None and row[0] is not None else 0
+                if current != int(expect_version):
+                    return False
             cur.execute("DELETE FROM context_window")
             cur.executemany(
                 "INSERT INTO context_window (seq, ts, tokens, role, content, conv_key, "
@@ -667,6 +690,7 @@ class WindowStore:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (self.VERSION_KEY, str(int(version))),
             )
+            return True
 
     def load(self) -> List[Dict[str, Any]]:
         rows = self.db.query(

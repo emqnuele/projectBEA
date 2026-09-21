@@ -10,10 +10,10 @@ Every entry is tagged with the conversation `key` it belongs to ("stage" for
 the live room). The follow-up gate and the cooldowns read these tags — never
 the message stream — so "are they answering me" costs no query.
 
-The window itself is mirrored into a `store` as it is written, so a restart
-is not amnesia: it is rebuilt from disk at start-up and emptied by exactly one
-event, the consolidation she does in her sleep. A window built without a store
-behaves the same and simply forgets on exit.
+The window lives in RAM while she talks and reaches disk in the background:
+appends only mark it dirty, a flush after each turn writes it in one
+transaction, and stopping the mind flushes it synchronously. A window built
+without a store behaves the same and simply forgets on exit.
 """
 
 import time
@@ -57,6 +57,10 @@ class SingleContext:
         self.hot_seconds = max(60.0, float(hot_seconds))
         self.version = 0
         self._entries: List[BudgetEntry] = []
+        # ram first: appends never touch the disk, they only say it is stale.
+        # the flush after each turn (and the synchronous one at shutdown) is
+        # what carries the window over, in a single transaction
+        self._dirty = False
         # running total: total_tokens is o(1), never a scan per append
         self._total = 0
         self._next_seq = 1
@@ -117,7 +121,7 @@ class SingleContext:
                 only.payload["content"] = shrunk
             self._total += only.tokens
 
-        self._mirror(entry)
+        self._dirty = True
         return entry
 
     def _evict_oldest(self) -> None:
@@ -128,12 +132,12 @@ class SingleContext:
                 self._total -= e.tokens
                 self.evicted_tokens += e.tokens
                 del self._entries[i]
-                self._forget(e.seq)
+                self._dirty = True
                 return
         oldest = self._entries.pop(0)
         self._total -= oldest.tokens
         self.evicted_tokens += oldest.tokens
-        self._forget(oldest.seq)
+        self._dirty = True
 
     def clear(self, bridge: str = "") -> None:
         """Empties the window. The one thing allowed to call this is the
@@ -156,7 +160,7 @@ class SingleContext:
         self.version += 1
         self._persist()
 
-    # --- mirroring --------------------------------------------------------
+    # --- persistence --------------------------------------------------------
 
     @staticmethod
     def _row(entry: BudgetEntry) -> Dict[str, Any]:
@@ -172,28 +176,61 @@ class SingleContext:
         """The window as plain rows, oldest first."""
         return [self._row(e) for e in self._entries]
 
-    def _mirror(self, entry: BudgetEntry) -> None:
-        if self.store is None:
-            return
-        try:
-            self.store.add(self._row(entry))
-        except Exception as e:  # a window that cannot be saved still works
-            logger.warning(f"Could not mirror a window entry: {e}")
+    @property
+    def needs_flush(self) -> bool:
+        """Whether the disk is behind the ram: anything to carry over."""
+        return self._dirty and self.store is not None
 
-    def _forget(self, seq: int) -> None:
+    def mark_dirty(self) -> None:
+        """Says the disk is stale. A background flush that lost its race
+        against a swap calls this instead of retrying: the swap persisted a
+        newer window itself, and what is still missing flushes next turn."""
+        if self.store is not None:
+            self._dirty = True
+
+    def flush_snapshot(self) -> Optional[tuple]:
+        """The rows and version to write, or None when there is nothing to do.
+
+        Built on the loop thread: the snapshot is plain data, so the write
+        itself can happen elsewhere while the conversation goes on.
+        """
+        if not self.needs_flush:
+            return None
+        snapshot = (self.to_rows(), self.version)
+        self._dirty = False
+        return snapshot
+
+    def flush(self) -> bool:
+        """Carries the ram over to the disk, synchronously.
+
+        The shutdown path calls this: stopping is the one moment blocking
+        on the disk is correct. Returns whether anything was written.
+        """
+        snapshot = self.flush_snapshot()
+        if snapshot is None:
+            return False
         if self.store is None:
-            return
+            return False
         try:
-            self.store.drop(seq)
-        except Exception as e:
-            logger.warning(f"Could not drop a window entry: {e}")
+            rows, version = snapshot
+            return bool(self.store.replace(rows, version))
+        except Exception as e:  # a window that cannot be saved still works
+            logger.warning(f"Could not save the window: {e}")
+            self.mark_dirty()
+            return False
 
     def _persist(self) -> None:
-        """The whole window at once: what a swap or a clear produces."""
+        """The whole window at once: what a swap or a clear produces.
+
+        Synchronous on purpose: swaps and clears are rare, and whoever
+        emptied or replaced the window needs it durable before going on —
+        a flush snapshotted pages ago must never land on top of it.
+        """
         if self.store is None:
             return
         try:
             self.store.replace(self.to_rows(), self.version)
+            self._dirty = False
         except Exception as e:
             logger.warning(f"Could not save the window: {e}")
 
@@ -223,6 +260,7 @@ class SingleContext:
         self._total = sum(e.tokens for e in self._entries)
         self._next_seq = max((e.seq for e in self._entries), default=0) + 1
         self.version = version
+        self._dirty = False
         return len(self._entries)
 
     # --- reading ----------------------------------------------------------

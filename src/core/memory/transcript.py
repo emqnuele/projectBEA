@@ -13,11 +13,10 @@ returns and gives back text.
 
 from typing import Any, Dict, Iterable, List
 
+from src.core.mind.routing import STAGE
+
 # how her own lines are labelled, so the pass never reads them as someone else's
 SELF = "you"
-
-# conversation keys are "platform:channel"; the live room has no channel
-STAGE = "stage"
 
 
 def _speaker(row: Dict[str, Any]) -> str:
