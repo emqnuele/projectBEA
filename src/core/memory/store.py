@@ -4,6 +4,7 @@ Keeps the shapes the rest of the code already speaks (`RosterEntry`,
 `PersonCard`), so the storage underneath stays swappable.
 """
 
+import datetime
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -610,6 +611,34 @@ class Conversations:
             "updated_at = excluded.updated_at",
             (conversation_key, self.count(conversation_key), time.time()),
         )
+
+    def dashboard_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """What the dashboard shows: the live room stream, oldest first.
+
+        The stage only, spoken lines only: user rows from chat:ui and her own
+        stage replies. Other conversations never leak in, and world rows stay
+        in the stream without taking a speaker seat. Roles follow the history
+        shape the frontend already reads (`assistant`, not `bea`).
+        """
+        rows = self.db.query(
+            "SELECT role, content, ts FROM messages "
+            "WHERE conversation_key = 'stage' AND role IN ('user', 'bea') "
+            "ORDER BY id DESC LIMIT ?", (limit,),
+        )
+        out = []
+        for r in reversed(rows):
+            ts = r["ts"]
+            try:
+                stamp = datetime.datetime.fromtimestamp(
+                    float(ts), tz=datetime.timezone.utc).isoformat()
+            except (TypeError, ValueError, OverflowError, OSError):
+                stamp = ""
+            out.append({
+                "role": "assistant" if r["role"] == "bea" else "user",
+                "content": r["content"],
+                "timestamp": stamp,
+            })
+        return out
 
     def prune(self, keep_per_conversation: int = 500) -> int:
         """Caps history per conversation. A twitch channel would grow forever."""
