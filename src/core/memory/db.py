@@ -39,6 +39,10 @@ MMAP_BYTES = 128 * 1024 * 1024 if sys.platform == "win32" else 256 * 1024 * 1024
 # CREATE TABLE IF NOT EXISTS will not add them, so they need a guarded ALTER
 _MIGRATIONS: List[tuple] = [
     ("messages", "addressee_identity", "TEXT NOT NULL DEFAULT ''"),
+    # the stream grew three columns when it stopped being only what was said
+    ("messages", "kind", "TEXT NOT NULL DEFAULT 'chat'"),
+    ("messages", "surface", "TEXT NOT NULL DEFAULT ''"),
+    ("messages", "session_id", "TEXT NOT NULL DEFAULT ''"),
     # in the schema but never here, so any database older than it crashed the
     # profiler on every conversation turn
     ("people", "profiled_count", "INTEGER NOT NULL DEFAULT 0"),
@@ -89,10 +93,14 @@ class Database:
 
     def init(self) -> "Database":
         conn = self.connect()
+        # columns before the script, not after: the script creates indexes, an
+        # index names columns, and an index over a column an older file does
+        # not have yet makes sqlite raise instead of skipping the statement.
+        # On a fresh file there is nothing to migrate and the script does it all.
+        self._apply_migrations()
         with self._lock:
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
             conn.commit()
-        self._apply_migrations()
         logger.info(f"Memory schema ready ({self.path}).")
         return self
 

@@ -15,7 +15,7 @@ from src.core.language import directive, speaks_first
 from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.handoff import HandoffWorker
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
-from src.core.mind.routing import channel_of, conversation_key, platform_of
+from src.core.mind.routing import STAGE, channel_of, conversation_key, platform_of
 from src.core.mind.single_context import SingleContext
 from src.core.mind.token_budget import TokenBudget
 from src.core.mind.tools import MindTools
@@ -238,7 +238,14 @@ class Consciousness:
                 # hanging until its timeout
                 self.correlations.start_batch(batch)
 
-                # asleep: ignore the world until the dreamer wakes her up
+                # written down before any gate decides it deserved a turn: what
+                # she is asked about tomorrow is what happened, not what she
+                # chose to answer
+                self._remember(batch)
+
+                # asleep: she stops reacting, not perceiving. The stream above
+                # keeps everything for the consolidation; the window stays out
+                # of it, because she is not there to experience any of it.
                 if self.sleeping:
                     continue
 
@@ -283,6 +290,7 @@ class Consciousness:
                     steer = self.bus.drain_nowait()
                     if steer:
                         self.correlations.extend_batch(steer)
+                        self._remember(steer)
                         if self._needs_mind(steer):
                             steered = self._annotate(steer)
                             steer_frame = self._frame(steered, steering=True)
@@ -342,7 +350,6 @@ class Consciousness:
                     self._publish_cost(steps, spent, elapsed_ms)
                     self._write_down(context, self._batch, steps, spent, elapsed_ms)
                     self._record_window(frames)
-                    self._log_memory(self._batch)
                     self._profile_background(self._batch)
                     self._schedule_handoff()
                 else:
@@ -764,6 +771,7 @@ class Consciousness:
         if self.attention:
             self.attention.mark_spoke()
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
+        self._remember_spoken(message)
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
         self._said = {"mood": mood, "message": message}
 
@@ -911,32 +919,72 @@ class Consciousness:
         except Exception as e:
             logger.warning(f"Could not mirror the turn into the window: {e}")
 
-    def _log_memory(self, batch: List[Perception]) -> None:
-        """Append-only durable log: dream/recall/dashboard read it, no context
-        is ever built from it."""
+    @property
+    def _session_id(self) -> str:
+        """The sitting this all belongs to, for the consolidation to read back."""
+        return str(getattr(self.history, "session_id", "") or "")
+
+    @staticmethod
+    def _is_memorable(p: Perception) -> bool:
+        """Two things are not memories, and everything else is.
+
+        The idle tick is synthetic — "nothing is happening" is the loop talking
+        to itself. Texture a surface flagged as noise is a heartbeat it sends
+        several times a minute, already carried by the live state. Everything
+        else that reaches the bus happened, whether or not there is a person
+        behind it and whether or not she answered it.
+        """
+        return p.kind is not PerceptionKind.IDLE and not (p.meta or {}).get("noise")
+
+    def _remember(self, batch: List[Perception]) -> None:
+        """The stream, written down as it leaves the bus.
+
+        Append-only and durable: the dream, recall and the dashboard read it,
+        and no context is ever built from it. It used to run at the end of a
+        turn and keep only perceptions carrying an `Author`, which silently
+        cost her every game event, every body action and everything that
+        arrived on a batch she did not answer.
+        """
+        session = self._session_id
         try:
             conversations = self.memory.conversations
             for p in batch:
-                if p.author is None:
+                if not self._is_memorable(p):
                     continue
+                author = p.author
                 conversations.add(
-                    conversation_key=conversation_key(p), role="user",
-                    content=p.content,
-                    platform=p.author.platform, channel_id=str((p.meta or {}).get("channel_id", "")),
-                    author_identity=p.author.identity, display_name=p.author.display_name,
-                    ts=p.ts,
+                    conversation_key=conversation_key(p),
+                    role="user" if author else "world",
+                    kind=p.kind.value, surface=p.surface, content=p.content,
+                    platform=author.platform if author else "",
+                    channel_id=str((p.meta or {}).get("channel_id", "")),
+                    author_identity=author.identity if author else None,
+                    display_name=author.display_name if author else "",
+                    session_id=session, ts=p.ts,
                 )
         except Exception as e:
-            logger.warning(f"Could not log the turn to memory: {e}")
+            logger.warning(f"Could not write the stream down: {e}")
+
+    def _remember_spoken(self, message: str) -> None:
+        """Her voice belongs in the same stream as everything she heard."""
+        try:
+            self.memory.conversations.add(
+                conversation_key=STAGE, role="bea", kind="voice", surface="stage",
+                content=message, display_name="bea",
+                addressee_identity=self._addressee_for(STAGE),
+                session_id=self._session_id,
+            )
+        except Exception as e:
+            logger.warning(f"Could not write down what she said: {e}")
 
     def _log_outgoing(self, key: str, platform: str, channel: str, text: str) -> None:
         """Her written lines, next to what she was answering."""
         try:
-            addressee = self._addressee_for(key)
             self.memory.conversations.add(
-                conversation_key=key, role="bea", content=text,
-                platform=platform, channel_id=channel, display_name="bea",
-                addressee_identity=addressee,
+                conversation_key=key, role="bea", kind="chat", surface=f"chat:{platform}",
+                content=text, platform=platform, channel_id=channel, display_name="bea",
+                addressee_identity=self._addressee_for(key),
+                session_id=self._session_id,
             )
         except Exception as e:
             logger.warning(f"Could not log her reply to memory: {e}")

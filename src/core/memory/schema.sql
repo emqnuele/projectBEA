@@ -71,8 +71,10 @@ CREATE INDEX IF NOT EXISTS idx_facts_person ON facts(person_id, id);
 
 -- --- conversations ----------------------------------------------------------
 
--- Per-conversation history, keyed "platform:channel_id". This is what a scoped
--- conversation turn reads instead of the live loop's context.
+-- The whole stream, keyed "platform:channel_id". Every perception the bus
+-- carries is written here as it is drained, and so is everything she says
+-- back: this is the only complete record of what happened, and the only thing
+-- the consolidation reads.
 CREATE TABLE IF NOT EXISTS messages (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_key TEXT NOT NULL,
@@ -80,7 +82,16 @@ CREATE TABLE IF NOT EXISTS messages (
     channel_id       TEXT NOT NULL DEFAULT '',
     author_identity  TEXT,
     display_name     TEXT NOT NULL DEFAULT '',
-    role             TEXT NOT NULL,               -- 'user' | 'bea'
+    -- 'user' (somebody spoke) | 'bea' (she answered) | 'world' (something
+    -- happened with nobody behind it: a game event, a body action, a system
+    -- note). Kept apart so counting what a person said never counts the game.
+    role             TEXT NOT NULL,
+    -- the PerceptionKind it arrived as, and the surface it arrived on, so the
+    -- consolidation can tell a telegram DM from a death in minecraft
+    kind             TEXT NOT NULL DEFAULT 'chat',
+    surface          TEXT NOT NULL DEFAULT '',
+    -- which sitting this belongs to: the dreamer consolidates by session
+    session_id       TEXT NOT NULL DEFAULT '',
     -- who she was answering, so "is this person replying to me" is a fact and
     -- not a guess. Empty when she spoke to the room rather than to a person.
     addressee_identity TEXT NOT NULL DEFAULT '',
@@ -88,6 +99,7 @@ CREATE TABLE IF NOT EXISTS messages (
     ts               REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_key, id);
+CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
 
 -- Rolling summary per conversation. `last_count` is the message count at the
 -- last regeneration: the trigger is a delta, not a modulo, because the counter

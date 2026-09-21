@@ -468,7 +468,13 @@ class SelfLore:
 
 
 class Conversations:
-    """Per-channel history and its rolling summary."""
+    """The whole stream, and the rolling summary of each conversation in it.
+
+    Every perception the bus carries lands here as it is drained, and so does
+    everything she says back. `role` separates the three things a row can be:
+    somebody spoke (`user`), she answered (`bea`), or something happened with
+    nobody behind it (`world` — a game event, a body action, a system note).
+    """
 
     def __init__(self, db: Database):
         self.db = db
@@ -476,14 +482,39 @@ class Conversations:
     def add(self, *, conversation_key: str, role: str, content: str,
             platform: str = "", channel_id: str = "", author_identity: Optional[str] = None,
             display_name: str = "", ts: Optional[float] = None,
-            addressee_identity: str = "") -> int:
+            addressee_identity: str = "", kind: str = "chat", surface: str = "",
+            session_id: str = "") -> int:
         return self.db.execute(
             "INSERT INTO messages (conversation_key, platform, channel_id, author_identity, "
-            "display_name, role, content, ts, addressee_identity) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "display_name, role, content, ts, addressee_identity, kind, surface, session_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (conversation_key, platform, channel_id, author_identity, display_name,
-             role, content, ts if ts is not None else time.time(), addressee_identity or ""),
+             role, content, ts if ts is not None else time.time(), addressee_identity or "",
+             kind, surface, session_id),
         )
+
+    def stream(self, session_id: str, limit: int = 2000) -> List[Dict[str, Any]]:
+        """Everything that happened in one sitting, oldest first.
+
+        What the consolidation reads. Capped because a long twitch night is
+        tens of thousands of lines and the pass has a context window.
+        """
+        rows = self.db.query(
+            "SELECT conversation_key, platform, role, kind, surface, display_name, "
+            "       author_identity, content, ts FROM messages "
+            "WHERE session_id = ? ORDER BY id DESC LIMIT ?", (session_id, limit),
+        )
+        return [dict(r) for r in reversed(rows)]
+
+    def sessions_with_content(self, exclude_dreamed: bool = True) -> List[str]:
+        """Sessions the stream has anything for, oldest first."""
+        sql = ("SELECT m.session_id AS sid FROM messages m "
+               "WHERE m.session_id != '' ")
+        if exclude_dreamed:
+            sql += ("AND m.session_id NOT IN "
+                    "(SELECT session_id FROM sessions WHERE dreamed = 1) ")
+        sql += "GROUP BY m.session_id ORDER BY MIN(m.id)"
+        return [r["sid"] for r in self.db.query(sql)]
 
     def count(self, conversation_key: str) -> int:
         return int(self.db.scalar(
