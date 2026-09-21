@@ -61,6 +61,10 @@ class SingleContext:
         # the flush after each turn (and the synchronous one at shutdown) is
         # what carries the window over, in a single transaction
         self._dirty = False
+        # what orders two writes to the store. `version` cannot: it only moves
+        # on a swap or a clear, so two flushes of the same window share it and
+        # a stale one would be indistinguishable from a fresh one
+        self._write_seq = 0
         # running total: total_tokens is o(1), never a scan per append
         self._total = 0
         self._next_seq = 1
@@ -188,15 +192,22 @@ class SingleContext:
         if self.store is not None:
             self._dirty = True
 
+    def _next_write(self) -> int:
+        """The seq for the next write. Strictly rising, never reused."""
+        self._write_seq += 1
+        return self._write_seq
+
     def flush_snapshot(self) -> Optional[tuple]:
-        """The rows and version to write, or None when there is nothing to do.
+        """The rows, version and write seq, or None when there is nothing to do.
 
         Built on the loop thread: the snapshot is plain data, so the write
-        itself can happen elsewhere while the conversation goes on.
+        itself can happen elsewhere while the conversation goes on. The seq is
+        taken here, not at the write, so two snapshots land in the order they
+        were taken however long their writes take.
         """
         if not self.needs_flush:
             return None
-        snapshot = (self.to_rows(), self.version)
+        snapshot = (self.to_rows(), self.version, self._next_write())
         self._dirty = False
         return snapshot
 
@@ -212,8 +223,8 @@ class SingleContext:
         if self.store is None:
             return False
         try:
-            rows, version = snapshot
-            return bool(self.store.replace(rows, version))
+            rows, version, write_seq = snapshot
+            return bool(self.store.replace(rows, version, write_seq=write_seq))
         except Exception as e:  # a window that cannot be saved still works
             logger.warning(f"Could not save the window: {e}")
             self.mark_dirty()
@@ -229,7 +240,8 @@ class SingleContext:
         if self.store is None:
             return
         try:
-            self.store.replace(self.to_rows(), self.version)
+            self.store.replace(self.to_rows(), self.version,
+                               write_seq=self._next_write())
             self._dirty = False
         except Exception as e:
             logger.warning(f"Could not save the window: {e}")
@@ -246,6 +258,9 @@ class SingleContext:
         try:
             rows = self.store.load()
             version = int(self.store.version())
+            # picked up where the last run left it: a seq that restarted from
+            # zero would be rejected as stale by its own store
+            self._write_seq = int(getattr(self.store, "write_seq", lambda: 0)())
         except Exception as e:
             logger.warning(f"Could not restore the window: {e}")
             return 0

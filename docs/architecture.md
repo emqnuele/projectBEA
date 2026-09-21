@@ -221,6 +221,14 @@ trigger at 120k, rest near ~50k**. The window lives in RAM while she talks —
 appends never touch the disk — and a flush after each turn, plus a synchronous
 one at shutdown, carries it over in a single transaction.
 
+Every write to the store carries a **write sequence**, taken when the snapshot
+is built rather than when it lands, and the store keeps only what is strictly
+newer than what it holds. That is what orders two writes: `version` moves only
+on a swap or a clear, so the flushes of one window all share it, and a
+background flush, a swap and the synchronous flush at shutdown can land in any
+order. On restore the sequence is read back, so it keeps rising across
+restarts.
+
 When the trigger hits, `HandoffWorker` (`src/core/mind/handoff.py`) runs on
 the background pool, in parallel with the loop:
 
@@ -399,7 +407,7 @@ single transaction, and "who have I seen most" is a query rather than a scan.
 | Episodic diary | `memories` (scope `diary`) | no, top-3 per batch | `DiaryGenerator` at session end |
 | Roster (tally) | `roster` + `identities` | never | `SocialMemory.context_for`, per perception |
 | Person cards | `people` + `facts` | only those present, max 5 | auto-promotion + `remember_person` + dreamer + profiler |
-| Conversations | `messages` | append-only log for dream/recall/dashboard, never built into live context | the consciousness |
+| The stream | `messages` | append-only log for dream/recall/dashboard, never built into live context | the consciousness |
 | Self-lore | `self_facts` + `self_profile` | yes (last 15 facts) | the dreamer only |
 | Hot facts | `hot_facts` (TTL) | yes (max 6) | dreamer + morning pass + a strong reaction |
 | Standing mood | `settings` (`affect.state`) | only past a threshold | every line she speaks |
@@ -414,6 +422,13 @@ injection is explicitly capped so the prompt cannot bloat.
 - **Three logs, one live.** The sliding window is the only context the loop
   reads. SQLite `messages` and the JSON session files (`HistoryManager`) are
   append-only: dream, recall and the dashboard read them, the loop never does.
+
+- **The stream is append-only; the cap is on the read.** Nothing deletes from
+  `messages`: a year of daily four-hour sessions is ~74 MB and every read of
+  it is indexed. One consolidation reads at most `STREAM_LIMIT` (2000) rows of
+  a sitting, the most recent ones, and logs a warning for a session longer
+  than that — the start of it is outside the pass, and `stream_overflow` says
+  by how many rows.
 
 - **`memories.source`** separates what *people said* (`person`) from what *Bea
   said* (`bea`). `recall_split` returns them as two labelled blocks. Bea invents

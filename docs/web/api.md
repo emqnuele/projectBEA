@@ -333,9 +333,12 @@ transcripts live under `/sessions`.
 ]
 ```
 
-Only `stage` rows with a speaker seat (`user`, `bea` → `assistant`) are
-returned; other conversations never leak in, and world rows stay stored
-without taking one.
+Returned: incoming lines that arrived on the `chat:ui` surface, and every
+line she spoke. The filter is by surface as well as by conversation key,
+because a voice call, a player talking in the game and a donation also route
+to `stage` — they belong to the stream, not to the owner's chat. World rows
+stay stored without taking a speaker seat, and other conversations never
+appear.
 
 ---
 

@@ -162,8 +162,10 @@ def _shared_session(db, identity: str, known: set) -> bool:
 def repair_duplicate_cards(roster, people) -> int:
     """Merges cards sharing one exact name that shared a session.
 
-    One-time repair for duplicates minted before promotion had a single choke
-    point. The card with more facts survives; facts move over (UNIQUE drops
+    Runs at every boot, not once: it is cheap (a GROUP BY over the cards) and
+    idempotent, and a duplicate can still arrive from a restored backup or a
+    database written by an older version. The card with more facts survives;
+    facts move over (UNIQUE drops
     the dupes), identities repoint at the survivor, an empty attitude fills
     in, warmth and profile counters keep the max. Returns how many cards were
     folded. Cards that never shared a session are left alone: without it they
@@ -216,11 +218,14 @@ def _fold(people, survivor: PersonCard, loser: PersonCard) -> None:
         if not (survivor.bea_attitude or "").strip() and (loser.bea_attitude or "").strip():
             cur.execute("UPDATE people SET attitude = ? WHERE person_id = ?",
                         (loser.bea_attitude, survivor.person_id))
+        # warmth comes off the card already decayed to now, so the clock has
+        # to move with it: left where it was, inherited warmth would keep
+        # decaying from a reading taken weeks ago and fade far too fast
         cur.execute(
-            "UPDATE people SET warmth = MAX(warmth, ?), "
+            "UPDATE people SET warmth = MAX(warmth, ?), warmth_at = ?, "
             "profiled_count = MAX(profiled_count, ?), updated_at = ? "
             "WHERE person_id = ?",
-            (loser.warmth, _profiled_count(people, loser.person_id), now,
+            (loser.warmth, now, _profiled_count(people, loser.person_id), now,
              survivor.person_id),
         )
         cur.execute("DELETE FROM facts WHERE person_id = ?", (loser.person_id,))

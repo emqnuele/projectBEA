@@ -70,6 +70,48 @@ def test_world_rows_stay_stored_without_taking_a_speaker_seat(memory):
     assert memory.conversations.count("stage") == 2
 
 
+def test_the_live_room_does_not_leak_into_the_dashboard(memory):
+    """A call, a player in the game and a donation all route to `stage` too.
+
+    Filtering on the conversation key alone put every one of them in the
+    owner's private chat as though he had typed it.
+    """
+    memory.conversations.add(conversation_key="stage", role="user", kind="voice",
+                             content="[luca] (spoken): oi", platform="discord",
+                             author_identity="discord:77", display_name="luca",
+                             surface="voice:discord", session_id="s1")
+    memory.conversations.add(conversation_key="stage", role="user", kind="chat",
+                             content="[Steve] vieni qui", platform="minecraft",
+                             author_identity="minecraft:Steve", display_name="Steve",
+                             surface="game:mc", session_id="s1")
+    memory.conversations.add(conversation_key="stage", role="user", kind="chat",
+                             content="[Anon] tieni 5 euro", platform="donation",
+                             author_identity="donation:anon", display_name="Anon",
+                             surface="donation", session_id="s1")
+    memory.conversations.add(conversation_key="stage", role="user", kind="chat",
+                             content="[user] ciao", platform="ui",
+                             author_identity="ui:user", display_name="user",
+                             surface="chat:ui", session_id="s1")
+
+    rows = memory.conversations.dashboard_history()
+
+    assert [r["content"] for r in rows] == ["[user] ciao"]
+    assert memory.conversations.count("stage") == 4
+
+
+def test_she_is_heard_in_the_dashboard_wherever_she_said_it(memory):
+    """Her spoken lines stay: the dashboard is where she is answered from."""
+    memory.conversations.add(conversation_key="stage", role="user", kind="chat",
+                             content="[user] ciao", platform="ui",
+                             author_identity="ui:user", display_name="user",
+                             surface="chat:ui", session_id="s1")
+    memory.conversations.add(conversation_key="stage", role="bea", kind="voice",
+                             content="ei", surface="stage", session_id="s1")
+
+    assert [r["role"] for r in memory.conversations.dashboard_history()] == [
+        "user", "assistant"]
+
+
 def test_the_route_falls_back_to_the_session_file_when_the_db_fails():
     from types import SimpleNamespace
 

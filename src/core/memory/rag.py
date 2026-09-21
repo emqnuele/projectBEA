@@ -480,7 +480,7 @@ class Rag:
             scored.append((final, Recollection(
                 text=row["text"], who=row["who_name"] or "", source=row["source"],
                 similarity=similarity, created_at=float(row["created_at"] or 0),
-                scope=row.get("scope") or "", scope_key=row["scope_key"] or "",
+                scope=row["scope"] or "", scope_key=row["scope_key"] or "",
             )))
         scored.sort(key=lambda t: t[0], reverse=True)
         return [rec for _, rec in scored[: k * 2]]
@@ -552,7 +552,8 @@ class Rag:
 
         Semantic recall answers "what was said about x"; this answers "what is
         in the diary at all". A diary page or a recap is read whole, so there
-        is nothing to rank — recency is the order.
+        is nothing to rank — recency is the order. `limit` is clamped here, so
+        a caller passing one straight through from a query string is safe.
         """
         rows = self.db.query(
             "SELECT who_name, text, embedding, source, created_at, scope, scope_key "

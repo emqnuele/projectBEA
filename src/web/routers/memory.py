@@ -147,5 +147,5 @@ def memory_browse(scope: str = "diary", limit: int = 20,
             "text": r.text, "who": r.who, "source": r.source,
             "created_at": r.created_at, "scope": r.scope, "scope_key": r.scope_key,
         }
-        for r in brain.memory.rag.browse(scope, limit=max(1, min(limit, 200)))
+        for r in brain.memory.rag.browse(scope, limit=limit)
     ]

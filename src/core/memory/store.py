@@ -510,6 +510,16 @@ class SelfLore:
 # --- conversations ----------------------------------------------------------
 
 
+# how much of one sitting the consolidation reads at once. The pass has its
+# own context window, and a night in a game writes a few hundred rows an hour.
+STREAM_LIMIT = 2000
+
+# the one surface whose incoming lines belong in the dashboard chat: the owner
+# typing or speaking into it. Everything else reaching the stage is someone
+# else in another room.
+DASHBOARD_SURFACE = "chat:ui"
+
+
 class Conversations:
     """The whole stream: everything the dream consolidates and recall reads.
 
@@ -560,18 +570,32 @@ class Conversations:
             )
             return cur.rowcount
 
-    def stream(self, session_id: str, limit: int = 2000) -> List[Dict[str, Any]]:
+    def stream(self, session_id: str, limit: int = STREAM_LIMIT) -> List[Dict[str, Any]]:
         """Everything that happened in one sitting, oldest first.
 
-        What the consolidation reads. Capped because a long twitch night is
-        tens of thousands of lines and the pass has a context window.
+        What the consolidation reads. Capped because a long night in a game is
+        thousands of lines and the pass has a context window of its own; the
+        newest are kept, so what is dropped is the start of the evening. That
+        is a real hole in a memory, so it says so rather than truncating
+        quietly — see `stream_overflow`.
         """
         rows = self.db.query(
             "SELECT conversation_key, platform, role, kind, surface, display_name, "
             "       author_identity, content, ts FROM messages "
             "WHERE session_id = ? ORDER BY id DESC LIMIT ?", (session_id, limit),
         )
+        if len(rows) >= limit:
+            logger.warning(
+                f"Session {session_id} is longer than {limit} rows: the consolidation "
+                f"reads the most recent {limit} and the start of it is not in the pass."
+            )
         return [dict(r) for r in reversed(rows)]
+
+    def stream_overflow(self, session_id: str, limit: int = STREAM_LIMIT) -> int:
+        """How many rows of this sitting `stream` would leave behind."""
+        total = int(self.db.scalar(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?", (session_id,)))
+        return max(0, total - limit)
 
     def sessions_with_content(self, exclude_dreamed: bool = True) -> List[str]:
         """Sessions the stream has anything for, oldest first."""
@@ -627,17 +651,20 @@ class Conversations:
         ))
 
     def dashboard_history(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """What the dashboard shows: the live room stream, oldest first.
+        """What the dashboard shows: the owner typing, and her answers.
 
-        The stage only, spoken lines only: user rows from chat:ui and her own
-        stage replies. Other conversations never leak in, and world rows stay
-        in the stream without taking a speaker seat. Roles follow the history
-        shape the frontend already reads (`assistant`, not `bea`).
+        Surface, not just conversation key: a voice call, a player in the game
+        and a donation all route to `stage` too, and filtering on the key
+        alone put every one of them in the owner's private chat as though he
+        had typed it. Her own spoken lines stay — the dashboard is where she
+        is answered from — and world rows never take a speaker seat. Roles
+        follow the history shape the frontend already reads (`assistant`).
         """
         rows = self.db.query(
             "SELECT role, content, ts FROM messages "
-            "WHERE conversation_key = 'stage' AND role IN ('user', 'bea') "
-            "ORDER BY id DESC LIMIT ?", (limit,),
+            "WHERE conversation_key = 'stage' "
+            "  AND (role = 'bea' OR (role = 'user' AND surface = ?)) "
+            "ORDER BY id DESC LIMIT ?", (DASHBOARD_SURFACE, limit),
         )
         out = []
         for r in reversed(rows):
@@ -654,22 +681,6 @@ class Conversations:
             })
         return out
 
-    def prune(self, keep_per_conversation: int = 500) -> int:
-        """Caps history per conversation. A twitch channel would grow forever."""
-        removed = 0
-        for row in self.db.query("SELECT DISTINCT conversation_key FROM messages"):
-            key = row["conversation_key"]
-            excess = self.count(key) - keep_per_conversation
-            if excess <= 0:
-                continue
-            self.db.execute(
-                "DELETE FROM messages WHERE id IN ("
-                "  SELECT id FROM messages WHERE conversation_key = ? ORDER BY id ASC LIMIT ?)",
-                (key, excess),
-            )
-            removed += excess
-        return removed
-
 
 # --- the sliding window -----------------------------------------------------
 
@@ -685,26 +696,32 @@ class WindowStore:
     """
 
     VERSION_KEY = "context_window.version"
+    WRITE_KEY = "context_window.write"
 
     def __init__(self, db: Database):
         self.db = db
 
     def replace(self, rows: List[Dict[str, Any]], version: int = 0,
-                expect_version: Optional[int] = None) -> bool:
+                write_seq: Optional[int] = None) -> bool:
         """The whole window at once, in one transaction: what a swap produces.
 
-        With `expect_version`, writes only when the stored version still
-        matches: a background flush snapshotted pages ago must not land on
-        top of a swap that has since persisted a newer window. Returns
-        whether anything was written.
+        `write_seq` is what orders two writes, and it is not `version`:
+        `version` only moves on a swap or a clear, so two flushes of the same
+        window carry the same one and a guard on it cannot tell which is
+        newer — a background flush snapshotted pages ago would be accepted on
+        top of a fresher one. The seq comes from the window, rises on every
+        snapshot, and anything not strictly newer than what is stored is
+        dropped. Returns whether anything was written.
         """
         with self.db.cursor() as cur:
-            if expect_version is not None:
-                cur.execute("SELECT value FROM settings WHERE key = ?",
-                            (self.VERSION_KEY,))
+            if write_seq is not None:
+                cur.execute("SELECT value FROM settings WHERE key = ?", (self.WRITE_KEY,))
                 row = cur.fetchone()
-                current = int(row[0]) if row is not None and row[0] is not None else 0
-                if current != int(expect_version):
+                try:
+                    current = int(row[0]) if row is not None and row[0] is not None else 0
+                except (TypeError, ValueError):
+                    current = 0
+                if int(write_seq) <= current:
                     return False
             cur.execute("DELETE FROM context_window")
             cur.executemany(
@@ -719,6 +736,12 @@ class WindowStore:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (self.VERSION_KEY, str(int(version))),
             )
+            if write_seq is not None:
+                cur.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (self.WRITE_KEY, str(int(write_seq))),
+                )
             return True
 
     def load(self) -> List[Dict[str, Any]]:
@@ -731,9 +754,16 @@ class WindowStore:
                  "addressee": r["addressee"]} for r in rows]
 
     def version(self) -> int:
+        return self._setting(self.VERSION_KEY)
+
+    def write_seq(self) -> int:
+        """The seq of the last write that landed, so a restart keeps rising."""
+        return self._setting(self.WRITE_KEY)
+
+    def _setting(self, key: str) -> int:
         try:
             return int(self.db.scalar(
-                "SELECT value FROM settings WHERE key = ?", (self.VERSION_KEY,), default=0))
+                "SELECT value FROM settings WHERE key = ?", (key,), default=0))
         except (TypeError, ValueError):
             return 0
 
