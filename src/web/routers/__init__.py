@@ -22,6 +22,7 @@ from src.web.routers import (
     plan,
     probes,
     settings,
+    shura,
     stage,
     status,
     updates,
@@ -42,6 +43,7 @@ ALL: Tuple[APIRouter, ...] = (
     stage.router,
     updates.router,
     health.router,
+    shura.router,
 )
 
 __all__ = ["ALL"]

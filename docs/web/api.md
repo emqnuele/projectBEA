@@ -6,16 +6,9 @@
 
 ## Overview
 
-The FastAPI server (`src/web/app.py`, one router per subject under
-`src/web/routers/`) starts with `uv run bea --web`. It serves
-both the REST API and the compiled React frontend from the same origin.
+The FastAPI server (`src/web/app.py`) is started when `--web` is passed to `main.py`. It runs on `http://0.0.0.0:8000` and serves both the REST API and the compiled React frontend as static files.
 
 Base URL: `http://localhost:8000`
-
-**There is no authentication.** The server binds to `127.0.0.1` by default;
-`--host 0.0.0.0` is an explicit opt-in. CORS carries an allowlist (localhost on
-8000 and 5173, plus anything in `BEA_ALLOWED_ORIGINS`) rather than a wildcard,
-and `GET /config` drops or masks every secret.
 
 ---
 
@@ -30,30 +23,16 @@ Returns the current brain state.
 ```json
 {
   "is_speaking": false,
-  "is_sleeping": false,
-  "active_skills": ["memory", "discord"],
-  "session_id": "session_1750000000",
-  "uptime": 1832.4,
-  "version": "2.5.0"
+  "active_skills": ["memory", "discord"]
 }
 ```
-
-`uptime` is seconds since the web process started, not since she was created.
-`version` comes from `src/core/update/version.py` — the installed package
-metadata, or `pyproject.toml` in a checkout that was never synced. It is the
-only version string in the system; the dashboard renders what it is told.
 
 ---
 
 #### `GET /config`
 Returns the full current config as a JSON object (all `BrainConfig` fields).
 
-> **Secrets:** the response is `BrainConfig.public_dict()`. Top-level secret
-> fields (`openrouter_key`, `openai_key`, `groq_key`, `orpheus_key`,
-> `orpheus_endpoint`) are removed outright, and nested skill secrets
-> (`discord.token`, `telegram.token`, `twitch.oauth_token`) come back masked as
-> `********` so the UI can show that one is stored. Use `GET /secrets` to learn
-> *which* are set. Posting a masked value back is ignored rather than applied.
+> **Security note:** The response includes **all** `BrainConfig` fields, including secret API key fields (`openrouter_key`, `openai_key`, `groq_key`, `orpheus_key`, `orpheus_endpoint`, etc.). No secret-stripping is applied to this endpoint (unlike `save_to_file()`). Do not expose this endpoint over a public network without authentication.
 
 ---
 
@@ -75,90 +54,18 @@ Updates one or more config fields and hot-reloads the engine.
 {
   "status": "success",
   "message": "Configuration updated.",
-  "restart_required": false,
-  "secrets_written_to_env": []
+  "restart_required": false
 }
 ```
 
 > `restart_required: true` is returned when `tts_provider` changes, since the TTS object must be re-instantiated.
-
-A key has to be a declared field of `BrainConfig`, and its value has to fit the
-type that field declares — or, where `settings_schema` describes it, the
-stricter rule declared there. Anything else is a `422` naming every offending
-key, and the whole payload is refused: nothing is half-applied.
-
-Dict-valued fields (`skills`, `stage`, `avatar_map`, …) are merged rather than
-replaced, so a save carrying one knob never wipes the ones it said nothing
-about. `persona` is not writable here — it has its own endpoint, with guards of
-its own.
-
-Secrets are written to `.env`, never to config.json, and
-`secrets_written_to_env` names the variables that were written. Posting the
-mask the UI reads them back as leaves the stored value alone; posting an empty
-string clears it.
-
----
-
-### Settings
-
-The schema in `src/core/settings_schema.py` declares every setting once — its
-type, its bounds, whether it needs a restart — and the dashboard renders forms
-from it rather than hard-coding one per skill. A section lives either inside
-`config.skills[key]` or in a top-level dict on the config.
-
-#### `GET /settings`
-The whole schema plus the current values. Secrets read back as `********`.
-
-```json
-{
-  "sections": [
-    {
-      "key": "discord", "label": "Discord", "scope": "skills",
-      "toggleable": true, "blurb": "Voice and text…",
-      "settings": [
-        {"key": "api_port", "type": "int", "min": 1024, "max": 65535,
-         "default": 3030, "restart": true, "label": "Bot API port", "help": "…"}
-      ],
-      "values": {"api_port": 3030, "token": "********"}
-    }
-  ]
-}
-```
-
-#### `GET /settings/{key}`
-One section, in the same shape. `404` for a section that does not exist.
-
-#### `POST /settings/{key}`
-Validates the payload against the section's declared rules, writes it, saves and
-hot-reloads. A value outside its bounds or a key the section does not declare is
-a `422` naming the field — and nothing is written, so a rejected form leaves the
-running config exactly as it was.
-
-Flipping `enabled` on a `toggleable` section also starts or stops the live
-connection, which a config reload alone does not do.
-
-**Response:**
-```json
-{
-  "status": "success",
-  "changed": {"api_port": 3040},
-  "secrets_written_to_env": [],
-  "restart_required": true
-}
-```
 
 ---
 
 ### Chat
 
 #### `POST /chat`
-Deposits a `CHAT` perception from the owner and waits for whatever she decides
-to say. She may decide to say nothing — the attention gate and her own
-`stay_silent` are both real outcomes — in which case `content` comes back empty
-after at most `consciousness.correlation_timeout` seconds.
-
-Speech is rendered by the consciousness itself, so the background output task is
-a no-op while the brain is alive.
+Sends a text message to the brain and gets a response. Output (TTS + OBS) is triggered as a background task.
 
 **Request:**
 ```json
@@ -193,7 +100,7 @@ Sends an audio file (WAV) for STT transcription and response.
   "response": {
     "role": "assistant",
     "content": "...",
-    "mood": "neutral",
+    "mood": "normal",
     "user_transcript": "the transcribed text"
   }
 }
@@ -214,105 +121,66 @@ Immediately stops current speech and typing.
 ### Discord Endpoints
 
 #### `POST /discord/chat`
-Receives a text message from the Discord bot and **returns immediately**.
+Receives a text message from the Discord bot and generates a text response (no TTS, no OBS animation).
 
-The message becomes a `CHAT` perception carrying
-`conversation_key = "discord:<channelId>"` in the one frame of the single loop.
-Bea answers on her own, through `send_message(platform="discord", …)` or
-`react`, whenever she decides to. She may also decide not to.
+> **Implementation note:** The endpoint prepends the username as a prefix before calling the brain: the message stored in conversation history is `[username] message` (e.g. `[emanu] hello bea`). The `background_tasks` parameter is injected by FastAPI but is currently unused — unlike `POST /chat`, this endpoint does **not** schedule `perform_output_task()`, so no OBS avatar animation or text bubble is triggered for Discord text-chat messages.
 
 **Request:**
 ```json
 {
   "username": "emanu",
   "message": "hello bea",
-  "channelId": "123456789",
-  "userId": "4711",
-  "messageId": "987654321",
-  "isDm": false
+  "channelId": "123456789"
 }
 ```
 
-`userId` is the stable identity behind the roster and the person cards;
-`messageId` is what lets her reply to or react to that exact message.
-
-> **Validation:** `username` at least 1 character, `message` 1–4000 and not
-> whitespace-only. `422` on failure.
+> **Validation:** `username` must be at least 1 character. `message` must be between 1 and 4000 characters and not empty/whitespace-only (stripped automatically). Returns `422` on failure.
 
 **Response:**
 ```json
-{ "status": "perceived" }
+{
+  "status": "success",
+  "response": "...",
+  "mood": "normal"
+}
 ```
 
 ---
 
 #### `POST /discord/audio`
-Receives a voice chunk from the bot's VoiceManager, transcribes it and deposits
-a `VOICE` perception. It returns immediately: her voice reaches the call over
-`/voice/ws`, whenever she decides to speak, which is what lets her open her
-mouth without having been asked a question first.
+Receives a voice audio chunk from the Discord bot's VoiceManager.
 
 **Request:** `multipart/form-data`
 - `file` — WAV audio file
-- `username` — Discord username
-- `user_id` — stable Discord user id (optional, but it is the identity)
-- `whitelisted` — whether the bot already knows this voice; a stranger arrives
-  quieter instead of not arriving at all
-- `listeners` — how many humans are in the call. At one, everything said is said
-  to her and the attention gate stops rolling dice
+- `username` — Discord username  
+- `flush_buffer` — `"true"` if this is the final chunk for this user's utterance *(accepted by the endpoint but currently not acted upon — buffering is driven entirely by the 300 ms server-side aggregation window, not by this flag)*
 
-**Response:** `{"status": "perceived", "transcript": "..."}`
+**Response:**
+```json
+{
+  "status": "success",
+  "text": "Bea's text response",
+  "transcript": "combined transcript log (all speakers, pipe-delimited for multi-speaker scenarios)",
+  "audio_base64": "<base64-encoded WAV bytes>"
+}
+```
 
-The perception bus coalesces a burst of chunks into a single batch, so two
-people talking at once produce one turn and one answer.
+> `status` can be `"success"` or `"resume"` (when Bea resumes interrupted speech). In multi-speaker buffer flushes, only the **first** caller within the 300 ms aggregation window receives audio — all other callers in the same flush receive `status: "success"` with `text: "(Merged)"` and an empty `audio_base64` string.
 
----
-
-#### `WS /voice/ws`
-The push channel: her voice out, playback reports back. The bot connects on
-start-up and reconnects on its own, so a brain restart does not leave her mute.
-It carries her actual voice over TCP, so it presents the same per-process
-`API_TOKEN` as the bot's command API, as an `Authorization: Bearer` header.
-
-**Brain → bot.** Audio is one self-contained binary frame,
-`[uint32 header length][header json][pcm]`, where the payload is 48 kHz stereo
-signed-16 little-endian — exactly what Discord plays, so the bot never has to
-decode or resample. Control messages are JSON text:
-
-| type | payload | effect |
-|---|---|---|
-| `play` | `utterance_id, seq, last` + pcm | queue and start playing at the first chunk |
-| `stop` | `utterance_id, ramp_ms` | fade out and stop; answers with `played_ms` |
-| `duck` | `utterance_id, gain, ramp_ms` | turn her down without stopping her |
-| `cancel` | `utterance_id` | stop accepting more; what is queued plays out |
-
-**Bot → brain**, JSON text:
-
-| type | payload | meaning |
-|---|---|---|
-| `joined` | `channel_id, listeners` | she is in a call — being dragged in counts |
-| `members` | `listeners` | someone came or went |
-| `left` | — | she is out of the call |
-| `playback` | `utterance_id, played_ms, state` | how much of it the room actually got |
-
-> `played_ms` is the point of the whole exchange. Without it she believes she
-> said a whole sentence the room only half heard, and refers to it later.
+> **All-backchannel flush:** If every input in the aggregation window is a backchannel phrase, the buffer is short-circuited before the LLM is called. All callers receive `status: "resume"` with an empty `audio_base64` and their individual transcript as `transcript`. No TTS audio is generated in this case.
 
 ---
 
 #### `POST /voice/transcript`
-Overheard speech: transcribes a snippet and deposits a `VOICE` perception
-without waiting for anything. The attention gate decides whether it was worth
-reacting to — she may answer a moment later on her own, or ignore it.
+Buffer-only endpoint used during barge-in: transcribes a short audio snippet and accumulates it without triggering an LLM response. The buffered text is included as context in Bea's next response.
 
 **Request:** `multipart/form-data`
 - `file` — WAV audio file (typically < 3 seconds)
 - `username` — Discord username
-- `user_id` — stable Discord user id (optional)
 
 **Response:**
 ```json
-{ "status": "perceived", "transcript": "ok continue" }
+{ "status": "buffered", "transcript": "ok continue" }
 ```
 
 ---
@@ -326,7 +194,7 @@ Returns the last 50 messages of the current session.
 ```json
 [
   { "role": "user", "content": "hi", "timestamp": "..." },
-  { "role": "assistant", "content": "...", "mood": "neutral", "timestamp": "..." }
+  { "role": "assistant", "content": "...", "mood": "normal", "timestamp": "..." }
 ]
 ```
 
@@ -341,10 +209,8 @@ Lists all saved conversation sessions.
   {
     "id": "session_1700000000",
     "timestamp": "2025-01-01T12:00:00",
-    "title": "",
     "preview": "hi bea...",
-    "message_count": 42,
-    "active": true
+    "message_count": 42
   }
 ]
 ```
@@ -360,13 +226,6 @@ Creates a new session (and triggers memory processing for the previous one).
 ```
 
 ---
-
-#### `PATCH /sessions/{session_id}`
-Renames a conversation. Body `{ "title": "…" }`. `404` if it does not exist.
-
-#### `DELETE /sessions/{session_id}`
-Deletes the transcript from disk. `409` if it is the conversation currently open —
-what she already remembers from it is untouched either way.
 
 #### `POST /sessions/{session_id}/activate`
 Loads a past session, restoring its history as the current context.
@@ -412,10 +271,10 @@ Returns a dict of all registered skills and their current state, keyed by skill 
 
 ```json
 {
-  "memory":    { "enabled": true,  "active": true,  "config": { "db_path": "data/bea.db", "..." } },
+  "memory":    { "enabled": true,  "active": true,  "config": { "chroma_path": "data/memory_db", "..." } },
   "discord":   { "enabled": false, "active": false, "config": { "token": "", "..." } },
   "minecraft": { "enabled": false, "active": false, "config": { "server_url": "ws://localhost:8080", "..." } },
-  "idle":      { "enabled": false, "active": false, "config": { "idle_after": 240.0, "..." } }
+  "monologue": { "enabled": false, "active": false, "config": { "interval_seconds": 30, "..." } }
 }
 ```
 
@@ -442,155 +301,6 @@ POST /skills/discord/toggle?enable=true
 
 ---
 
-### Stream Plan
-
-What the owner wants Bea to get done on this stream. Every endpoint returns the
-whole plan, so the dashboard never has to guess what the server now holds:
-
-```json
-{
-  "directive": "today you play minecraft on the survival server",
-  "objectives": [
-    { "id": 1, "text": "build a base", "detail": "", "status": "todo",
-      "outcome": "", "position": 1, "created_at": 0.0, "updated_at": 0.0 }
-  ]
-}
-```
-
-`status` is one of `todo`, `doing`, `done`, `dropped`. The `id` is also the
-number Bea passes to `objective_done`.
-
-#### `GET /plan`
-Returns the current plan.
-
-#### `POST /plan/directive`
-Sets the headline. Body: `{ "text": "..." }` (empty clears it).
-
-#### `POST /plan/objectives`
-Adds an objective. Body: `{ "text": "...", "detail": "..." }`. Blank text is a
-`422`.
-
-#### `PATCH /plan/objectives/{id}`
-Updates one objective. Body may carry any of `text`, `detail`, `status`,
-`outcome`. An unknown status is a `422`; an unknown id is a `404`.
-
-#### `DELETE /plan/objectives/{id}`
-Removes an objective. Unknown id is a `404`.
-
-#### `POST /plan/order`
-Reorders the list. Body: `{ "ids": [3, 1, 2] }`.
-
-#### `POST /plan/reset`
-Clears the headline and every objective — a new stream from nothing.
-
----
-
-### Minecraft
-
-#### `POST /minecraft/ask`
-
-Asks her, right now, to say what her body is up to. It puts the same perception
-the skill produces on its own every `commentary_seconds` — off the clock, and
-pushing the next automatic one back so she does not answer twice in a row.
-
-`409` when the skill is not active: a button that silently does nothing is worse
-than one that says why.
-
-```json
-{ "status": "asked" }
-```
-
----
-
-### Overview
-
-#### `GET /overview`
-
-Everything the home screen needs in one request, so the dashboard does not fan
-out to six endpoints on load.
-
-```json
-{
-  "status": { "is_speaking": false, "is_sleeping": false, "active_skills": [],
-              "session_id": "session_1750000000", "uptime": 1832.4 },
-  "session": { "id": "session_1750000000", "title": "", "message_count": 12 },
-  "plan": { "directive": "…", "total": 4, "closed": 1,
-            "counts": { "todo": 2, "doing": 1, "done": 1, "dropped": 0 },
-            "objectives": [ … ] },
-  "skills": [ { "name": "memory", "enabled": true, "active": true } ],
-  "memory": { "people": 3, "roster": 41, "memories": 512,
-              "hot_facts": 2, "self_facts": 9, "rag_ready": true },
-  "engine": { "llm_provider": "openrouter", "model": "…", "tts_provider": "kokoro",
-              "stt_provider": "groq", "language": "en", "obs_connected": false },
-  "context": { "enabled": true, "version": 3, "total_tokens": 41200,
-              "max_tokens": 150000, "trigger_tokens": 120000,
-              "target_tokens": 50000, "needs_handoff": false, "over_max": false,
-              "handoff_enabled": true, "handoff_running": false,
-              "handoff_swaps": 1, "continuity_chars": 812 }
-}
-```
-
-#### `GET /context`
-The one sliding window, live: budget (`total_tokens`, `max_tokens`,
-`trigger_tokens`, `target_tokens`, `needs_handoff`, `over_max`), handoff state
-(`handoff_enabled`, `handoff_running`, `handoff_swaps`), and continuity
-(`last_prose`, `continuity_chars`). `{"enabled": false}` before the mind
-starts.
-
----
-
-### What she remembers
-
-#### `GET /memory/overview`
-The `memory` block above, on its own.
-
-#### `GET /memory/people`
-Every person card: names, identities, the facts she keeps, her attitude toward
-them, and why they were promoted.
-
-#### `GET /memory/roster?limit=60`
-Every identity she has ever seen, newest first, with message and session tallies.
-Most of these will never earn a card.
-
-#### `GET /memory/self`
-Her self-lore (`facts`), her `profile`, and the `hot_facts` that are true right
-now and decay on their own.
-
-#### `GET /memory/search?q=…&k=8`
-The same semantic recall she runs on herself, returned split:
-
-```json
-{ "facts": [ { "text": "…", "who": "emanu", "source": "person",
-               "similarity": 0.82, "created_at": 1750000000, "scope_key": "…" } ],
-  "hers":  [ … ] }
-```
-
-`facts` is what people told her; `hers` is what she said herself. They are kept
-apart deliberately — her persona invents on purpose, and her own output must
-never come back as though it were true. `400` when the memory skill is off.
-
----
-
-### Secrets and probes
-
-#### `GET /secrets`
-Which secrets are set, never their values:
-
-```json
-{ "openrouter_key": true, "openai_key": false, "discord.token": true }
-```
-
-#### `POST /test/llm` · `POST /test/tts` · `POST /test/obs`
-Each returns `{ "ok": bool, "message": str, "detail": str }`. The LLM probe asks
-for one word and reports the round trip, the TTS probe renders a line without
-playing it, and the OBS probe reconnects.
-
-#### `GET /audio/devices`
-Output devices as `{ id, name, channels }`, so picking one is not guesswork about
-an integer. Returns `[]` if `sounddevice` cannot enumerate them.
-
----
-
 ### Health
 
 #### `GET /health`
@@ -600,102 +310,6 @@ Returns a simple liveness check. Used to verify the server is running.
 ```json
 { "status": "ok" }
 ```
-
----
-
-### Updating
-
-Implemented in `src/web/routers/updates.py`, mounted before the SPA catch-all. See
-**[Updating](../updating.md)** for the merge semantics these endpoints expose.
-
-#### `GET /update`
-Everything the update screens need, in one request. Server-side cached for 30
-minutes; `?force=true` refetches.
-
-**Response:**
-```json
-{
-  "supported": true, "available": true, "reason": "",
-  "behind": 3, "current": "4523164a", "latest": "96f7125b", "version": "2.5.0",
-  "commits": [ { "sha": "96f7125b", "subject": "…", "author": "…", "date": "2026-09-10" } ],
-  "reviews": [ { "name": "operating.md", "path": "data/prompts/operating.md" } ],
-  "can_apply": true, "busy": false, "run": null
-}
-```
-
-`supported` is false with a populated `reason` for a zip download, a missing
-`origin`, a detached HEAD, a Docker container, or `updates.check` switched off.
-`reviews` lists prompts carrying a `.new` — an unresolved conflict from an
-earlier run.
-
-#### `POST /update/check`
-Forces a fetch and returns the same payload.
-
-#### `POST /update/apply` → `202`
-Starts the run on a worker thread and returns the initial step list. `409` while
-one is in flight, `403` when `updates.allow_web_apply` is false.
-
-> This endpoint runs `git pull`, `uv sync` and `npm install`, which is to say it
-> executes code. It is loopback-only like the rest of the API, the run refuses
-> to touch any tracked file modified outside `data/prompts/`, and the config
-> flag closes it entirely.
-
-#### `GET /update/run`
-Progress while it runs, the finished report afterwards.
-
-```json
-{
-  "state": "done",
-  "steps": [ { "id": "reconcile", "label": "Putting your edits back",
-               "status": "done", "detail": "1 file(s) need your eyes" } ],
-  "report": {
-    "status": "updated", "ok": true, "headline": "Updated — some prompts need a look",
-    "prompts": [ { "name": "operating.md", "state": "conflict",
-                   "detail": "your edits and the new version touch the same lines",
-                   "needs_review": true } ],
-    "backup": "20260911-104500", "restart_required": true, "needs_review": 1
-  }
-}
-```
-
-`report.status` is one of `updated`, `up-to-date`, `blocked`, `failed`. A
-`blocked` report carries `blocked_paths`. `restart_required` means the new code
-is on disk and the running process is still on the old one.
-
-#### `GET /update/reviews/{name}` · `POST /update/reviews/{name}`
-
-`GET` returns `{ "mine": "…", "theirs": "…" }` for the diff view. `POST` takes
-`{"choice": "mine" | "theirs"}`, advances that file's recorded base, deletes the
-`.new` and reloads the config so the decision is live without a restart.
-
-`{name}` is matched against the flagged list rather than joined onto a path, so
-a name from the browser never addresses a file the updater did not itself
-report.
-
----
-
-### Diagnostics
-
-#### `GET /doctor` · `POST /doctor/run` → `202`
-
-The checks behind `bea --doctor`, in `src/web/routers/health.py`. `POST` starts the run
-as an asyncio task; `GET` returns findings as they land, then a verdict.
-
-```json
-{
-  "state": "done", "total": 13,
-  "findings": [ { "title": "The mind", "ok": false, "detail": "…",
-                  "fix": "…", "blocking": true, "stops": true } ],
-  "verdict": { "level": "blocked", "headline": "The mind is in the way",
-               "detail": "9 check(s) below it never ran.",
-               "blocking": ["The mind"], "warnings": [] }
-}
-```
-
-The sequence stops at the first blocking failure, so `findings` is shorter than
-`total` on a `blocked` verdict and the checks that never ran must not be read as
-passes. `409` when a run is already going. It is never triggered automatically:
-the checks build a voice, transcribe a line and call the mind.
 
 ---
 
@@ -717,64 +331,10 @@ Filters the event buffer and returns only events in the `skill`, `thought`, and 
 
 ---
 
-### The stage
-
-What the OBS browser source reads, and what the dashboard asks about the avatar.
-None of it is authenticated, so none of it ever carries a secret.
-
-#### `GET /stage`
-The page to point an OBS **Browser Source** at. `404` with "run `uv run bea --install-node`"
-when the frontend has not been built.
-
-#### `GET /stage/stream`
-Server-sent events for the browser source. **One snapshot first**, then patches:
-
-```
-data: {"type": "snapshot", "mood": "angry", "state": "talking", "caption": "..."}
-data: {"type": "patch", "envelope": [0.02, 0.31, ...], "envelope_fps": 30}
-```
-
-Deliberately no backlog. OBS reloads a browser source whenever it is toggled,
-and replaying what already happened would have her act out the last minute of
-the stream again.
-
-#### `GET /stage/config`
-What the page needs to draw her: the two backends, the shot, the lip sync rate
-and the caption's typography. Never a key, a token or a password.
-
-#### `GET /stage/model`
-The configured `.vrm`. `404` when none is set, or when it is set and missing —
-the message names the path.
-
-#### `GET /stage/clips` · `GET /stage/clips/{name}`
-The behaviours installed, by name, and one `.vrma` each. A name that would walk
-out of the clips folder is a `404`.
-
-#### `GET /stage/preview`
-**Query:** `mood`, `state` (`idle` by default). One avatar image, for the
-preview in the dashboard. Only paths that appear in `avatar_map` are served —
-anything else is a `404`, so the endpoint cannot be used to read the disk.
-
-#### `POST /test/vts`
-Whether she can reach VTube Studio. Returns the standard
-`{ ok, message, detail }`, and reports a refused connection rather than raising.
-
-#### `GET /vts/model`
-The expressions and hotkeys of the model VTube Studio currently has loaded, so
-the dashboard can offer them as a list instead of a text box.
-
----
-
 ## Frontend Static Serving
 
-Two entry points are built from `src/web/frontend`: `index.html` (the dashboard)
-and `stage.html` (the OBS browser source). They are separate bundles — the stage
-does not carry React, the router or the dashboard, and three.js is loaded only
-when the 3D backend is chosen.
+When the React frontend is built (`npm run build`), only the `dist/assets/` sub-folder is mounted as a `StaticFiles` route at `/assets`. All other requests — including navigation routes like `/dashboard` and the root `/` — are handled by a catch-all `GET /{full_path}` route that returns `dist/index.html` directly.
 
-`dist/assets/` is mounted as a `StaticFiles` route at `/assets`. Everything else
-falls through to a catch-all `GET /{full_path}`, which serves a **real file** if
-one exists under `dist/` (the favicon, `stage.html`) and otherwise returns
-`dist/index.html` so the SPA can route it.
+> **Note:** Files placed in `dist/` outside of `assets/` (e.g. `favicon.ico`, `robots.txt`) are **not** served as static files. Any request for such a file will receive `index.html` instead.
 
 [Frontend Documentation →](frontend.md)

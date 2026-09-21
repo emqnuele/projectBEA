@@ -30,8 +30,8 @@ cd projectBEA
 Install all Python dependencies into a managed virtual environment (`.venv`):
 
 ```bash
-uv sync                    # core dependencies
-uv sync                    # everything the engine needs
+uv sync                  # core dependencies
+uv sync --extra minecraft  # also install the optional minecraft-agent deps
 ```
 
 That's it — `uv` creates `.venv`, pins every dependency from `uv.lock`, and is fully
@@ -42,7 +42,7 @@ If you have `make` available, the same is wrapped in convenient targets:
 
 ```bash
 make install        # uv sync
-make node           # uv run bea --install-node (dashboard + discord bot)
+make install-all    # uv sync --extra minecraft
 make help           # list every target
 ```
 
@@ -63,14 +63,6 @@ Create a `.env` file in the project root:
 OPENROUTER_API_KEY=sk-or-...   # recommended: routes to any model
 OPENAI_API_KEY=sk-...
 GROQ_API_KEY=gsk_...
-GOOGLE_API_KEY=AIza...          # Google AI Studio: Gemini with a free tier
-ANTHROPIC_API_KEY=sk-ant-...    # Claude, called directly
-
-# Local models need no key. Ollama answers at http://localhost:11434/v1,
-# LM Studio at http://localhost:1234/v1 — pick the runner in `bea --setup`.
-# Only set these for a remote endpoint or one that wants a key.
-# LOCAL_API_KEY=""
-# LOCAL_BASE_URL="http://localhost:11434/v1"
 
 # TTS — only if using Orpheus
 ORPHEUS_API_KEY=...
@@ -78,21 +70,6 @@ ORPHEUS_ENDPOINT=https://model-xxxxxxxx.api.baseten.co/environments/production/p
 
 # Discord — only if using the Discord skill
 DISCORD_TOKEN=...
-
-# Telegram — only if using the Telegram skill
-TELEGRAM_TOKEN=...
-
-# Twitch — only needed to WRITE in chat; reading works anonymously
-TWITCH_OAUTH_TOKEN=oauth:...
-
-# Donations — shared secret checked on the webhook. Set this before exposing the server
-DONATION_SECRET=...
-
-# Hugging Face — optional, and no account is needed to run anything here. The
-# whisper and embedding models are public. A token only raises the anonymous
-# rate limit, which is what makes the first download crawl (or get refused) on
-# a shared or office connection. https://huggingface.co/settings/tokens
-HF_TOKEN=hf_...
 
 # Logging — optional, defaults to INFO
 LOG_LEVEL=DEBUG   # set to DEBUG to see verbose output (OBS, TTS, audio playback details)
@@ -126,13 +103,13 @@ Populate `data/pngs/` with avatar assets organized by mood. Each mood folder con
 
 ```
 data/pngs/
-├── neutral/
+├── normal/
 │   ├── idle.mp4       (or .png, .gif)
 │   └── talking.mp4
 ├── angry/
 │   ├── idle.mp4
 │   └── talking.mp4
-├── happy/  sad/  surprised/  disgusted/  bored/   (same structure)
+├── bored/  cry/  ew/  love/  shock/   (same structure)
 ```
 
 The `obs_source_type` config key controls whether OBS uses an **image** source (`image`) or a **media** source (`media`).
@@ -141,7 +118,7 @@ Then map the files in `config.json` under the `avatar_map` key:
 
 ```json
 "avatar_map": {
-  "neutral": { "idle": "data/pngs/neutral/idle.mp4", "talking": "data/pngs/neutral/talking.mp4" },
+  "normal": { "idle": "data/pngs/normal/idle.mp4", "talking": "data/pngs/normal/talking.mp4" },
   "angry":  { "idle": "data/pngs/angry/idle.mp4",  "talking": "data/pngs/angry/talking.mp4"  }
 }
 ```
@@ -165,31 +142,17 @@ Find the ID of your virtual cable (e.g. *CABLE Input* on Windows) and set `audio
 Install Node.js dependencies for the bot:
 
 ```bash
-cd src/core/skills/voice/bot
+cd src/modules/skills/discord/bot
 npm install
 ```
 
 Set your Discord token in `.env` or in `config.json` under `skills.discord.token`.
 
-Then toggle the skill on from the dashboard's Skills page, or set
-`skills.discord.enabled: true` before starting.
+In `config.json`, also set:
+- `skills.discord.enabled: true`
+- `skills.discord.target_channel`: the voice channel name where Bea should listen/speak
 
 [Discord Skill Details →](skills/discord.md)
-
----
-
-## 6b. Telegram & Twitch (optional)
-
-Neither needs a subprocess — both run in-process.
-
-**Telegram:** create a bot with [@BotFather](https://t.me/botfather), put the
-token in `.env` as `TELEGRAM_TOKEN`, set `skills.telegram.owner_id` to your own
-user id, and leave `allowed_chats` empty to let her read every chat she is added
-to. [Details →](skills/telegram.md)
-
-**Twitch:** set `skills.twitch.channel` and toggle it on — reading needs no
-credentials at all. Only add `TWITCH_OAUTH_TOKEN` and `skills.twitch.nick` if
-you want her to type in chat. [Details →](skills/twitch.md)
 
 ---
 
@@ -199,88 +162,11 @@ Kokoro runs **entirely locally** — no API key required.
 
 The engine automatically downloads the model files on first launch if they are missing:
 - `kokoro-v0_19.onnx` (~95 MB)
-- `voices.json` (~30 MB)
+- `voices.bin` (~30 MB)
 
 No manual steps needed. Just set `tts_provider` to `kokoro` in `config.json` and start the engine. The download happens once and is cached in the project root.
 
 To use a different path, update `kokoro_model` and `kokoro_voices_file` in `config.json`.
-
----
-
-## 7b. Local Whisper Setup (optional)
-
-The same deal for her ears. `faster_whisper` transcribes on this machine, so
-voice input needs no key and no account, and nothing you say is uploaded
-anywhere to be turned into text.
-
-Set `stt_provider` to `faster_whisper` in `config.json` — or pick **Local
-Whisper** in the wizard or on the dashboard's Hearing page — and choose a size:
-
-| `stt_model` | On disk | Notes |
-|---|---|---|
-| `tiny` | ~75 MB | Instant, and it will mishear you |
-| `base` | ~145 MB | Usable on an old laptop |
-| `small` | ~480 MB | The default, and the balance most people want |
-| `large-v3-turbo` | ~1.6 GB | Best, and it wants a GPU |
-
-The weights download into `data/models/whisper`, which is gitignored — as a
-Hugging Face cache, the same layout `WhisperModel(download_root=...)` reads, so
-the copy the wizard fetches is the copy the engine loads. The wizard offers to
-fetch them at the end of setup, with a progress bar; decline it, or skip the
-wizard, and they arrive on first use instead. In that case her first startup
-says so in the log and reports the download as it lands, rather than looking
-hung for a few hundred megabytes. `uv run bea --doctor` allows for it either
-way and will not call it a failure.
-
-Nothing here needs a Hugging Face account. A token is worth having only for the
-rate limit — on a shared or office IP it is the difference between a download
-that crawls and one that does not, and a refused download says the same thing.
-`bea --setup` asks for one, optionally, and writes it to `.env`.
-
-On a machine with an NVIDIA GPU, set `faster_whisper_device` to `cuda` — this
-needs the CUDA and cuDNN runtimes on the system, which `uv sync` does not
-install. Leave it on `auto` if you would rather not deal with that; the CPU
-path runs `int8` and is fast enough for `small`.
-
-[STT module →](modules/stt.md)
-
----
-
-## 7c. Local models (optional, and the interesting one)
-
-She can think on this machine too — no key, no account, no bill, and nothing
-you say leaves the room. Install one runner and pull a model:
-
-**Ollama** ([ollama.com](https://ollama.com)):
-
-```bash
-ollama pull qwen3:8b
-```
-
-**LM Studio** ([lmstudio.ai](https://lmstudio.ai)): download a model in the
-app, then start its server (Developer → Status: Running, port `1234`).
-
-Then pick **Local models** in `bea --setup`, or set it by hand:
-
-```json
-"llm_provider": "local",
-"local_base_url": "http://localhost:11434/v1",
-"local_model": "qwen3:8b"
-```
-
-Point `local_base_url` at `http://localhost:1234/v1` for LM Studio. The two
-runners can even share her: put one model in `models.mind` and a cheaper one
-in `models.background`, or mix a local model with a cloud one — when the
-laptop sleeps, the pool falls over to the key that is set.
-
-Two things to know. Every model in `mind` must support tool calling — she
-speaks only through tools, so a model without them never says a word, and the
-doctor tells you exactly that. And a local model is slower than Groq: she
-still answers in time, but the background pool is where small local models
-shine — the diary, the dreamer and the Minecraft body never needed a
-frontier model in the first place.
-
-[LLM modules →](modules/llm.md)
 
 ---
 
@@ -336,16 +222,10 @@ Type messages at the `You >` prompt. Type `exit` to quit.
 ### Web Dashboard mode
 
 ```bash
-uv run bea --web    # or: make web  (also builds the javascript)
+uv run bea --web    # or: make web  (also builds the frontend)
 ```
 
-Opens the FastAPI server at `http://localhost:8000`. The React frontend (built
-in step 8) is served from the same port at `/`.
-
-> The API has **no authentication**, so the server binds to `127.0.0.1` by
-> default. Exposing it on the network is an explicit opt-in:
-> `uv run bea --web --host 0.0.0.0`. Do that only behind something that
-> authenticates, and set `DONATION_SECRET` first.
+Opens the FastAPI server at `http://localhost:8000`. The React frontend (built in step 8) is served from the same port at `/`.
 
 ### CLI argument overrides
 
@@ -382,80 +262,20 @@ npm install
 npm run dev
 ```
 
-The Vite dev server starts at `http://localhost:5173`. There is no proxy in
-`vite.config.js`: the frontend calls the backend directly through `API_BASE`
-(`src/web/frontend/src/api.js`), which is `http://localhost:8000` in dev and the
-page's own origin in a build. To point the dev server somewhere else, set
-`VITE_API_BASE` rather than editing the source.
-
-`http://localhost:5173` is already in the backend's CORS allowlist. For any
-other origin, set `BEA_ALLOWED_ORIGINS` (comma-separated) before starting the
-brain.
+The Vite dev server starts at `http://localhost:5173`. The frontend makes **direct** API calls to `http://localhost:8000` — **no proxy is configured** in `vite.config.js`. If you change the backend port, update the API base URL in the frontend source accordingly.
 
 > **Note:** For normal use you do **not** need the dev server — just build once with `npm run build` (step 8) and use `uv run bea --web`.
 
 ---
 
-## Staying up to date
-
-```bash
-make update          # or: uv run bea --update
-```
-
-Not `git pull`. The prompts under `data/prompts/` are tracked *and* meant to be
-edited, so a pull either refuses to run or writes conflict markers into the file
-her personality is read from. `--update` backs up your prompts, config and
-database, fast-forwards, then puts your edits back through a three-way merge —
-so an edited `operating.md` keeps your changes *and* receives the engine's. Any
-file it cannot merge is left exactly as you wrote it, with the new version
-dropped beside it as `<name>.new`.
-
-It also runs `uv sync` and rebuilds the dashboard when the update touched them.
-`src/web/frontend/dist/` is gitignored, so a pull without that rebuild leaves
-the old dashboard on screen.
-
-The dashboard's **Maintenance** screen does the same thing with a button, shows
-the changelog before you commit to it, and gives you a side-by-side diff for
-anything that needs a decision.
-
-Updating in place needs `git` — it is the only feature that does. Without it
-she runs exactly the same and `bea --doctor` tells you what you are missing;
-nothing installs it for you, because doing so needs root.
-
-**[How it works, and what it refuses to do →](updating.md)**
-
----
-
 ## Troubleshooting
-
-The fastest way to figure out what is wrong is to run the built-in diagnostic:
-
-```bash
-uv run bea --doctor    # or: make doctor
-```
-
-Fifteen checks, run in the order the pieces depend on each other and stopped at
-the first blocking failure — there is no point testing the voice when there is
-no config file. Every failure carries the exact command that fixes it. The exit
-code is non-zero when something is blocking, so it works in a script.
-
-The same sequence runs from **Maintenance** in the dashboard, findings streamed
-as they land. It builds the voice, transcribes a line and calls the mind, so it
-costs a handful of provider requests and never runs on its own.
 
 | Problem | Solution |
 |---|---|
 | `OBS not connected` warning on start | OBS is not running or WebSocket creds are wrong — the engine continues without it |
 | `No audio device` error | Run the sounddevice query above and update `audio_device_id` |
-| Local Whisper: `Could not load local whisper` | `stt_model` is not a size it knows or a Hugging Face repo that exists, or `faster_whisper_download_root` is not writable. She keeps running; only voice input is lost |
-| Local Whisper: the first voice line takes minutes | The weights are being downloaded, once. Watch `data/models/whisper` grow |
-| Local Whisper on a GPU fails to load | `faster_whisper_device: "cuda"` needs the CUDA and cuDNN runtimes, which `uv sync` does not install. Set it back to `auto` |
-| Discord bot fails with `node_modules not found` | Run `npm install` in `src/core/skills/voice/bot/` |
-| `Embedder unavailable` on start | The embedding model could not be downloaded. Everything else keeps working — only long-term recall is lost until it can |
-| `No usable model for role 'mind'` | The `models.mind` pool is empty or none of its keys are set. Check `models` in `config.json` and the matching `*_API_KEY` |
-| A model in `mind` "does not support tool calling" | Remove it from the pool. Bea speaks only through tools, so a model without them never says anything |
-| She never starts anything in Minecraft | Give her objectives on the dashboard's Stream Plan page — with an empty plan she only ever reacts |
+| Discord bot fails with `node_modules not found` | Run `npm install` in `src/modules/skills/discord/bot/` |
+| Memory skill disabled on start | `OPENAI_API_KEY` not set — ChromaDB embedding requires it |
+| `openrouter_key is missing` | Set `OPENROUTER_API_KEY` in `.env` or pass `--openrouter-key` at launch |
+| Skills silently start disabled despite `"enabled": true` in `config.json` | Expected — all non-memory skills are force-disabled at every cold start. Enable them at runtime via the web dashboard or `POST /skills/{name}/toggle`. |
 | OBS avatar source not updating after config migration | If your `config.json` still contains the old key `obs_image_source`, it is silently renamed to `obs_avatar_source` by `load_from_file()`. Delete the old key from your `config.json` and re-save to avoid ambiguity. |
-| The update says you have local changes to the engine | You have edited a tracked file outside `data/prompts/`. Commit, stash or revert it — the updater merges prompts, not source |
-| The dashboard looks unchanged after an update | The build is gitignored. Run `uv run bea --install-node`, or check whether the `dashboard` step reported a missing `npm` |
-| A prompt has a `.new` beside it | An update changed the same lines you had. Yours is in use; compare them in Maintenance, or with `diff data/prompts/operating.md data/prompts/operating.md.new` |

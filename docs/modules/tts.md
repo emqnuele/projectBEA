@@ -6,27 +6,14 @@
 
 ## Overview
 
-The TTS layer is defined by `TTSInterface`. Every engine returns a NumPy audio
-array plus a sample rate; **`Expression`** (`src/core/expression/voice.py`) is
-what plays it, animates OBS around it and handles barge-in. No skill renders
-speech itself — there is exactly one output sink.
-
-The engine is selected with `tts_provider` and built by `factory.py`.
+The TTS layer is defined by `TTSInterface`. All engines generate a NumPy audio array + sample rate, which the brain plays via `sounddevice`. The active engine is selected with `tts_provider` in config.
 
 ```
 src/modules/tts/
-├── providers.py           every engine as data: its voices and their languages
-├── factory.py             builds the selected one, handed the voice it should use
 ├── edge_tts_wrapper.py    Microsoft EdgeTTS (free, online)
 ├── kokoro_tts_wrapper.py  Kokoro ONNX (local, no API)
 └── orpheus_tts_wrapper.py Orpheus (API, high quality)
 ```
-
-**An engine does not decide a language.** `providers.py` holds one row per
-engine — its voices, the language of each, and whatever else that engine needs
-to be told — and `providers.voice_for(config)` is the single answer to "which
-voice will actually be used". The wizard, the dashboard, `make doctor` and the
-factory all ask it, so they cannot drift. See [Languages](../languages.md).
 
 ---
 
@@ -39,20 +26,9 @@ class TTSInterface(ABC):
     def reload_config(config: BrainConfig) -> None
 ```
 
-`Expression` always calls `generate_audio()` and plays the array itself, which
-is what makes interruption and resume possible — the buffer is tracked at the
-Expression level, not inside the engine.
+The brain always calls `generate_audio()` and handles playback itself via `sounddevice.play()`. `speak()` is also an abstract method — implementations must provide it (even if only as a thin wrapper around `generate_audio()`). The Kokoro wrapper includes a working `speak()` for direct use; the brain itself does not call it.
 
-Two routes go through the same code:
-
-| Route | What happens |
-|---|---|
-| `local` | played on the audio device, with the OBS avatar and text bubble animated alongside |
-| `remote` | rendered to WAV bytes and returned, for Discord to play in the call |
-
-> `speak()` is also declared `@abstractmethod`, so a custom engine must define
-> it even though `Expression` never calls it. Omitting it raises `TypeError` at
-> instantiation.
+> **Important for custom TTS engines:** if you omit `speak()` from your implementation, Python will raise `TypeError` at instantiation time because it is declared `@abstractmethod` in `TTSInterface`. This allows interrupt/resume functionality (the audio buffer is tracked at the brain level).
 
 ---
 
@@ -74,12 +50,11 @@ tts = EdgeTTSWrapper(voice="en-US-AvaNeural", pitch="+5Hz", rate="+10%", volume=
 audio, sr = await tts.generate_audio("Hello!")
 ```
 
-> The constructor's `output_file` argument is vestigial: `generate_audio()`
-> always writes to a fresh UUID filename so concurrent calls cannot collide.
-> Its class-level defaults (`en-US-JennyNeural`, `+0Hz`, `+0%`, `+0%`) also
-> differ from the `BrainConfig` ones — `src/cli.py` always passes the config
-> values explicitly, so the class defaults only matter if you instantiate the
-> wrapper by hand.
+> **Constructor note:** `EdgeTTSWrapper.__init__` also accepts an `output_file` parameter (default: `"temp_tts.mp3"`). This parameter is vestigial — `generate_audio()` ignores it and always uses a unique UUID-based filename to prevent collisions during concurrent calls. It is safe to omit. The class-level default for `voice` is `"en-US-JennyNeural"`; at runtime the value from `BrainConfig.tts_voice` (`"en-US-AvaNeural"`) is always passed explicitly.
+
+> **Default mismatch note (EdgeTTS):** The class-level constructor defaults for `pitch`, `rate`, and `volume` are `"+0Hz"`, `"+0%"`, `"+0%"` respectively — these differ from the `BrainConfig` defaults of `"+5Hz"`, `"+10%"`, `"+33%"`. The brain always passes the config values explicitly, so the class defaults only matter if `EdgeTTSWrapper` is instantiated directly without arguments (e.g. in tests or standalone usage).
+
+> **Dead method note:** `EdgeTTSWrapper` contains a vestigial `generate_audio(self, text: str, filename: str) -> None` definition (the original helper that wrote to a fixed filename). Python silently shadows it with the second `generate_audio(self, text: str) -> tuple[np.ndarray, int]` definition, which is the one that actually executes. The first definition is unreachable and has no effect at runtime.
 
 ---
 
@@ -87,19 +62,15 @@ audio, sr = await tts.generate_audio("Hello!")
 
 **Library:** `kokoro-onnx`  
 **Cost:** Free (runs entirely locally)  
-**Config keys:** `kokoro_model`, `kokoro_voices_file`, `kokoro_voice`, `kokoro_speed` (`kokoro_lang` is derived from the voice)
+**Config keys:** `kokoro_model`, `kokoro_voices_file`, `kokoro_voice`, `kokoro_speed`, `kokoro_lang`
 
 Runs the Kokoro TTS model locally via ONNX Runtime. No internet connection required after downloading the model files. Best for privacy or offline use.
 
-**Model files:** `kokoro_model` and `kokoro_voices_file` are **downloaded automatically** on first launch if missing, each from the kokoro-onnx release asset of the same basename. The voice pack must be `voices.json`; the pinned library cannot read the `.bin` form, and a path ending in `voices.bin` is read as `voices.json` with a warning.
+**Model files:** `kokoro-v0_19.onnx` and `voices.bin` are **downloaded automatically** on first launch if missing (from GitHub Releases, ~125 MB total). No manual download needed.
 
 To use a custom path, update `kokoro_model` and `kokoro_voices_file` in `config.json`.
 
 **Voice examples:** `af_bella`, `af_sarah`, `am_adam`, `bf_emma`
-
-**Languages:** English only — the v0.19 voice pack contains no other. The
-multilingual v1.0 pack needs a `kokoro-onnx` release requiring `numpy>=2`, which
-conflicts with this project's `numpy<2.0.0` pin.
 
 ---
 
@@ -114,39 +85,23 @@ Calls a self-deployed Orpheus model on [Baseten](https://baseten.co). Produces h
 
 **Setup required:** You must deploy the Orpheus model to your own Baseten workspace before use. See [Setup Guide → Orpheus TTS Setup](../setup.md) for step-by-step instructions.
 
-The wrapper POSTs to your endpoint with `stream: true`, collects raw PCM bytes
-(24 kHz, 16-bit mono) and decodes them to a NumPy array for `Expression` to
-play.
+The wrapper POSTs to your endpoint with `stream: true`, collects raw PCM bytes (24 kHz, 16-bit mono), decodes them to a NumPy array, and returns them to the brain for playback.
 
 **Voice examples:** `zoe`, `tara`, `leo`, `leah`
 
-> The class default is `tara`; the effective default is `zoe`, from
-> `BrainConfig.orpheus_voice`.
+> **Default mismatch note (Orpheus):** The `OrpheusTTSWrapper` class constructor defaults to `voice="tara"`. The `BrainConfig` dataclass default for `orpheus_voice` is `"zoe"`. At runtime the brain always passes `config.orpheus_voice` explicitly, so the effective default seen by users is `"zoe"`. The class default only matters for direct instantiation without arguments.
 
 ---
 
 ## Hot Reload
 
-`reload_config()` updates pitch, rate and volume for EdgeTTS; speed for Kokoro;
-key and endpoint for Orpheus. All three take their **voice** from
-`providers.voice_for(config)` rather than reading a field of their own, and
-Kokoro takes its phonemiser language from `factory.kokoro_language(config)`.
-Changing `tts_provider` itself needs a restart — the object type changes, and
-the dashboard says so when you save.
+`reload_config()` updates `voice` in place for EdgeTTS (also `pitch`, `rate`, `volume`). For Kokoro it updates `voice`, `speed`, and `lang`. For Orpheus, it also updates the API key, endpoint URL, and voice. Changing `tts_provider` itself requires a restart (the object type changes).
 
 ---
 
 ## Adding a New TTS Engine
 
 1. Create `src/modules/tts/my_tts.py` and extend `TTSInterface`.
-2. Implement `async generate_audio(text) -> (np.ndarray, int)`, `speak()` and
-   `reload_config()`.
-3. Add one `VoiceProvider` row to `providers.py`, listing its voices and the
-   language each one speaks.
-4. Add a two-line builder to `BUILDERS` in `factory.py`. It is handed the
-   `Voice` to use — it does not look one up.
-
-That is all. The setup wizard, the dashboard menus, the language warnings and
-`make doctor` are all generated from the row; there is no branch to add in any
-of them. `test_tts_providers.py` fails if a row has no builder, if a builder has
-no row, or if a row names a config field that does not exist.
+2. Implement `async generate_audio(text) -> (np.ndarray, int)` and `reload_config()`.
+3. In `main.py`, add the instantiation branch.
+4. Add the provider name to `--tts-provider` choices.

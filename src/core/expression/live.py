@@ -64,6 +64,7 @@ class LiveLine:
         # the whole line when the caller already has it, so the words on screen
         # can be typed once instead of restarting at every sentence
         self.caption: Optional[str] = None
+        self.run_id: Optional[str] = None
 
         # room for the sink to keep track of one line: the call needs an
         # utterance id, a sequence number and the shape of the mouth so far

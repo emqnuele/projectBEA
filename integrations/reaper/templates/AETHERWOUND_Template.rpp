@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<REAPER_PROJECT 0.1 "7.0" recs="0" dState="0" dPipeline="0" sampRate="48000">
+  <TRACK {{GUID {F0B1C2D3-E4F5-6789-0123-456789ABCDEF} name="DRUMS" icon_idx="0" color="{{BGR}}0.941 0.627 0.816" />
+    <FXCHAIN SHOWIN "0" {{AUDIO 1 ">" 1 "/Users/ultraviollett/AETHERWOUND EP/songs/track-01/stems/AW01_gen_v003_stem_drums.wav" {{END}}/>" />
+  </TRACK>
+  <TRACK {{GUID {A1B2C3D4-E5F6-7890-1234-567890ABCDEF} name="BASS" icon_idx="0" color="{{BGR}}0.416 0.722 0.941" />
+    <FXCHAIN SHOWIN "0" {{AUDIO 1 ">" 1 "/Users/ultraviollett/AETHERWOUND EP/songs/track-01/stems/AW01_gen_v003_stem_bass.wav" {{END}}/>" />
+  </TRACK>
+  <TRACK {{GUID {B2C3D4E5-F6A7-8901-2345-67890ABCDEF0} name="MELODIC" icon_idx="0" color="{{BGR}}0.627 0.439 0.882" />
+    <FXCHAIN SHOWIN "0" {{AUDIO 1 ">" 1 "/Users/ultraviollett/AETHERWOUND EP/songs/track-01/stems/AW01_gen_v003_stem_other.wav" {{END}}/>" />
+  </TRACK>
+  <TRACK {{GUID {C3D4E5F6-A7B8-9012-3456-7890ABCDEF01} name="VOCALS" icon_idx="0" color="{{BGR}}0.973 0.941 0.973" />
+    <FXCHAIN SHOWIN "0" {{AUDIO 1 ">" 1 "/Users/ultraviollett/AETHERWOUND EP/songs/track-01/stems/AW01_gen_v003_stem_vocals.wav" {{END}}/>" />
+  </TRACK>
+</REAPER_PROJECT>

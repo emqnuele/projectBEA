@@ -2,6 +2,14 @@ import asyncio
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.core.presence import PresenceRuntime
+from src.core.presence.events import (
+    INPUT_LISTENING_STARTED,
+    INPUT_TRANSCRIPT_FINAL,
+    INPUT_LISTENING_FINISHED,
+)
+from src.core.atlas.service import AtlasService
+
 from src.core.affect.state import AffectState
 from src.core.agent.registry import BACKGROUND, MIND, ModelRegistry
 from src.core.attention import Attention
@@ -96,6 +104,9 @@ class AIVtuberBrain:
 
         self.event_manager = EventManager()
 
+        # Semantic desktop/core presence. Renderer adapters observe its events.
+        self.presence = PresenceRuntime(self.event_manager)
+
         # single output sink (VOICE actuator + barge-in)
         self.expression = Expression(config, tts, self.avatar, self.caption, self.event_manager)
 
@@ -104,6 +115,10 @@ class AIVtuberBrain:
 
         # how a word she writes inline becomes something she actually has
         self._install_matchers()
+
+        # ATLAS operational layer (initialized at brain.initialize(),
+        # not left as a lazy placeholder).
+        self.atlas_service: Optional[Any] = None
 
         # unified consciousness (built in initialize, started only if enabled)
         self.perception_bus: Optional[PerceptionBus] = None
@@ -267,6 +282,48 @@ class AIVtuberBrain:
 
         self._build_consciousness()
 
+        # Presence begins only after the composition root has initialized
+        # its services successfully.
+        self.presence.connect()
+
+        # ATLAS operational layer — initialized at brain startup.
+        # Persists domain state to data/atlas/state.json.
+        # Survives process restarts; lost only if data/atlas/ is cleared.
+        import os
+        atlas_path = os.path.join(os.getcwd(), "data", "atlas")
+        self.atlas_service = AtlasService(self.event_manager, storage_path=atlas_path)
+        logger.info("ATLAS service initialized (persistent).")
+
+    def get_forge_state(self) -> dict:
+        """Build a semantic ForgeState snapshot for the frontend/avatar layer.
+
+        Consumes:
+          - EventManager (recent events, speech/tool/dream activity)
+          - PresenceRuntime (connection/listening state)
+          - AtlasService (project/work/decision/artifact snapshot)
+          - Dream projection (current dream run state, if any)
+
+        Returns a renderer-free dict. No PNG paths, OBS scene names, Live2D
+        indices, UI coordinates, or CSS state.
+        """
+        from src.core.dream.projection import get_current_dream_projection
+        from src.core.forge.contract import ForgeProjection
+
+        dream_run_id = getattr(self, "dream_run_id", None)
+
+        projection = ForgeProjection(
+            event_manager=self.event_manager,
+            presence_runtime=self.presence,
+            atlas_snapshot_fn=lambda: self.atlas_service.snapshot() if self.atlas_service else None,
+            dream_projection_fn=lambda: get_current_dream_projection(
+                self.event_manager, run_id=dream_run_id
+            ),
+            is_speaking=self.is_speaking,
+            is_sleeping=self.is_sleeping,
+        )
+        state = projection.build_state()
+        return state.to_dict()
+
     def _perf_line(self) -> str:
         """The resolved performance configuration, in one log line.
 
@@ -339,6 +396,8 @@ class AIVtuberBrain:
             operating_getter=self._load_operating_rules,
             attention=self.attention,
             affect=self.affect,
+            memory=self.memory,
+            profiler=self.profiler,
         )
 
         # handoff is background work: it must never compete with the mind
@@ -724,7 +783,10 @@ class AIVtuberBrain:
 
     def shutdown(self):
         self.history_manager.flush()
-        self.stage.close()
-        self.avatar.close()
-        self.obs.disconnect()
-        self.memory.close()
+        try:
+            self.presence.disconnect()
+            self.stage.close()
+            self.avatar.close()
+        finally:
+            self.obs.disconnect()
+            self.memory.close()

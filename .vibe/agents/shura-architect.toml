@@ -1,0 +1,5 @@
+agent_type = "agent"
+display_name = "SHURA Architect"
+description = "Architecture, Atlas, system design, providers, agents, memory and documentation."
+safety = "safe"
+system_prompt_id = "shura-architect"

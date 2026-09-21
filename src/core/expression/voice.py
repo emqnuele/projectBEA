@@ -6,6 +6,7 @@ from typing import Any, List, Optional, Tuple
 
 from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
+from src.core.presence.events import SPEECH_STARTED, SPEECH_FINISHED, SPEECH_INTERRUPTED
 from src.core.expression.live import LiveLine, Rendered
 from src.core.expression.pcm import ENVELOPE_FPS, duration_ms, envelope, to_call_pcm
 from src.core.expression.prosody import for_mood
@@ -168,16 +169,16 @@ class Expression:
         """Whether sound she makes right now would be heard in a room."""
         return bool(self.call is not None and self.call.live)
 
-    async def speak(self, mood: str, message: str, *, route: str = "local", feeling=None):
+    async def speak(self, mood: str, message: str, *, route: str = "local", feeling=None, run_id=None):
         """Renders a spoken turn. Returns the Utterance when route='call'."""
-        line = self.open_line(mood, route=route, feeling=feeling, caption=message)
+        line = self.open_line(mood, route=route, feeling=feeling, caption=message, run_id=run_id)
         if line is None:
             return None
         line.say(message)
         return await line.close()
 
     def open_line(self, mood: str, *, route: str = "local", feeling=None,
-                  caption: Optional[str] = None) -> Optional[LiveLine]:
+                  caption: Optional[str] = None, run_id: Optional[str] = None) -> Optional[LiveLine]:
         """A line she can start saying before it has finished being written.
 
         `caption` is the whole line when the caller already has it: knowing it up
@@ -190,6 +191,7 @@ class Expression:
             return None
         line = LiveLine(self, mood, route=route, feeling=feeling)
         line.caption = caption
+        line.run_id = run_id
         return line
 
     async def _play_audio(self, audio_data, sample_rate, device_id):
@@ -340,8 +342,14 @@ class Expression:
         self.caption.clear()
         self.avatar.show(line.mood, "talking")
         self.event_manager.publish(
-            EventCategory.OUTPUT, "tts", f"Speaking: {preview}...",
-            metadata={"device_id": self.config.audio_device_id},
+            EventCategory.OUTPUT, "expression.adapter",
+            f"Speaking: {preview}...",
+            metadata={
+                "event_type": SPEECH_STARTED,
+                "subsystem": "expression",
+                "run_id": line.run_id,
+                "payload": {"mood": line.mood},
+            },
         )
         if line.caption:
             self.current_typing_task = asyncio.create_task(self.caption.say(line.caption))
@@ -456,6 +464,16 @@ class Expression:
             self.caption.clear()
             self.avatar.show(self._mood, self._resting)
             self.is_speaking = False
+            self.event_manager.publish(
+                EventCategory.OUTPUT, "expression.adapter",
+                "Speaking finished",
+                metadata={
+                    "event_type": SPEECH_FINISHED,
+                    "subsystem": "expression",
+                    "run_id": line.run_id,
+                    "parent_event_id": None,
+                },
+            )
         return None
 
     def _call_moved_on(self, utterance_id: str, seq: int) -> bool:

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+option context-path "./CRUSH.md"
+option context-path "./.shura/agents/constitution.md"
+option context-path "./.shura/agents/builder.md"
+option context-path "./.shura/context/project.md"
+
+option initialize-as "CRUSH.md"

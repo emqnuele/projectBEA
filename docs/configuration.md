@@ -1,594 +1,297 @@
 # Configuration Reference
 
-← [Back to README](../README.md) | [Setup](setup.md)
+← [Back to README](../README.md)
 
 ---
 
-## Where a value comes from
+## Overview
 
-Three sources, merged at startup:
+Configuration is managed via two sources that are merged at startup:
 
-| Field type | Priority, highest first |
+1. **`config.json`** (project root) — persistent settings, edited by the web dashboard or manually.
+2. **Environment variables** (`.env` or shell) — secret API keys (only consulted for secret fields).
+3. **CLI arguments** — one-shot overrides at launch time.
+
+**Priority (highest → lowest):**
+
+| Field type | Priority order |
 |---|---|
-| **secrets** (`*_key`, `orpheus_endpoint`, skill tokens) | CLI arg → environment variable → `config.json` → `None` |
-| **everything else** | CLI arg → `config.json` → dataclass default |
+| **Non-secret fields** (`language`, `llm_provider`, `obs_host`, etc.) | CLI arg → `config.json` → dataclass default *(no env-var support)* |
+| **Secret fields** (`*_key`, `orpheus_endpoint`) | CLI arg → environment variable → `config.json` fallback → `None` |
 
-Secrets are the important row. **The environment always wins**: if the variable
-is set and non-empty, the `config.json` value is skipped entirely. A value in
-`config.json` is only ever a fallback for a variable that is not set.
-
-Secrets never reach `config.json`: `save_to_file()` strips every key in
-`SECRET_KEYS` and every nested skill token before writing, and `GET /config`
-returns them dropped or masked as `********`. Posting the mask back is ignored,
-so editing an unrelated field in the dashboard cannot overwrite a real token
-with asterisks.
-
-A secret typed into the dashboard is written to **`.env`** instead, under the
-variable named in `SECRET_ENV_VARS` — which is the same file and the same
-variable the wizard writes, and the one the engine reads back at startup. The
-response names what it wrote in `secrets_written_to_env`. Emptying the field
-clears the variable; an unwritable `.env` fails the whole save rather than
-leaving a key that works until the next restart.
-
-`config.json` is gitignored. Copy `config.example.json` and edit that.
+> **Secret field env var behaviour:** Environment variables **always win** over `config.json` for secret fields. If the env var is set and non-empty, the `config.json` value is silently skipped — even if it is also non-empty. If the env var is not set, a non-empty `config.json` value is used as fallback. Non-secret fields have no env-var integration at all.
 
 ---
 
-## config.json — full reference
-
-This is `config.example.json` verbatim; it matches the dataclass defaults in
-`src/core/config.py` field for field.
+## config.json — Full Reference
 
 ```json
 {
-    "config_version": 1,
-    "language": "auto",
-    "soul_path": "data/prompts/soul.md",
-    "system_prompt_path": "data/prompts/chat.md",
-    "operating_prompt_path": "data/prompts/operating.md",
-    "llm_provider": "openrouter",
-    "openrouter_model": "deepseek/deepseek-v4-flash",
-    "openai_model": "gpt-5",
-    "groq_model": "openai/gpt-oss-20b",
-    "google_model": "gemini-3.8-flash",
-    "claude_model": "claude-sonnet-5",
-    "openai_compat_base_url": "",
-    "openai_compat_model": "",
-    "openai_compat_api": "chat",
-    "anthropic_compat_base_url": "",
-    "anthropic_compat_model": "",
-    "local_base_url": "http://localhost:11434/v1",
-    "local_model": "qwen3:8b",
-    "obs_text_source": "AIText",
-    "obs_avatar_source": "BeaPNG",
-    "obs_source_type": "image",
-    "obs_host": "localhost",
-    "obs_port": 4455,
-    "obs_password": "",
-    "audio_device_id": 0,
-    "tts_provider": "edge",
-    "tts_voice": "it-IT-IsabellaNeural",
-    "tts_pitch": "+13Hz",
-    "tts_rate": "+12%",
-    "tts_volume": "+33%",
-    "orpheus_endpoint": "",
-    "orpheus_voice": "zoe",
-    "kokoro_model": "kokoro-v0_19.onnx",
-    "kokoro_voices_file": "voices.json",
-    "kokoro_voice": "af_bella",
-    "kokoro_speed": 1,
-    "kokoro_lang": "en-us",
-    "avatar_map": {
-        "neutral": {
-            "idle": "",
-            "talking": ""
-        },
-        "happy": {
-            "idle": "",
-            "talking": ""
-        },
-        "sad": {
-            "idle": "",
-            "talking": ""
-        },
-        "angry": {
-            "idle": "",
-            "talking": ""
-        },
-        "surprised": {
-            "idle": "",
-            "talking": ""
-        },
-        "disgusted": {
-            "idle": "",
-            "talking": ""
-        },
-        "bored": {
-            "idle": "",
-            "talking": ""
-        }
+  "language": "en",
+  "system_prompt_path": "data/prompts/sys-prompt.txt",
+
+  "llm_provider": "openrouter",
+  "openrouter_model": "openai/gpt-4o-mini",
+  "openai_model": "gpt-5",
+  "groq_model": "openai/gpt-oss-20b",
+
+  "obs_avatar_source": "BeaPNG",
+  "obs_text_source": "AIText",
+  "obs_source_type": "image",
+  "obs_host": "localhost",
+  "obs_port": 4455,
+  "obs_password": "",
+
+  "audio_device_id": 0,
+
+  "tts_provider": "edge",
+  "tts_voice": "en-US-AvaNeural",
+  "tts_pitch": "+5Hz",
+  "tts_rate": "+10%",
+  "tts_volume": "+33%",
+
+  "orpheus_voice": "zoe",
+
+  "kokoro_model": "kokoro-v0_19.onnx",
+  "kokoro_voices_file": "voices.bin",
+  "kokoro_voice": "af_bella",
+  "kokoro_speed": 1,
+  "kokoro_lang": "en-us",
+
+  "avatar_map": {
+    "normal": { "idle": "", "talking": "" },
+    "angry":  { "idle": "", "talking": "" },
+    "bored":  { "idle": "", "talking": "" },
+    "cry":    { "idle": "", "talking": "" },
+    "ew":     { "idle": "", "talking": "" },
+    "love":   { "idle": "", "talking": "" },
+    "shock":  { "idle": "", "talking": "" }
+  },
+  "png_dir": "data/pngs",
+
+  "text_line_width": 40,
+  "text_lines": 4,
+  "text_font_size": 75,
+  "text_min_font_size": 55,
+  "text_font_step": 2,
+  "typing_delay": 0.03,
+  "text_min_duration": 2,
+
+  "stt_provider": "groq",
+  "stt_model": "whisper-large-v3-turbo",
+
+  "skills": {
+    "monologue": {
+      "enabled": false,
+      "interval_seconds": 30,
+      "chunk_pause_seconds": 4.0,
+      "prompt_path": "data/prompts/monologue.txt"
     },
-    "png_dir": "data/pngs",
-    "text_line_width": 40,
-    "text_lines": 4,
-    "text_font_size": 75,
-    "text_min_font_size": 55,
-    "text_font_step": 2,
-    "typing_delay": 0.03,
-    "text_min_duration": 2,
-    "updates": {
-        "check": true,
-        "allow_web_apply": true
+    "memory": {
+      "enabled": true,
+      "chroma_path": "data/memory_db",
+      "openai_model": "gpt-4o-mini",
+      "embedding_model": "openai/text-embedding-3-small"
     },
-    "skills": {
-        "monologue": {
-            "enabled": false,
-            "prompt_path": "data/prompts/monologue.md"
-        },
-        "memory": {
-            "enabled": true,
-            "db_path": "data/bea.db",
-            "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            "embedding_cache_dir": "data/embeddings_cache",
-            "min_similarity": 0.35
-        },
-        "social_memory": {
-            "enabled": true
-        },
-        "dream": {
-            "enabled": true,
-            "hour": 4
-        },
-        "minecraft": {
-            "enabled": false,
-            "server_url": "ws://127.0.0.1:8080",
-            "idle_nudge_seconds": 90,
-            "commentary_seconds": 20,
-            "steps_per_goal": 40,
-            "tick_seconds": 0.4,
-            "body_context_rounds": 12,
-            "system_prompt_path": "data/prompts/minecraft.md",
-            "body_prompt_path": "data/prompts/minecraft_body.md"
-        },
-        "discord": {
-            "enabled": false,
-            "api_port": 3030,
-            "brain_api_url": "http://127.0.0.1:8000",
-            "admin_id": "",
-            "duck_threshold_ms": 400,
-            "interrupt_threshold_ms": 4000,
-            "fill_silences": true,
-            "silence_seconds": 6.0,
-            "silence_jitter_seconds": 2.0,
-            "silence_min_gap_seconds": 25.0,
-            "unprompted_per_minute": 1
-        },
-        "telegram": {
-            "enabled": false,
-            "owner_id": "",
-            "allowed_chats": []
-        },
-        "twitch": {
-            "enabled": false,
-            "channel": "",
-            "nick": ""
-        },
-        "donations": {
-            "enabled": false
-        }
+    "minecraft": {
+      "enabled": false,
+      "server_url": "ws://localhost:8080",
+      "auto_chat_thoughts": false,
+      "auto_speak_thoughts": false,
+      "system_prompt_path": "data/prompts/minecraft.txt"
     },
-    "stt_provider": "groq",
-    "stt_model": "whisper-large-v3-turbo",
-    "faster_whisper_device": "auto",
-    "faster_whisper_compute_type": "auto",
-    "faster_whisper_download_root": "data/models/whisper",
-    "faster_whisper_vad": true,
-    "consciousness": {
-        "enabled": true,
-        "idle_after": 240.0,
-        "window": 0.3,
-        "burst_steps": 6,
-        "correlation_timeout": 90.0,
-        "context_max_tokens": 150000,
-        "handoff_trigger_tokens": 120000,
-        "handoff_target_tokens": 50000,
-        "hot_tokens": 30000,
-        "hot_seconds": 1800.0,
-        "context_handoff": true
-    },
-    "models": {
-        "mind": [
-            "openrouter:deepseek/deepseek-v4-flash",
-            "groq:openai/gpt-oss-120b"
-        ],
-        "background": [
-            "openrouter:google/gemma-4-31b-it:free",
-            "groq:openai/gpt-oss-20b"
-        ],
-        "minecraft": []
-    },
-    "attention": {
-        "enabled": true,
-        "cooldown_seconds": 20,
-        "voice_cooldown_seconds": 5,
-        "quiet_hours": [
-            3,
-            9
-        ],
-        "trigger_words": [],
-        "hot_names": [],
-        "self_ids": [],
-        "followup_enabled": true,
-        "followup_window_seconds": 180,
-        "followup_max_turns": 3,
-        "followup_max_interposed": 3,
-        "followup_active_bonus": 5,
-        "followup_lookback": 30
-    },
-    "rhythm": {
-        "enabled": true,
-        "tick_seconds": 900,
-        "spontaneous_enabled": true,
-        "spontaneous_probability": 0.15,
-        "spontaneous_min_silence": 3600,
-        "spontaneous_min_activity": 3
-    },
-    "affect": {
-        "enabled": true,
-        "half_life_minutes": 25,
-        "person_half_life_hours": 60,
-        "memory_ttl_hours": 6
+    "discord": {
+      "enabled": false,
+      "token": "",
+      "target_channel": "",
+      "api_port": 3030,
+      "interrupt_threshold_ms": 3000
     }
+  }
 }
 ```
 
 ---
 
-## Core
+## Field Descriptions
 
-| Key | Default | Description |
+### Core
+
+| Field | Default | Description |
 |---|---|---|
-| `config_version` | `1` | Config schema version (`src/core/config.py`). Bump only on meaning change. See [Languages](languages.md#config_version) |
-| `language` | `"auto"` | Pins the transcriber, and names the language she uses when she speaks first. What she *answers* in is the language of the message she is answering — see [Languages](languages.md) |
-| `soul_path` | `data/prompts/soul.md` | Who she is. Prepended to every context, never edited by the engine |
-| `operating_prompt_path` | `data/prompts/operating.md` | How she exists: the `speak` tool, the moods, what she notices |
-| `system_prompt_path` | `data/prompts/chat.md` | Deprecated. Only used if the operating manual is missing |
-| `llm_provider` | `"openrouter"` | Only used when `models` has no pool for a role. One of `openrouter`, `openai`, `groq`, `google`, `claude`, `openai_compat`, `anthropic_compat`, `local` |
-| `openai_compat_base_url` / `anthropic_compat_base_url` | `""` | Your endpoint, ending in `/v1`. Empty means the provider cannot build and the pool skips it with a warning |
-| `openai_compat_model` / `anthropic_compat_model` | `""` | The model id your endpoint serves — only you know it |
-| `openai_compat_api` | `"chat"` | `chat` or `responses`. Flip it when your endpoint speaks the Responses protocol |
-| `local_base_url` | `"http://localhost:11434/v1"` | Ollama's address. LM Studio answers at `http://localhost:1234/v1` |
-| `local_model` | `"qwen3:8b"` | Any model the runner serves. Every model in `mind` must support tool calling |
+| `language` | `"en"` | Language code passed to the STT transcriber |
+| `system_prompt_path` | `"data/prompts/sys-prompt.txt"` | Path to the AI persona system prompt file |
+| `llm_provider` | `"openrouter"` | Active LLM: `openrouter`, `openai`, `groq` |
 
----
+### LLM Models
 
-## models — the role pools
+| Field | Default |
+|---|---|
+| `openrouter_model` | `"openai/gpt-4o-mini"` (any model id, e.g. `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash`) |
+| `openai_model` | `"gpt-5"` |
+| `groq_model` | `"openai/gpt-oss-20b"` |
 
-```json
-"models": {
-  "mind":       ["openrouter:deepseek/deepseek-v4-flash", "groq:openai/gpt-oss-120b"],
-  "background": ["openrouter:google/gemma-4-31b-it:free", "groq:openai/gpt-oss-20b"],
-  "minecraft":  []
-}
-```
+### OBS
 
-A spec is `"provider:model"`, split on the **first** `:` so OpenRouter ids keep
-their `/` and their `:free` suffix. Within a pool, calls round-robin to spread
-rate limits and fall back down the list on failure.
-
-| Role | Used by | Requirement |
+| Field | Default | Description |
 |---|---|---|
-| `mind` | the consciousness | **must support tool calling** |
-| `background` | diary, dreamer, profiler, summaries | anything |
-| `minecraft` | her body in the game | **must support tool calling** |
+| `obs_avatar_source` | `"BeaPNG"` | OBS source name for the avatar |
+| `obs_text_source` | `"AIText"` | OBS source name for the speech bubble text |
+| `obs_source_type` | `"image"` | `"image"` for static PNG, `"media"` for video/GIF |
+| `obs_host` | `"localhost"` | OBS WebSocket host |
+| `obs_port` | `4455` | OBS WebSocket port |
+| `obs_password` | `""` | OBS WebSocket password |
 
-An empty pool falls back to `llm_provider` + `<provider>_model`, so a
-pre-pool config keeps working. `minecraft` is the exception: left empty it
-borrows the `mind` pool rather than the legacy fields, because playing well is
-reasoning and a cheap body plays badly. Put something smaller in it if you
-would rather trade play for cost. If a role ends up with no usable client the
-engine refuses to start and says which key is missing.
+### Audio Output
 
-[LLM modules →](modules/llm.md)
-
----
-
-## consciousness
-
-| Key | Default | Description |
+| Field | Default | Description |
 |---|---|---|
-| `enabled` | `true` | Off means no mind at all: nothing perceives, nothing answers |
-| `idle_after` | `240.0` | Seconds of silence before an IDLE perception. Only applies while the `monologue` skill is on |
-| `window` | `0.3` | How long the bus coalesces a burst into one batch |
-| `burst_steps` | `6` | Max reasoning steps in one turn |
-| `correlation_timeout` | `90.0` | How long an HTTP caller waits for her reply before giving up |
-| `context_max_tokens` | `150000` | Hard ceiling of the one sliding window, in tokens |
-| `handoff_trigger_tokens` | `120000` | Window size that starts the background handoff |
-| `handoff_target_tokens` | `50000` | Size the window breathes back down to after a handoff |
-| `hot_tokens` | `30000` | Recent tokens kept verbatim across a handoff, never compressed |
-| `hot_seconds` | `1800.0` | Recent seconds kept verbatim across a handoff |
-| `context_handoff` | `true` | Off means the window only grows until the ceiling trims it |
+| `audio_device_id` | `0` | Sounddevice output device ID (see setup guide) |
 
----
+### TTS
 
-## attention
-
-What wakes the mind, and what she merely notices. [How it works →](architecture.md#attention)
-
-| Key | Default | Description |
+| Field | Default | Description |
 |---|---|---|
-| `enabled` | `true` | Off means every perception costs a full reasoning cycle |
-| `cooldown_seconds` | `20` | She just spoke: let the room breathe. Being addressed bypasses it |
-| `voice_cooldown_seconds` | `5` | The same, in a live call — where twenty seconds reads as absence, not restraint |
-| `quiet_hours` | `[3, 9]` | She never interjects in this window. Being addressed still gets through |
-| `trigger_words` | `[]` | Her names; empty means derived from the persona name. Whole-word, one typo tolerated. Shared by every platform |
-| `hot_names` | `[]` | Other names that pull her into a conversation |
-| `self_ids` | `[]` | Her own platform ids, so a reply to her is recognised as addressed |
-| `followup_enabled` | `true` | Off, a reply to her is scored like everything else |
-| `followup_window_seconds` | `180` | How long after she spoke an answer still counts as an answer |
-| `followup_max_turns` | `3` | How long she keeps it up before waiting to be called again |
-| `followup_max_interposed` | `3` | Unrelated lines allowed between her line and the reply |
-| `followup_active_bonus` | `5` | Extra weight for a reply in an already lively conversation |
-| `followup_lookback` | `30` | Recent window turns the reply check may read |
+| `tts_provider` | `"edge"` | TTS engine: `edge`, `kokoro`, `orpheus`, `coqui` (`coqui` is accepted by the CLI parser but has no active implementation — it silently falls back to EdgeTTS) |
+| `tts_voice` | `"en-US-AvaNeural"` | Voice name (EdgeTTS format) |
+| `tts_pitch` | `"+5Hz"` | Pitch adjustment (EdgeTTS only) |
+| `tts_rate` | `"+10%"` | Speed adjustment (EdgeTTS only) |
+| `tts_volume` | `"+33%"` | Volume adjustment (EdgeTTS only) |
 
----
+### Avatar Map
 
-## rhythm
+Maps mood names to file paths. Each mood key (`normal`, `angry`, `bored`, `cry`, `ew`, `love`, `shock`) has:
+- `idle` — path to the file shown when Bea is not speaking
+- `talking` — path to the file shown when Bea is speaking
 
-A day rather than an event loop.
+### Text / Typing Animation
 
-| Key | Default | Description |
-|---|---|---|
-| `enabled` | `true` | Runs the slow clock at all |
-| `tick_seconds` | `900` | How often the spontaneous check runs |
-| `spontaneous_enabled` | `true` | Whether she may open a conversation herself |
-| `spontaneous_probability` | `0.15` | Even when eligible, usually she does not |
-| `spontaneous_min_silence` | `3600` | She spoke there recently: more is noise, not presence |
-| `spontaneous_min_activity` | `3` | Below this the room is dead and she would be talking to nobody |
-
----
-
-## affect
-
-Whether what happens to her sticks, and for how long. [How it works →](architecture.md#mood)
-
-| Key | Default | Description |
-|---|---|---|
-| `enabled` | `true` | Off, every line starts from neutral and nothing carries over |
-| `half_life_minutes` | `25` | Minutes until a mood is half of what it was |
-| `person_half_life_hours` | `60` | Hours until how she stands with someone is half of what it was |
-| `memory_ttl_hours` | `6` | How long she can still say what put her in that mood |
-
-Nothing here tells her how to *behave* when she feels something — that is the
-soul's job, and the soul is a file you write.
-
----
-
-## OBS
-
-| Key | Default | Description |
-|---|---|---|
-| `obs_host` / `obs_port` | `localhost` / `4455` | obs-websocket 5.x |
-| `obs_password` | `""` | Empty if authentication is disabled |
-| `obs_avatar_source` | `"BeaPNG"` | Source name for the avatar |
-| `obs_source_type` | `"image"` | `image` for PNG, `media` for MP4/GIF/WebM |
-| `obs_text_source` | `"AIText"` | Source name for the speech bubble |
-
-If OBS is not running the connection fails with a warning and everything else
-continues. [OBS module →](modules/obs.md)
-
----
-
-## Audio and TTS
-
-| Key | Default | Description |
-|---|---|---|
-| `audio_device_id` | `0` | Output device index. `python -c "import sounddevice; print(sounddevice.query_devices())"` |
-| `tts_provider` | `"edge"` | `edge`, `kokoro` or `orpheus`. **Changing it needs a restart** |
-| `tts_voice` / `tts_pitch` / `tts_rate` / `tts_volume` | `en-US-AvaNeural`, `+5Hz`, `+10%`, `+33%` | EdgeTTS |
-| `orpheus_voice` | `"zoe"` | Orpheus. Key and endpoint come from the environment |
-| `kokoro_model` / `kokoro_voices_file` | `kokoro-v0_19.onnx`, `voices.json` | Downloaded on first run if missing, each from the release asset of the same basename. The voice pack must be the `.json` form; a path ending in `voices.bin` is read as `voices.json` |
-| `kokoro_voice` / `kokoro_speed` | `af_bella`, `1.0` | Kokoro |
-| `kokoro_lang` | `en-us` | Derived from the chosen voice, then from `language`. Only read as a last fallback — see [Languages](languages.md) |
-
-[TTS modules →](modules/tts.md)
-
----
-
-## STT
-
-| Key | Default | Description |
-|---|---|---|
-| `stt_provider` | `"groq"` | `faster_whisper`, `groq` or `openrouter`. Anything else disables speech input |
-| `stt_model` | `"whisper-large-v3-turbo"` | Rewritten to `openai/whisper-large-v3-turbo` on OpenRouter, and to `large-v3-turbo` on `faster_whisper` |
-
-`faster_whisper` runs Whisper on this machine and needs no key. Its four extra
-knobs are only read when it is the chosen provider:
-
-| Key | Default | Description |
-|---|---|---|
-| `faster_whisper_device` | `"auto"` | `auto`, `cpu` or `cuda` |
-| `faster_whisper_compute_type` | `"auto"` | Auto is `int8` on a CPU, `float16` on a GPU |
-| `faster_whisper_download_root` | `"data/models/whisper"` | Where the weights are cached. Gitignored |
-| `faster_whisper_vad` | `true` | Drops silence, which Whisper otherwise invents words for |
-
-[STT module →](modules/stt.md)
-
----
-
-## stage — how she appears
-
-Two independent choices, plus the settings each one needs.
-
-| Key | Default | What it does |
-|---|---|---|
-| `avatar_backend` | `"png"` | `png`, `model` or `vtube_studio`. An unknown name falls back to `png` with a warning. |
-| `caption_backend` | `"obs"` | `obs`, `stage` (the browser source) or `off`. |
-| `lipsync_fps` | `30` | How many times a second her mouth is told what to do. |
-
-**The `model` backend**
-
-| Key | Default | What it does |
-|---|---|---|
-| `model_path` | `""` | The `.vrm` on this machine. Nothing ships with the repo; `make model` fetches a free one. |
-| `clips_dir` | `"data/clips"` | Where `.vrma` behaviours live. They appear by name in the dashboard. |
-| `shot` | `"bust"` | `bust`, `half` or `full`. Framed off the head bone, so any model is framed alike. |
-| `mood_clips` | `{}` | mood → clip name. Optional; a mood without one just changes expression. |
-| `background` | `""` | A colour behind her, or empty for transparent. |
-
-**The `vtube_studio` backend** — nothing is bundled; it drives the VTube Studio you already run.
-
-| Key | Default | What it does |
-|---|---|---|
-| `vts_host` | `"127.0.0.1"` | Where VTube Studio is. |
-| `vts_port` | `8001` | Its plugin API port. |
-| `vts_expressions` | `{}` | mood → expression file in **your** model. The dashboard reads the list from the connected model. |
-| `vts_clips` | `{}` | mood → hotkey id or name, triggered when she starts talking. |
-| `vts_mouth_param` | `"MouthOpen"` | The parameter the lip sync writes to. |
-
-The token VTube Studio issues is **not** kept here. It lives in
-`data/vtube_studio_token.json`, gitignored, because `GET /config` is
-unauthenticated.
-
-Full reference: **[Avatar module →](modules/avatar.md)**
-
----
-
-## Avatar and the text bubble
-
-`avatar_map` holds one `{idle, talking}` pair per mood: `neutral`, `happy`,
-`sad`, `angry`, `surprised`, `disgusted`, `bored`. Leave a path empty to fall
-back to `neutral`. `png_dir` (`data/pngs`) is where they live.
-
-| Key | Default | Description |
+| Field | Default | Description |
 |---|---|---|
 | `text_line_width` | `40` | Characters per line before wrapping |
-| `text_lines` | `4` | Visible lines before paginating |
-| `text_font_size` | `75` | Starting font size |
-| `text_min_font_size` | `55` | Floor when long text is shrunk to fit |
-| `text_font_step` | `2` | Shrink step |
-| `typing_delay` | `0.03` | Seconds per character |
-| `text_min_duration` | `2.0` | Minimum seconds a page stays up |
+| `text_lines` | `4` | Max visible lines in the text bubble |
+| `text_font_size` | `75` | Initial font size (px) |
+| `text_min_font_size` | `55` | Minimum font size (px) — shrinks if text is long |
+| `text_font_step` | `2` | Font size reduction step when shrinking |
+| `typing_delay` | `0.03` | Seconds between each typed character |
+| `text_min_duration` | `2.0` | Minimum seconds each page of text stays visible |
 
----
+### STT
 
-## Updates
+| Field | Default |
+|---|---|
+| `stt_provider` | `"groq"` |
+| `stt_model` | `"whisper-large-v3-turbo"` |
 
-```json
-"updates": { "check": true, "allow_web_apply": true }
-```
+### Monologue Skill Config Fields
 
 | Key | Default | Description |
 |---|---|---|
-| `check` | `true` | Ask `origin` whether there is a newer commit. The only outbound call, and only to the remote this copy was cloned from. Off means the dashboard never asks and never shows the pill |
-| `allow_web_apply` | `true` | Whether `POST /update/apply` is open. Off leaves `make update` working and closes the button — the endpoint runs `git pull`, `uv sync` and `npm install`, so it is separately revocable |
+| `enabled` | `false` | Toggle the skill |
+| `interval_seconds` | `30` | Seconds of global idle time before Bea starts monologuing |
+| `chunk_pause_seconds` | `4.0` | Seconds of silence between story chunks before the next chunk is generated |
+| `prompt_path` | `"data/prompts/monologue.txt"` | Path to the monologue rules prompt |
 
-Neither affects the CLI. Docker installs are refused regardless: the source tree
-is the image.
+### Minecraft Skill Config Fields
 
-**[The updater →](updating.md)**
-
----
-
-## Skills
-
-Every block lives under `skills.<key>` and carries `enabled`. **The dashboard is
-the single source of truth** — Bea can never arm a capability herself.
-
-| Skill | Keys | Page |
+| Key | Default | Description |
 |---|---|---|
-| `memory` | `db_path`, `embedding_model`, `embedding_cache_dir`, `min_similarity` | [memory](skills/memory.md) |
-| `social_memory` | `enabled` only | [social](skills/social.md) |
-| `dream` | `hour` | [dream](skills/dream.md) |
-| `monologue` | `prompt_path` — the timer is `consciousness.idle_after` | [monologue](skills/monologue.md) |
-| `minecraft` | `server_url`, `idle_nudge_seconds`, `commentary_seconds`, `steps_per_goal`, `tick_seconds`, `body_context_rounds`, `system_prompt_path`, `body_prompt_path` | [minecraft](skills/minecraft.md) |
-| `discord` | `api_port`, `brain_api_url`, `admin_id`, `duck_threshold_ms`, `interrupt_threshold_ms`, `fill_silences`, `silence_seconds`, `silence_jitter_seconds`, `silence_min_gap_seconds`, `unprompted_per_minute`, `token` | [discord](skills/discord.md) |
-| `telegram` | `owner_id`, `allowed_chats`, `token` | [telegram](skills/telegram.md) |
-| `twitch` | `channel`, `nick`, `oauth_token` | [twitch](skills/twitch.md) |
-| `donations` | `secret` | [donations](skills/donations.md) |
+| `server_url` | `"ws://localhost:8080"` | WebSocket URL of the Minecraft mod |
+| `auto_speak_thoughts` | `false` | TTS-speak agent thoughts as Bea's commentary |
+| `auto_chat_thoughts` | `false` | Also send thoughts as in-game chat messages |
+| `system_prompt_path` | `"data/prompts/minecraft.txt"` | Custom system prompt for the Minecraft context |
 
-Trigger words are **not** per-platform: they come from `attention.trigger_words`
-everywhere.
+> The Minecraft agent uses the engine's main `llm_provider` (no dedicated key/model). It drives the mod through native tool calls.
 
 ---
 
-## Environment variables
+## Environment Variables
 
-| Variable | Used for |
+| Variable | Used by |
 |---|---|
-| `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `GROQ_API_KEY` | LLM providers, and STT for Groq / OpenRouter |
-| `GOOGLE_API_KEY` | Google AI Studio (Gemini) |
-| `ANTHROPIC_API_KEY` | Claude, called directly |
-| `OPENAI_COMPAT_API_KEY` / `OPENAI_COMPAT_BASE_URL` | A custom OpenAI-protocol endpoint. The key is optional — many local servers want none |
-| `ANTHROPIC_COMPAT_API_KEY` / `ANTHROPIC_COMPAT_BASE_URL` | A custom Messages-protocol endpoint, same deal |
-| `LOCAL_API_KEY` / `LOCAL_BASE_URL` | Local models. No key and the Ollama address by default; point the URL at LM Studio to switch runners |
-| `ORPHEUS_API_KEY` / `ORPHEUS_ENDPOINT` | Orpheus TTS |
-| `DISCORD_TOKEN` | The Discord bot |
-| `DISCORD_ADMIN_ID` | Fallback for `skills.discord.admin_id` |
-| `TELEGRAM_TOKEN` | The Telegram bot |
-| `TWITCH_OAUTH_TOKEN` | Writing in Twitch chat. Reading needs nothing |
-| `DONATION_SECRET` | Shared secret on the donation webhook |
-| `HF_TOKEN` | Optional, and no account is needed to run anything here — the whisper and embedding models are public. It buys a higher Hugging Face rate limit, which is what makes the first download crawl, or get refused, on a shared IP |
-| `BEA_ALLOWED_ORIGINS` | Extra CORS origins, comma-separated |
-| `LOG_LEVEL` | `DEBUG` for verbose output |
+| `OPENROUTER_API_KEY` | OpenRouter LLM (default provider) |
+| `OPENAI_API_KEY` | OpenAI LLM, Memory skill embedding |
+| `GROQ_API_KEY` | Groq LLM, Groq STT |
+| `ORPHEUS_API_KEY` | Orpheus TTS — API key |
+| `ORPHEUS_ENDPOINT` | Orpheus TTS — Baseten endpoint URL (treated as secret: never saved to `config.json`) |
+| `DISCORD_TOKEN` | Discord skill bot |
 
 ---
 
-## CLI arguments
+## CLI Arguments
 
-Every one is an override for this launch only; nothing is written to disk.
+All arguments mirror `config.json` fields. Most are optional (fall back to config/defaults).
 
-```bash
-uv run bea --web --llm-provider openrouter --tts-provider kokoro --device-id 22
+```
+uv run bea [OPTIONS]
+
+  --web                    Start the web dashboard (FastAPI + React)
+  --system-file PATH       Path to the persona system prompt
+  --llm-provider CHOICE    openrouter | openai | groq
+  --openrouter-key KEY
+  --openrouter-model MODEL
+  --openai-key KEY
+  --openai-model MODEL
+  --groq-key KEY
+  --groq-model MODEL
+  --tts-provider CHOICE    edge | kokoro | orpheus | coqui
+                           (Note: `coqui` is accepted by the parser but has no
+                           active implementation — it silently falls back to EdgeTTS)
+  --tts-voice VOICE
+  --orpheus-key KEY
+  --orpheus-endpoint URL
+  --orpheus-voice VOICE
+  --kokoro-file PATH
+  --kokoro-voices PATH
+  --stt-provider CHOICE    groq
+  --stt-model MODEL
+  --obs-host HOST
+  --obs-port PORT
+  --obs-password PASS
+  --obs-avatar-source NAME
+  --obs-source-type CHOICE image | media
+  --obs-text-source NAME
+  --device-id ID           Audio output device ID
+  --typing-delay SECONDS
+  --png-dir PATH
 ```
 
-| Argument | Notes |
-|---|---|
-| `--web` | Serve the dashboard instead of the terminal loop |
-| `--host` / `--port` | Default `127.0.0.1:8000`. See below before changing the host |
-| `--llm-provider` | `openrouter`, `openai`, `groq`, `google`, `claude`, `openai_compat`, `anthropic_compat`, `local`. Only affects the legacy single-model path |
-| `--openrouter-key` / `--openrouter-model` | and the same pair for `--openai-*`, `--groq-*`, `--google-*` and `--claude-*` |
-| `--openai-compat-key` / `--openai-compat-base-url` / `--openai-compat-model` / `--openai-compat-api` | the custom OpenAI-protocol endpoint |
-| `--anthropic-compat-key` / `--anthropic-compat-base-url` / `--anthropic-compat-model` | the custom Messages-protocol endpoint |
-| `--local-key` / `--local-base-url` / `--local-model` | the models on this machine |
-| `--stt-provider` / `--stt-model` | `faster_whisper`, `groq` or `openrouter` |
-| `--tts-provider` / `--tts-voice` | `edge`, `kokoro`, `orpheus` |
-| `--orpheus-key` / `--orpheus-endpoint` / `--orpheus-voice` | |
-| `--kokoro-file` / `--kokoro-voices` | |
-| `--obs-host` / `--obs-port` / `--obs-password` | |
-| `--obs-avatar-source` / `--obs-source-type` / `--obs-text-source` | |
-| `--device-id` | Audio output device index |
-| `--typing-delay` | Seconds per character in the OBS bubble |
-| `--system-file` / `--png-dir` | Prompt file and avatar directory |
+---
 
-> `--tts-provider coqui` is still accepted by the parser but has no
-> implementation; it falls through to EdgeTTS.
+## Hot Reload
+
+After saving new settings via `POST /config` (web API), the brain calls `reload_configuration()` which propagates changes to all modules and skills without restarting.
+
+> **Security note (`GET /config`):** The `GET /config` endpoint returns the full in-memory `BrainConfig`, including all secret API key fields (`openrouter_key`, `openai_key`, `groq_key`, `orpheus_endpoint`, etc.), with **no redaction**. This is asymmetric with `save_to_file()`, which strips secrets before writing to disk. Do not expose the web API over a public network without authentication. See [Web API → `GET /config`](web/api.md) for details.
 
 ---
 
-## Hot reload
+## Config Loading Side Effects
 
-`POST /config` writes the file and then calls `reload_configuration()`, which
-re-reads the soul and the operating manual, drops the model-registry cache, and
-reloads the TTS, STT and OBS clients in place.
+### `obs_image_source` migration
 
-Two things still need a restart, and the dashboard says so when you save:
-`tts_provider` and `stt_provider` — the object type changes.
+During `load_from_file()`, if `config.json` contains the old field name `obs_image_source` (used in earlier versions), it is automatically renamed to `obs_avatar_source`. This migration is silent — no message is printed and the old key is removed from the in-memory dict before processing.
 
----
+### `save_to_file()` — nested secret stripping
 
-## Startup behaviour
+`save_to_file()` removes all top-level secret keys listed in `SECRET_KEYS` (`openrouter_key`, `openai_key`, `groq_key`, `orpheus_key`, `orpheus_endpoint`) from the saved JSON, so secrets are never persisted to `config.json`.
 
-Skills start according to their saved `enabled` value, so a skill left on
-connects again on the next launch.
-
-`load_from_file()` renames the legacy key `obs_image_source` to
-`obs_avatar_source` silently. Delete the old key from your `config.json` to
-avoid ambiguity.
-
-**Network exposure.** The API has no authentication, so the server binds to
-`127.0.0.1` unless `--host` says otherwise. Binding to `0.0.0.0` hands anyone on
-the network the ability to read the config, drive the brain and post donations.
-Put it behind something that authenticates, and set `DONATION_SECRET`.
+> **Exception:** Changing `tts_provider` requires a restart because the TTS object is instantiated at boot.
 
 [Web API →](web/api.md)
+
+---
+
+## Startup Behaviour: Skills Are Force-Disabled
+
+> **Important:** Every skill except `memory` is **force-disabled at startup**, regardless of its `enabled` value in `config.json`.
+
+This is intentional — it prevents unintended side effects (Discord joining a channel, Minecraft connecting to a server) on cold starts. Skills must be explicitly enabled at runtime via:
+- The **Skills page** in the web dashboard (toggle switch), or
+- `POST /skills/{name}/toggle?enable=true` via the API.
+
+The `memory` skill is the only one that starts automatically if `"enabled": true` in config.
+
+> **Dataclass default note:** The `BrainConfig` Python dataclass sets `minecraft.enabled = True` internally. This is overridden to `False` by the force-disable logic in `load_from_file()` before any skill can start. The effective default a user sees at runtime is always `false` for minecraft, matching the `config.json` reference above.
+
+> **Write → overwrite cycle:** `toggle_skill()` (called by `POST /skills/{name}/toggle`) writes `"enabled": true` to `config.json` via `save_to_file()`. However, because `load_from_file()` force-disables all non-memory skills on every cold start, a skill that was enabled at runtime and persisted to disk via the toggle will be back to `false` after the next restart. Skills must be re-enabled explicitly each session (or via the web dashboard Skills page). This is intentional safety behaviour, not a bug.

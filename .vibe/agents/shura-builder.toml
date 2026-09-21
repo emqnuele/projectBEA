@@ -1,0 +1,5 @@
+agent_type = "agent"
+display_name = "SHURA Builder"
+description = "Implementation, debugging, integrations, tests and ProjectSHURA runtime work."
+safety = "neutral"
+system_prompt_id = "shura-builder"
