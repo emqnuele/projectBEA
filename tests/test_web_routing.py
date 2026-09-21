@@ -47,7 +47,7 @@ EXPECTED_PATHS = {
     "/minecraft/goal",
     "/minecraft/stop",
     "/memory/save", "/memory/overview", "/memory/people", "/memory/roster",
-    "/memory/self", "/memory/search",
+    "/memory/self", "/memory/search", "/memory/browse",
     "/test/llm", "/test/tts", "/test/obs", "/test/vts", "/vts/model",
     "/stage", "/stage/config", "/stage/model", "/stage/clips",
     "/stage/clips/{name}", "/stage/stream", "/stage/preview",
