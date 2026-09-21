@@ -4,6 +4,7 @@ import time
 from typing import List, Optional
 
 from src.core.agent.tools import Tool
+from src.core.mind.handoff import HANDOFF_HEADER
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.dream.dreamer import DAY_SECONDS, Dreamer
@@ -99,6 +100,7 @@ class DreamSkill(Skill):
             llm=llm, history_manager=hm,
             roster=social.roster, people=social.people,
             selflore=self.selflore, recent=self.recent, sessions=self.sessions,
+            conversations=self.brain.memory.conversations,
             persona=persona_of(self.config), language=self.config.language,
         )
 
@@ -222,6 +224,7 @@ class DreamSkill(Skill):
         try:
             if self.dreamer:
                 summary = await self.dreamer.run()
+            self._start_over(str(summary.get("carry_over") or ""))
             self.morning_pass()
         except Exception as e:
             logger.error(f"DreamSkill: dream failed: {e}")
@@ -231,6 +234,26 @@ class DreamSkill(Skill):
             if consc:
                 consc.wake()
         return summary
+
+    def _start_over(self, carry_over: str = "") -> None:
+        """A new session and an empty window: waking up is the one reset.
+
+        This is the only place the window is emptied. Everything in it has
+        just been consolidated into cards, self-lore and the diary, so what
+        she needs from the evening is what the pass said to carry — not the
+        evening itself, replayed verbatim into a fresh morning.
+        """
+        rotate = getattr(self.context, "create_new_session", None)
+        if callable(rotate):
+            try:
+                rotate()
+            except Exception as e:
+                logger.error(f"DreamSkill: could not start a new session: {e}")
+
+        consc = getattr(self.context, "consciousness", None)
+        forget = getattr(consc, "forget_window", None)
+        if callable(forget):
+            forget(f"{HANDOFF_HEADER}\n{carry_over}" if carry_over else "")
 
     # --- once a night, across restarts --------------------------------------
 

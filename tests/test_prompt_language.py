@@ -215,7 +215,8 @@ def _holders(language: str):
         consciousness=SimpleNamespace(_handoff=HandoffWorker(language="en")),
         dream_skill=SimpleNamespace(dreamer=Dreamer(
             llm=None, history_manager=None, roster=None, people=None,
-            selflore=None, recent=None, sessions=None, language="en")),
+            selflore=None, recent=None, sessions=None, conversations=None,
+            language="en")),
         memory_skill=SimpleNamespace(generator=DiaryGenerator(None, language="en")),
     )
 
