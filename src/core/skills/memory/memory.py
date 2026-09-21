@@ -6,6 +6,8 @@ from typing import Dict, List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.memory.rag import SOURCE_PERSON
+from src.core.memory.transcript import MIN_SPOKEN_LINES, render_stream, spoken_count
+from src.core.perception.types import PerceptionKind
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.memory.generator import DiaryGenerator
@@ -19,6 +21,10 @@ _PREFIX_RE = re.compile(r"^\s*\[[^\]]*\]\s*(\([^)]*\))?\s*:?\s*")
 
 # how many diary entries reach the prompt at once
 RECALL_LIMIT = 3
+
+# every scope the consolidation writes: the diary of a sitting, the recap of a
+# conversation, and what she knows about one person
+RECALL_SCOPES = ("diary", "conversation", "person")
 
 
 def _clean_for_query(rendered: str) -> str:
@@ -48,6 +54,7 @@ class MemorySkill(Skill):
         if not self.enabled:
             logger.info("MemorySkill stays inactive (memory toggle off).")
             return
+        self._repair_identities()
         if self.rag is None:
             logger.error("MemorySkill: no rag available (the embedder failed to build).")
             return
@@ -60,6 +67,24 @@ class MemorySkill(Skill):
             logger.error("MemorySkill: no model available for the diary generator!")
         self.active = True
 
+    def _repair_identities(self) -> None:
+        """Folds duplicate cards minted before promotion had one choke point.
+
+        Runs at boot, needs no embedder: it only reads roster sessions and
+        rekeys facts and identities. A failure here must never take memory
+        down with it.
+        """
+        memory = getattr(self.context, "memory", None)
+        if memory is None:
+            return
+        try:
+            from src.core.skills.social.people import repair_duplicate_cards
+            merged = repair_duplicate_cards(memory.roster, memory.people)
+            if merged:
+                logger.info(f"MemorySkill: folded {merged} duplicate card(s).")
+        except Exception as e:
+            logger.warning(f"MemorySkill: identity repair failed: {e}")
+
     def tools(self) -> List[Tool]:
         # no recall tool: context_for already injects it every turn
         return []
@@ -69,20 +94,45 @@ class MemorySkill(Skill):
     def context_for(self, batch) -> Optional[str]:
         if not self.active or self.rag is None:
             return None
+        # silence asks nothing: an idle-only batch has no question for the
+        # past, and embedding it would spend the model to retrieve noise
+        if not any(self._is_memorable(p) for p in batch):
+            return None
         query = " ".join(_clean_for_query(p.render()) for p in batch)
         if not query.strip():
             return None
         return self.retrieve_context(query) or None
 
+    @staticmethod
+    def _is_memorable(p) -> bool:
+        """The same two exclusions the stream uses: the idle tick is the loop
+        talking to itself, and a noise-flagged heartbeat is already carried
+        by the live state. Neither is a question worth asking the past."""
+        return p.kind is not PerceptionKind.IDLE and not (p.meta or {}).get("noise")
+
     def retrieve_context(self, query: str, limit: int = RECALL_LIMIT) -> str:
         """Two blocks, explicitly labelled: facts, and things she made up."""
         if self.rag is None:
             return ""
-        try:
-            facts, hers = self.rag.recall_split(query, scope="diary", k=limit)
-        except Exception as e:
-            logger.error(f"MemorySkill: recall failed: {e}")
+        # one embedding for every scope: the vector is the expensive part,
+        # the scoped lookups after it are cheap
+        qvec = self.rag.embed_query(query)
+        if qvec is None:
             return ""
+        facts, hers = [], []
+        # one query per scope rather than one unscoped query: a scope is what
+        # the vector index is partitioned by, and asking without one sends
+        # every recall down the full scan
+        for scope in RECALL_SCOPES:
+            try:
+                found, said = self.rag.recall_split(query, scope=scope, k=limit, qvec=qvec)
+            except Exception as e:
+                logger.error(f"MemorySkill: recall in '{scope}' failed: {e}")
+                continue
+            facts.extend(found)
+            hers.extend(said)
+        facts.sort(key=lambda r: r.similarity, reverse=True)
+        hers.sort(key=lambda r: r.similarity, reverse=True)
 
         parts = []
         if facts:
@@ -99,25 +149,43 @@ class MemorySkill(Skill):
 
     # --- writing the diary --------------------------------------------------
 
-    def process_previous_session(self, session_id: str, history: List[Dict]) -> None:
+    @property
+    def _stream(self):
+        memory = getattr(self.context, "memory", None)
+        return getattr(memory, "conversations", None) if memory else None
+
+    def _transcript(self, session_id: str) -> str:
+        """One sitting, both sides of it, every surface. Empty when it was quiet."""
+        stream = self._stream
+        if stream is None:
+            return ""
+        rows = stream.stream(session_id)
+        if spoken_count(rows) < MIN_SPOKEN_LINES:
+            return ""
+        return render_stream(rows)
+
+    def process_previous_session(self, session_id: str) -> None:
         if not self.enabled or self.rag is None:
-            return
-        if len(history) < 2:
-            logger.info(f"MemorySkill: session {session_id} too short, skipping.")
             return
         if self.rag.exists("diary", session_id):
             logger.info(f"MemorySkill: diary for {session_id} already exists, skipping.")
             return
-        self._pending = asyncio.create_task(self._process_session_async(session_id, history))
+        if not self._transcript(session_id):
+            logger.info(f"MemorySkill: session {session_id} too short, skipping.")
+            return
+        self._pending = asyncio.create_task(self._process_session_async(session_id))
 
-    async def _process_session_async(self, session_id: str, history: List[Dict]) -> None:
+    async def _process_session_async(self, session_id: str) -> None:
         if not self.generator or self.rag is None:
             logger.error("MemorySkill: generator not initialized.")
             return
         if self.rag.exists("diary", session_id):
             return
+        transcript = self._transcript(session_id)
+        if not transcript:
+            return
         try:
-            diary = await self.generator.generate_diary(history)
+            diary = await self.generator.generate_diary(transcript)
             if diary:
                 # embedding blocks for tens of ms: not on the loop
                 await asyncio.to_thread(self._save_diary, session_id, diary)
@@ -143,11 +211,11 @@ class MemorySkill(Skill):
         if not self.enabled:
             return False
         hm = getattr(self.context, "history_manager", None)
-        if not hm or not hm.session_id or not hm.history:
+        if not hm or not hm.session_id:
             logger.warning("MemorySkill: no active session to save.")
             return False
         logger.info(f"MemorySkill: manual save triggered for {hm.session_id}")
-        self.process_previous_session(hm.session_id, hm.history)
+        self.process_previous_session(hm.session_id)
         return True
 
     async def save_all_pending(self) -> None:
@@ -155,13 +223,13 @@ class MemorySkill(Skill):
         if not self.enabled or self.rag is None:
             return
         hm = getattr(self.context, "history_manager", None)
-        if not hm or not hm.session_id or len(hm.history or []) < 2:
+        if not hm or not hm.session_id:
             return
         if self.rag.exists("diary", hm.session_id):
             logger.info(f"MemorySkill: session {hm.session_id} already saved.")
             return
         logger.info(f"MemorySkill: saving final session {hm.session_id}…")
-        await self._process_session_async(hm.session_id, hm.history)
+        await self._process_session_async(hm.session_id)
 
 
 def _when(timestamp: float) -> str:

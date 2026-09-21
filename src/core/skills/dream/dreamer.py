@@ -1,9 +1,9 @@
 import datetime
-import json
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.core.language import write_in
+from src.core.memory.rag import SOURCE_PERSON
+from src.core.memory.transcript import MIN_SPOKEN_LINES, render_stream, spoken_count
 from src.core.persona import Persona
 from src.core.skills.social.people import record_person
 from src.utils.logger import get_logger
@@ -22,17 +22,20 @@ _GENERIC_NAMES = {"user", "chat", "chatter", "someone", "audience", "viewer", "f
 
 
 class Dreamer:
-    """The consolidation pass: turns raw conversations into durable memory.
+    """The consolidation pass: turns the stream into durable memory.
 
-    For each un-dreamed session it asks the LLM (Bea's subconscious) to extract a
-    title, self-facts, per-person facts and hot facts, then writes them into the
-    live stores (self-lore, people cards, recent) and titles the conversation.
-    Idempotent: processed sessions are tracked so re-dreaming is a no-op.
+    For each un-dreamed session it reads everything that happened in it — every
+    surface, every person, the game and her own answers alike — hands it to the
+    LLM (Bea's subconscious) segmented by conversation, and writes back a title,
+    self-facts, per-person facts and hot facts. Idempotent: processed sessions
+    are tracked so re-dreaming is a no-op.
+
+    The session she is standing in is consolidated like any other, and last:
+    the evening she just had is the one she will be asked about tomorrow.
     """
 
     def __init__(self, *, llm, history_manager, roster, people, selflore, recent,
-                 sessions, conversations_dir: str = "data/conversations",
-                 persona=None, language: str = "",
+                 sessions, conversations, rag=None, persona=None, language: str = "",
                  prompt_path: str = DEFAULT_PROMPT_PATH):
         self.llm = llm
         self.history = history_manager
@@ -41,7 +44,10 @@ class Dreamer:
         self.selflore = selflore
         self.recent = recent
         self.sessions = sessions
-        self.conversations_dir = Path(conversations_dir)
+        self.conversations = conversations
+        # optional: without an embedder there is no retrieval, and the cards
+        # and self-lore the pass writes are worth having either way
+        self.rag = rag
         self.persona = persona or Persona()
         self.language = language
         self.prompt_path = prompt_path or DEFAULT_PROMPT_PATH
@@ -57,30 +63,32 @@ class Dreamer:
     def _mark_processed(self, session_id: str) -> None:
         self.sessions.mark_dreamed(session_id)
 
+    def _pending(self) -> List[str]:
+        """Un-dreamed sessions with something in them, the active one last.
+
+        Ordered by when they started, which puts the one she is in at the end:
+        whatever she carries into tomorrow should come from tonight, not from
+        a session three days old that happens to sort after it.
+        """
+        done = self._processed()
+        return [sid for sid in self.conversations.sessions_with_content()
+                if sid not in done]
+
     async def run(self) -> Dict[str, Any]:
-        """Consolidate every un-dreamed session except the active one."""
+        """Consolidate every un-dreamed session, the one she is in included."""
         if not self.llm:
             return {"ok": False, "error": "no llm"}
 
-        done = self._processed()
-        active = self.history.session_id
-        sessions = sorted(self.conversations_dir.glob("session_*.json"))
-        summary = {"sessions": 0, "people": 0, "self_facts": 0, "hot_facts": 0}
+        summary: Dict[str, Any] = {"sessions": 0, "people": 0, "self_facts": 0,
+                                   "hot_facts": 0, "carry_over": ""}
 
-        for path in sessions:
-            sid = path.stem
-            if sid in done or sid == active:
-                continue
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            messages = data.get("messages", [])
-            if len(messages) < 2:
+        for sid in self._pending():
+            rows = self.conversations.stream(sid)
+            if spoken_count(rows) < MIN_SPOKEN_LINES:
                 self._mark_processed(sid)
                 continue
 
-            result = await self._dream_session(messages)
+            result = await self._dream_session(rows)
             if result:
                 self._apply(sid, result, summary)
             self._mark_processed(sid)
@@ -88,8 +96,8 @@ class Dreamer:
 
         return {"ok": True, **summary}
 
-    async def _dream_session(self, messages: List[Dict]) -> Optional[Dict]:
-        convo = "\n".join(f"{m.get('role', '?')}: {m.get('content', '')}" for m in messages)
+    async def _dream_session(self, rows: List[Dict]) -> Optional[Dict]:
+        convo = render_stream(rows)
         today = datetime.datetime.now().strftime("%Y-%m-%d")
         system = (self._prompt
                   .replace("{date}", today)
@@ -102,6 +110,12 @@ class Dreamer:
             return None
 
     def _apply(self, sid: str, result: Dict, summary: Dict) -> None:
+        # the last session consolidated is the freshest one: what it says to
+        # carry is what opens the window she wakes up in
+        carry = str(result.get("carry_over") or "").strip()
+        if carry:
+            summary["carry_over"] = carry
+
         title = (result.get("title") or "").strip()
         if title:
             self.history.set_session_title(sid, title)
@@ -118,12 +132,54 @@ class Dreamer:
             if self._apply_person(person, sid):
                 summary["people"] += 1
 
+        for conversation in result.get("conversations", []) or []:
+            self._remember_conversation(conversation)
+
         for hot in result.get("hot_facts", []) or []:
             text = str(hot.get("text", "")).strip()
             ttl_days = float(hot.get("ttl_days", 3) or 3)
             if text:
                 self.recent.add(text, ttl_days * DAY_SECONDS, source="dreamer")
                 summary["hot_facts"] += 1
+
+    def _remember_conversation(self, conversation: Dict) -> None:
+        """One recap per conversation, recallable on its own.
+
+        Scoped by conversation key rather than by session: "what did marco and
+        I talk about" is a question about a thread, and a session is a sitting
+        that may hold four of them.
+        """
+        if self.rag is None:
+            return
+        key = str(conversation.get("key", "")).strip()
+        recap = str(conversation.get("recap", "")).strip()
+        if not key or not recap:
+            return
+        try:
+            self.rag.remember(scope="conversation", scope_key=key, text=recap,
+                              source=SOURCE_PERSON)
+        except Exception as e:
+            logger.warning(f"Dreamer: could not keep the recap for {key}: {e}")
+
+    def _remember_person(self, key: str, name: str, facts: List[str],
+                         attitude: str) -> None:
+        """What she learned about someone, as something she can be reminded of.
+
+        Written whether or not they earned a card, which is the whole point:
+        a card is what goes in the prompt for the regulars, and this is for
+        everyone else — the person she met once and meets again in six weeks,
+        who would otherwise be a stranger both times.
+        """
+        if self.rag is None or not key:
+            return
+        text = "; ".join([f for f in facts if f] + ([attitude] if attitude else []))
+        if not text:
+            return
+        try:
+            self.rag.remember(scope="person", scope_key=key, text=f"{name}: {text}",
+                              who=name, source=SOURCE_PERSON)
+        except Exception as e:
+            logger.warning(f"Dreamer: could not keep what it learned about them: {e}")
 
     def _apply_person(self, person: Dict, session_id: str) -> bool:
         name = str(person.get("name", "")).strip()
@@ -133,8 +189,11 @@ class Dreamer:
         attitude = str(person.get("attitude", "")).strip()
 
         # build the tally; only earns a card at the real thresholds (no force).
-        # first-timers stay as a cheap tally — facts are kept only for regulars.
+        # first-timers stay as a cheap tally — a card is for regulars.
         card = record_person(self.roster, self.people, name, session_id=session_id)
+        entry = self.roster.find_by_name(name)
+        self._remember_person(card.person_id if card else (entry.identity if entry else ""),
+                              name, facts, attitude)
         if not card:
             return False
 

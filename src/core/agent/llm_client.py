@@ -39,7 +39,7 @@ class LLMClient(ABC):
     ) -> Union[Dict[str, Any], list]:
         """One JSON-mode turn, awaitable.
 
-        Background work (diary, dreamer, summaries) runs inside the same event
+        Background work (diary, dreamer, profiles) runs inside the same event
         loop as the consciousness. The blocking `generate_json` froze it for the
         whole call — with a dozen sessions to dream, Bea went deaf for minutes.
         """

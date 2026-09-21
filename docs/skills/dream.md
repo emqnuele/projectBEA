@@ -70,8 +70,10 @@ of calls in a row and must not take the mind's model — or its rate limit —
 hostage.
 
 > Waiting for the nightly dreamer would leave a regular a stranger all evening,
-> which is why the [profiler](memory.md) also builds person cards and
-> conversation summaries during the day, on a message count.
+> which is why the [profiler](memory.md) also builds person cards during the
+> day, on a message count. Per-conversation continuity needs no such pass:
+> the dreamer keeps one recap per conversation key, and the morning reads
+> those back.
 
 ---
 

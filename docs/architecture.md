@@ -198,7 +198,9 @@ answering on it.
       `say_nothing`) the turn ends without burning another model call.
 7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **mirror** the turn into the sliding
     window (`_record_window`) — retention is token-budgeted (150k ceiling),
-    never message-count-trimmed. A handoff is **scheduled** when the budget
+    never message-count-trimmed. The turn only marks the window dirty; a flush
+    behind it writes it in one transaction, and stopping the mind flushes it
+    synchronously. A handoff is **scheduled** when the budget
     hits the trigger (`_schedule_handoff`) — see below.
 
 Details that matter:
@@ -212,10 +214,12 @@ Details that matter:
 
 ## The sliding window
 
-One mind, one log. Every live turn is mirrored into `SingleContext`
+One mind, one log. Every live turn lands in `SingleContext`
 (`src/core/mind/single_context.py`), a token-budgeted append-only log that
 replaces message-count trimming with a real ceiling: **150k max, handoff
-trigger at 120k, rest near ~50k**.
+trigger at 120k, rest near ~50k**. The window lives in RAM while she talks —
+appends never touch the disk — and a flush after each turn, plus a synchronous
+one at shutdown, carries it over in a single transaction.
 
 When the trigger hits, `HandoffWorker` (`src/core/mind/handoff.py`) runs on
 the background pool, in parallel with the loop:
@@ -394,7 +398,7 @@ single transaction, and "who have I seen most" is a query rather than a scan.
 | Episodic diary | `memories` (scope `diary`) | no, top-3 per batch | `DiaryGenerator` at session end |
 | Roster (tally) | `roster` + `identities` | never | `SocialMemory.context_for`, per perception |
 | Person cards | `people` + `facts` | only those present, max 5 | auto-promotion + `remember_person` + dreamer + profiler |
-| Conversations | `messages` + `summaries` | append-only log for dream/recall/dashboard, never built into live context | the consciousness + the profiler |
+| Conversations | `messages` | append-only log for dream/recall/dashboard, never built into live context | the consciousness |
 | Self-lore | `self_facts` + `self_profile` | yes (last 15 facts) | the dreamer only |
 | Hot facts | `hot_facts` (TTL) | yes (max 6) | dreamer + morning pass + a strong reaction |
 | Standing mood | `settings` (`affect.state`) | only past a threshold | every line she speaks |
@@ -516,7 +520,7 @@ single 429 does not make her mute.
   she speaks only through tools, so one that cannot would never say anything.
   A model that rejects tools is skipped and logged at `ERROR` — that is
   configuration, not a transient failure.
-- **`background`** — diary, dreamer, summaries, person profiles, and the game
+- **`background`** — diary, dreamer, person profiles, and the game
   body. Batch work that must never compete with the part of her that talks.
 
 ## Web and UI

@@ -78,6 +78,7 @@ double them.
 |---|---|
 | `remember_person(name, note, attitude)` | her own in-character decision. Always persists — if the platform never gave a stable id, a `named:<name>` identity is synthesized so the card exists anyway |
 | `recall_person(name)` | what she knows. Falls back to the raw tally ("seen 12 times across 2 sessions") when there is no card |
+| `link_person(name, speaking_as?)` | declares that whoever is talking right now is someone she knows under another name. Links only, never creates — only when they told her so themselves |
 
 `remember_person` is also armed on written channels — it is the one memory action that
 makes sense while she is texting.
@@ -93,6 +94,13 @@ makes sense while she is texting.
 | `remember_person` | she decided to |
 | the [profiler](memory.md) | after ~20 of someone's messages, and refreshed rarely |
 | the [dreamer](dream.md) | overnight, from the whole session |
+
+Every source mints through one function (`promote_entry` in `people.py`):
+an identity whose display name exactly matches a card it shared a session
+with links to that card instead of minting a second one. Near matches and
+names that never shared a session stay separate — two different humans with
+one first name must not become one card. Duplicates minted before this rule
+are folded at boot by `repair_duplicate_cards`, same condition.
 
 Facts are capped per card (`MAX_FACTS_STORED`) and only the most recent are
 shown, so a card that keeps growing never eats the prompt.

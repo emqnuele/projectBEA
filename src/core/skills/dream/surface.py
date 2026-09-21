@@ -4,6 +4,7 @@ import time
 from typing import List, Optional
 
 from src.core.agent.tools import Tool
+from src.core.mind.handoff import HANDOFF_HEADER
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.dream.dreamer import DAY_SECONDS, Dreamer
@@ -12,6 +13,11 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.skills.dream")
 
 REGULAR_ABSENCE_DAYS = 10
+
+# the date of the last nightly pass, so a restart inside the dreaming hour
+# neither skips a night nor doubles one
+LAST_NIGHT_KEY = "dream.last_night"
+
 
 
 class DreamSkill(Skill):
@@ -33,6 +39,9 @@ class DreamSkill(Skill):
         self.dreamer: Optional[Dreamer] = None
         self._dreaming = False
         self._night_task: Optional[asyncio.Task] = None
+        # held, not fired and forgotten: the loop keeps only a weak reference,
+        # so an unheld dream can be collected in the middle of consolidating
+        self._dream_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         await super().start()
@@ -59,13 +68,12 @@ class DreamSkill(Skill):
         a night nor doubles one.
         """
         hour = int(self.config.skills.get("dream", {}).get("hour", 4))
-        last_dreamed_on = None
         while self.active:
             await asyncio.sleep(300)
             now = datetime.datetime.now()
-            if now.hour != hour or last_dreamed_on == now.date():
+            if now.hour != hour or self._dreamed_tonight(now.date()):
                 continue
-            last_dreamed_on = now.date()
+            self._mark_dreamed_tonight(now.date())
             logger.info("DreamSkill: nightly consolidation starting.")
             try:
                 await self.run_dream()
@@ -92,6 +100,8 @@ class DreamSkill(Skill):
             llm=llm, history_manager=hm,
             roster=social.roster, people=social.people,
             selflore=self.selflore, recent=self.recent, sessions=self.sessions,
+            conversations=self.brain.memory.conversations,
+            rag=getattr(self.brain.memory, "rag", None),
             persona=persona_of(self.config), language=self.config.language,
         )
 
@@ -129,8 +139,9 @@ class DreamSkill(Skill):
         if gap is not None and gap >= 1:
             self.recent.add(f"you haven't streamed in {gap} day(s)", ttl, "morning_pass")
 
-        # 3. what happened the last time round, from the rolling summaries: she
-        # should be able to pick a conversation up, not restart it every day
+        # 3. what happened the last time round, from the dream's conversation
+        # recaps: she should be able to pick a conversation up, not restart it
+        # every day
         for line in self._yesterday():
             self.recent.add(line, ttl, "morning_pass")
 
@@ -149,19 +160,25 @@ class DreamSkill(Skill):
                     )
 
     def _yesterday(self, limit: int = 2) -> List[str]:
-        """One line per conversation that was going somewhere recently."""
+        """One line per conversation that was going somewhere recently.
+
+        Reads the recaps the dreamer keeps per conversation key, newest first:
+        the same thread the consolidation wrote last night is what the morning
+        picks back up.
+        """
         memory = getattr(self.context, "memory", None)
         if memory is None:
             return []
         try:
             rows = memory.db.query(
-                "SELECT conversation_key, summary FROM summaries "
-                "WHERE summary != '' ORDER BY updated_at DESC LIMIT ?", (limit,),
+                "SELECT scope_key, text FROM memories "
+                "WHERE scope = 'conversation' AND text != '' "
+                "ORDER BY created_at DESC LIMIT ?", (limit,),
             )
         except Exception as e:
-            logger.warning(f"DreamSkill: could not read the summaries: {e}")
+            logger.warning(f"DreamSkill: could not read the recaps: {e}")
             return []
-        return [f"last time in {r['conversation_key']}: {_first_line(r['summary'])}"
+        return [f"last time in {r['scope_key']}: {_first_line(r['text'])}"
                 for r in rows]
 
     def _days_since_last_session(self) -> Optional[int]:
@@ -188,24 +205,34 @@ class DreamSkill(Skill):
         )]
 
     async def _tool_go_to_sleep(self, reason: str = "") -> str:
-        consc = getattr(self.context, "consciousness", None)
-        if consc:
-            consc.sleep(reason or "tired")
-        asyncio.create_task(self.run_dream())
+        # falling asleep belongs to `run_dream` alone. Sleeping here and
+        # queueing the dream separately meant a request that arrived mid-dream
+        # bailed at the guard and then ran a second consolidation the moment
+        # the first one released it
+        if self._dreaming:
+            return "Already asleep, dreaming."
+        self._dream_task = asyncio.create_task(self.run_dream(reason or "tired"))
+        self._dream_task.add_done_callback(self._dream_finished)
         return "Zzz... going to sleep."
 
-    async def run_dream(self) -> dict:
+    def _dream_finished(self, task: asyncio.Task) -> None:
+        self._dream_task = None
+        if not task.cancelled() and task.exception() is not None:
+            logger.error(f"DreamSkill: the dream task died: {task.exception()}")
+
+    async def run_dream(self, reason: str = "dreaming") -> dict:
         """Sleep -> consolidate -> refresh hot facts -> wake. Safe to call from UI."""
         if self._dreaming:
             return {"ok": False, "error": "already dreaming"}
         self._dreaming = True
         consc = getattr(self.context, "consciousness", None)
-        if consc and not consc.sleeping:
-            consc.sleep("dreaming")
+        if consc:
+            consc.sleep(reason)
         summary = {"ok": True}
         try:
             if self.dreamer:
                 summary = await self.dreamer.run()
+            self._start_over(str(summary.get("carry_over") or ""))
             self.morning_pass()
         except Exception as e:
             logger.error(f"DreamSkill: dream failed: {e}")
@@ -215,6 +242,57 @@ class DreamSkill(Skill):
             if consc:
                 consc.wake()
         return summary
+
+    def _start_over(self, carry_over: str = "") -> None:
+        """A new session and an empty window: waking up is the one reset.
+
+        This is the only place the window is emptied. Everything in it has
+        just been consolidated into cards, self-lore and the diary, so what
+        she needs from the evening is what the pass said to carry — not the
+        evening itself, replayed verbatim into a fresh morning.
+        """
+        rotate = getattr(self.context, "create_new_session", None)
+        if callable(rotate):
+            try:
+                rotate()
+            except Exception as e:
+                logger.error(f"DreamSkill: could not start a new session: {e}")
+
+        consc = getattr(self.context, "consciousness", None)
+        forget = getattr(consc, "forget_window", None)
+        if callable(forget):
+            forget(f"{HANDOFF_HEADER}\n{carry_over}" if carry_over else "")
+
+    # --- once a night, across restarts --------------------------------------
+
+    def _dreamed_tonight(self, today: Optional[datetime.date] = None) -> bool:
+        """Whether tonight's pass already ran.
+
+        On disk rather than in a local: the hour is checked every five minutes,
+        so a restart at 4:30 used to find an empty variable and dream the same
+        night a second time.
+        """
+        today = today or datetime.datetime.now().date()
+        return self._last_night() == today.isoformat()
+
+    def _mark_dreamed_tonight(self, today: Optional[datetime.date] = None) -> None:
+        today = today or datetime.datetime.now().date()
+        memory = getattr(self.context, "memory", None)
+        if memory is None:
+            return
+        memory.db.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (LAST_NIGHT_KEY, today.isoformat()),
+        )
+
+    def _last_night(self) -> str:
+        memory = getattr(self.context, "memory", None)
+        if memory is None:
+            return ""
+        return str(memory.db.scalar(
+            "SELECT value FROM settings WHERE key = ?", (LAST_NIGHT_KEY,), default="",
+        ))
 
 
 def _first_line(text: str, limit: int = 120) -> str:

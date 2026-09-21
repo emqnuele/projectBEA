@@ -331,13 +331,28 @@ class Rag:
     # --- reading ------------------------------------------------------------
 
     def recall(self, query: str, *, scope: Optional[str] = None, scope_key: Optional[str] = None,
-               k: int = 5) -> List[Recollection]:
+                k: int = 5) -> List[Recollection]:
         """Only what PEOPLE said. Backwards-compatible shape."""
         return self.recall_split(query, scope=scope, scope_key=scope_key, k=k)[0]
 
+    def embed_query(self, query: str):
+        """The query as a vector, or None when embedding failed.
+
+        One embedding serves every scope a turn asks about: embedding it per
+        scope meant paying the model three times for the same sentence.
+        """
+        query = (query or "").strip()
+        if not query:
+            return None
+        try:
+            return self.embedder.embed([query])[0]
+        except Exception as e:
+            logger.warning(f"Query embedding failed: {e}")
+            return None
+
     def recall_split(
         self, query: str, *, scope: Optional[str] = None, scope_key: Optional[str] = None,
-        k: int = 5,
+        k: int = 5, qvec=None,
     ) -> Tuple[List[Recollection], List[Recollection]]:
         """Returns (facts, things_bea_said) as two separate lists.
 
@@ -348,11 +363,10 @@ class Rag:
         query = (query or "").strip()
         if not query:
             return [], []
-        try:
-            qvec = self.embedder.embed([query])[0]
-        except Exception as e:
-            logger.warning(f"Query embedding failed: {e}")
-            return [], []
+        if qvec is None:
+            qvec = self.embed_query(query)
+            if qvec is None:
+                return [], []
 
         rows = self._candidates(scope, scope_key, qvec, k)
         facts, hers = [], []

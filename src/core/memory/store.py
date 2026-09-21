@@ -4,6 +4,7 @@ Keeps the shapes the rest of the code already speaks (`RosterEntry`,
 `PersonCard`), so the storage underneath stays swappable.
 """
 
+import datetime
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -158,6 +159,35 @@ class RosterStore:
             cur.execute("UPDATE identities SET person_id = ? WHERE identity = ?",
                         (person_id, identity))
 
+    def link(self, *, identity: str, display_name: str, platform: str,
+             person_id: str) -> None:
+        """Tallies a sighting and attaches it to a card, in one transaction.
+
+        What `link_person` needs: the speaker may never have been tallied, and
+        two statements apart a crash would leave a tally with no card.
+        """
+        now = time.time()
+        native_id = identity.split(":", 1)[1] if ":" in identity else identity
+        with self.db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO identities (identity, platform, native_id, display_name, "
+                "first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(identity) DO UPDATE SET last_seen = excluded.last_seen, "
+                "display_name = CASE WHEN excluded.display_name != '' "
+                "  THEN excluded.display_name ELSE identities.display_name END",
+                (identity, platform, native_id, display_name or "", now, now),
+            )
+            cur.execute(
+                "INSERT INTO roster (identity, message_count, donation_total, had_1on1) "
+                "VALUES (?, 1, 0, 0) "
+                "ON CONFLICT(identity) DO UPDATE SET "
+                "  message_count = roster.message_count + 1",
+                (identity,),
+            )
+            cur.execute("UPDATE roster SET promoted = 1 WHERE identity = ?", (identity,))
+            cur.execute("UPDATE identities SET person_id = ? WHERE identity = ?",
+                        (person_id, identity))
+
     def find_by_name(self, name: str) -> Optional[RosterEntry]:
         """Best-effort name resolution; the most recently seen match wins."""
         low = name.strip().lower()
@@ -221,14 +251,14 @@ class PeopleStore:
 
     def get(self, person_id: str) -> Optional[PersonCard]:
         row = self.db.query_one("SELECT * FROM people WHERE person_id = ?", (person_id,))
-        return self._card(row) if row else None
+        return self.card_from_row(row) if row else None
 
     def get_by_identity(self, identity: str) -> Optional[PersonCard]:
         row = self.db.query_one(
             "SELECT p.* FROM people p JOIN identities i ON i.person_id = p.person_id "
             "WHERE i.identity = ?", (identity,),
         )
-        return self._card(row) if row else None
+        return self.card_from_row(row) if row else None
 
     def find_by_name(self, name: str) -> Optional[PersonCard]:
         low = name.strip().lower()
@@ -242,7 +272,20 @@ class PeopleStore:
         ) or self.db.query_one(
             "SELECT * FROM people WHERE LOWER(primary_name) LIKE ? LIMIT 1", (f"%{low}%",)
         )
-        return self._card(row) if row else None
+        return self.card_from_row(row) if row else None
+
+    def find_exact_name(self, name: str) -> Optional[PersonCard]:
+        """A card with exactly this primary name, case-insensitive.
+
+        No substring fallback: this decides identity merges, where a near
+        match is a different human.
+        """
+        low = name.strip().lower()
+        if not low:
+            return None
+        row = self.db.query_one(
+            "SELECT * FROM people WHERE LOWER(primary_name) = ?", (low,))
+        return self.card_from_row(row) if row else None
 
     def create_from_entry(self, entry: RosterEntry, reason: str = "",
                           seed_facts: Optional[List[str]] = None,
@@ -314,7 +357,7 @@ class PeopleStore:
 
     def all(self) -> List[PersonCard]:
         rows = self.db.query("SELECT * FROM people ORDER BY updated_at DESC")
-        return [self._card(r) for r in rows]
+        return [self.card_from_row(r) for r in rows]
 
     def profile_due(self, person_id: str, total: int, *, first: int, every: int) -> bool:
         """Should this person's card be (re)built?
@@ -336,7 +379,7 @@ class PeopleStore:
             (total, time.time(), person_id),
         )
 
-    def _card(self, row) -> PersonCard:
+    def card_from_row(self, row) -> PersonCard:
         pid = row["person_id"]
         idents = self.db.query(
             "SELECT identity, display_name FROM identities WHERE person_id = ? "
@@ -468,7 +511,13 @@ class SelfLore:
 
 
 class Conversations:
-    """Per-channel history and its rolling summary."""
+    """The whole stream: everything the dream consolidates and recall reads.
+
+    Every perception the bus carries lands here as it is drained, and so does
+    everything she says back. `role` separates the three things a row can be:
+    somebody spoke (`user`), she answered (`bea`), or something happened with
+    nobody behind it (`world` — a game event, a body action, a system note).
+    """
 
     def __init__(self, db: Database):
         self.db = db
@@ -476,14 +525,63 @@ class Conversations:
     def add(self, *, conversation_key: str, role: str, content: str,
             platform: str = "", channel_id: str = "", author_identity: Optional[str] = None,
             display_name: str = "", ts: Optional[float] = None,
-            addressee_identity: str = "") -> int:
+            addressee_identity: str = "", kind: str = "chat", surface: str = "",
+            session_id: str = "") -> int:
         return self.db.execute(
             "INSERT INTO messages (conversation_key, platform, channel_id, author_identity, "
-            "display_name, role, content, ts, addressee_identity) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "display_name, role, content, ts, addressee_identity, kind, surface, session_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (conversation_key, platform, channel_id, author_identity, display_name,
-             role, content, ts if ts is not None else time.time(), addressee_identity or ""),
+             role, content, ts if ts is not None else time.time(), addressee_identity or "",
+             kind, surface, session_id),
         )
+
+    def add_many(self, entries: List[Dict[str, Any]]) -> int:
+        """A drained batch in one transaction, not one per row.
+
+        The loop thread calls this once per drain: N small commits would
+        serialize the conversation behind fsyncs, one commit does not.
+        """
+        if not entries:
+            return 0
+        now = time.time()
+        with self.db.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO messages (conversation_key, platform, channel_id, author_identity, "
+                "display_name, role, content, ts, addressee_identity, kind, surface, session_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(e.get("conversation_key", ""), e.get("platform", ""),
+                  e.get("channel_id", ""), e.get("author_identity"),
+                  e.get("display_name", ""), e.get("role", "user"),
+                  e.get("content", ""), e.get("ts", now),
+                  e.get("addressee_identity", "") or "", e.get("kind", "chat"),
+                  e.get("surface", ""), e.get("session_id", ""))
+                 for e in entries],
+            )
+            return cur.rowcount
+
+    def stream(self, session_id: str, limit: int = 2000) -> List[Dict[str, Any]]:
+        """Everything that happened in one sitting, oldest first.
+
+        What the consolidation reads. Capped because a long twitch night is
+        tens of thousands of lines and the pass has a context window.
+        """
+        rows = self.db.query(
+            "SELECT conversation_key, platform, role, kind, surface, display_name, "
+            "       author_identity, content, ts FROM messages "
+            "WHERE session_id = ? ORDER BY id DESC LIMIT ?", (session_id, limit),
+        )
+        return [dict(r) for r in reversed(rows)]
+
+    def sessions_with_content(self, exclude_dreamed: bool = True) -> List[str]:
+        """Sessions the stream has anything for, oldest first."""
+        sql = ("SELECT m.session_id AS sid FROM messages m "
+               "WHERE m.session_id != '' ")
+        if exclude_dreamed:
+            sql += ("AND m.session_id NOT IN "
+                    "(SELECT session_id FROM sessions WHERE dreamed = 1) ")
+        sql += "GROUP BY m.session_id ORDER BY MIN(m.id)"
+        return [r["sid"] for r in self.db.query(sql)]
 
     def count(self, conversation_key: str) -> int:
         return int(self.db.scalar(
@@ -528,6 +626,34 @@ class Conversations:
             "AND ts >= ?", (conversation_key, reference - window_seconds),
         ))
 
+    def dashboard_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """What the dashboard shows: the live room stream, oldest first.
+
+        The stage only, spoken lines only: user rows from chat:ui and her own
+        stage replies. Other conversations never leak in, and world rows stay
+        in the stream without taking a speaker seat. Roles follow the history
+        shape the frontend already reads (`assistant`, not `bea`).
+        """
+        rows = self.db.query(
+            "SELECT role, content, ts FROM messages "
+            "WHERE conversation_key = 'stage' AND role IN ('user', 'bea') "
+            "ORDER BY id DESC LIMIT ?", (limit,),
+        )
+        out = []
+        for r in reversed(rows):
+            ts = r["ts"]
+            try:
+                stamp = datetime.datetime.fromtimestamp(
+                    float(ts), tz=datetime.timezone.utc).isoformat()
+            except (TypeError, ValueError, OverflowError, OSError):
+                stamp = ""
+            out.append({
+                "role": "assistant" if r["role"] == "bea" else "user",
+                "content": r["content"],
+                "timestamp": stamp,
+            })
+        return out
+
     def prune(self, keep_per_conversation: int = 500) -> int:
         """Caps history per conversation. A twitch channel would grow forever."""
         removed = 0
@@ -543,6 +669,73 @@ class Conversations:
             )
             removed += excess
         return removed
+
+
+# --- the sliding window -----------------------------------------------------
+
+
+class WindowStore:
+    """The one sliding context window, carried over in one transaction.
+
+    ram first: the window lives in memory while she talks, and a flush after
+    each turn — plus a synchronous one at shutdown — is what writes it. A
+    per-entry write-through used to stall every turn behind its own commit;
+    a window that only reached disk at shutdown would instead be lost exactly
+    when ctrl+c cancels the shutdown. One transaction per turn is neither.
+    """
+
+    VERSION_KEY = "context_window.version"
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def replace(self, rows: List[Dict[str, Any]], version: int = 0,
+                expect_version: Optional[int] = None) -> bool:
+        """The whole window at once, in one transaction: what a swap produces.
+
+        With `expect_version`, writes only when the stored version still
+        matches: a background flush snapshotted pages ago must not land on
+        top of a swap that has since persisted a newer window. Returns
+        whether anything was written.
+        """
+        with self.db.cursor() as cur:
+            if expect_version is not None:
+                cur.execute("SELECT value FROM settings WHERE key = ?",
+                            (self.VERSION_KEY,))
+                row = cur.fetchone()
+                current = int(row[0]) if row is not None and row[0] is not None else 0
+                if current != int(expect_version):
+                    return False
+            cur.execute("DELETE FROM context_window")
+            cur.executemany(
+                "INSERT INTO context_window (seq, ts, tokens, role, content, conv_key, "
+                "author, addressee) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [(int(r["seq"]), float(r["ts"]), int(r["tokens"]), str(r["role"]),
+                  str(r["content"]), str(r["key"]), str(r["author"]),
+                  str(r["addressee"])) for r in rows],
+            )
+            cur.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (self.VERSION_KEY, str(int(version))),
+            )
+            return True
+
+    def load(self) -> List[Dict[str, Any]]:
+        rows = self.db.query(
+            "SELECT seq, ts, tokens, role, content, conv_key, author, addressee "
+            "FROM context_window ORDER BY seq"
+        )
+        return [{"seq": r["seq"], "ts": r["ts"], "tokens": r["tokens"], "role": r["role"],
+                 "content": r["content"], "key": r["conv_key"], "author": r["author"],
+                 "addressee": r["addressee"]} for r in rows]
+
+    def version(self) -> int:
+        try:
+            return int(self.db.scalar(
+                "SELECT value FROM settings WHERE key = ?", (self.VERSION_KEY,), default=0))
+        except (TypeError, ValueError):
+            return 0
 
 
 # --- sessions ---------------------------------------------------------------
@@ -603,6 +796,7 @@ class MemoryStore:
         self.hot = HotFacts(self.db)
         self.selflore = SelfLore(self.db)
         self.conversations = Conversations(self.db)
+        self.window = WindowStore(self.db)
         self.sessions = Sessions(self.db)
         self.plan = StreamPlan(self.db)
         self.agenda = Agenda(self.db)

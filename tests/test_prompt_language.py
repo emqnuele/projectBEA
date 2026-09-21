@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from src.core.language import directive
+from src.core.memory.store import MemoryStore
 from src.core.persona import DEFAULT_NAME, Persona
 from src.core.skills.dream.dreamer import DEFAULT_PROMPT_PATH as DREAMER_PROMPT
 from src.core.skills.memory.generator import DEFAULT_PROMPT_PATH as DIARY_PROMPT
@@ -79,7 +80,7 @@ def test_the_diary_is_told_which_language_to_write_in():
 
     import asyncio
     asyncio.run(DiaryGenerator(FakeLLM(), language="ja").generate_diary(
-        [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hi"}]))
+        "--- stage ---\n[ema] hi\nyou: hi"))
 
     assert "Japanese" in built[0]
     assert "{language}" not in built[0]
@@ -98,7 +99,7 @@ def test_detection_tells_a_background_pass_to_follow_the_conversation():
 
     import asyncio
     asyncio.run(DiaryGenerator(FakeLLM(), language="auto").generate_diary(
-        [{"role": "user", "content": "ciao"}, {"role": "assistant", "content": "ciao"}]))
+        "--- stage ---\n[ema] ciao\nyou: ciao"))
 
     assert "language the conversation is in" in built[0]
 
@@ -155,6 +156,7 @@ def _mind(language: str):
         config=config, llm=MagicMock(), bus=MagicMock(), expression=MagicMock(),
         surfaces=surfaces, history_manager=MagicMock(), event_manager=MagicMock(),
         soul_getter=lambda: "soul", operating_getter=lambda: "operating",
+        memory=MemoryStore(":memory:"), profiler=None,
     )
     mind.affect = None
     return mind
@@ -213,7 +215,8 @@ def _holders(language: str):
         consciousness=SimpleNamespace(_handoff=HandoffWorker(language="en")),
         dream_skill=SimpleNamespace(dreamer=Dreamer(
             llm=None, history_manager=None, roster=None, people=None,
-            selflore=None, recent=None, sessions=None, language="en")),
+            selflore=None, recent=None, sessions=None, conversations=None,
+            language="en")),
         memory_skill=SimpleNamespace(generator=DiaryGenerator(None, language="en")),
     )
 

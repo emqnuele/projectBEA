@@ -13,6 +13,7 @@ import pytest
 from src.core.attention.gate import Attention
 from src.core.consciousness import Consciousness
 from src.core.expression.pcm import CALL_SAMPLE_RATE, duration_ms, split_at_ms, to_call_pcm
+from src.core.memory.store import MemoryStore
 from src.core.perception.bus import PerceptionBus
 from src.core.skills.base import SkillRegistry
 from src.core.skills.voice.channel import VoiceChannel, frame, unframe
@@ -202,7 +203,7 @@ def mind(call=None) -> Consciousness:
         expression=expression, surfaces=SkillRegistry(),
         history_manager=FakeHistory(), event_manager=RecordingEvents(),
         soul_getter=lambda: "soul", operating_getter=lambda: "rules",
-        attention=Attention(Config()),
+        memory=MemoryStore(":memory:"), profiler=None, attention=Attention(Config()),
     )
 
 

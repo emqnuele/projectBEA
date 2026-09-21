@@ -35,10 +35,19 @@ CACHE_SIZE_KIB = -65536
 # not give back is a map that falls back to ordinary reads anyway
 MMAP_BYTES = 128 * 1024 * 1024 if sys.platform == "win32" else 256 * 1024 * 1024
 
+# tables no code reads or writes anymore: CREATE TABLE IF NOT EXISTS will not
+# remove them, so a file written by an older version keeps them forever
+# without this. Dropped on open; nothing stored in them is read back.
+_DROPPED_TABLES: List[str] = ["summaries"]
+
 # (table, column, type) for columns added after a table already exists:
 # CREATE TABLE IF NOT EXISTS will not add them, so they need a guarded ALTER
 _MIGRATIONS: List[tuple] = [
     ("messages", "addressee_identity", "TEXT NOT NULL DEFAULT ''"),
+    # the stream grew three columns when it stopped being only what was said
+    ("messages", "kind", "TEXT NOT NULL DEFAULT 'chat'"),
+    ("messages", "surface", "TEXT NOT NULL DEFAULT ''"),
+    ("messages", "session_id", "TEXT NOT NULL DEFAULT ''"),
     # in the schema but never here, so any database older than it crashed the
     # profiler on every conversation turn
     ("people", "profiled_count", "INTEGER NOT NULL DEFAULT 0"),
@@ -89,10 +98,15 @@ class Database:
 
     def init(self) -> "Database":
         conn = self.connect()
+        # columns before the script, not after: the script creates indexes, an
+        # index names columns, and an index over a column an older file does
+        # not have yet makes sqlite raise instead of skipping the statement.
+        # On a fresh file there is nothing to migrate and the script does it all.
+        self._apply_migrations()
         with self._lock:
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
             conn.commit()
-        self._apply_migrations()
+        self._drop_retired()
         logger.info(f"Memory schema ready ({self.path}).")
         return self
 
@@ -107,6 +121,21 @@ class Database:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ctype}")
                 conn.commit()
                 logger.info(f"Migration: added {table}.{column}")
+
+    def _drop_retired(self) -> None:
+        """Drops tables no code reads or writes anymore. Idempotent."""
+        for table in _DROPPED_TABLES:
+            with self._lock:
+                conn = self.connect()
+                exists = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                    (table,),
+                ).fetchone()
+                if not exists:
+                    continue
+                conn.execute(f"DROP TABLE IF EXISTS {table}")
+                conn.commit()
+                logger.info(f"Migration: dropped retired table {table}")
 
     def close(self) -> None:
         if self._conn is not None:

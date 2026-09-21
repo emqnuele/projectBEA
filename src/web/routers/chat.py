@@ -37,7 +37,10 @@ def _safe_session_id(session_id: str) -> str:
 
 @router.get("/history")
 def get_history(brain: AIVtuberBrain = Depends(get_brain)):
-    return brain.history_manager.get_recent_history(limit=50)
+    try:
+        return brain.memory.conversations.dashboard_history(limit=50)
+    except Exception:
+        return brain.history_manager.get_recent_history(limit=50)
 
 
 @router.get("/sessions")

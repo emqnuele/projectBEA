@@ -8,6 +8,7 @@ about which skill had said it or what it had been asked for.
 
 from src.core.attention.gate import Attention
 from src.core.consciousness import Consciousness
+from src.core.memory.store import MemoryStore
 from src.core.perception.bus import PerceptionBus
 from src.core.perception.types import Perception, PerceptionKind
 from src.core.skills.base import Skill, SkillRegistry
@@ -64,7 +65,8 @@ def _mind(*skills):
         config=config, llm=FakeLLMClient(), bus=PerceptionBus(window=0.0),
         expression=FakeExpression(), surfaces=registry, history_manager=FakeHistory(),
         event_manager=RecordingEvents(), soul_getter=lambda: "she is called Bea",
-        operating_getter=lambda: "she speaks with `speak`", attention=Attention(config),
+        operating_getter=lambda: "she speaks with `speak`",
+        memory=MemoryStore(":memory:"), profiler=None, attention=Attention(config),
     )
 
 

@@ -25,7 +25,7 @@ from src.core.affect.rules import (
 )
 from src.core.events import EventCategory
 from src.core.mind.moods import vector_for
-from src.core.skills.social.people import promotion_reason, should_promote
+from src.core.skills.social.people import promote_entry, should_promote
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.affect")
@@ -147,10 +147,7 @@ class AffectState:
         entry = roster.mark(author.identity)
         if entry is None or entry.promoted or not should_promote(entry):
             return None
-        card = people.create_from_entry(entry, reason=promotion_reason(entry))
-        roster.set_promoted(entry.identity, card.person_id)
-        logger.info(f"affect: {author.display_name} got a card ({promotion_reason(entry)}).")
-        return card
+        return promote_entry(roster, people, entry)
 
     # --- persistence --------------------------------------------------------
 

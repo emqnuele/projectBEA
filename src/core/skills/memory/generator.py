@@ -1,4 +1,4 @@
-"""The diary pass: one finished conversation into one page she keeps.
+"""The diary pass: one finished sitting into one page she keeps.
 
 It runs on the background model, after she has already answered, and what it
 writes is injected back into her context by retrieval for as long as it stays
@@ -8,7 +8,7 @@ turn, and the drift looked like it was coming out of the model.
 """
 
 import datetime
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from src.core.agent.llm_client import LLMClient
 from src.core.language import write_in
@@ -37,17 +37,20 @@ class DiaryGenerator:
         """Read per pass, not cached: it is an editable file like every other."""
         return self.persona.fill(load_text(self.prompt_path, fallback=FALLBACK))
 
-    async def generate_diary(self, history: List[Dict]) -> Optional[Dict]:
+    async def generate_diary(self, transcript: str) -> Optional[Dict]:
+        """One sitting, already rendered, into one page she keeps.
+
+        The caller hands over the whole stream of that sitting — every surface
+        and both sides of every conversation — grouped into blocks. Formatting
+        it here from a list of her own replies is what made the pages read
+        like a monologue about nobody.
+        """
         logger.info("DiaryGenerator: Generating diary with active LLM...")
 
-        # 1. format history
-        conversation_text = ""
-        for msg in history:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            conversation_text += f"{role}: {content}\n"
+        conversation_text = (transcript or "").strip()
+        if not conversation_text:
+            return None
 
-        # 2. prepare prompt
         today_str = datetime.datetime.now().strftime("%Y-%m-%d")
         system_prompt = (self.prompt_template
                          .replace("{date}", today_str)

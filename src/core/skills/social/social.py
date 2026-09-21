@@ -1,11 +1,12 @@
 import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from src.core.agent.tools import Tool
 from src.core.memory.store import PersonCard, RosterEntry
 from src.core.perception.types import PerceptionKind
 from src.core.skills.base import Skill
 from src.core.skills.social.people import (
+    promote_entry,
     promotion_reason,
     resolve_or_create_card,
     should_promote,
@@ -37,6 +38,8 @@ class SocialMemory(Skill):
         memory = self.brain.memory
         self.roster = memory.roster
         self.people = memory.people
+        # who is in front of her right now, for tools that act on the speaker
+        self._last_speakers: List[Tuple[str, str]] = []
 
     # --- per-batch hook: tally + promote + inject --------------------------
 
@@ -81,6 +84,8 @@ class SocialMemory(Skill):
             if card:
                 present_cards[card.person_id] = card
 
+        self._last_speakers = list(present_names.items())
+
         blocks = []
 
         if present_cards:
@@ -108,12 +113,8 @@ class SocialMemory(Skill):
             return None
         reason = promotion_reason(entry)
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        card = self.people.create_from_entry(
-            entry, reason=reason, seed_facts=[f"first noticed {today} ({reason})"]
-        )
-        self.roster.set_promoted(entry.identity, card.person_id)
-        logger.info(f"SocialMemory: promoted {entry.display_name} ({reason}).")
-        return card
+        return promote_entry(self.roster, self.people, entry, reason=reason,
+                             seed_facts=[f"first noticed {today} ({reason})"])
 
     # --- tools --------------------------------------------------------------
 
@@ -140,6 +141,22 @@ class SocialMemory(Skill):
                  "required": ["name"]},
                 self._tool_recall_person,
             ),
+            Tool(
+                "link_person",
+                "Declare that someone talking to you right now is a person you "
+                "already know under another name (a minecraft player telling "
+                "you who they are, a new account of a regular). Only when they "
+                "told you so themselves — never a guess.",
+                {"type": "object", "properties": {
+                    "name": {"type": "string"},
+                    "speaking_as": {
+                        "type": "string",
+                        "description": "the name they appear with right now, "
+                                       "to pick among several speakers (optional)",
+                    },
+                }, "required": ["name"]},
+                self._tool_link_person,
+            ),
         ]
 
     def _tool_remember_person(self, name: str, note: str, attitude: str = "") -> str:
@@ -162,3 +179,38 @@ class SocialMemory(Skill):
             return (f"{entry.display_name}: seen {entry.message_count} times across "
                     f"{entry.session_count} session(s). Nothing memorable noted yet.")
         return f"You don't know anyone called '{name}'."
+
+    def _tool_link_person(self, name: str, speaking_as: str = "") -> str:
+        """Links whoever is in front of her to an existing card.
+
+        Links only, never creates: remembering someone new is remember_person's
+        job, and someone she never heard of is a no-op rather than a card.
+        """
+        card = self.people.find_by_name((name or "").strip())
+        if not card:
+            return f"You don't know anyone called '{name}'."
+        found = self._speaker_identity((speaking_as or "").strip())
+        if found is None:
+            return "I can't tell who is speaking right now — say who you mean."
+        identity, display = found
+        self.roster.link(identity=identity, display_name=display,
+                         platform=identity.split(":")[0] if ":" in identity else "",
+                         person_id=card.person_id)
+        return f"Noted: {display} is {card.primary_name}."
+
+    def _speaker_identity(self, speaking_as: str) -> Optional[Tuple[str, str]]:
+        """The (identity, display name) talking right now, or None.
+
+        One speaker in front of her needs no disambiguation; several do, by
+        the name they appear with.
+        """
+        speakers = list(getattr(self, "_last_speakers", []) or [])
+        if speaking_as:
+            low = speaking_as.lower()
+            for identity, display in speakers:
+                if low in (display or "").lower() or low in identity.lower():
+                    return identity, display
+            return None
+        if len(speakers) == 1:
+            return speakers[0]
+        return None

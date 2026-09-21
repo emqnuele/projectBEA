@@ -15,7 +15,7 @@ from src.core.language import directive, speaks_first
 from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.handoff import HandoffWorker
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
-from src.core.mind.routing import channel_of, conversation_key, platform_of
+from src.core.mind.routing import STAGE, channel_of, conversation_key, platform_of
 from src.core.mind.single_context import SingleContext
 from src.core.mind.token_budget import TokenBudget
 from src.core.mind.tools import MindTools
@@ -27,6 +27,15 @@ from src.utils.prompts import compose
 from src.utils.sanitize import clean_model_output
 
 logger = get_logger("bea.consciousness")
+
+# the handoff recap as a settings row: the window mirror holds entries, and
+# the prose that opens the next window is not one — without this a restart
+# restores the evening without its head
+HANDOFF_PROSE_KEY = "handoff_prose"
+
+# how many written perception ids the double-write guard keeps: the bus pops,
+# so seeing the same id twice is a caller bug worth surviving cheaply
+_STREAM_ID_CAP = 5000
 
 
 def _block(what: str, produce) -> str:
@@ -68,8 +77,8 @@ class Consciousness:
     )
 
     def __init__(self, *, config, llm, bus, expression, surfaces, history_manager,
-                 event_manager, soul_getter, operating_getter, attention=None,
-                 affect=None, memory=None, profiler=None):
+                 event_manager, soul_getter, operating_getter, memory, profiler,
+                 attention=None, affect=None):
         self.config = config
         self.llm = llm
         self.bus = bus
@@ -80,7 +89,9 @@ class Consciousness:
         self.attention = attention
         self.affect = affect
         # append-only durable log (dream/recall/dashboard read it; no context
-        # is ever built from it) and the background profiler of person cards
+        # is ever built from it) and the background profiler of person cards.
+        # required, not optional: a defaulted `memory=None` let a refactor drop
+        # the wiring and every write return at its own first line, for days
         self.memory = memory
         self.profiler = profiler
         self._get_soul = soul_getter
@@ -95,10 +106,20 @@ class Consciousness:
             trigger_tokens=int(cc.get("handoff_trigger_tokens", 120_000)),
             target_tokens=int(cc.get("handoff_target_tokens", 50_000)),
         ), hot_tokens=int(cc.get("hot_tokens", 30_000)),
-            hot_seconds=float(cc.get("hot_seconds", 1800.0)))
+            hot_seconds=float(cc.get("hot_seconds", 1800.0)),
+            store=memory.window)
         self._handoff = HandoffWorker(language=getattr(config, "language", ""))
         self._handoff_task: Optional[asyncio.Task] = None
+        # every persist in flight, not just the latest: a fast pair of turns
+        # must not orphan the first write while the second is awaited
+        self._persist_tasks: set = set()
         self._handoff_enabled = bool(cc.get("context_handoff", True))
+        # ram first: the turn only marks the window dirty, and the write
+        # happens behind it — never inside it
+        self._persist_after_turn = bool(cc.get("window_persist_after_turn", True))
+        # how long a turn waits for retrieved context before answering
+        # without it: the disk must never hold the conversation hostage
+        self._dynamic_timeout = float(cc.get("dynamic_context_timeout", 5.0))
         # the follow-up gate reads the one window, never sqlite: without this
         # the gate is blind and every "are they answering me" is a flat no
         if attention is not None and getattr(attention, "window", None) is None:
@@ -113,6 +134,9 @@ class Consciousness:
         # what provoked the turn in flight: `speak` needs it to know who to pin
         # a strong reaction on, and a tool handler is not handed the batch
         self._batch: List[Perception] = []
+        # ids already on the stream: a second write of the same perception is
+        # a caller bug, not a second event — skip it instead of duplicating
+        self._stream_ids: Dict[str, None] = {}
         self.total_tokens = 0
         self.total_calls = 0
         self.alive = False
@@ -144,6 +168,13 @@ class Consciousness:
 
     async def start(self):
         self.alive = True
+        # before the first turn, not after: the follow-up gate and the
+        # cooldowns read the window, and a restart used to leave them blind to
+        # a conversation that was two minutes old
+        restored = self.sliding_window.restore()
+        if restored:
+            logger.info(f"Window restored: {restored} entr(ies) from the last run.")
+        self._load_bridge()
         for s in self.surfaces.all():
             try:
                 await s.start()
@@ -191,6 +222,23 @@ class Consciousness:
 
     async def stop(self):
         self.alive = False
+        # background flushes still in flight must land first: otherwise one
+        # could overwrite with an older snapshot what is flushed below
+        pending = [t for t in self._persist_tasks if not t.done()]
+        self._persist_tasks.clear()
+        for task in pending:
+            try:
+                await asyncio.shield(task)
+            except (asyncio.CancelledError, Exception):
+                pass
+        # the one synchronous write: stopping is the moment blocking on the
+        # disk is correct, and this is what a restart wakes up to
+        try:
+            if self.sliding_window.flush():
+                logger.info("Window flushed at shutdown.")
+            self._save_bridge()
+        except Exception as e:
+            logger.warning(f"Could not flush the window at shutdown: {e}")
         if self._loop_task:
             self._loop_task.cancel()
             try:
@@ -236,7 +284,14 @@ class Consciousness:
                 # hanging until its timeout
                 self.correlations.start_batch(batch)
 
-                # asleep: ignore the world until the dreamer wakes her up
+                # written down before any gate decides it deserved a turn: what
+                # she is asked about tomorrow is what happened, not what she
+                # chose to answer
+                self._remember(batch)
+
+                # asleep: she stops reacting, not perceiving. The stream above
+                # keeps everything for the consolidation; the window stays out
+                # of it, because she is not there to experience any of it.
                 if self.sleeping:
                     continue
 
@@ -281,6 +336,7 @@ class Consciousness:
                     steer = self.bus.drain_nowait()
                     if steer:
                         self.correlations.extend_batch(steer)
+                        self._remember(steer)
                         if self._needs_mind(steer):
                             steered = self._annotate(steer)
                             steer_frame = self._frame(steered, steering=True)
@@ -340,11 +396,12 @@ class Consciousness:
                     self._publish_cost(steps, spent, elapsed_ms)
                     self._write_down(context, self._batch, steps, spent, elapsed_ms)
                     self._record_window(frames)
-                    self._log_memory(self._batch)
+                    self._schedule_persist()
                     self._profile_background(self._batch)
                     self._schedule_handoff()
                 else:
                     self._record_window(frames)
+                    self._schedule_persist()
                     self._schedule_handoff()
             except asyncio.CancelledError:
                 break
@@ -526,8 +583,21 @@ class Consciousness:
 
     async def _build_briefing(self, batch: List[Perception],
                               is_idle: bool = False) -> Optional[Dict[str, Any]]:
-        """Builds it off the loop: a slow retrieval must not stall speech."""
-        dynamic = await asyncio.to_thread(self.surfaces.dynamic_context, batch) if batch else []
+        """Builds it off the loop: a slow retrieval must not stall speech.
+
+        Bounded, not just background: if the disk hangs, the turn goes on
+        without the retrieved block rather than late with it.
+        """
+        dynamic: List[str] = []
+        if batch:
+            try:
+                dynamic = await asyncio.wait_for(
+                    asyncio.to_thread(self.surfaces.dynamic_context, batch),
+                    timeout=self._dynamic_timeout)
+            except TimeoutError:
+                logger.warning("Dynamic context timed out; answering without it.")
+            except Exception as e:
+                logger.warning(f"Dynamic context failed; answering without it: {e}")
         return self._briefing(batch, is_idle=is_idle, dynamic=dynamic)
 
     def _system_message(self) -> Dict[str, Any]:
@@ -762,6 +832,7 @@ class Consciousness:
         if self.attention:
             self.attention.mark_spoke()
         self.history.add_message("assistant", message, mood=mood, source="consciousness")
+        self._remember_spoken(message)
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
         self._said = {"mood": mood, "message": message}
 
@@ -909,36 +980,77 @@ class Consciousness:
         except Exception as e:
             logger.warning(f"Could not mirror the turn into the window: {e}")
 
-    def _log_memory(self, batch: List[Perception]) -> None:
-        """Append-only durable log: dream/recall/dashboard read it, no context
-        is ever built from it."""
-        if self.memory is None:
-            return
+    @property
+    def _session_id(self) -> str:
+        """The sitting this all belongs to, for the consolidation to read back."""
+        return str(getattr(self.history, "session_id", "") or "")
+
+    @staticmethod
+    def _is_memorable(p: Perception) -> bool:
+        """Two things are not memories, and everything else is.
+
+        The idle tick is synthetic — "nothing is happening" is the loop talking
+        to itself. Texture a surface flagged as noise is a heartbeat it sends
+        several times a minute, already carried by the live state. Everything
+        else that reaches the bus happened, whether or not there is a person
+        behind it and whether or not she answered it.
+        """
+        return p.kind is not PerceptionKind.IDLE and not (p.meta or {}).get("noise")
+
+    def _remember(self, batch: List[Perception]) -> None:
+        """The stream, written down as it leaves the bus.
+
+        Append-only and durable: the dream, recall and the dashboard read it,
+        and no context is ever built from it. One transaction per drain, not
+        one per row: N small commits would serialize the conversation behind
+        fsyncs, and the dream reads this minutes later — never mid-turn.
+        """
+        session = self._session_id
         try:
-            conversations = self.memory.conversations
-            for p in batch:
-                if p.author is None:
-                    continue
-                conversations.add(
-                    conversation_key=conversation_key(p), role="user",
-                    content=p.content,
-                    platform=p.author.platform, channel_id=str((p.meta or {}).get("channel_id", "")),
-                    author_identity=p.author.identity, display_name=p.author.display_name,
-                    ts=p.ts,
-                )
+            fresh = [p for p in batch
+                     if self._is_memorable(p) and p.id not in self._stream_ids]
+            entries = []
+            for p in fresh:
+                author = p.author
+                entries.append({
+                    "conversation_key": conversation_key(p),
+                    "role": "user" if author else "world",
+                    "kind": p.kind.value, "surface": p.surface, "content": p.content,
+                    "platform": author.platform if author else "",
+                    "channel_id": str((p.meta or {}).get("channel_id", "")),
+                    "author_identity": author.identity if author else None,
+                    "display_name": author.display_name if author else "",
+                    "session_id": session, "ts": p.ts,
+                })
+            self.memory.conversations.add_many(entries)
+            for p in fresh:
+                self._stream_ids[p.id] = None
         except Exception as e:
-            logger.warning(f"Could not log the turn to memory: {e}")
+            logger.warning(f"Could not write the stream down: {e}")
+        if len(self._stream_ids) > _STREAM_ID_CAP:
+            for old in list(self._stream_ids)[: len(self._stream_ids) - _STREAM_ID_CAP]:
+                del self._stream_ids[old]
+
+    def _remember_spoken(self, message: str) -> None:
+        """Her voice belongs in the same stream as everything she heard."""
+        try:
+            self.memory.conversations.add(
+                conversation_key=STAGE, role="bea", kind="voice", surface="stage",
+                content=message, display_name="bea",
+                addressee_identity=self._addressee_for(STAGE),
+                session_id=self._session_id,
+            )
+        except Exception as e:
+            logger.warning(f"Could not write down what she said: {e}")
 
     def _log_outgoing(self, key: str, platform: str, channel: str, text: str) -> None:
         """Her written lines, next to what she was answering."""
-        if self.memory is None:
-            return
         try:
-            addressee = self._addressee_for(key)
             self.memory.conversations.add(
-                conversation_key=key, role="bea", content=text,
-                platform=platform, channel_id=channel, display_name="bea",
-                addressee_identity=addressee,
+                conversation_key=key, role="bea", kind="chat", surface=f"chat:{platform}",
+                content=text, platform=platform, channel_id=channel, display_name="bea",
+                addressee_identity=self._addressee_for(key),
+                session_id=self._session_id,
             )
         except Exception as e:
             logger.warning(f"Could not log her reply to memory: {e}")
@@ -964,6 +1076,88 @@ class Consciousness:
         task = asyncio.create_task(work())
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
+
+    def _schedule_persist(self) -> None:
+        """Carries the ram window over to the disk, behind the turn.
+
+        The snapshot is built on the loop thread — plain data, no io — and
+        the single transaction runs elsewhere. A flush snapshotted before a
+        swap lands on an older version and is dropped by the version guard,
+        which is correct: the swap persisted its own newer window.
+        """
+        if not self._persist_after_turn or not self.sliding_window.needs_flush:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # not now; shutdown flushes what is left
+        snapshot = self.sliding_window.flush_snapshot()
+        if snapshot is None:
+            return
+        rows, version = snapshot
+
+        async def work() -> None:
+            try:
+                written = await asyncio.to_thread(
+                    self.memory.window.replace, rows, version, version)
+                if not written:
+                    self.sliding_window.mark_dirty()
+            except asyncio.CancelledError:
+                self.sliding_window.mark_dirty()
+                raise
+            except Exception as e:
+                logger.warning(f"Background window persist failed: {e}")
+                self.sliding_window.mark_dirty()
+
+        task = asyncio.create_task(work())
+        self._persist_tasks.add(task)
+        task.add_done_callback(self._persist_tasks.discard)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
+    def _save_bridge(self) -> None:
+        """Mirrors the handoff recap to disk. A restart restores it in start()."""
+        try:
+            prose = self._handoff.last_prose or ""
+            if prose:
+                self.memory.db.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (HANDOFF_PROSE_KEY, prose),
+                )
+            else:
+                self.memory.db.execute(
+                    "DELETE FROM settings WHERE key = ?", (HANDOFF_PROSE_KEY,),
+                )
+        except Exception as e:
+            logger.warning(f"Could not save the handoff bridge: {e}")
+
+    def _load_bridge(self) -> None:
+        """Restores the handoff recap saved by _save_bridge, if any."""
+        try:
+            prose = self.memory.db.scalar(
+                "SELECT value FROM settings WHERE key = ?", (HANDOFF_PROSE_KEY,),
+                default="",
+            )
+            self._handoff.last_prose = str(prose or "")
+        except Exception as e:
+            logger.warning(f"Could not restore the handoff bridge: {e}")
+
+    def forget_window(self, bridge: str = "") -> None:
+        """Empties the one window, leaving the bridge the consolidation wrote.
+
+        The single caller is the dream: sleeping is what starts her over, and
+        nothing else in the system is allowed to take the evening away from
+        her. A pending handoff is cancelled first — landing a swap onto a
+        window that has just been emptied would put the evening back.
+        """
+        if self._handoff_task and not self._handoff_task.done():
+            self._handoff_task.cancel()
+            self._handoff_task = None
+        self._handoff.last_prose = ""
+        self._save_bridge()
+        self.sliding_window.clear(bridge)
+        logger.info("Window cleared by the consolidation.")
 
     def window_status(self) -> Dict[str, Any]:
         """Budget state for the dashboard."""
@@ -997,6 +1191,7 @@ class Consciousness:
             try:
                 self._handoff.set_llm(self.background_llm or self.llm)
                 await self._handoff.maybe_swap(self.sliding_window)
+                self._save_bridge()
             except asyncio.CancelledError:
                 raise
             except Exception as e:

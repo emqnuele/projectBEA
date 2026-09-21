@@ -1,9 +1,8 @@
-"""Background passes that keep the person cards and summaries fresh.
+"""Background pass that keeps the person cards fresh.
 
-Two count-triggered jobs on the `background` model, both run after she has
-already answered so neither is in the way of a reply: the person profile and
-the rolling conversation summary. Waiting for the nightly dreamer instead would
-leave a regular a stranger all evening.
+One count-triggered job on the `background` model, run after she has already
+answered so it is never in the way of a reply: the person profile. Waiting
+for the nightly dreamer instead would leave a regular a stranger all evening.
 """
 
 import asyncio

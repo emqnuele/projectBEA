@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 from src.core.memory.db import Database
 from src.core.memory.rag import Rag
+from src.core.memory.store import Conversations
 from src.core.skills.memory.memory import MemorySkill
 
 WORK_SECONDS = 0.2
@@ -32,18 +33,28 @@ class SlowEmbedder:
 
 
 class FakeGenerator:
-    async def generate_diary(self, history):
+    async def generate_diary(self, transcript):
         return {"diary_content": "marco adora minecraft e la pizza",
                 "tags": ["marco"], "user_id": "u1"}
 
 
-def _skill(rag):
+def _skill(rag, conversations):
     config = SimpleNamespace(skills={"memory": {"enabled": True}})
-    context = SimpleNamespace(memory=SimpleNamespace(rag=rag))
+    context = SimpleNamespace(memory=SimpleNamespace(rag=rag, conversations=conversations))
     skill = MemorySkill(config, None, None, context)
     skill.initialize()
     skill.generator = FakeGenerator()
     return skill
+
+
+def _an_evening(conversations, session="s1"):
+    conversations.add(conversation_key="stage", role="user", kind="chat",
+                      content="[marco] ciao bea, parliamo di minecraft",
+                      author_identity="ui:marco", display_name="marco",
+                      session_id=session)
+    conversations.add(conversation_key="stage", role="bea", kind="voice",
+                      content="volentieri, raccontami", display_name="bea",
+                      session_id=session)
 
 
 async def _ticks_during(coro) -> int:
@@ -67,11 +78,11 @@ async def _ticks_during(coro) -> int:
 async def test_saving_the_diary_does_not_stall_the_loop():
     db = Database(":memory:").init()
     try:
+        conversations = Conversations(db)
+        _an_evening(conversations)
         rag = Rag(db, SlowEmbedder(), min_similarity=0.2)
-        skill = _skill(rag)
-        history = [{"role": "user", "content": "ciao bea, parliamo di minecraft"},
-                   {"role": "assistant", "content": "volentieri, raccontami"}]
-        ticks = await _ticks_during(skill._process_session_async("s1", history))
+        skill = _skill(rag, conversations)
+        ticks = await _ticks_during(skill._process_session_async("s1"))
         assert ticks > 5
         assert rag.exists("diary", "s1")
     finally:
@@ -81,12 +92,12 @@ async def test_saving_the_diary_does_not_stall_the_loop():
 async def test_the_diary_is_embedded_off_the_main_thread():
     db = Database(":memory:").init()
     try:
+        conversations = Conversations(db)
+        _an_evening(conversations)
         embedder = SlowEmbedder()
         rag = Rag(db, embedder, min_similarity=0.2)
-        skill = _skill(rag)
-        history = [{"role": "user", "content": "ciao bea, parliamo di minecraft"},
-                   {"role": "assistant", "content": "volentieri, raccontami"}]
-        await skill._process_session_async("s1", history)
+        skill = _skill(rag, conversations)
+        await skill._process_session_async("s1")
         assert embedder.thread is not threading.main_thread()
     finally:
         db.close()

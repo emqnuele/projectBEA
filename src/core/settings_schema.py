@@ -388,7 +388,7 @@ MODELS = Section(
                 "provider:model, comma separated. Every one must support tool calling.",
                 [], restart=True),
         Setting("background", "Background pool", "list",
-                "Diary, summaries, person cards. Slow and cheap is fine here.",
+                "Diary, dreamer, person cards. Slow and cheap is fine here.",
                 [], restart=True),
         Setting("minecraft", "Body pool", "list",
                 "What her body in the game thinks with. Empty means the mind pool: "
