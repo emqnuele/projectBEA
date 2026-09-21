@@ -510,6 +510,12 @@ class SelfLore:
 # --- conversations ----------------------------------------------------------
 
 
+# the one surface whose incoming lines belong in the dashboard chat: the owner
+# typing or speaking into it. Everything else reaching the stage is someone
+# else in another room.
+DASHBOARD_SURFACE = "chat:ui"
+
+
 class Conversations:
     """The whole stream: everything the dream consolidates and recall reads.
 
@@ -627,17 +633,20 @@ class Conversations:
         ))
 
     def dashboard_history(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """What the dashboard shows: the live room stream, oldest first.
+        """What the dashboard shows: the owner typing, and her answers.
 
-        The stage only, spoken lines only: user rows from chat:ui and her own
-        stage replies. Other conversations never leak in, and world rows stay
-        in the stream without taking a speaker seat. Roles follow the history
-        shape the frontend already reads (`assistant`, not `bea`).
+        Surface, not just conversation key: a voice call, a player in the game
+        and a donation all route to `stage` too, and filtering on the key
+        alone put every one of them in the owner's private chat as though he
+        had typed it. Her own spoken lines stay — the dashboard is where she
+        is answered from — and world rows never take a speaker seat. Roles
+        follow the history shape the frontend already reads (`assistant`).
         """
         rows = self.db.query(
             "SELECT role, content, ts FROM messages "
-            "WHERE conversation_key = 'stage' AND role IN ('user', 'bea') "
-            "ORDER BY id DESC LIMIT ?", (limit,),
+            "WHERE conversation_key = 'stage' "
+            "  AND (role = 'bea' OR (role = 'user' AND surface = ?)) "
+            "ORDER BY id DESC LIMIT ?", (DASHBOARD_SURFACE, limit),
         )
         out = []
         for r in reversed(rows):
