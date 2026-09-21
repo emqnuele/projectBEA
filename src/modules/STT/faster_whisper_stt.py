@@ -141,13 +141,15 @@ def announce_download(model: str, root: str,
         + f" into {root}. This happens once, and she cannot hear until it lands.")
 
     done = threading.Event()
+    already = directory_bytes(root)
 
     def watch() -> None:
         reported = 0
         while not done.wait(tick):
             if not size:
                 continue
-            percent = min(99, int(directory_bytes(root) * 100 / (size * 1_000_000)))
+            landed = max(0, directory_bytes(root) - already)
+            percent = min(99, int(landed * 100 / (size * 1_000_000)))
             # every tenth: a ten-minute download is ten lines, not two thousand
             if percent >= reported + 10:
                 reported = percent - percent % 10

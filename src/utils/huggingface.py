@@ -113,7 +113,7 @@ def directory_bytes(path: str) -> int:
 def watched(work: Callable[[], Any], root: str,
             on_progress: Optional[Callable[[int], None]] = None,
             tick: float = 0.3) -> Optional[Exception]:
-    """Runs a download, reporting how much of `root` exists as it goes.
+    """Runs a download, reporting how much of it has landed in `root` as it goes.
 
     Returns the error it failed on, or None — a download is never worth taking
     anything else down, here or at startup. The work happens on a thread only
@@ -123,6 +123,14 @@ def watched(work: Callable[[], Any], root: str,
 
     os.makedirs(root, exist_ok=True)
     failure: List[Exception] = []
+
+    # the cache root is shared with every model already down there, so only the
+    # bytes that arrive from here on belong to this download's bar
+    already = directory_bytes(root)
+
+    def report() -> None:
+        if on_progress:
+            on_progress(max(0, directory_bytes(root) - already))
 
     def attempt() -> None:
         try:
@@ -135,9 +143,7 @@ def watched(work: Callable[[], Any], root: str,
         worker.start()
         while worker.is_alive():
             worker.join(tick)
-            if on_progress:
-                on_progress(directory_bytes(root))
-    if on_progress:
-        on_progress(directory_bytes(root))
+            report()
+    report()
 
     return failure[0] if failure else None
