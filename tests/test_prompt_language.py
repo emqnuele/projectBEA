@@ -80,7 +80,7 @@ def test_the_diary_is_told_which_language_to_write_in():
 
     import asyncio
     asyncio.run(DiaryGenerator(FakeLLM(), language="ja").generate_diary(
-        [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hi"}]))
+        "--- stage ---\n[ema] hi\nyou: hi"))
 
     assert "Japanese" in built[0]
     assert "{language}" not in built[0]
@@ -99,7 +99,7 @@ def test_detection_tells_a_background_pass_to_follow_the_conversation():
 
     import asyncio
     asyncio.run(DiaryGenerator(FakeLLM(), language="auto").generate_diary(
-        [{"role": "user", "content": "ciao"}, {"role": "assistant", "content": "ciao"}]))
+        "--- stage ---\n[ema] ciao\nyou: ciao"))
 
     assert "language the conversation is in" in built[0]
 

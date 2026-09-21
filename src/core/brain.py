@@ -469,14 +469,15 @@ class AIVtuberBrain:
 
     def create_new_session(self):
         prev_session_id = self.history_manager.session_id
-        prev_history = self.history_manager.history
 
         self.history_manager.create_session()
         self.memory.sessions.record(self.history_manager.session_id)
         logger.info(f"Created new session: {self.history_manager.session_id}")
 
-        if prev_session_id and prev_history and self.memory_skill:
-            self.memory_skill.process_previous_session(prev_session_id, prev_history)
+        # the page is written from the stream of that session, so the id is
+        # everything the skill needs: what was said is already on disk
+        if prev_session_id and self.memory_skill:
+            self.memory_skill.process_previous_session(prev_session_id)
 
         return self.history_manager.session_id
 

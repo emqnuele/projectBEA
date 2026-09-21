@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.memory.rag import SOURCE_PERSON
+from src.core.memory.transcript import render_stream, spoken_count
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.memory.generator import DiaryGenerator
@@ -19,6 +20,9 @@ _PREFIX_RE = re.compile(r"^\s*\[[^\]]*\]\s*(\([^)]*\))?\s*:?\s*")
 
 # how many diary entries reach the prompt at once
 RECALL_LIMIT = 3
+
+# a sitting with fewer spoken lines than this has nothing to write a page about
+MIN_SPOKEN_LINES = 2
 
 
 def _clean_for_query(rendered: str) -> str:
@@ -99,25 +103,43 @@ class MemorySkill(Skill):
 
     # --- writing the diary --------------------------------------------------
 
-    def process_previous_session(self, session_id: str, history: List[Dict]) -> None:
+    @property
+    def _stream(self):
+        memory = getattr(self.context, "memory", None)
+        return getattr(memory, "conversations", None) if memory else None
+
+    def _transcript(self, session_id: str) -> str:
+        """One sitting, both sides of it, every surface. Empty when it was quiet."""
+        stream = self._stream
+        if stream is None:
+            return ""
+        rows = stream.stream(session_id)
+        if spoken_count(rows) < MIN_SPOKEN_LINES:
+            return ""
+        return render_stream(rows)
+
+    def process_previous_session(self, session_id: str) -> None:
         if not self.enabled or self.rag is None:
-            return
-        if len(history) < 2:
-            logger.info(f"MemorySkill: session {session_id} too short, skipping.")
             return
         if self.rag.exists("diary", session_id):
             logger.info(f"MemorySkill: diary for {session_id} already exists, skipping.")
             return
-        self._pending = asyncio.create_task(self._process_session_async(session_id, history))
+        if not self._transcript(session_id):
+            logger.info(f"MemorySkill: session {session_id} too short, skipping.")
+            return
+        self._pending = asyncio.create_task(self._process_session_async(session_id))
 
-    async def _process_session_async(self, session_id: str, history: List[Dict]) -> None:
+    async def _process_session_async(self, session_id: str) -> None:
         if not self.generator or self.rag is None:
             logger.error("MemorySkill: generator not initialized.")
             return
         if self.rag.exists("diary", session_id):
             return
+        transcript = self._transcript(session_id)
+        if not transcript:
+            return
         try:
-            diary = await self.generator.generate_diary(history)
+            diary = await self.generator.generate_diary(transcript)
             if diary:
                 # embedding blocks for tens of ms: not on the loop
                 await asyncio.to_thread(self._save_diary, session_id, diary)
@@ -143,11 +165,11 @@ class MemorySkill(Skill):
         if not self.enabled:
             return False
         hm = getattr(self.context, "history_manager", None)
-        if not hm or not hm.session_id or not hm.history:
+        if not hm or not hm.session_id:
             logger.warning("MemorySkill: no active session to save.")
             return False
         logger.info(f"MemorySkill: manual save triggered for {hm.session_id}")
-        self.process_previous_session(hm.session_id, hm.history)
+        self.process_previous_session(hm.session_id)
         return True
 
     async def save_all_pending(self) -> None:
@@ -155,13 +177,13 @@ class MemorySkill(Skill):
         if not self.enabled or self.rag is None:
             return
         hm = getattr(self.context, "history_manager", None)
-        if not hm or not hm.session_id or len(hm.history or []) < 2:
+        if not hm or not hm.session_id:
             return
         if self.rag.exists("diary", hm.session_id):
             logger.info(f"MemorySkill: session {hm.session_id} already saved.")
             return
         logger.info(f"MemorySkill: saving final session {hm.session_id}…")
-        await self._process_session_async(hm.session_id, hm.history)
+        await self._process_session_async(hm.session_id)
 
 
 def _when(timestamp: float) -> str:
