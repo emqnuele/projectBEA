@@ -7,9 +7,9 @@ identity to the existing card instead of minting. Substring matches and
 strangers who never shared a session stay separate cards.
 """
 
-import pytest
-
 from types import SimpleNamespace
+
+import pytest
 
 from src.core.memory.store import MemoryStore
 from src.core.perception.types import Author, Perception, PerceptionKind
@@ -175,7 +175,7 @@ def test_linking_a_stranger_creates_nothing(memory):
 
 
 def test_two_speakers_need_disambiguation(memory):
-    marco = card_for(memory)
+    card_for(memory)
     skill = social_skill(memory)
     skill.context_for([voice("minecraft:uuid-1", "xX_DarkSlayer"),
                        voice("discord:2", "luca")])
