@@ -98,11 +98,13 @@ export function AnimatedIcon({ icon: Icon, state = 'idle', size = 16, className,
 }
 
 /** A ring that fills. Used for plan progress, where a bar would be one more bar. */
-export function ProgressRing({ value = 0, size = 44, thickness = 3, color = 'var(--vital)', children }) {
+export function ProgressRing({ value = 0, size = 44, thickness = 3, color = 'var(--vital)', marker = null, children }) {
     const radius = (size - thickness) / 2;
     const circumference = 2 * Math.PI * radius;
     const progress = useSpring(0, { stiffness: 120, damping: 24 });
     const offset = useTransform(progress, (v) => circumference * (1 - v));
+    // a tick on the rim, e.g. the token count where the handoff starts
+    const markerAngle = marker === null ? null : Math.max(0, Math.min(1, marker)) * 2 * Math.PI - Math.PI / 2;
 
     useEffect(() => { progress.set(Math.max(0, Math.min(1, value))); }, [value, progress]);
 
@@ -119,6 +121,14 @@ export function ProgressRing({ value = 0, size = 44, thickness = 3, color = 'var
                     strokeDasharray={circumference}
                     style={{ strokeDashoffset: offset }}
                 />
+                {markerAngle !== null && (
+                    <circle
+                        cx={size / 2 + radius * Math.cos(markerAngle)}
+                        cy={size / 2 + radius * Math.sin(markerAngle)}
+                        r={thickness}
+                        fill="var(--text-faint)"
+                    />
+                )}
             </svg>
             {children && <span className="absolute inset-0 grid place-items-center">{children}</span>}
         </div>

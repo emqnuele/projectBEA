@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
-import { Field, SecretInput, Select, Slider, TextInput, CheckRow } from '../../components/ui/fields';
+import { Field, SecretInput, Select, TextInput, CheckRow } from '../../components/ui/fields';
 import { Button } from '../../components/ui/controls';
 import { CopyField, Group, ProviderChoice, SecretState, TestButton } from './parts';
 import { StagePreview } from './StagePreview';
@@ -73,48 +73,6 @@ function MindSection({ config, update, updateSkill }) {
                         onChange={(e) => update('system_prompt_path', e.target.value)}
                         placeholder="data/prompts/chat.md"
                         className="font-mono"
-                    />
-                </Field>
-            </Group>
-
-            <Group
-                title="Memory"
-                description="Where what she remembers lives, and how close a match has to be to come back."
-            >
-                <Field label="Database" help="One SQLite file holding people, the diary and her self-lore.">
-                    <TextInput
-                        value={config.skills?.memory?.db_path || ''}
-                        onChange={(e) => updateSkill('memory', 'db_path', e.target.value)}
-                        placeholder="data/bea.db"
-                        className="font-mono"
-                    />
-                </Field>
-                <Field label="Embedding model" help="Local, and it runs on CPU. Changing it re-embeds everything.">
-                    <TextInput
-                        value={config.skills?.memory?.embedding_model || ''}
-                        onChange={(e) => updateSkill('memory', 'embedding_model', e.target.value)}
-                        className="font-mono"
-                    />
-                </Field>
-                <Slider
-                    label="Recall threshold"
-                    value={config.skills?.memory?.min_similarity ?? 0.3}
-                    onChange={(value) => updateSkill('memory', 'min_similarity', value)}
-                    min={0} max={1} step={0.01}
-                    format={(v) => v.toFixed(2)}
-                />
-                <p className="text-[11px] leading-snug text-faint">
-                    Lower means she reaches for more, and remembers things that only half fit.
-                </p>
-            </Group>
-
-            <Group title="Dreaming" description="What she does with the day while she is asleep.">
-                <Field label="Nightly pass at" help="Hour of the day, 0–23. She sleeps, rereads, then wakes.">
-                    <TextInput
-                        type="number" min={0} max={23}
-                        value={config.skills?.dream?.hour ?? 4}
-                        onChange={(e) => updateSkill('dream', 'hour', parseInt(e.target.value, 10) || 0)}
-                        className="w-24"
                     />
                 </Field>
             </Group>
@@ -800,6 +758,7 @@ function WorldSection({ config, updateSkill }) {
 // it does more than set a value (file pickers, provider trade-offs, live tests).
 const SCHEMA_DRIVEN = [
     'models', 'attention', 'rhythm', 'discord', 'telegram', 'twitch', 'donations',
+    'consciousness', 'memory', 'dream', 'affect',
 ];
 
 export const SECTIONS = {

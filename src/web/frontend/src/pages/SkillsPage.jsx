@@ -24,17 +24,17 @@ const CATALOGUE = {
     memory: {
         icon: Users, title: 'Memory',
         blurb: 'Person cards, the diary and semantic recall. Without this she forgets everyone between sessions.',
-        settings: 'mind',
+        settings: 'memory',
     },
     social_memory: {
         icon: HeartHandshake, title: 'Social memory',
         blurb: 'Keeps track of who is who across platforms and how she feels about them.',
-        settings: 'mind',
+        settings: 'memory',
     },
     dream: {
         icon: Moon, title: 'Dreaming',
         blurb: 'While asleep she rereads the day, writes people down and works out things about herself.',
-        settings: 'mind',
+        settings: 'dream',
     },
     minecraft: {
         icon: Gamepad2, title: 'Minecraft',
@@ -44,22 +44,22 @@ const CATALOGUE = {
     twitch: {
         icon: MessageCircle, title: 'Twitch',
         blurb: 'Reads the stream chat and answers the parts that concern her.',
-        settings: 'channels',
+        settings: 'twitch',
     },
     donations: {
         icon: Coins, title: 'Donations',
         blurb: 'Alerts reach her as perceptions, so she can react to them live.',
-        settings: 'channels',
+        settings: 'donations',
     },
     telegram: {
         icon: Send, title: 'Telegram',
         blurb: 'Private conversations that run beside everything else.',
-        settings: 'channels',
+        settings: 'telegram',
     },
     discord: {
         icon: MessageCircle, title: 'Discord',
         blurb: 'Text channels and voice calls, each one its own conversation.',
-        settings: 'channels',
+        settings: 'discord',
     },
 };
 
