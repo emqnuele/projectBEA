@@ -94,6 +94,13 @@ makes sense while she is texting.
 | the [profiler](memory.md) | after ~20 of someone's messages, and refreshed rarely |
 | the [dreamer](dream.md) | overnight, from the whole session |
 
+Every source mints through one function (`promote_entry` in `people.py`):
+an identity whose display name exactly matches a card it shared a session
+with links to that card instead of minting a second one. Near matches and
+names that never shared a session stay separate — two different humans with
+one first name must not become one card. Duplicates minted before this rule
+are folded at boot by `repair_duplicate_cards`, same condition.
+
 Facts are capped per card (`MAX_FACTS_STORED`) and only the most recent are
 shown, so a card that keeps growing never eats the prompt.
 

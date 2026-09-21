@@ -6,6 +6,7 @@ from src.core.memory.store import PersonCard, RosterEntry
 from src.core.perception.types import PerceptionKind
 from src.core.skills.base import Skill
 from src.core.skills.social.people import (
+    promote_entry,
     promotion_reason,
     resolve_or_create_card,
     should_promote,
@@ -108,12 +109,8 @@ class SocialMemory(Skill):
             return None
         reason = promotion_reason(entry)
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        card = self.people.create_from_entry(
-            entry, reason=reason, seed_facts=[f"first noticed {today} ({reason})"]
-        )
-        self.roster.set_promoted(entry.identity, card.person_id)
-        logger.info(f"SocialMemory: promoted {entry.display_name} ({reason}).")
-        return card
+        return promote_entry(self.roster, self.people, entry, reason=reason,
+                             seed_facts=[f"first noticed {today} ({reason})"])
 
     # --- tools --------------------------------------------------------------
 

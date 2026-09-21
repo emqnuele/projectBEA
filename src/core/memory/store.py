@@ -245,6 +245,19 @@ class PeopleStore:
         )
         return self._card(row) if row else None
 
+    def find_exact_name(self, name: str) -> Optional[PersonCard]:
+        """A card with exactly this primary name, case-insensitive.
+
+        No substring fallback: this decides identity merges, where a near
+        match is a different human.
+        """
+        low = name.strip().lower()
+        if not low:
+            return None
+        row = self.db.query_one(
+            "SELECT * FROM people WHERE LOWER(primary_name) = ?", (low,))
+        return self._card(row) if row else None
+
     def create_from_entry(self, entry: RosterEntry, reason: str = "",
                           seed_facts: Optional[List[str]] = None,
                           attitude: str = "") -> PersonCard:

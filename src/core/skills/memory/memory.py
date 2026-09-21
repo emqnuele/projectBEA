@@ -56,6 +56,7 @@ class MemorySkill(Skill):
         if not self.enabled:
             logger.info("MemorySkill stays inactive (memory toggle off).")
             return
+        self._repair_identities()
         if self.rag is None:
             logger.error("MemorySkill: no rag available (the embedder failed to build).")
             return
@@ -67,6 +68,24 @@ class MemorySkill(Skill):
         else:
             logger.error("MemorySkill: no model available for the diary generator!")
         self.active = True
+
+    def _repair_identities(self) -> None:
+        """Folds duplicate cards minted before promotion had one choke point.
+
+        Runs at boot, needs no embedder: it only reads roster sessions and
+        rekeys facts and identities. A failure here must never take memory
+        down with it.
+        """
+        memory = getattr(self.context, "memory", None)
+        if memory is None:
+            return
+        try:
+            from src.core.skills.social.people import repair_duplicate_cards
+            merged = repair_duplicate_cards(memory.roster, memory.people)
+            if merged:
+                logger.info(f"MemorySkill: folded {merged} duplicate card(s).")
+        except Exception as e:
+            logger.warning(f"MemorySkill: identity repair failed: {e}")
 
     def tools(self) -> List[Tool]:
         # no recall tool: context_for already injects it every turn
