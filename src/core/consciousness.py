@@ -28,6 +28,11 @@ from src.utils.sanitize import clean_model_output
 
 logger = get_logger("bea.consciousness")
 
+# the handoff recap as a settings row: the window mirror holds entries, and
+# the prose that opens the next window is not one — without this a restart
+# restores the evening without its head
+HANDOFF_PROSE_KEY = "handoff_prose"
+
 
 def _block(what: str, produce) -> str:
     """One part of the briefing, or nothing when building it went wrong.
@@ -153,6 +158,7 @@ class Consciousness:
         restored = self.sliding_window.restore()
         if restored:
             logger.info(f"Window restored: {restored} entr(ies) from the last run.")
+        self._load_bridge()
         for s in self.surfaces.all():
             try:
                 await s.start()
@@ -1026,6 +1032,34 @@ class Consciousness:
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
 
+    def _save_bridge(self) -> None:
+        """Mirrors the handoff recap to disk. A restart restores it in start()."""
+        try:
+            prose = self._handoff.last_prose or ""
+            if prose:
+                self.memory.db.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (HANDOFF_PROSE_KEY, prose),
+                )
+            else:
+                self.memory.db.execute(
+                    "DELETE FROM settings WHERE key = ?", (HANDOFF_PROSE_KEY,),
+                )
+        except Exception as e:
+            logger.warning(f"Could not save the handoff bridge: {e}")
+
+    def _load_bridge(self) -> None:
+        """Restores the handoff recap saved by _save_bridge, if any."""
+        try:
+            prose = self.memory.db.scalar(
+                "SELECT value FROM settings WHERE key = ?", (HANDOFF_PROSE_KEY,),
+                default="",
+            )
+            self._handoff.last_prose = str(prose or "")
+        except Exception as e:
+            logger.warning(f"Could not restore the handoff bridge: {e}")
+
     def forget_window(self, bridge: str = "") -> None:
         """Empties the one window, leaving the bridge the consolidation wrote.
 
@@ -1038,6 +1072,7 @@ class Consciousness:
             self._handoff_task.cancel()
             self._handoff_task = None
         self._handoff.last_prose = ""
+        self._save_bridge()
         self.sliding_window.clear(bridge)
         logger.info("Window cleared by the consolidation.")
 
@@ -1073,6 +1108,7 @@ class Consciousness:
             try:
                 self._handoff.set_llm(self.background_llm or self.llm)
                 await self._handoff.maybe_swap(self.sliding_window)
+                self._save_bridge()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
