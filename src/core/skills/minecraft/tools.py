@@ -24,6 +24,11 @@ _ALIASES = {
     "look_at_player": ("look_at", {"name": "player"}),
 }
 
+_PILLARING = {"type": "boolean",
+              "description": "May tower straight up on placed blocks to get there."}
+_BRIDGING = {"type": "boolean",
+             "description": "May bridge out over a gap to get there."}
+
 # name -> (description, json-schema parameters)
 _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     "mine_block": ("Navigate to and mine a specific block.", {
@@ -31,14 +36,20 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
         "required": ["x", "y", "z"],
     }),
-    "attack_entity": ("Attack a specific entity.", {
+    "attack_entity": ("Attack something: a player by name, or the nearest mob of a type.", {
         "type": "object",
-        "properties": {"target": {"type": "integer", "description": "Entity ID of the target."}},
+        "properties": {"target": {
+            "type": "string",
+            "description": "A player's name, or a mob type like 'zombie' — the nearest one wins.",
+        }},
         "required": ["target"],
     }),
     "move_to": ("Move to specific coordinates.", {
         "type": "object",
-        "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
+        "properties": {
+            "x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"},
+            "allowPillaring": _PILLARING, "allowBridging": _BRIDGING,
+        },
         "required": ["x", "y", "z"],
     }),
     "stop_moving": ("Stop all movement immediately.", {"type": "object", "properties": {}}),
@@ -61,14 +72,19 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "properties": {"slot": {"type": "integer", "minimum": 0, "maximum": 8}},
         "required": ["slot"],
     }),
-    "find_block": ("Find the nearest block of a given type.", {
-        "type": "object",
-        "properties": {
-            "block": {"type": "string"},
-            "max_distance": {"type": "integer", "default": 100, "description": "Maximum search radius."},
-        },
-        "required": ["block"],
-    }),
+    "find_block": (
+        "Find the nearest block of a given type, go to it and mine it. Set `count` "
+        "to keep going until you have that many.",
+        {
+            "type": "object",
+            "properties": {
+                "block": {"type": "string"},
+                "radius": {"type": "integer", "default": 100, "description": "How far to search."},
+                "count": {"type": "integer", "description": "How many to gather; defaults to 7."},
+                "allowPillaring": _PILLARING, "allowBridging": _BRIDGING,
+            },
+            "required": ["block"],
+        }),
     "pillar_up": ("Pillar up a certain height.", {
         "type": "object",
         "properties": {"height": {"type": "integer"}, "block": {"type": "string"}},
@@ -89,7 +105,11 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     }),
     "craft_item": ("Craft an item using a nearby crafting table or inventory.", {
         "type": "object",
-        "properties": {"item": {"type": "string"}},
+        "properties": {
+            "item": {"type": "string"},
+            "quantity": {"type": "integer", "minimum": 1,
+                         "description": "How many to make; defaults to 1."},
+        },
         "required": ["item"],
     }),
     "use_block": ("Interact (right click) with a block at coordinates.", {
@@ -112,16 +132,26 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "properties": {"item": {"type": "string"}},
         "required": ["item"],
     }),
-    "equip_item": ("Equip an item from inventory to main hand.", {
-        "type": "object",
-        "properties": {"item": {"type": "string"}},
-        "required": ["item"],
-    }),
-    "discard_item": ("Discard (throw away) items.", {
+    "equip_item": (
+        "Put something on: a tool in your hand, armour on your body, a shield in your "
+        "off hand. Armour and a shield are what keep you alive — wear them.",
+        {
+            "type": "object",
+            "properties": {
+                "item": {"type": "string"},
+                "destination": {
+                    "type": "string", "enum": ["mainhand", "armor", "offhand"],
+                    "description": "Where it goes; defaults to your main hand.",
+                },
+            },
+            "required": ["item"],
+        }),
+    "discard_item": ("Discard (throw away) items. Omit `count` to drop every one you have.", {
         "type": "object",
         "properties": {
             "item": {"type": "string"},
-            "all": {"type": "boolean", "description": "Discard all stacks of this item?"},
+            "count": {"type": "integer", "minimum": 1,
+                      "description": "How many to drop; omit for all of them."},
         },
         "required": ["item"],
     }),

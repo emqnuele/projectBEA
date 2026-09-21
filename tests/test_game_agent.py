@@ -61,7 +61,7 @@ def prose(text: str) -> AssistantMessage:
     return AssistantMessage(content=text)
 
 
-async def play(a: GameAgent, goal: str, timeout: float = 2.0):
+async def play(a: GameAgent, goal: str, timeout: float = 2.0, requires=None):
     """Runs the real loop until the goal closes, and returns it."""
     closed = asyncio.Event()
     previous = a.on_goal_closed
@@ -73,7 +73,7 @@ async def play(a: GameAgent, goal: str, timeout: float = 2.0):
 
     a.on_goal_closed = note
     a.start()
-    a.set_goal(goal)
+    a.set_goal(goal, requires=requires)
     try:
         await asyncio.wait_for(closed.wait(), timeout)
     finally:

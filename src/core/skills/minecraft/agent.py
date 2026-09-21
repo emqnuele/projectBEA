@@ -17,8 +17,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from src.core.agent.messages import assistant_to_message, tool_result_message
 from src.core.skills.minecraft.context import KEEP_ROUNDS, BodyContext
-from src.core.skills.minecraft.goal import ABANDONED, DONE, RUNNING, STUCK, SUSPENDED, Goal
-from src.core.skills.minecraft.state import render_state
+from src.core.skills.minecraft.goal import ABANDONED, DONE, RUNNING, STUCK, SUSPENDED, Goal, unmet
+from src.core.skills.minecraft.state import count_items, render_state
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
 
@@ -51,7 +51,8 @@ OnGoalClosed = Callable[[Goal], None]
 
 _DONE_DESC = (
     "The goal is achieved — hand it back to her. `summary` is the one line she hears, "
-    "so make it factual and worth reading. Call it the moment it is true."
+    "so make it factual and worth reading. Call it the moment it is true. If the goal "
+    "came with something to have, this is checked against your inventory before it counts."
 )
 _BLOCKED_DESC = (
     "You cannot get there, and `reason` says why. For the world being in the way — no "
@@ -118,7 +119,24 @@ class GameAgent:
             self._tool_blocked)
 
     def _tool_done(self, summary: str = "") -> str:
+        short = self._still_short()
+        if short:
+            # a claim, not an achievement: the goal stays open and the body is
+            # told the number it is arguing with
+            return (f"FAILURE: not done — you have {short}. Keep going, or call "
+                    f"goal_blocked if you genuinely cannot get there.")
         return self._declare(DONE, summary)
+
+    def _still_short(self) -> str:
+        """What the world says is missing before this goal may close."""
+        goal = self._round_goal or self.goal
+        if goal is None or not goal.requires:
+            return ""
+        state = self._state()
+        if not (state or {}).get("inventory"):
+            # a body that cannot see its own bag would never close anything
+            return ""
+        return unmet(goal.requires, count_items(state))
 
     def _tool_blocked(self, reason: str = "") -> str:
         return self._declare(STUCK, reason)
@@ -174,8 +192,12 @@ class GameAgent:
 
     # --- direction from the mind -------------------------------------------
 
-    def set_goal(self, text: str) -> str:
-        """She decided what the body should be doing. Takes effect immediately."""
+    def set_goal(self, text: str, requires: Optional[Dict[str, int]] = None) -> str:
+        """She decided what the body should be doing. Takes effect immediately.
+
+        `requires` is what the world has to agree about before the body may
+        call it done — without it, done means only that the body said so.
+        """
         text = (text or "").strip()
         if not text:
             return "You didn't say what you wanted."
@@ -185,7 +207,7 @@ class GameAgent:
             previous.status = ABANDONED
             logger.info(f"GameAgent: dropping '{previous.text}' for '{text}'")
 
-        self.goal = Goal(text=text)
+        self.goal = Goal(text=text, requires=_wanted(requires))
         self.last_thought = ""
         self.ctx.start(self._mission(self.goal))
         self._cancel_step()
@@ -339,7 +361,12 @@ class GameAgent:
         return compose(self.rules, "GOAL FROM BEA: " + goal.text)
 
     def _mission(self, goal: Goal) -> str:
-        return (f"GOAL: {goal.text}\n\n"
+        checked = ""
+        if goal.requires:
+            wanted = ", ".join(f"{n}×{c}" for n, c in goal.requires.items())
+            checked = (f"\n\nThis one is checked: you are done when you have {wanted}, "
+                       f"and goal_done will be refused until you do.")
+        return (f"GOAL: {goal.text}{checked}\n\n"
                 "Write or update your notebook first, then start. Call goal_done when "
                 "you have it, goal_blocked when you genuinely cannot.")
 
@@ -397,6 +424,20 @@ _BAD = ("FAILURE", "FAILED", "ERROR", "TIMEOUT", "INTERRUPTED")
 
 def _went_wrong(observation: str) -> bool:
     return str(observation or "").lstrip().upper().startswith(_BAD)
+
+
+def _wanted(requires: Optional[Dict[str, int]]) -> Dict[str, int]:
+    """Whatever she asked for, reduced to item -> a positive count."""
+    clean: Dict[str, int] = {}
+    for name, count in (requires or {}).items():
+        item = str(name or "").strip().lower().split(":")[-1]
+        try:
+            needed = int(count)
+        except (TypeError, ValueError):
+            continue
+        if item and needed > 0:
+            clean[item] = needed
+    return clean
 
 
 def _clip(text: str, limit: int = 120) -> str:

@@ -8,6 +8,7 @@ away, because there was nothing left holding it.
 
 import time
 from dataclasses import dataclass, field
+from typing import Dict
 
 # a goal the body is working on right now
 RUNNING = "running"
@@ -37,6 +38,9 @@ class Goal:
     failures: int = 0
     # the one line the body closes with, which is what actually reaches her
     outcome: str = ""
+    # what the world has to agree about before this may close as done. Empty
+    # means the body's word is all there is, which is how it always was
+    requires: Dict[str, int] = field(default_factory=dict)
 
     @property
     def open(self) -> bool:
@@ -55,3 +59,22 @@ class Goal:
         if self.status == STUCK:
             return f"stuck on: {line}"
         return f"working on: {line}"
+
+
+def unmet(requires: Dict[str, int], have: Dict[str, int]) -> str:
+    """What is still missing, named with the numbers, or "" when nothing is.
+
+    A request matches an item by its exact name or by its kind, so `log` is
+    satisfied by oak_log and birch_log together. It matches on the whole last
+    word only: `stone` must not be answered by a stone_pickaxe.
+    """
+    short = []
+    for item, needed in (requires or {}).items():
+        got = sum(count for name, count in (have or {}).items() if _is(name, item))
+        if got < int(needed):
+            short.append(f"{item} {got}/{int(needed)}")
+    return ", ".join(short)
+
+
+def _is(name: str, wanted: str) -> bool:
+    return name == wanted or name.endswith("_" + wanted)

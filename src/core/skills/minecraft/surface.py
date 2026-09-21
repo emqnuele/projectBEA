@@ -520,7 +520,17 @@ class MinecraftSurface(Skill):
                 "gets stuck, or something worth knowing happens. One goal at a time — a new "
                 "one replaces the old one immediately.",
                 {"type": "object", "properties": {
-                    "goal": {"type": "string", "description": "what you want done, in plain words"}},
+                    "goal": {"type": "string", "description": "what you want done, in plain words"},
+                    "have": {
+                        "type": "object",
+                        "description": (
+                            "Optional. What it should be holding when it is done, like "
+                            "{\"iron_ingot\": 5} or {\"log\": 4}. Your body cannot call a goal "
+                            "finished until the game agrees it has them, so use it whenever "
+                            "the goal is about getting something."
+                        ),
+                        "additionalProperties": {"type": "integer"},
+                    }},
                  "required": ["goal"]},
                 self._tool_play,
             ),
@@ -576,7 +586,7 @@ class MinecraftSurface(Skill):
             ),
         ]
 
-    async def _tool_play(self, goal: str) -> str:
+    async def _tool_play(self, goal: str, have: Optional[Dict[str, Any]] = None) -> str:
         """Hands the body a direction and comes straight back.
 
         It used to wait here until the whole goal was over, which is why a tool
@@ -584,7 +594,7 @@ class MinecraftSurface(Skill):
         """
         if self.agent is None:
             return "FAILED: your body isn't connected."
-        return self.agent.set_goal(goal)
+        return self.agent.set_goal(goal, requires=have)
 
     async def _tool_chat(self, message: str) -> str:
         if self.client is None:

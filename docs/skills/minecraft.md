@@ -37,7 +37,7 @@ src/core/skills/minecraft/
 │ 7 tools: play_minecraft, mc_chat, mc_stop,             │
 │          mc_goto_player, mc_follow_player,             │
 │          mc_look_at_player, mc_give_item               │
-│ sees: game state as ~5 lines, milestones, player chat  │
+│ sees: the game state, milestones, player chat          │
 └────────────────────┬───────────────────────────────────┘
                      │  play_minecraft("get a stone pickaxe")
 ┌────────────────────▼───────────────────────────────────┐
@@ -84,9 +84,17 @@ The mod streams a lot. Most of it is filtered before it costs a thought.
 
 The game state itself lives in `live_state()` rather than in a perception: it is
 *where she is*, always true, not an event that should make her think. `state.py`
-renders it as about five lines — health, position, what she is holding, what is
-craftable, what is nearby, who is around — instead of the raw packet, which runs
-to hundreds of lidar entries underground.
+renders it as a handful of lines — health, position, what she is holding and
+wearing, what is craftable, what is nearby, what she is standing on, who is
+around — instead of the raw packet.
+
+Every block the mod names arrives with the coordinates and distance it was seen
+at, nearest first, because `mine_block`, `place_block` and `use_block` all
+require an exact coordinate and a model that is shown a tally can only invent
+one. The list is capped per kind, so a row of torches cannot spend the budget
+and hide the ore behind it. The bulk census, the block underfoot and the block
+overhead come from the mod as well: standing on air is how the body learns it
+is falling.
 
 ---
 
@@ -191,6 +199,17 @@ which is also what a model does when it is confused, or answers in prose. Those
 are not the same event, and the mind was being told they were. Prose now costs
 a round and earns a correction.
 
+**A goal it was asked to prove is checked against the world.** `play_minecraft`
+takes an optional `have` — `{"iron_ingot": 5}` — and `goal_done` is refused
+while the inventory disagrees, answering with the count it is short of rather
+than closing the goal. The body cannot talk its way to `done`; only the state
+the mod last sent can get it there. A request matches an item by its kind, so
+`log` is satisfied by oak and birch together, while `stone` is not satisfied by
+a stone pickaxe. Goals with no `have` close on the body's word, which is the
+right behaviour for *build a shelter* and the wrong one for *get five iron*.
+`goal_blocked` is never checked: that is the body reporting the world, not
+claiming an achievement.
+
 **It gives up rather than grinding.** `steps_per_goal` rounds, or five rounds in
 a row where every call failed, and the goal is `stuck`: the body stops and hands
 the problem to her. The loop itself keeps running.
@@ -215,7 +234,7 @@ does. The same line twice is never sent twice, and two never arrive within
 
 | Tool | Effect |
 |---|---|
-| `play_minecraft(goal)` | hand the body something to achieve |
+| `play_minecraft(goal, have)` | hand the body something to achieve, and what it has to be holding for that to count |
 | `mc_chat(message)` | type in game chat |
 | `mc_stop()` | put the body down |
 | `mc_goto_player(name)` | walk over to someone |
@@ -241,7 +260,7 @@ observation the model reasons on is what actually happened.
 
 ## The mod
 
-**BeaCraft** is a client-side Fabric mod (1.21.1, Java 21). It drives the local
+**BeaCraft** is a client-side Fabric mod (Minecraft 26.x, Java 25). It drives the local
 player by simulating input and sends ordinary packets, so to a server it looks
 like a normal client — nothing is required server-side, and it works on vanilla.
 
@@ -288,6 +307,25 @@ caller hanging for the full 60-second timeout while somebody else's completion
 resolved the wrong `await`. Actions nobody is waiting for any more are
 remembered too, so their late completion is discarded rather than handed to
 whoever asked next.
+
+### The contract
+
+`tests/fixtures/minecraft_contract.json`: for every action,
+the parameters that mod skill actually looks at, and the ones `ActionManager`
+fills in itself. `tools/mc_contract.py` regenerates it from a checkout:
+
+```bash
+uv run python tools/mc_contract.py --mod ../beacraft
+```
+
+`tests/test_minecraft_contract.py` holds the tool schemas against it, and fails
+in both directions. A parameter the brain sends and the mod never reads is a
+silent no-op — the model believes it asked for something and nothing happened.
+A parameter the mod accepts that the brain neither sends nor lists in `OMITTED`
+is new capability nobody has decided about, and the test refuses to let it pass
+unnoticed. Regenerate the fixture whenever a mod skill gains or loses a
+parameter, and review the diff: it is the only place the two repositories are
+written down together.
 
 ---
 

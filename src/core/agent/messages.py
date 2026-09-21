@@ -1,6 +1,6 @@
 """Turning our types into the OpenAI wire format.
 
-One copy. The consciousness, the agent runner and the conversation turns all
+One copy. The consciousness, the minecraft body and the conversation turns all
 build the same two message shapes, and three drifting copies of a serialization
 detail is how a subtle protocol bug gets introduced in exactly one of them.
 """
