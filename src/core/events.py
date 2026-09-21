@@ -54,6 +54,39 @@ class BrainEvent:
     timestamp: float = field(default_factory=time.time)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Return event as a flat dict with metadata merged to top level."""
+        result = {
+            "id": self.id,
+            "event_id": self.id,
+            "timestamp": self.timestamp,
+            "category": self.category.value,
+            "source": self.source,
+            "message": self.message,
+        }
+        result.update(self.metadata)
+        return result
+
+    @property
+    def event_type(self) -> Optional[str]:
+        return self.metadata.get("event_type")
+
+    @property
+    def subsystem(self) -> Optional[str]:
+        return self.metadata.get("subsystem")
+
+    @property
+    def payload(self) -> Optional[Dict]:
+        return self.metadata.get("payload")
+
+    @property
+    def run_id(self) -> Optional[str]:
+        return self.metadata.get("run_id")
+
+    @property
+    def parent_event_id(self) -> Optional[str]:
+        return self.metadata.get("parent_event_id")
+
 
 def _render(event: BrainEvent) -> Dict[str, Any]:
     """Render an event as a flat dict, with metadata merged to top level."""

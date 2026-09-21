@@ -314,7 +314,7 @@ class TestPresenceEventSemantics(unittest.TestCase):
         presence = PresenceRuntime(em)
         presence.connect()
         event = presence.set_emotion("love", motion="soft_idle", run_id="emotion-1")
-        serialized = em.event_to_dict(event)
+        serialized = event.to_dict()
         forbidden = ("png", "obs", "live2d", "filename", "path")
         for key, value in serialized.items():
             blob = str(value).lower()

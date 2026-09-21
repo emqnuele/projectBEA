@@ -80,7 +80,7 @@ class TestPresenceRuntime(unittest.TestCase):
         self.assertEqual(event.payload["emotion"], "love")
         self.assertEqual(event.payload["motion"], "soft_idle")
 
-        serialized = self.events.event_to_dict(event)
+        serialized = event.to_dict()
         forbidden = ("png", "obs", "live2d", "filename", "path")
 
         for key, value in serialized.items():
@@ -122,7 +122,7 @@ class TestPresenceRuntime(unittest.TestCase):
         )
 
         for event in (emotion, motion):
-            self.assertEqual(event.category, EventCategory.EMBODIMENT)
+            self.assertEqual(event.category.value, EventCategory.EMBODIMENT.value)
             self.assertEqual(event.subsystem, "presence")
 
 
