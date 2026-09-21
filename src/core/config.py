@@ -291,6 +291,8 @@ class BrainConfig:
         "handoff_trigger_tokens": 120_000,
         "handoff_target_tokens": 50_000,
         "context_handoff": True,      # off: the window only grows until the ceiling trims it
+        "window_persist_after_turn": True,  # off: the window only reaches disk on shutdown
+        "dynamic_context_timeout": 5.0,     # seconds a turn waits for recall before answering without it
         # one jsonl a day of every turn she takes: the prompt in force, what she
         # was shown, what she did and what it cost. Nothing leaves the machine.
         "turn_log": True,

@@ -114,10 +114,38 @@ def memory_search(q: str, k: int = 8, brain: AIVtuberBrain = Depends(get_brain))
             {
                 "text": r.text, "who": r.who, "source": r.source,
                 "similarity": round(r.similarity, 4),
-                "created_at": r.created_at, "scope_key": r.scope_key,
+                "created_at": r.created_at, "scope": r.scope, "scope_key": r.scope_key,
             }
             for r in recollections
         ]
 
     facts, hers = brain.memory.rag.recall_split(query, k=max(1, min(k, 30)))
     return {"facts": shape(facts), "hers": shape(hers)}
+
+
+BROWSABLE_SCOPES = ("diary", "conversation", "person")
+
+
+@router.get("/memory/browse")
+def memory_browse(scope: str = "diary", limit: int = 20,
+                  brain: AIVtuberBrain = Depends(get_brain)):
+    """The latest entries of one scope, newest first, without a semantic query.
+
+    `diary` is one page per session, `conversation` one recap per thread,
+    `person` one note per person met. Recall finds "what was said about x";
+    this is "what is written down at all".
+    """
+    if brain.memory.rag is None:
+        raise HTTPException(status_code=400, detail="Browsing needs the memory skill enabled")
+    if scope not in BROWSABLE_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown scope '{scope}': expected one of {', '.join(BROWSABLE_SCOPES)}",
+        )
+    return [
+        {
+            "text": r.text, "who": r.who, "source": r.source,
+            "created_at": r.created_at, "scope": r.scope, "scope_key": r.scope_key,
+        }
+        for r in brain.memory.rag.browse(scope, limit=max(1, min(limit, 200)))
+    ]
