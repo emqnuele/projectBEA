@@ -433,6 +433,11 @@ CONSCIOUSNESS = Section(
                 1800.0, minimum=60.0, maximum=21600.0),
         Setting("context_handoff", "Sliding handoff", "bool",
                 "Off, the window only grows until the ceiling trims it.", True),
+        Setting("window_persist_after_turn", "Persist after each turn", "bool",
+                "Off, the window only reaches disk on shutdown — a crash loses the evening.", True),
+        Setting("dynamic_context_timeout", "Recall waits at most", "float",
+                "Seconds a turn waits for retrieved context before answering without it.",
+                5.0, minimum=0.0, maximum=30.0),
     ],
 )
 

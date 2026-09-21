@@ -194,7 +194,9 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         "handoff_target_tokens": 50000,
         "hot_tokens": 30000,
         "hot_seconds": 1800.0,
-        "context_handoff": true
+        "context_handoff": true,
+        "window_persist_after_turn": true,
+        "dynamic_context_timeout": 5.0
     },
     "models": {
         "mind": [
@@ -308,6 +310,8 @@ engine refuses to start and says which key is missing.
 | `hot_tokens` | `30000` | Recent tokens kept verbatim across a handoff, never compressed |
 | `hot_seconds` | `1800.0` | Recent seconds kept verbatim across a handoff |
 | `context_handoff` | `true` | Off means the window only grows until the ceiling trims it |
+| `window_persist_after_turn` | `true` | Off means the window only reaches disk on shutdown |
+| `dynamic_context_timeout` | `5.0` | Seconds a turn waits for recall before answering without it |
 
 ---
 

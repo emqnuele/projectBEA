@@ -44,7 +44,7 @@ export default function HomePage() {
             : <LoadingBento />;
     }
 
-    const { plan, skills, memory, engine, session, context } = overview;
+    const { plan, skills, memory, engine, session, context, dream } = overview;
     const ctxPct = context?.enabled && context.max_tokens
         ? Math.min(1, context.total_tokens / context.max_tokens)
         : 0;
@@ -246,6 +246,9 @@ export default function HomePage() {
                             ? `${memory.self_facts} things she has worked out about herself, ${memory.hot_facts} live right now.`
                             : 'Recall is off — enable the memory ability to let her search what she remembers.'}
                     </p>
+                    <p className="mt-1 font-mono text-[10px] text-faint">
+                        {dream?.last_night ? `Last dreamed ${dream.last_night}` : 'She has not dreamt yet'}
+                    </p>
                 </Tile>
 
                 {/* --- engine --- */}
@@ -265,23 +268,7 @@ export default function HomePage() {
                 {/* --- context window --- */}
                 <Tile className="md:col-span-3 xl:col-span-4" title="Context" hint="The one sliding window" icon={Brain}>
                     {context?.enabled ? (
-                        <div>
-                            <ProgressRing value={ctxPct} size={46}>
-                                <span className="tnum font-mono text-[10px] text-dim">
-                                    {Math.round(ctxPct * 100)}%
-                                </span>
-                            </ProgressRing>
-                            <p className="mt-2 font-mono text-[10px] text-faint">
-                                {compact(context.total_tokens)} of {compact(context.max_tokens)} tokens
-                            </p>
-                            <p className="mt-1 text-[11px] leading-snug text-dim">
-                                {context.handoff_running
-                                    ? 'Handing off to the next window…'
-                                    : context.swaps
-                                        ? `Handed off ${context.swaps}× — the window breathes.`
-                                        : 'Filling up. The handoff starts at the trigger.'}
-                            </p>
-                        </div>
+                        <ContextTile context={context} pct={ctxPct} />
                     ) : (
                         <p className="text-[11px] leading-snug text-faint">The mind is not running.</p>
                     )}
@@ -380,6 +367,48 @@ function MiniStat({ label, value }) {
         <div className="rounded-b2 border border-line bg-fill px-2.5 py-2">
             <p className="truncate font-mono text-[9px] uppercase tracking-wider text-faint">{label}</p>
             <p className="tnum mt-0.5 truncate font-display text-sm font-semibold text-text">{value}</p>
+        </div>
+    );
+}
+
+function ContextTile({ context, pct }) {
+    const triggerPct = context.max_tokens && context.trigger_tokens
+        ? context.trigger_tokens / context.max_tokens
+        : null;
+    const state = !context.handoff_enabled
+        ? 'The handoff is off — the window only grows.'
+        : context.handoff_running
+            ? 'Handing off to the next window…'
+            : context.over_max
+                ? 'Past the ceiling — trimming the cold past.'
+                : context.needs_handoff
+                    ? 'Past the trigger — the handoff is starting.'
+                    : context.handoff_swaps
+                        ? `Handed off ${context.handoff_swaps}× — the window breathes.`
+                        : 'Filling up. The handoff starts at the trigger.';
+    const bridge = (context.last_prose || '').split('\n')[0];
+    return (
+        <div>
+            <ProgressRing value={pct} marker={triggerPct} size={46}>
+                <span className="tnum font-mono text-[10px] text-dim">
+                    {Math.round(pct * 100)}%
+                </span>
+            </ProgressRing>
+            <p className="mt-2 font-mono text-[10px] text-faint">
+                {compact(context.total_tokens)} of {compact(context.max_tokens)} tokens
+                {context.trigger_tokens ? ` · trigger at ${compact(context.trigger_tokens)}` : ''}
+            </p>
+            <p className="mt-1 text-[11px] leading-snug text-dim">{state}</p>
+            {context.valve_evicted_tokens > 0 && (
+                <p className="mt-1 font-mono text-[10px] text-faint">
+                    {compact(context.valve_evicted_tokens)} tokens trimmed at the ceiling
+                </p>
+            )}
+            {bridge && (
+                <p className="mt-1 truncate text-[11px] italic leading-snug text-faint" title={context.last_prose}>
+                    “{bridge}”
+                </p>
+            )}
         </div>
     );
 }

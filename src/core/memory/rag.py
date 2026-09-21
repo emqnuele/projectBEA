@@ -74,15 +74,16 @@ __all__ = ["MIN_REMEMBER_LEN", "SOURCE_BEA", "SOURCE_PERSON", "Rag", "Recollecti
 class Recollection:
     """One retrieved memory, with everything the prompt renderer needs."""
 
-    __slots__ = ("text", "who", "source", "similarity", "created_at", "scope_key")
+    __slots__ = ("text", "who", "source", "similarity", "created_at", "scope", "scope_key")
 
     def __init__(self, text: str, who: str, source: str, similarity: float,
-                 created_at: float, scope_key: str = ""):
+                 created_at: float, scope: str = "", scope_key: str = ""):
         self.text = text
         self.who = who
         self.source = source
         self.similarity = similarity
         self.created_at = created_at
+        self.scope = scope
         self.scope_key = scope_key
 
     def render(self) -> str:
@@ -389,7 +390,7 @@ class Rag:
         return self._recall_python(scope, scope_key, qvec, k)
 
     def _select(self, scope: Optional[str], scope_key: Optional[str]) -> Tuple[str, tuple]:
-        sql = ("SELECT who_name, text, embedding, source, created_at, scope_key "
+        sql = ("SELECT who_name, text, embedding, source, created_at, scope, scope_key "
                "FROM memories WHERE embedding IS NOT NULL")
         params: List = []
         if scope is not None:
@@ -449,7 +450,7 @@ class Rag:
             chunk = ids[start:start + FETCH_CHUNK]
             placeholders = ",".join("?" * len(chunk))
             rows.extend(dict(r) for r in self.db.query(
-                "SELECT who_name, text, embedding, source, created_at, scope_key "
+                "SELECT who_name, text, embedding, source, created_at, scope, scope_key "
                 f"FROM memories WHERE id IN ({placeholders}) AND embedding IS NOT NULL",
                 tuple(chunk)))
         return rows
@@ -479,7 +480,7 @@ class Rag:
             scored.append((final, Recollection(
                 text=row["text"], who=row["who_name"] or "", source=row["source"],
                 similarity=similarity, created_at=float(row["created_at"] or 0),
-                scope_key=row["scope_key"] or "",
+                scope=row.get("scope") or "", scope_key=row["scope_key"] or "",
             )))
         scored.sort(key=lambda t: t[0], reverse=True)
         return [rec for _, rec in scored[: k * 2]]
@@ -545,3 +546,28 @@ class Rag:
 
     def exists(self, scope: str, scope_key: str) -> bool:
         return self.count(scope, scope_key) > 0
+
+    def browse(self, scope: str, *, limit: int = 20) -> List[Recollection]:
+        """The latest entries of one scope, newest first, no query needed.
+
+        Semantic recall answers "what was said about x"; this answers "what is
+        in the diary at all". A diary page or a recap is read whole, so there
+        is nothing to rank — recency is the order.
+        """
+        rows = self.db.query(
+            "SELECT who_name, text, embedding, source, created_at, scope, scope_key "
+            "FROM memories WHERE scope = ? ORDER BY id DESC LIMIT ?",
+            (scope, max(1, min(limit, 200))),
+        )
+        out = []
+        for row in rows:
+            try:
+                created = float(row["created_at"] or 0)
+            except (TypeError, ValueError):
+                created = 0.0
+            out.append(Recollection(
+                text=row["text"], who=row["who_name"] or "", source=row["source"],
+                similarity=1.0, created_at=created,
+                scope=row["scope"] or "", scope_key=row["scope_key"] or "",
+            ))
+        return out

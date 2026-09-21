@@ -195,7 +195,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
                 <div className="mt-4 flex min-h-0 flex-1 flex-col">
                     <div className={cn('mb-2 flex shrink-0 items-center', rail ? 'justify-center' : 'gap-2 px-2.5')}>
                         {!rail && (
-                            <span className="text-[10px] font-semibold uppercase tracking-widest text-faint">
+                            <span className="text-[10px] font-semibold uppercase tracking-widest text-faint" title="Saved transcripts. Talk always shows the live room.">
                                 Conversations
                             </span>
                         )}

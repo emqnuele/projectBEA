@@ -191,6 +191,12 @@ export default function ChatPage() {
     return (
         <div className="flex h-full flex-col gap-2.5">
             <Glass quiet className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-b3">
+                <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 sm:px-8">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--flux-act)' }} />
+                    <p className="text-[11px] text-faint">
+                        Live — the room stream, not one saved transcript. Past conversations live under Conversations.
+                    </p>
+                </div>
                 <div
                     ref={scrollerRef}
                     onScroll={onScroll}

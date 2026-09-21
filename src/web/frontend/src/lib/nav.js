@@ -14,7 +14,11 @@ export const NAV = [
 
 export const SETTINGS_SECTIONS = [
     { id: 'personality', label: 'Personality', hint: 'Her name, her pronouns, who she is' },
-    { id: 'mind', label: 'Mind', hint: 'Language and the files behind her' },
+    { id: 'mind', label: 'Mind', hint: 'Language, files and idle thoughts' },
+    { id: 'consciousness', label: 'Window', hint: 'The sliding window and the handoff' },
+    { id: 'memory', label: 'Memory', hint: 'What she keeps and how she finds it' },
+    { id: 'dream', label: 'Dreaming', hint: 'The nightly consolidation pass' },
+    { id: 'affect', label: 'Mood', hint: 'Whether what happens to her sticks' },
     { id: 'engine', label: 'Provider', hint: 'Keys and the default model' },
     { id: 'models', label: 'Models', hint: 'Which models think for her, and how fast' },
     { id: 'attention', label: 'Attention', hint: 'What wakes her and what she lets pass' },

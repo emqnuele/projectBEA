@@ -169,6 +169,11 @@ def overview(brain: AIVtuberBrain = Depends(get_brain)):
             })
 
     history = brain.history_manager
+    dream = brain.dream_skill
+    try:
+        last_night = dream.last_night() if dream is not None else ""
+    except Exception:
+        last_night = ""
     return {
         "status": _status(brain),
         "session": {
@@ -180,6 +185,7 @@ def overview(brain: AIVtuberBrain = Depends(get_brain)):
         "skills": skills,
         "memory": memory_counts(brain),
         "engine": _engine_summary(brain),
+        "dream": {"last_night": last_night},
         "context": (brain.consciousness.window_status()
                     if brain.consciousness is not None else {"enabled": False}),
     }

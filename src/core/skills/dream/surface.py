@@ -286,6 +286,10 @@ class DreamSkill(Skill):
             (LAST_NIGHT_KEY, today.isoformat()),
         )
 
+    def last_night(self) -> str:
+        """The date of the last consolidation pass, `""` when she never dreamt."""
+        return self._last_night()
+
     def _last_night(self) -> str:
         memory = getattr(self.context, "memory", None)
         if memory is None:

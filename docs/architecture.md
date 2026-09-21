@@ -242,7 +242,8 @@ when a text-only answer would otherwise leave a mute turn (`NO_TOOL_CALL`).
 `GET /context` exposes the budget live; the dashboard overview shows it as
 the Context tile. New knobs live under `consciousness` (`context_max_tokens`,
 `handoff_trigger_tokens`, `handoff_target_tokens`, `hot_tokens`,
-`hot_seconds`, `context_handoff`) — see [Configuration](configuration.md#consciousness).
+`hot_seconds`, `context_handoff`, `window_persist_after_turn`,
+`dynamic_context_timeout`) — see [Configuration](configuration.md#consciousness).
 
 ---
 
