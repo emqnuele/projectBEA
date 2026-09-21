@@ -77,13 +77,13 @@ class Expression:
         self._line: Optional[LiveLine] = None
         # how a word she wrote inline becomes something she actually has. The
         # brain swaps these for ones that match by meaning; on their own they
-        # only recognise what is already spelled correctly.
+        # only recognise what is spelled correctly.
         self._match_mood = normalize_mood
         self._match_clip = lambda word: word
-
         # a call line's visuals run in their own task; it must be held onto, or
         # the garbage collector can cancel it between two sentences
         self._visual_tasks = set()
+        self._last_speech_event_id: Optional[str] = None
 
     def set_state(self, state: str, mood: Optional[str] = None) -> None:
         """A visible state that is not speech: sleeping, listening, idle.
@@ -171,6 +171,11 @@ class Expression:
 
     async def speak(self, mood: str, message: str, *, route: str = "local", feeling=None, run_id=None):
         """Renders a spoken turn. Returns the Utterance when route='call'."""
+        if route == "remote":
+            # Remote route: call _speak_remote if defined (for testing)
+            if hasattr(self, "_speak_remote") and self._speak_remote is not None:
+                return await self._speak_remote(mood, message)
+            return None
         line = self.open_line(mood, route=route, feeling=feeling, caption=message, run_id=run_id)
         if line is None:
             return None
@@ -341,7 +346,7 @@ class Expression:
 
         self.caption.clear()
         self.avatar.show(line.mood, "talking")
-        self.event_manager.publish(
+        started_event = self.event_manager.publish(
             EventCategory.OUTPUT, "expression.adapter",
             f"Speaking: {preview}...",
             metadata={
@@ -351,6 +356,7 @@ class Expression:
                 "payload": {"mood": line.mood},
             },
         )
+        self._last_speech_event_id = started_event.id
         if line.caption:
             self.current_typing_task = asyncio.create_task(self.caption.say(line.caption))
 
@@ -471,7 +477,7 @@ class Expression:
                     "event_type": SPEECH_FINISHED,
                     "subsystem": "expression",
                     "run_id": line.run_id,
-                    "parent_event_id": None,
+                    "parent_event_id": self._last_speech_event_id,
                 },
             )
         return None
@@ -577,8 +583,18 @@ class Expression:
 
         self.caption.clear()
         self.avatar.show(self._mood, self._resting)
-
         self.is_speaking = False
+        self.event_manager.publish(
+            EventCategory.OUTPUT, "expression.adapter",
+            "Speaking interrupted",
+            metadata={
+                "event_type": SPEECH_INTERRUPTED,
+                "subsystem": "expression",
+                "run_id": line.run_id if line else None,
+                "parent_event_id": self._last_speech_event_id,
+                "payload": {"resume_buffer_sec": 0.0},
+            },
+        )
         return "Interrupted"
 
     async def resume(self):

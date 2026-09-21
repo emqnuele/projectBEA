@@ -151,6 +151,18 @@ class EventManager:
                 results.append(_render(event))
         return results
 
+    def replay(self, run_id: Optional[str] = None, subsystem: Optional[str] = None, limit: int = 100) -> List[Dict]:
+        """Replay events for a specific run_id/subsystem combination."""
+        results = []
+        for event in self.events:
+            metadata = event.metadata
+            if run_id is not None and metadata.get("run_id") != run_id:
+                continue
+            if subsystem is not None and metadata.get("subsystem") != subsystem:
+                continue
+            results.append(_render(event))
+        return results[-limit:]
+
     # --- live subscription --------------------------------------------------
 
     def subscribe(self, callback_or_backlog=None, event_type: Optional[str] = None, subsystem: Optional[str] = None):
