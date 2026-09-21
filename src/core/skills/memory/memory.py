@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 from src.core.agent.tools import Tool
 from src.core.memory.rag import SOURCE_PERSON
-from src.core.memory.transcript import render_stream, spoken_count
+from src.core.memory.transcript import MIN_SPOKEN_LINES, render_stream, spoken_count
 from src.core.perception.types import PerceptionKind
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
@@ -21,9 +21,6 @@ _PREFIX_RE = re.compile(r"^\s*\[[^\]]*\]\s*(\([^)]*\))?\s*:?\s*")
 
 # how many diary entries reach the prompt at once
 RECALL_LIMIT = 3
-
-# a sitting with fewer spoken lines than this has nothing to write a page about
-MIN_SPOKEN_LINES = 2
 
 # every scope the consolidation writes: the diary of a sitting, the recap of a
 # conversation, and what she knows about one person

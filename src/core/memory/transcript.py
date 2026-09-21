@@ -18,6 +18,10 @@ from src.core.mind.routing import STAGE
 # how her own lines are labelled, so the pass never reads them as someone else's
 SELF = "you"
 
+# a sitting with fewer spoken lines than this had nobody actually say
+# anything in it: marked done without waking the model, and no diary page
+MIN_SPOKEN_LINES = 2
+
 
 def _speaker(row: Dict[str, Any]) -> str:
     return str(row.get("display_name") or row.get("author_identity") or "")

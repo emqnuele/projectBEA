@@ -33,6 +33,10 @@ logger = get_logger("bea.consciousness")
 # restores the evening without its head
 HANDOFF_PROSE_KEY = "handoff_prose"
 
+# how many written perception ids the double-write guard keeps: the bus pops,
+# so seeing the same id twice is a caller bug worth surviving cheaply
+_STREAM_ID_CAP = 5000
+
 
 def _block(what: str, produce) -> str:
     """One part of the briefing, or nothing when building it went wrong.
@@ -106,7 +110,9 @@ class Consciousness:
             store=memory.window)
         self._handoff = HandoffWorker(language=getattr(config, "language", ""))
         self._handoff_task: Optional[asyncio.Task] = None
-        self._persist_task: Optional[asyncio.Task] = None
+        # every persist in flight, not just the latest: a fast pair of turns
+        # must not orphan the first write while the second is awaited
+        self._persist_tasks: set = set()
         self._handoff_enabled = bool(cc.get("context_handoff", True))
         # ram first: the turn only marks the window dirty, and the write
         # happens behind it — never inside it
@@ -128,6 +134,9 @@ class Consciousness:
         # what provoked the turn in flight: `speak` needs it to know who to pin
         # a strong reaction on, and a tool handler is not handed the batch
         self._batch: List[Perception] = []
+        # ids already on the stream: a second write of the same perception is
+        # a caller bug, not a second event — skip it instead of duplicating
+        self._stream_ids: Dict[str, None] = {}
         self.total_tokens = 0
         self.total_calls = 0
         self.alive = False
@@ -213,14 +222,15 @@ class Consciousness:
 
     async def stop(self):
         self.alive = False
-        # a background flush still in flight must land first: otherwise it
+        # background flushes still in flight must land first: otherwise one
         # could overwrite with an older snapshot what is flushed below
-        if self._persist_task and not self._persist_task.done():
+        pending = [t for t in self._persist_tasks if not t.done()]
+        self._persist_tasks.clear()
+        for task in pending:
             try:
-                await asyncio.shield(self._persist_task)
+                await asyncio.shield(task)
             except (asyncio.CancelledError, Exception):
                 pass
-            self._persist_task = None
         # the one synchronous write: stopping is the moment blocking on the
         # disk is correct, and this is what a restart wakes up to
         try:
@@ -997,10 +1007,10 @@ class Consciousness:
         """
         session = self._session_id
         try:
+            fresh = [p for p in batch
+                     if self._is_memorable(p) and p.id not in self._stream_ids]
             entries = []
-            for p in batch:
-                if not self._is_memorable(p):
-                    continue
+            for p in fresh:
                 author = p.author
                 entries.append({
                     "conversation_key": conversation_key(p),
@@ -1013,8 +1023,13 @@ class Consciousness:
                     "session_id": session, "ts": p.ts,
                 })
             self.memory.conversations.add_many(entries)
+            for p in fresh:
+                self._stream_ids[p.id] = None
         except Exception as e:
             logger.warning(f"Could not write the stream down: {e}")
+        if len(self._stream_ids) > _STREAM_ID_CAP:
+            for old in list(self._stream_ids)[: len(self._stream_ids) - _STREAM_ID_CAP]:
+                del self._stream_ids[old]
 
     def _remember_spoken(self, message: str) -> None:
         """Her voice belongs in the same stream as everything she heard."""
@@ -1095,7 +1110,8 @@ class Consciousness:
                 self.sliding_window.mark_dirty()
 
         task = asyncio.create_task(work())
-        self._persist_task = task
+        self._persist_tasks.add(task)
+        task.add_done_callback(self._persist_tasks.discard)
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
 

@@ -159,6 +159,35 @@ class RosterStore:
             cur.execute("UPDATE identities SET person_id = ? WHERE identity = ?",
                         (person_id, identity))
 
+    def link(self, *, identity: str, display_name: str, platform: str,
+             person_id: str) -> None:
+        """Tallies a sighting and attaches it to a card, in one transaction.
+
+        What `link_person` needs: the speaker may never have been tallied, and
+        two statements apart a crash would leave a tally with no card.
+        """
+        now = time.time()
+        native_id = identity.split(":", 1)[1] if ":" in identity else identity
+        with self.db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO identities (identity, platform, native_id, display_name, "
+                "first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(identity) DO UPDATE SET last_seen = excluded.last_seen, "
+                "display_name = CASE WHEN excluded.display_name != '' "
+                "  THEN excluded.display_name ELSE identities.display_name END",
+                (identity, platform, native_id, display_name or "", now, now),
+            )
+            cur.execute(
+                "INSERT INTO roster (identity, message_count, donation_total, had_1on1) "
+                "VALUES (?, 1, 0, 0) "
+                "ON CONFLICT(identity) DO UPDATE SET "
+                "  message_count = roster.message_count + 1",
+                (identity,),
+            )
+            cur.execute("UPDATE roster SET promoted = 1 WHERE identity = ?", (identity,))
+            cur.execute("UPDATE identities SET person_id = ? WHERE identity = ?",
+                        (person_id, identity))
+
     def find_by_name(self, name: str) -> Optional[RosterEntry]:
         """Best-effort name resolution; the most recently seen match wins."""
         low = name.strip().lower()

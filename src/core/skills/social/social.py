@@ -193,9 +193,9 @@ class SocialMemory(Skill):
         if found is None:
             return "I can't tell who is speaking right now — say who you mean."
         identity, display = found
-        self.roster.record(identity=identity, display_name=display,
-                           platform=identity.split(":")[0] if ":" in identity else "")
-        self.roster.set_promoted(identity, card.person_id)
+        self.roster.link(identity=identity, display_name=display,
+                         platform=identity.split(":")[0] if ":" in identity else "",
+                         person_id=card.person_id)
         return f"Noted: {display} is {card.primary_name}."
 
     def _speaker_identity(self, speaking_as: str) -> Optional[Tuple[str, str]]:

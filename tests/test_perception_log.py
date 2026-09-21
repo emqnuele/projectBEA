@@ -171,6 +171,15 @@ async def test_a_perception_is_written_down_once():
     assert len([r for r in rows(memory) if r["role"] == "user"]) == 1
 
 
+async def test_remembering_the_same_batch_twice_writes_it_once():
+    mind, _, memory = build()
+    batch = [marco(), died()]
+    mind._remember(batch)
+    mind._remember(batch)
+
+    assert len(rows(memory)) == 2
+
+
 # --- asleep is not absent -----------------------------------------------------
 
 

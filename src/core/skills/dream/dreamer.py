@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from src.core.language import write_in
 from src.core.memory.rag import SOURCE_PERSON
-from src.core.memory.transcript import render_stream, spoken_count
+from src.core.memory.transcript import MIN_SPOKEN_LINES, render_stream, spoken_count
 from src.core.persona import Persona
 from src.core.skills.social.people import record_person
 from src.utils.logger import get_logger
@@ -16,10 +16,6 @@ DAY_SECONDS = 86400
 DEFAULT_PROMPT_PATH = "data/prompts/dreamer.md"
 
 FALLBACK = "Summarize the conversation as JSON with title, self_facts, people, hot_facts."
-
-# a sitting with fewer lines than this than nobody actually said anything in:
-# marked done so it is not retried every night, never sent to the model
-MIN_SPOKEN_LINES = 2
 
 # names the LLM tends to invent when nobody real is in the chat
 _GENERIC_NAMES = {"user", "chat", "chatter", "someone", "audience", "viewer", "fan", "anon"}
