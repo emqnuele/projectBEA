@@ -192,13 +192,31 @@ def test_a_mixed_pool_falls_back_across_protocols():
     assert [c.model_name for c in pool.clients] == ["claude-sonnet-5", "qwen3:8b"]
 
 
-# --- end to end: the runner drives a real transport ------------------------------
+# --- end to end: a real transport, driven the way the body drives it -------------
 #
-# The minecraft body (and every sub-agent) runs this exact loop: think, act on
-# tools, observe, repeat. Fakes on both sides would prove nothing about the
-# wire; here the runner is real, the transport is real, and only https is
-# faked — including the second turn, where yesterday's tool calls must travel
-# back in a shape the endpoint accepts.
+# The minecraft body runs this loop: think, act on tools, observe, repeat. Fakes
+# on both sides would prove nothing about the wire; here the transport is real
+# and only https is faked — including the second turn, where yesterday's tool
+# calls must travel back in a shape the endpoint accepts.
+
+
+async def _drive(client, registry, messages, max_steps=3):
+    """The think -> act -> observe loop, in the few lines a test needs of it.
+
+    It serializes through the app's own helpers on purpose: a private copy here
+    could drift from what ships and the test would still pass.
+    """
+    from src.core.agent.messages import assistant_to_message, tool_result_message
+
+    reply = None
+    for _ in range(max_steps):
+        reply = await client.complete(messages, tools=registry.schemas() or None)
+        messages.append(assistant_to_message(reply))
+        if reply.is_final:
+            break
+        for call in reply.tool_calls:
+            messages.append(tool_result_message(call, await registry.dispatch(call)))
+    return reply
 
 
 def _registry():
@@ -287,8 +305,7 @@ class _Resp:
         self.lines = lines
 
 
-async def test_the_runner_thinks_acts_and_observes_over_chat(monkeypatch):
-    from src.core.agent.runner import AgentRunner
+async def test_the_loop_thinks_acts_and_observes_over_chat(monkeypatch):
     from src.modules.llm.chat import ChatCompletionsClient
 
     dug_turn = _Resp(payload=_chat_turn(calls=[("c1", "dig", {"block": "stone"})]))
@@ -297,8 +314,8 @@ async def test_the_runner_thinks_acts_and_observes_over_chat(monkeypatch):
 
     client = ChatCompletionsClient(base_url="https://x/v1", model_name="m")
     registry = _registry()
-    final = await AgentRunner(client, registry, max_steps=3).run(
-        [{"role": "user", "content": "dig something"}])
+    final = await _drive(client, registry,
+                         [{"role": "user", "content": "dig something"}])
 
     assert registry.dug == ["stone"]
     assert final.content == "all dug"
@@ -309,8 +326,7 @@ async def test_the_runner_thinks_acts_and_observes_over_chat(monkeypatch):
     assert tool["tool_call_id"] == "c1" and "dug stone" in tool["content"]
 
 
-async def test_the_runner_replays_tool_history_over_anthropic(monkeypatch):
-    from src.core.agent.runner import AgentRunner
+async def test_the_loop_replays_tool_history_over_anthropic(monkeypatch):
     from src.modules.llm.anthropic import AnthropicClient
 
     first = {"content": [{"type": "tool_use", "id": "tu_1", "name": "dig",
@@ -322,8 +338,8 @@ async def test_the_runner_replays_tool_history_over_anthropic(monkeypatch):
 
     client = AnthropicClient(base_url="https://y/v1", model_name="m", api_key="k")
     registry = _registry()
-    final = await AgentRunner(client, registry, max_steps=3).run(
-        [{"role": "user", "content": "dig something"}])
+    final = await _drive(client, registry,
+                         [{"role": "user", "content": "dig something"}])
 
     assert registry.dug == ["dirt"]
     assert final.content == "dug it"
