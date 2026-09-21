@@ -694,26 +694,32 @@ class WindowStore:
     """
 
     VERSION_KEY = "context_window.version"
+    WRITE_KEY = "context_window.write"
 
     def __init__(self, db: Database):
         self.db = db
 
     def replace(self, rows: List[Dict[str, Any]], version: int = 0,
-                expect_version: Optional[int] = None) -> bool:
+                write_seq: Optional[int] = None) -> bool:
         """The whole window at once, in one transaction: what a swap produces.
 
-        With `expect_version`, writes only when the stored version still
-        matches: a background flush snapshotted pages ago must not land on
-        top of a swap that has since persisted a newer window. Returns
-        whether anything was written.
+        `write_seq` is what orders two writes, and it is not `version`:
+        `version` only moves on a swap or a clear, so two flushes of the same
+        window carry the same one and a guard on it cannot tell which is
+        newer — a background flush snapshotted pages ago would be accepted on
+        top of a fresher one. The seq comes from the window, rises on every
+        snapshot, and anything not strictly newer than what is stored is
+        dropped. Returns whether anything was written.
         """
         with self.db.cursor() as cur:
-            if expect_version is not None:
-                cur.execute("SELECT value FROM settings WHERE key = ?",
-                            (self.VERSION_KEY,))
+            if write_seq is not None:
+                cur.execute("SELECT value FROM settings WHERE key = ?", (self.WRITE_KEY,))
                 row = cur.fetchone()
-                current = int(row[0]) if row is not None and row[0] is not None else 0
-                if current != int(expect_version):
+                try:
+                    current = int(row[0]) if row is not None and row[0] is not None else 0
+                except (TypeError, ValueError):
+                    current = 0
+                if int(write_seq) <= current:
                     return False
             cur.execute("DELETE FROM context_window")
             cur.executemany(
@@ -728,6 +734,12 @@ class WindowStore:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (self.VERSION_KEY, str(int(version))),
             )
+            if write_seq is not None:
+                cur.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (self.WRITE_KEY, str(int(write_seq))),
+                )
             return True
 
     def load(self) -> List[Dict[str, Any]]:
@@ -740,9 +752,16 @@ class WindowStore:
                  "addressee": r["addressee"]} for r in rows]
 
     def version(self) -> int:
+        return self._setting(self.VERSION_KEY)
+
+    def write_seq(self) -> int:
+        """The seq of the last write that landed, so a restart keeps rising."""
+        return self._setting(self.WRITE_KEY)
+
+    def _setting(self, key: str) -> int:
         try:
             return int(self.db.scalar(
-                "SELECT value FROM settings WHERE key = ?", (self.VERSION_KEY,), default=0))
+                "SELECT value FROM settings WHERE key = ?", (key,), default=0))
         except (TypeError, ValueError):
             return 0
 

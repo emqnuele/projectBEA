@@ -594,7 +594,7 @@ class Consciousness:
                 dynamic = await asyncio.wait_for(
                     asyncio.to_thread(self.surfaces.dynamic_context, batch),
                     timeout=self._dynamic_timeout)
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 logger.warning("Dynamic context timed out; answering without it.")
             except Exception as e:
                 logger.warning(f"Dynamic context failed; answering without it: {e}")
@@ -1081,9 +1081,10 @@ class Consciousness:
         """Carries the ram window over to the disk, behind the turn.
 
         The snapshot is built on the loop thread — plain data, no io — and
-        the single transaction runs elsewhere. A flush snapshotted before a
-        swap lands on an older version and is dropped by the version guard,
-        which is correct: the swap persisted its own newer window.
+        the single transaction runs elsewhere. Each snapshot takes a rising
+        write seq as it is built, so one that was overtaken — by a swap, by a
+        later turn, by the shutdown flush — is dropped by the store instead of
+        landing on top of what overtook it.
         """
         if not self._persist_after_turn or not self.sliding_window.needs_flush:
             return
@@ -1094,12 +1095,12 @@ class Consciousness:
         snapshot = self.sliding_window.flush_snapshot()
         if snapshot is None:
             return
-        rows, version = snapshot
+        rows, version, write_seq = snapshot
 
         async def work() -> None:
             try:
                 written = await asyncio.to_thread(
-                    self.memory.window.replace, rows, version, version)
+                    self.memory.window.replace, rows, version, write_seq=write_seq)
                 if not written:
                     self.sliding_window.mark_dirty()
             except asyncio.CancelledError:

@@ -92,14 +92,51 @@ def test_flush_carries_it_over_and_clears_the_flag(memory):
 def test_a_stale_background_flush_loses_to_a_swap(memory):
     live = window(memory)
     live.append("user", "vecchio")
-    rows, version = live.flush_snapshot()
+    rows, version, write_seq = live.flush_snapshot()
 
     _, hot = live.snapshot_for_handoff()
     live.swap_with_snapshot("[EARLIER]\nvi siete parlati", hot)
 
-    assert memory.window.replace(rows, version, expect_version=version) is False
+    assert memory.window.replace(rows, version, write_seq=write_seq) is False
     assert [r["content"] for r in memory.window.load()] == [
         m["content"] for m in live.messages()]
+
+
+def test_a_stale_flush_loses_even_without_a_swap(memory):
+    """Two flushes of the SAME version, landing out of order.
+
+    `version` only moves on a swap or a clear, so a guard on it cannot tell
+    these two apart — which is how an orphaned background write could land
+    its older rows on top of the shutdown flush and lose the last turns.
+    """
+    live = window(memory)
+    live.append("user", "primo")
+    stale = live.flush_snapshot()
+
+    live.append("user", "secondo")
+    fresh = live.flush_snapshot()
+
+    assert stale[1] == fresh[1], "the version must not have moved"
+
+    rows, version, write_seq = fresh
+    assert memory.window.replace(rows, version, write_seq=write_seq) is True
+
+    rows, version, write_seq = stale
+    assert memory.window.replace(rows, version, write_seq=write_seq) is False
+    assert [r["content"] for r in memory.window.load()] == ["primo", "secondo"]
+
+
+def test_the_write_sequence_keeps_rising_across_a_restart(memory):
+    lived = window(memory)
+    lived.append("user", "ieri sera")
+    lived.flush()
+
+    woken = window(memory)
+    woken.restore()
+    woken.append("user", "stamattina")
+
+    assert woken.flush() is True
+    assert [r["content"] for r in memory.window.load()] == ["ieri sera", "stamattina"]
 
 
 def test_a_window_with_no_store_never_needs_a_flush():
