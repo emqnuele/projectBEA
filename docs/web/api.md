@@ -320,7 +320,10 @@ reacting to — she may answer a moment later on her own, or ignore it.
 ### Sessions & History
 
 #### `GET /history`
-Returns the last 50 messages of the current session.
+The live room stream: the last 50 spoken lines on the stage — user rows from
+the dashboard and her own stage replies, oldest first. It is not one saved
+session: switching sessions never changes what this returns. Saved
+transcripts live under `/sessions`.
 
 **Response:** Array of message objects:
 ```json
@@ -329,6 +332,10 @@ Returns the last 50 messages of the current session.
   { "role": "assistant", "content": "...", "mood": "neutral", "timestamp": "..." }
 ]
 ```
+
+Only `stage` rows with a speaker seat (`user`, `bea` → `assistant`) are
+returned; other conversations never leak in, and world rows stay stored
+without taking one.
 
 ---
 
@@ -520,6 +527,7 @@ out to six endpoints on load.
   "skills": [ { "name": "memory", "enabled": true, "active": true } ],
   "memory": { "people": 3, "roster": 41, "memories": 512,
               "hot_facts": 2, "self_facts": 9, "rag_ready": true },
+  "dream": { "last_night": "2026-09-20" },
   "engine": { "llm_provider": "openrouter", "model": "…", "tts_provider": "kokoro",
               "stt_provider": "groq", "language": "en", "obs_connected": false },
   "context": { "enabled": true, "version": 3, "total_tokens": 41200,
@@ -529,6 +537,9 @@ out to six endpoints on load.
               "handoff_swaps": 1, "continuity_chars": 812 }
 }
 ```
+
+`dream.last_night` is the date of the last consolidation pass, `""` before
+the first one.
 
 #### `GET /context`
 The one sliding window, live: budget (`total_tokens`, `max_tokens`,
@@ -561,13 +572,23 @@ The same semantic recall she runs on herself, returned split:
 
 ```json
 { "facts": [ { "text": "…", "who": "emanu", "source": "person",
-               "similarity": 0.82, "created_at": 1750000000, "scope_key": "…" } ],
+               "similarity": 0.82, "created_at": 1750000000,
+               "scope": "diary", "scope_key": "…" } ],
   "hers":  [ … ] }
 ```
 
 `facts` is what people told her; `hers` is what she said herself. They are kept
 apart deliberately — her persona invents on purpose, and her own output must
-never come back as though it were true. `400` when the memory skill is off.
+never come back as though it were true. `scope` names where the memory lives
+(`diary`, `conversation`, `person`), `scope_key` which page, thread or person
+it belongs to. `400` when the memory skill is off.
+
+#### `GET /memory/browse?scope=diary&limit=20`
+The latest entries of one scope, newest first, without a semantic query.
+`scope` is one of `diary` (one page per session), `conversation` (one recap
+per thread) or `person` (one note per person met). Recall finds "what was
+said about x"; this is "what is written down at all" — what the diary screen
+reads. Anything else is a `400`.
 
 ---
 

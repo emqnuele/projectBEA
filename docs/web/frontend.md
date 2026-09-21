@@ -90,13 +90,13 @@ src/web/frontend/
 |---|---|
 | `/` | Boot screen — probes the brain, then enters on its own |
 | `/dashboard` | Overview (bento) |
-| `/dashboard/chat` | The private line to her |
+| `/dashboard/chat` | The live room stream — the stage, not one saved transcript |
 | `/dashboard/plan` | Today's orders and objectives |
 | `/dashboard/activity` | Attention gate and the event stream |
-| `/dashboard/memory` | People, roster, recall, her self-lore |
+| `/dashboard/memory` | People, roster, diary, recall, her self-lore |
 | `/dashboard/skills` | Abilities on and off |
 | `/dashboard/maintenance` | The updater, and the `--doctor` checks |
-| `/dashboard/settings/:section` | `mind · engine · voice · hearing · stream · channels · world · appearance` |
+| `/dashboard/settings/:section` | `personality · mind · consciousness · memory · dream · affect · engine · models · attention · rhythm · discord · telegram · twitch · voice · hearing · stream · world · donations · appearance` |
 
 Every screen is a real URL: refreshing keeps you where you were, and the back
 button works.
