@@ -170,18 +170,25 @@ class MemorySkill(Skill):
         if self.rag.exists("diary", session_id):
             logger.info(f"MemorySkill: diary for {session_id} already exists, skipping.")
             return
-        if not self._transcript(session_id):
+        # rendered once and handed over: reading the sitting again inside the
+        # task is a second full query and a second render of the same rows,
+        # and this runs on the shutdown path where the clock is already short
+        transcript = self._transcript(session_id)
+        if not transcript:
             logger.info(f"MemorySkill: session {session_id} too short, skipping.")
             return
-        self._pending = asyncio.create_task(self._process_session_async(session_id))
+        self._pending = asyncio.create_task(
+            self._process_session_async(session_id, transcript))
 
-    async def _process_session_async(self, session_id: str) -> None:
+    async def _process_session_async(self, session_id: str,
+                                     transcript: Optional[str] = None) -> None:
         if not self.generator or self.rag is None:
             logger.error("MemorySkill: generator not initialized.")
             return
         if self.rag.exists("diary", session_id):
             return
-        transcript = self._transcript(session_id)
+        if transcript is None:
+            transcript = self._transcript(session_id)
         if not transcript:
             return
         try:

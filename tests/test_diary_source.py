@@ -100,6 +100,29 @@ def test_a_sitting_nobody_spoke_in_is_not_even_scheduled(memory):
     assert written._pending is None
 
 
+async def test_the_sitting_is_read_once_per_page(memory):
+    """The scheduler renders it to decide it is worth a page, and used to
+    render it again inside the task: two full queries of the same rows, on
+    the shutdown path where the clock is already short.
+    """
+    talked(memory)
+    written = skill(memory)
+    reads = []
+    real = memory.conversations.stream
+
+    def counted(session_id, *a, **k):
+        reads.append(session_id)
+        return real(session_id, *a, **k)
+
+    memory.conversations.stream = counted
+
+    written.process_previous_session(SESSION)
+    await written._pending
+
+    assert reads == [SESSION]
+    assert len(written.generator.seen) == 1
+
+
 def test_the_rag_is_all_the_skill_needs_to_write_one():
     """No history manager, no session file: the stream is the only input."""
     db = Database(":memory:").init()
