@@ -9,12 +9,16 @@ strangers who never shared a session stay separate cards.
 
 import pytest
 
+from types import SimpleNamespace
+
 from src.core.memory.store import MemoryStore
+from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.social.people import (
     promote_entry,
     record_person,
     repair_duplicate_cards,
 )
+from src.core.skills.social.social import SocialMemory
 
 
 @pytest.fixture
@@ -115,3 +119,81 @@ def test_the_repair_is_a_noop_the_second_time(memory):
 
     assert repair_duplicate_cards(memory.roster, memory.people) == 1
     assert repair_duplicate_cards(memory.roster, memory.people) == 0
+
+
+# --- she can say who is in front of her -------------------------------------
+
+class SocialConfig:
+    def __init__(self):
+        self.skills = {"social_memory": {"enabled": True}}
+
+
+def social_skill(memory):
+    skill = SocialMemory(SocialConfig(), bus=None, expression=None,
+                         context=SimpleNamespace(memory=memory, history_manager=None))
+    skill.initialize()
+    skill.active = True
+    return skill
+
+
+def card_for(memory, name="Marco"):
+    record_person(memory.roster, memory.people, name, session_id="s1")
+    record_person(memory.roster, memory.people, name, session_id="s2")
+    return record_person(memory.roster, memory.people, name, session_id="s3")
+
+
+def voice(identity, display, text="sono Marco"):
+    platform = identity.split(":")[0]
+    return Perception(
+        kind=PerceptionKind.CHAT, surface=f"chat:{platform}",
+        content=f"[{display}] {text}",
+        author=Author(platform=platform, native_id=identity.split(":")[1],
+                      display_name=display),
+    )
+
+
+def test_she_links_the_player_who_told_her_who_they_are(memory):
+    marco = card_for(memory)
+    skill = social_skill(memory)
+    skill.context_for([voice("minecraft:uuid-1", "xX_DarkSlayer")])
+
+    reply = skill._tool_link_person(name="Marco")
+
+    assert "xX_DarkSlayer is Marco" in reply
+    assert memory.people.get_by_identity("minecraft:uuid-1").person_id == marco.person_id
+    assert len(memory.people.all()) == 1
+
+
+def test_linking_a_stranger_creates_nothing(memory):
+    skill = social_skill(memory)
+    skill.context_for([voice("minecraft:uuid-1", "xX_DarkSlayer")])
+
+    reply = skill._tool_link_person(name="Nobody")
+
+    assert "don't know anyone" in reply
+    assert len(memory.people.all()) == 0
+
+
+def test_two_speakers_need_disambiguation(memory):
+    marco = card_for(memory)
+    skill = social_skill(memory)
+    skill.context_for([voice("minecraft:uuid-1", "xX_DarkSlayer"),
+                       voice("discord:2", "luca")])
+
+    reply = skill._tool_link_person(name="Marco")
+
+    assert "can't tell" in reply
+    assert memory.people.get_by_identity("minecraft:uuid-1") is None
+
+
+def test_speaking_as_picks_among_several_speakers(memory):
+    marco = card_for(memory)
+    skill = social_skill(memory)
+    skill.context_for([voice("minecraft:uuid-1", "xX_DarkSlayer"),
+                       voice("discord:2", "luca")])
+
+    reply = skill._tool_link_person(name="Marco", speaking_as="dark")
+
+    assert "xX_DarkSlayer is Marco" in reply
+    assert memory.people.get_by_identity("minecraft:uuid-1").person_id == marco.person_id
+    assert memory.people.get_by_identity("discord:2") is None

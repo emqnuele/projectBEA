@@ -78,6 +78,7 @@ double them.
 |---|---|
 | `remember_person(name, note, attitude)` | her own in-character decision. Always persists — if the platform never gave a stable id, a `named:<name>` identity is synthesized so the card exists anyway |
 | `recall_person(name)` | what she knows. Falls back to the raw tally ("seen 12 times across 2 sessions") when there is no card |
+| `link_person(name, speaking_as?)` | declares that whoever is talking right now is someone she knows under another name. Links only, never creates — only when they told her so themselves |
 
 `remember_person` is also armed on written channels — it is the one memory action that
 makes sense while she is texting.
