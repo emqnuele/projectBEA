@@ -14,6 +14,7 @@ import json
 from src.core.agent.types import AssistantMessage, ToolCall
 from src.core.attention.gate import Attention
 from src.core.consciousness import Consciousness
+from src.core.memory.store import MemoryStore
 from src.core.perception.bus import PerceptionBus
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.base import SkillRegistry
@@ -46,7 +47,7 @@ def build(llm, **consciousness):
         surfaces=SkillRegistry(), history_manager=FakeHistory(),
         event_manager=RecordingEvents(),
         soul_getter=lambda: "you are bea", operating_getter=lambda: "call speak to talk",
-        attention=Attention(config),
+        memory=MemoryStore(":memory:"), profiler=None, attention=Attention(config),
     )
     mind.context = [mind._system_message()]
     return mind, bus

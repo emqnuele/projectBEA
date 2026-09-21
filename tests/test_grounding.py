@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 from src.core.consciousness import Consciousness
+from src.core.memory.store import MemoryStore
 from src.core.perception.types import Author, Perception, PerceptionKind
 
 
@@ -34,7 +35,9 @@ def test_orientation_grounding():
         history_manager=mock_history,
         event_manager=mock_events,
         soul_getter=lambda: "soul",
-        operating_getter=lambda: "operating"
+        operating_getter=lambda: "operating",
+        memory=MemoryStore(":memory:"),
+        profiler=None,
     )
 
     author = Author(platform="discord", native_id="123", display_name="Alice")
@@ -67,6 +70,8 @@ def test_attention_wired_to_sliding_window():
         event_manager=MagicMock(),
         soul_getter=lambda: "soul",
         operating_getter=lambda: "operating",
+        memory=MemoryStore(":memory:"),
+        profiler=None,
         attention=attention,
     )
     assert attention.window is c.sliding_window

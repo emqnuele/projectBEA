@@ -337,6 +337,8 @@ class AIVtuberBrain:
             event_manager=self.event_manager,
             soul_getter=lambda: self.soul,
             operating_getter=self._load_operating_rules,
+            memory=self.memory,
+            profiler=self.profiler,
             attention=self.attention,
             affect=self.affect,
         )

@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from src.core.language import directive
+from src.core.memory.store import MemoryStore
 from src.core.persona import DEFAULT_NAME, Persona
 from src.core.skills.dream.dreamer import DEFAULT_PROMPT_PATH as DREAMER_PROMPT
 from src.core.skills.memory.generator import DEFAULT_PROMPT_PATH as DIARY_PROMPT
@@ -155,6 +156,7 @@ def _mind(language: str):
         config=config, llm=MagicMock(), bus=MagicMock(), expression=MagicMock(),
         surfaces=surfaces, history_manager=MagicMock(), event_manager=MagicMock(),
         soul_getter=lambda: "soul", operating_getter=lambda: "operating",
+        memory=MemoryStore(":memory:"), profiler=None,
     )
     mind.affect = None
     return mind

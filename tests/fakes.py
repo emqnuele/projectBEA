@@ -151,6 +151,9 @@ class FakeExpression:
     def set_call(self, call):
         self.call = call
 
+    def set_affect(self, affect):
+        self.affect = affect
+
     def open_line(self, mood, *, route="local", feeling=None, caption=None):
         if not self.opens_lines:
             return None

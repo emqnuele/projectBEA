@@ -9,6 +9,7 @@ any more. All three failed with a log line nobody reads.
 
 import pytest
 
+from src.core.memory.store import MemoryStore
 from src.core.mind.moods import (
     DEFAULT_MOOD,
     MOODS,
@@ -186,7 +187,7 @@ async def test_an_invented_mood_is_normalised_before_it_reaches_the_avatar():
         config=Config(), llm=FakeLLMClient(), bus=PerceptionBus(window=0.0),
         expression=expression, surfaces=SkillRegistry(), history_manager=FakeHistory(),
         event_manager=RecordingEvents(), soul_getter=lambda: "", operating_getter=lambda: "",
-        attention=Attention(Config()),
+        memory=MemoryStore(":memory:"), profiler=None, attention=Attention(Config()),
     )
     await mind._speak("happy", "ciao")
     await settle()
@@ -211,7 +212,7 @@ async def test_a_real_mood_is_left_alone():
         config=Config(), llm=FakeLLMClient(), bus=PerceptionBus(window=0.0),
         expression=expression, surfaces=SkillRegistry(), history_manager=FakeHistory(),
         event_manager=RecordingEvents(), soul_getter=lambda: "", operating_getter=lambda: "",
-        attention=Attention(Config()),
+        memory=MemoryStore(":memory:"), profiler=None, attention=Attention(Config()),
     )
     await mind._speak("angry", "ciao")
     await settle()

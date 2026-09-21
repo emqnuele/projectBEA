@@ -68,8 +68,8 @@ class Consciousness:
     )
 
     def __init__(self, *, config, llm, bus, expression, surfaces, history_manager,
-                 event_manager, soul_getter, operating_getter, attention=None,
-                 affect=None, memory=None, profiler=None):
+                 event_manager, soul_getter, operating_getter, memory, profiler,
+                 attention=None, affect=None):
         self.config = config
         self.llm = llm
         self.bus = bus
@@ -80,7 +80,9 @@ class Consciousness:
         self.attention = attention
         self.affect = affect
         # append-only durable log (dream/recall/dashboard read it; no context
-        # is ever built from it) and the background profiler of person cards
+        # is ever built from it) and the background profiler of person cards.
+        # required, not optional: a defaulted `memory=None` let a refactor drop
+        # the wiring and every write return at its own first line, for days
         self.memory = memory
         self.profiler = profiler
         self._get_soul = soul_getter
@@ -912,8 +914,6 @@ class Consciousness:
     def _log_memory(self, batch: List[Perception]) -> None:
         """Append-only durable log: dream/recall/dashboard read it, no context
         is ever built from it."""
-        if self.memory is None:
-            return
         try:
             conversations = self.memory.conversations
             for p in batch:
@@ -931,8 +931,6 @@ class Consciousness:
 
     def _log_outgoing(self, key: str, platform: str, channel: str, text: str) -> None:
         """Her written lines, next to what she was answering."""
-        if self.memory is None:
-            return
         try:
             addressee = self._addressee_for(key)
             self.memory.conversations.add(

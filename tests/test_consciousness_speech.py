@@ -2,6 +2,7 @@
 
 from src.core.attention.gate import Attention
 from src.core.consciousness import Consciousness
+from src.core.memory.store import MemoryStore
 from src.core.perception.bus import PerceptionBus
 from src.core.skills.base import SkillRegistry
 from tests.fakes import FakeExpression, FakeHistory, FakeLLMClient, RecordingEvents, settle
@@ -22,7 +23,7 @@ def mind() -> Consciousness:
         expression=FakeExpression(), surfaces=SkillRegistry(),
         history_manager=FakeHistory(), event_manager=RecordingEvents(),
         soul_getter=lambda: "soul", operating_getter=lambda: "rules",
-        attention=Attention(config),
+        memory=MemoryStore(":memory:"), profiler=None, attention=Attention(config),
     )
     c.context = [c._system_message()]
     return c
