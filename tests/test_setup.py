@@ -10,7 +10,7 @@ from src.setup.config_plan import apply_answers, env_updates
 from src.setup.env_file import merge_env, parse_env
 from src.setup.prefetch import embedder_here, embedder_mb, fetch_embedder
 from src.setup.wizard import disk_size
-from src.utils.huggingface import directory_bytes, download_hint
+from src.utils.huggingface import directory_bytes, download_hint, watched
 
 
 def config(tmp_path, monkeypatch) -> BrainConfig:
@@ -297,6 +297,17 @@ def test_directory_bytes_counts_what_is_already_down(tmp_path):
 
 def test_directory_bytes_of_a_folder_that_is_not_there_is_zero(tmp_path):
     assert directory_bytes(str(tmp_path / "gone")) == 0
+
+
+def test_progress_ignores_the_models_already_in_the_shared_cache(tmp_path):
+    (tmp_path / "old-model.bin").write_bytes(b"x" * 500)
+    seen = []
+
+    def work():
+        (tmp_path / "new-model.bin").write_bytes(b"y" * 30)
+
+    assert watched(work, str(tmp_path), seen.append, tick=0.01) is None
+    assert seen[-1] == 30
 
 
 def test_a_finished_download_reports_no_error_and_leaves_the_weights(tmp_path):
