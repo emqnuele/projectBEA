@@ -394,7 +394,7 @@ single transaction, and "who have I seen most" is a query rather than a scan.
 | Episodic diary | `memories` (scope `diary`) | no, top-3 per batch | `DiaryGenerator` at session end |
 | Roster (tally) | `roster` + `identities` | never | `SocialMemory.context_for`, per perception |
 | Person cards | `people` + `facts` | only those present, max 5 | auto-promotion + `remember_person` + dreamer + profiler |
-| Conversations | `messages` + `summaries` | append-only log for dream/recall/dashboard, never built into live context | the consciousness + the profiler |
+| Conversations | `messages` | append-only log for dream/recall/dashboard, never built into live context | the consciousness |
 | Self-lore | `self_facts` + `self_profile` | yes (last 15 facts) | the dreamer only |
 | Hot facts | `hot_facts` (TTL) | yes (max 6) | dreamer + morning pass + a strong reaction |
 | Standing mood | `settings` (`affect.state`) | only past a threshold | every line she speaks |
@@ -516,7 +516,7 @@ single 429 does not make her mute.
   she speaks only through tools, so one that cannot would never say anything.
   A model that rejects tools is skipped and logged at `ERROR` — that is
   configuration, not a transient failure.
-- **`background`** — diary, dreamer, summaries, person profiles, and the game
+- **`background`** — diary, dreamer, person profiles, and the game
   body. Batch work that must never compete with the part of her that talks.
 
 ## Web and UI

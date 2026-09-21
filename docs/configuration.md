@@ -279,7 +279,7 @@ rate limits and fall back down the list on failure.
 | Role | Used by | Requirement |
 |---|---|---|
 | `mind` | the consciousness | **must support tool calling** |
-| `background` | diary, dreamer, profiler, summaries | anything |
+| `background` | diary, dreamer, profiler | anything |
 | `minecraft` | her body in the game | **must support tool calling** |
 
 An empty pool falls back to `llm_provider` + `<provider>_model`, so a
