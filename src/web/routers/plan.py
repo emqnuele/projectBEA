@@ -78,7 +78,6 @@ def get_plan(brain: AIVtuberBrain = Depends(get_brain)):
 @router.post("/plan/directive")
 def set_directive(request: DirectiveRequest, brain: AIVtuberBrain = Depends(get_brain)):
     brain.plan.set_directive(request.text)
-    brain.plan_changed()
     return payload(brain)
 
 
@@ -86,7 +85,6 @@ def set_directive(request: DirectiveRequest, brain: AIVtuberBrain = Depends(get_
 def add_objective(request: ObjectiveRequest, brain: AIVtuberBrain = Depends(get_brain)):
     if brain.plan.add(request.text, request.detail) is None:
         raise HTTPException(status_code=400, detail="An objective needs some text")
-    brain.plan_changed()
     return payload(brain)
 
 
@@ -107,7 +105,6 @@ def update_objective(
 def delete_objective(objective_id: int, brain: AIVtuberBrain = Depends(get_brain)):
     if not brain.plan.remove(objective_id):
         raise HTTPException(status_code=404, detail="No such objective")
-    brain.plan_changed()
     return payload(brain)
 
 
@@ -121,5 +118,4 @@ def reorder_plan(request: PlanOrder, brain: AIVtuberBrain = Depends(get_brain)):
 def reset_plan(brain: AIVtuberBrain = Depends(get_brain)):
     """A new stream: the old plan goes away entirely."""
     brain.plan.clear()
-    brain.plan_changed()
     return payload(brain)

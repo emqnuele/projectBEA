@@ -155,15 +155,6 @@ class AIVtuberBrain:
         """The owner's plan for the stream."""
         return self.memory.plan
 
-    def plan_changed(self) -> None:
-        """The dashboard edited the plan: her toolbox may have just changed.
-
-        Going from no plan to a plan arms `objective_done` and friends, and the
-        tool set is cached until something says it moved.
-        """
-        if self.consciousness:
-            self.consciousness.tools.invalidate()
-
     @property
     def is_sleeping(self) -> bool:
         return bool(self.consciousness and self.consciousness.sleeping)

@@ -326,3 +326,50 @@ def test_the_prompt_says_leaving_is_hers_to_decide():
     section = s.context_section.lower()
     assert "leave" in section
     assert "ask" in section or "permission" in section or "nobody" in section
+
+
+# --- and the mind is actually given the door ---------------------------------
+
+
+def _armed(s):
+    """What the mind's own toolbox carries, not what the skill would offer."""
+    from src.core.mind.tools import MindTools
+    from src.core.skills.base import SkillRegistry
+
+    registry = SkillRegistry()
+    registry.register(s)
+    box = MindTools(registry, speak=lambda **k: "", stay_silent=lambda **k: "")
+    return set(box.names())
+
+
+async def test_joining_a_call_arms_the_door_in_the_same_breath():
+    """The prompt starts saying `discord_leave_voice` the moment she joins, so
+    the schema has to carry it by then or she calls a tool that is not there."""
+    s = surface(Transport())
+    box_before = _armed(s)
+    await s._tool_join_voice("vc1")
+
+    assert "discord_leave_voice" not in box_before
+    assert "discord_leave_voice" in _armed(s)
+
+
+async def test_being_dragged_into_a_call_arms_it_too():
+    """The bot is the authority: she never called `discord_join_voice` here."""
+    s = surface(Transport())
+    s.channel.on_message({"type": "joined", "channel_id": "vc1", "listeners": 2})
+    assert "discord_leave_voice" in _armed(s)
+
+
+async def test_walking_out_takes_the_door_away_again():
+    s = surface(Transport())
+    await s._tool_join_voice("vc1")
+    await s._tool_leave_voice()
+    assert "discord_leave_voice" not in _armed(s)
+
+
+def test_the_prompt_never_names_a_tool_the_schema_lacks():
+    from src.core.mind.operating import unarmed
+
+    s = surface(Transport())
+    s.voice_channel = "vc1"
+    assert unarmed(s.context_section, _armed(s)) == []

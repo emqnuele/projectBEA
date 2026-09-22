@@ -15,6 +15,7 @@ from src.core.language import directive, speaks_first
 from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.handoff import HandoffWorker
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
+from src.core.mind.operating import unarmed
 from src.core.mind.routing import STAGE, channel_of, conversation_key, platform_of
 from src.core.mind.single_context import SingleContext
 from src.core.mind.token_budget import TokenBudget
@@ -159,10 +160,12 @@ class Consciousness:
         # a request lifecycle, not part of thinking
         self.correlations = CorrelationRegistry()
 
-        # rebuilt only when a capability is toggled, not twice per model step
         self.tools = MindTools(surfaces, speak=self._speak, stay_silent=self._stay_silent,
                                send_text=self._send_text, react_to=self._react_to,
                                say_nothing=self._say_nothing)
+        # the skill sections the promise check last looked at: it only has
+        # something to say when they change, and they change rarely
+        self._promised: str = ""
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -180,7 +183,6 @@ class Consciousness:
                 await s.start()
             except Exception as e:
                 logger.error(f"Surface '{s.name}' failed to start: {e}")
-        self.tools.invalidate()
         self._loop_task = asyncio.create_task(self.run())
         logger.info("Consciousness started.")
 
@@ -217,7 +219,6 @@ class Consciousness:
             await s.start()
         elif not state and s.active:
             await s.stop()
-        self.tools.invalidate()
         logger.info(f"Surface '{name}' -> {'active' if s.active else 'inactive'}.")
 
     async def stop(self):
@@ -612,6 +613,7 @@ class Consciousness:
         # the monologue rules are only true on an idle turn, so they belong to
         # the briefing rather than in here
         sections = self.surfaces.context_sections(exclude=("idle",))
+        self._check_promises(sections)
         # right after who she is, and in the cached half on purpose: which
         # language to answer in is true for the whole session, and a Japanese
         # line came back in English 5 times out of 8 without it — the prompt
@@ -620,6 +622,25 @@ class Consciousness:
         return {"role": "system",
                 "content": compose(self._get_soul(), language,
                                    self._get_operating(), *sections)}
+
+    def _check_promises(self, sections: List[str]) -> None:
+        """Complains when a skill offers her a tool the schema does not carry.
+
+        Only the code-generated sections, never the soul or the manual: those
+        are files somebody edits, and naming a tool from a capability that is
+        switched off is their business. A skill describing a door she is not
+        given is always a bug, and it is the kind that only shows up once the
+        world moves — she joins a call, the owner writes the plan.
+        """
+        promised = "\n".join(sections)
+        if promised == self._promised:
+            return
+        self._promised = promised
+        missing = unarmed(promised, self.tools.names())
+        if missing:
+            logger.error(
+                f"The prompt offers tools the mind has not been given: "
+                f"{', '.join(missing)}. She will call them and be told they do not exist.")
 
     def _briefing(self, batch: List[Perception], is_idle: bool = False,
                   dynamic: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
