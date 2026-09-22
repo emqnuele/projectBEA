@@ -432,6 +432,17 @@ CONSCIOUSNESS = Section(
     key="consciousness", label="Mind", scope="root",
     blurb="The shape of one turn of thought.",
     settings=[
+        Setting("context_max_tokens", "Context window", "int",
+                "Her memory size, in tokens: how much conversation she "
+                "remembers. Drag it up and she keeps more of the evening — "
+                "but every reply costs more, and your model needs a context "
+                "window at least this big. Past your model's own limit there "
+                "is no degrading, only a refused call.",
+                WINDOW_MIN_TOKENS, minimum=WINDOW_MIN_TOKENS,
+                maximum=WINDOW_MAX_TOKENS, ui="slider", step=WINDOW_STEP_TOKENS,
+                derives=(("handoff_trigger_tokens", "recaps at", TRIGGER_RATIO),
+                         ("handoff_target_tokens", "settles near", TARGET_RATIO),
+                         ("hot_tokens", "keeps word-for-word", HOT_RATIO))),
         Setting("idle_after", "Idle after", "float",
                 "Seconds of silence before she notices there is silence.",
                 240.0, minimum=10, maximum=3600),
@@ -452,17 +463,6 @@ CONSCIOUSNESS = Section(
         Setting("burst_steps", "Steps per turn", "int",
                 "How many tool steps one live turn may take.",
                 6, minimum=1, maximum=20),
-        Setting("context_max_tokens", "Memory size", "int",
-                "How much conversation she remembers, in tokens. Drag it up "
-                "and she keeps more of the evening — but every reply costs "
-                "more, and your model needs a context window at least this "
-                "big. Past your model's own limit there is no degrading, "
-                "only a refused call.",
-                WINDOW_MIN_TOKENS, minimum=WINDOW_MIN_TOKENS,
-                maximum=WINDOW_MAX_TOKENS, ui="slider", step=WINDOW_STEP_TOKENS,
-                derives=(("handoff_trigger_tokens", "recaps at", TRIGGER_RATIO),
-                         ("handoff_target_tokens", "settles near", TARGET_RATIO),
-                         ("hot_tokens", "keeps word-for-word", HOT_RATIO))),
         Setting("handoff_trigger_tokens", "Recap starts at", "int",
                 "Manual override: the memory size at which she pauses to "
                 "summarize the old past. Leave at 0 and it follows the "
