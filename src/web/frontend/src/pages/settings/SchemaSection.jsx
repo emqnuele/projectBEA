@@ -6,7 +6,7 @@ import { Glass } from '../../components/glass/Glass';
 import { Button, Switch } from '../../components/ui/controls';
 import { CheckRow, Field, SecretInput, Select, Slider, TextInput } from '../../components/ui/fields';
 import { Skeleton } from '../../components/ui/feedback';
-import { windowShape } from '../../lib/budget';
+import { shapeWarning, windowShape } from '../../lib/budget';
 import { compact } from '../../lib/format';
 import { useToast } from '../../state/ToastProvider';
 import { Group } from './parts';
@@ -239,6 +239,9 @@ export function createSchemaSection(sectionKey) {
         const fields = schema.settings.filter((s) => s !== toggle);
         const plain = fields.filter((s) => !s.advanced);
         const advanced = fields.filter((s) => s.advanced);
+        // an error inside the folded section is invisible while it stays
+        // folded, so a refused save would point at nothing: open it instead
+        const advancedHasError = advanced.some((s) => errors[s.key]);
         const needsRestart = fields.some((s) => s.restart && errors[s.key] === undefined);
 
         // a control that carries its own label is not wrapped in a Field, or
@@ -301,7 +304,7 @@ export function createSchemaSection(sectionKey) {
                 </Group>
 
                 {advanced.length > 0 && (
-                    <details className="group mt-2.5">
+                    <details className="group mt-2.5" open={advancedHasError ? true : undefined}>
                         <summary className="cursor-pointer list-none px-1 text-[11px] font-semibold uppercase tracking-wider text-faint transition-colors hover:text-dim">
                             Advanced — {advanced.length} more
                         </summary>
@@ -363,16 +366,26 @@ export function createSchemaSection(sectionKey) {
  */
 function DerivedShape({ setting, ceiling, values }) {
     const shape = windowShape(Number(ceiling ?? setting.default ?? 0), setting.derives, values);
+    const warning = shapeWarning(Number(ceiling ?? setting.default ?? 0), setting.derives, values);
     return (
-        <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-0.5 text-[11px] text-faint">
-            {shape.map(({ key, label, tokens, pinned }) => (
-                <span key={key}>
-                    {label}{' '}
-                    <span className="tnum font-mono text-dim">{compact(tokens)}</span>
-                    {pinned && <span className="ml-1 uppercase tracking-wider">pinned</span>}
-                </span>
-            ))}
-        </p>
+        <div className="space-y-1 px-0.5">
+            <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[11px] text-faint">
+                {shape.map(({ key, label, tokens, pinned }) => (
+                    <span key={key}>
+                        {label}{' '}
+                        <span className="tnum font-mono text-dim">{compact(tokens)}</span>
+                        {pinned && <span className="ml-1 uppercase tracking-wider">pinned</span>}
+                    </span>
+                ))}
+            </p>
+            {warning && (
+                <p className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--flux-err)' }}>
+                    <AlertTriangle size={11} className="shrink-0" />
+                    Hands off at {compact(warning.trigger)} meets rests near {compact(warning.target)} —
+                    every turn would hand off. Raise the trigger or lower the rest.
+                </p>
+            )}
+        </div>
     );
 }
 

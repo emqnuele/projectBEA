@@ -316,3 +316,111 @@ async def test_a_resize_on_the_loop_itself_is_applied_at_once():
     consciousness.apply_budget()
 
     assert consciousness.sliding_window.budget.max_tokens == 300_000
+
+
+# --- the window must keep breathing room --------------------------------------
+
+
+def test_pinning_the_trigger_at_the_target_is_refused_not_clamped():
+    """A clamped window hands off on every turn. The save says so instead."""
+    config = BrainConfig()
+
+    with pytest.raises(ValidationError):
+        apply_section(config, "consciousness", {
+            "context_max_tokens": 500_000,
+            "handoff_trigger_tokens": 90_000,
+            "handoff_target_tokens": 90_000,
+        })
+
+    assert config.consciousness["handoff_trigger_tokens"] == 0
+    assert config.consciousness["handoff_target_tokens"] == 0
+
+
+def test_a_trigger_pinned_below_the_derived_rest_is_refused():
+    config = BrainConfig()
+
+    with pytest.raises(ValidationError):
+        apply_section(config, "consciousness", {
+            "context_max_tokens": 500_000,
+            "handoff_trigger_tokens": 90_000,
+        })
+
+
+def test_a_ceiling_moved_under_an_existing_pin_is_refused():
+    """The payload carries the ceiling, the pin is already stored: the check
+    reads both together, or the slider alone could collapse the window."""
+    config = BrainConfig()
+    apply_section(config, "consciousness", {"handoff_trigger_tokens": 90_000})
+
+    with pytest.raises(ValidationError):
+        apply_section(config, "consciousness", {"context_max_tokens": 500_000})
+
+    assert config.consciousness["context_max_tokens"] == WINDOW_MIN_TOKENS
+
+
+def test_a_pin_with_room_to_breathe_is_accepted():
+    config = BrainConfig()
+
+    apply_section(config, "consciousness", {
+        "context_max_tokens": 500_000,
+        "handoff_trigger_tokens": 300_000,
+        "handoff_target_tokens": 100_000,
+    })
+
+    assert config.consciousness["handoff_trigger_tokens"] == 300_000
+    assert config.consciousness["handoff_target_tokens"] == 100_000
+
+
+def test_an_unrelated_save_does_not_trip_the_shape_check():
+    config = BrainConfig()
+
+    apply_section(config, "consciousness", {"context_handoff": False})
+
+    assert config.consciousness["context_handoff"] is False
+
+
+# --- every cached knob is live, not just the budget ---------------------------
+
+
+def test_a_reload_re_reads_the_whole_live_shape():
+    """The dashboard reports every one of these as applied without a restart,
+    so they are: the resize and the scalars land together, on the loop."""
+    config = BrainConfig()
+    consciousness = mind(config)
+
+    config.consciousness["hot_seconds"] = 600.0
+    config.consciousness["window_persist_after_turn"] = False
+    config.consciousness["dynamic_context_timeout"] = 1.5
+    config.consciousness["idle_after"] = 60.0
+    config.consciousness["burst_steps"] = 3
+    config.consciousness["correlation_timeout"] = 10.0
+    config.consciousness["stream_speech"] = False
+    consciousness.apply_budget()
+
+    assert consciousness.sliding_window.hot_seconds == 600.0
+    assert consciousness._persist_after_turn is False
+    assert consciousness._dynamic_timeout == 1.5
+    assert consciousness.idle_after == 60.0
+    assert consciousness.burst_steps == 3
+    assert consciousness.correlation_timeout == 10.0
+    assert consciousness.stream_speech is False
+
+
+@pytest.mark.asyncio
+async def test_the_scalars_land_on_the_loop_with_the_resize():
+    """The knobs are applied inside the posted resize, never on the caller
+    thread: a value read on one thread and written on another is only
+    sometimes live."""
+    config = BrainConfig()
+    consciousness = mind(config)
+    consciousness._loop = asyncio.get_running_loop()
+
+    config.consciousness["context_max_tokens"] = 300_000
+    config.consciousness["context_handoff"] = False
+    config.consciousness["hot_seconds"] = 600.0
+    await asyncio.to_thread(consciousness.apply_budget)
+    await asyncio.sleep(0)
+
+    assert consciousness.sliding_window.budget.max_tokens == 300_000
+    assert consciousness._handoff_enabled is False
+    assert consciousness.sliding_window.hot_seconds == 600.0

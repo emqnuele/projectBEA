@@ -1326,25 +1326,34 @@ class Consciousness:
         logger.info("Window cleared by the consolidation.")
 
     def apply_budget(self) -> None:
-        """Re-reads the window shape from the config and resizes the live window.
+        """Re-reads the live knobs from the config and resizes the window.
 
         Called on every reload, so a ceiling changed in the dashboard takes
-        effect on the next turn rather than at the next restart. The resize
-        itself must happen on the loop thread — it can evict, and an eviction
-        racing an append would lose the running total — but `POST /config` is
-        a synchronous route and reaches here from FastAPI's thread pool. So it
-        is posted to the loop rather than run where it was called, and only
-        run inline when there is no loop to post it to (start-up, tests).
+        effect on the next turn rather than at the next restart. Everything
+        runs inside `resize` on the loop thread: the resize may evict, and an
+        eviction racing an append would lose the running total — but
+        `POST /config` is a synchronous route and reaches here from FastAPI's
+        thread pool. So it is posted to the loop rather than run where it was
+        called, and only run inline when there is no loop to post it to
+        (start-up, tests, or the async settings route, which already runs on
+        the loop).
         """
-        budget, hot = budget_from_config(self.config.consciousness)
-        self._handoff_enabled = bool(self.config.consciousness.get("context_handoff", True))
-
         def resize() -> None:
+            cc = self.config.consciousness
+            budget, hot = budget_from_config(cc)
+            self._handoff_enabled = bool(cc.get("context_handoff", True))
+            self._persist_after_turn = bool(cc.get("window_persist_after_turn", True))
+            self._dynamic_timeout = float(cc.get("dynamic_context_timeout", 5.0))
+            self.idle_after = cc.get("idle_after", 30.0)
+            self.burst_steps = cc.get("burst_steps", 6)
+            self.correlation_timeout = cc.get("correlation_timeout", 30.0)
+            self.stream_speech = bool(cc.get("stream_speech", True))
+            self.sliding_window.hot_seconds = max(60.0, float(cc.get("hot_seconds", 1800.0)))
             if self.sliding_window.retarget(budget, hot):
                 logger.info(
                     f"Window resized: ceiling {budget.max_tokens:,}, handoff at "
                     f"{budget.trigger_tokens:,}, rests near {budget.target_tokens:,}, "
-                    f"hot {hot:,}."
+                    f"hot {self.sliding_window.hot_tokens:,}."
                 )
                 # a ceiling raised past the trigger can leave a window that is
                 # already due for one: ask now instead of waiting for a turn

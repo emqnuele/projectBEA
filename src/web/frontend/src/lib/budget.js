@@ -31,3 +31,21 @@ export function windowShape(ceiling, derives = [], values = {}) {
         };
     });
 }
+
+/**
+ * The collapsed window: trigger at or below target leaves no breathing room.
+ *
+ * The engine clamps rather than crashes, so this state would hand off on
+ * every turn. Returns the two figures when they meet, else null — the form
+ * says it before the save is refused.
+ */
+export function shapeWarning(ceiling, derives = [], values = {}) {
+    const shape = Object.fromEntries(
+        windowShape(ceiling, derives, values).map((d) => [d.key, d.tokens]),
+    );
+    const trigger = shape.handoff_trigger_tokens;
+    const target = shape.handoff_target_tokens;
+    if (trigger == null || target == null) return null;
+    if (trigger <= target) return { trigger, target };
+    return null;
+}

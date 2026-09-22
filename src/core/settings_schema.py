@@ -19,6 +19,7 @@ from src.core.mind.token_budget import (
     WINDOW_MAX_TOKENS,
     WINDOW_MIN_TOKENS,
     WINDOW_STEP_TOKENS,
+    budget_for,
 )
 
 TYPES = ("bool", "int", "float", "string", "secret", "select", "list")
@@ -466,11 +467,13 @@ CONSCIOUSNESS = Section(
                          ("hot_tokens", "keeps verbatim", HOT_RATIO))),
         Setting("handoff_trigger_tokens", "Handoff starts at", "int",
                 "Pins where the background handoff starts, instead of letting "
-                "it follow the window size. 0 follows.",
+                "it follow the window size. 0 follows. Must stay above "
+                "'window rests near'.",
                 0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
         Setting("handoff_target_tokens", "Window rests near", "int",
                 "Pins the size the window breathes back down to after a "
-                "handoff. 0 follows the window size.",
+                "handoff. 0 follows the window size. Must stay below "
+                "'handoff starts at'.",
                 0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
         Setting("hot_tokens", "Hot window", "int",
                 "Pins how many recent tokens cross a handoff verbatim, never "
@@ -563,11 +566,53 @@ def plan_section(config, key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         except ValueError as e:
             errors[field_key] = str(e)
 
+    errors.update(_window_shape_errors(config, sec, staged, payload))
+
     if errors:
         detail = "; ".join(f"{k}: {v}" for k, v in sorted(errors.items()))
         raise ValidationError(detail)
 
     return staged
+
+
+_WINDOW_SHAPE_KEYS = ("context_max_tokens", "handoff_trigger_tokens", "handoff_target_tokens")
+
+
+def _window_shape_errors(config, sec: Section, staged: Dict[str, Any],
+                         payload: Dict[str, Any]) -> Dict[str, str]:
+    """The window must keep breathing room: trigger above target.
+
+    `TokenBudget` clamps a target past its trigger down to it rather than
+    crashing, which turns a pinned trigger below the resting size into a
+    window that hands off on every single turn. Refuse that state at the save
+    instead: the payload carries one or two of the three numbers, the rest is
+    what is already stored, and the effective shape is what both together
+    would mean.
+    """
+    if sec.key != "consciousness":
+        return {}
+    if not any(key in payload for key in _WINDOW_SHAPE_KEYS):
+        return {}
+    block = _block(config, sec)
+
+    def effective(key: str, default: Any) -> Any:
+        return staged.get(key, block.get(key, default))
+
+    budget, _ = budget_for(
+        effective("context_max_tokens", WINDOW_MIN_TOKENS),
+        trigger=effective("handoff_trigger_tokens", 0),
+        target=effective("handoff_target_tokens", 0),
+    )
+    if budget.trigger_tokens > budget.target_tokens:
+        return {}
+    return {
+        "handoff_trigger_tokens":
+            f"must stay above window rests near ({budget.target_tokens:,}): "
+            "at this ceiling they meet and every turn hands off",
+        "handoff_target_tokens":
+            f"must stay below handoff starts at ({budget.trigger_tokens:,}): "
+            "at this ceiling they meet and every turn hands off",
+    }
 
 
 def write_section(config, key: str, staged: Dict[str, Any]) -> None:

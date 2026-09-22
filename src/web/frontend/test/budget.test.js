@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { derivedTokens, windowShape } from '../src/lib/budget.js';
+import { derivedTokens, shapeWarning, windowShape } from '../src/lib/budget.js';
 
 const DERIVES = [
     { key: 'handoff_trigger_tokens', label: 'hands off at', ratio: 0.8 },
@@ -54,4 +54,22 @@ test('zero means follow, not a window of nothing', () => {
     const shape = windowShape(200_000, DERIVES, { hot_tokens: 0, handoff_target_tokens: null });
     assert.equal(shape.find((d) => d.key === 'hot_tokens').tokens, 40_000);
     assert.equal(shape.find((d) => d.key === 'handoff_target_tokens').tokens, 67_000);
+});
+
+test('the collapsed window says which two figures meet', () => {
+    assert.deepEqual(shapeWarning(500_000, DERIVES, { handoff_trigger_tokens: 90_000 }), {
+        trigger: 90_000,
+        target: 167_000,
+    });
+});
+
+test('a window with room to breathe carries no warning', () => {
+    assert.equal(shapeWarning(150_000, DERIVES, {}), null);
+    assert.equal(
+        shapeWarning(500_000, DERIVES, {
+            handoff_trigger_tokens: 300_000,
+            handoff_target_tokens: 100_000,
+        }),
+        null,
+    );
 });
