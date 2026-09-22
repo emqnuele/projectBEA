@@ -234,7 +234,8 @@ Details that matter:
   while she is still writing the line.
 - **`send_message` is handed over, not waited on:** every written line goes out
   with a typing pause in front of it, and the mind does not hold still for it.
-  A message that never lands is published as an error rather than lost.
+  A message that never lands is published as an error rather than lost, and
+  stopping the mind waits (up to ten seconds) for the lines still going out.
 - **Body actions** (`long_running=True`) run in a single-slot task that preempts
   the previous one; the result comes back as a perception.
 - **The Turn Log:** every turn is recorded — the prompt in force, the briefing,

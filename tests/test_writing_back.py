@@ -153,3 +153,31 @@ def test_there_is_no_tool_when_there_is_nowhere_to_write():
     box = MindTools(SkillRegistry(), speak=lambda **k: "", stay_silent=lambda **k: "",
                     send_text=lambda **k: "")
     assert "send_message" not in box.names()
+
+
+# --- and shutdown waits for what is still going out ------------------------
+
+
+async def test_stopping_lets_the_last_lines_land():
+    """Handing the delivery over means it can still be mid-sentence when the
+    engine is asked to stop; dropping it ends a conversation halfway."""
+    platform = Slow(beat=0.05)
+    m = mind(platform)
+    await m._send_text("telegram", "99", "aspetta\nsto scrivendo\necco")
+    assert platform.sent != ["aspetta", "sto scrivendo", "ecco"]
+
+    await m.stop()
+    assert platform.sent == ["aspetta", "sto scrivendo", "ecco"]
+
+
+async def test_a_delivery_that_hangs_does_not_hold_the_shutdown():
+    class Hangs(Slow):
+        async def send_text(self, channel_id, text, reply_to=None):
+            await asyncio.sleep(3600)
+
+    m = mind(Hangs(beat=0.01))
+    m._DELIVERY_GRACE = 0.1
+    await m._send_text("telegram", "99", "ciao")
+    started = asyncio.get_running_loop().time()
+    await m.stop()
+    assert asyncio.get_running_loop().time() - started < 1.0

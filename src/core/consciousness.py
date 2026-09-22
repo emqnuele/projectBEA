@@ -69,6 +69,9 @@ class Consciousness:
     # written turns), but saying nothing anywhere ends the turn.
     _TERMINAL_TOOLS = {"speak", "stay_silent", "say_nothing"}
 
+    # how long shutdown waits for a message still being typed out
+    _DELIVERY_GRACE = 10.0
+
     # one rescue, not a loop: plain text is private thinking, so a text-only
     # answer means nobody heard her. Rather than staying mute, she gets told once.
     _NO_TOOL_NUDGE = (
@@ -153,6 +156,9 @@ class Consciousness:
         self._said: Optional[Dict[str, Any]] = None
         self._sent: List[Dict[str, Any]] = []
         self._bg_tasks: set = set()
+        # the written answers still going out: shutdown waits for these, so a
+        # conversation does not end halfway through her own sentence
+        self._deliveries: set = set()
         self.turns = TurnLog(
             cc.get("turn_log_dir", "data/turns"), cc.get("turn_log_days", 14),
         ) if cc.get("turn_log", True) else None
@@ -223,6 +229,10 @@ class Consciousness:
 
     async def stop(self):
         self.alive = False
+        # a written answer is handed over and not waited on, so at shutdown
+        # there may be lines of it still going out at a human pace. Dropping
+        # them would end a conversation halfway through her own sentence.
+        await self._drain_deliveries()
         # background flushes still in flight must land first: otherwise one
         # could overwrite with an older snapshot what is flushed below
         pending = [t for t in self._persist_tasks if not t.done()]
@@ -1034,8 +1044,10 @@ class Consciousness:
         if self.attention:
             self.attention.mark_spoke(key)
         self._log_outgoing(key, platform, str(channel), text)
-        self._in_background(self._deliver(skill, platform, str(channel), text,
-                                          reply_to or None))
+        task = self._in_background(self._deliver(skill, platform, str(channel), text,
+                                                  reply_to or None))
+        self._deliveries.add(task)
+        task.add_done_callback(self._deliveries.discard)
         return f"Sending ({messages} message(s))."
 
     async def _deliver(self, skill, platform: str, channel: str, text: str,
@@ -1202,6 +1214,19 @@ class Consciousness:
         task = asyncio.create_task(work())
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
+
+    async def _drain_deliveries(self) -> None:
+        """Lets the messages still on their way out finish, within reason."""
+        pending = [t for t in self._deliveries if not t.done()]
+        if not pending:
+            return
+        logger.info(f"Waiting for {len(pending)} message(s) still being sent.")
+        done, late = await asyncio.wait(pending, timeout=self._DELIVERY_GRACE)
+        del done
+        for task in late:
+            task.cancel()
+        if late:
+            logger.warning(f"{len(late)} message(s) were still being sent at shutdown.")
 
     def _in_background(self, coroutine) -> "asyncio.Task":
         """Runs something the turn should not wait for, and keeps a reference.
