@@ -15,6 +15,7 @@ from src.core.perception.bus import PerceptionBus
 from src.core.perception.types import Perception, PerceptionKind
 
 TYPING = 0.12   # what a test is willing to call "a pause between two lines"
+MODEL = 0.25    # a turn wide enough that a loaded runner still lands inside it
 
 
 def bus(**kwargs) -> PerceptionBus:
@@ -226,7 +227,7 @@ def _mind(channel, platform):
         async def complete(self, messages, tools=None, response_format=None):
             self.calls.append([dict(m) for m in messages])
             self.tools_seen.append([t["function"]["name"] for t in (tools or [])])
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(MODEL)
             frames = sum(1 for m in messages if m.get("role") == "user"
                          and str(m.get("content", "")).startswith("["))
             if frames <= self.frames:
@@ -271,7 +272,7 @@ async def test_hey_come_stai_tutto_bene_gets_one_reply():
     for i, text in enumerate(["hey", "come stai", "tutto bene?"]):
         channel.put(dm(text, i))
         await asyncio.sleep(TYPING / 2)
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(TYPING + MODEL * 4)
 
     mind.alive = False
     loop.cancel()
@@ -287,17 +288,18 @@ async def test_a_line_that_lands_after_she_answered_becomes_the_next_turn():
     """The other half of the same bug: what arrives *during* a turn used to be
     read back to her as fresh input, so she answered the same person twice in
     one turn. She has already replied — it waits, and gets batched."""
-    channel = PerceptionBus(window=0.03, text_window=0.05, max_window=1.0)
+    channel = bus()
     platform = Written()
     mind = _mind(channel, platform)
     mind.alive = True
     loop = asyncio.create_task(mind.run())
 
     channel.put(dm("hey", 1))
-    await asyncio.sleep(0.07)          # she is now mid-turn (the model takes 50ms)
+    # half a model call past the batch closing: mid-turn with room either side
+    await asyncio.sleep(TYPING + MODEL / 2)
     channel.put(dm("come stai", 2))
     channel.put(dm("tutto bene?", 3))
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(TYPING + MODEL * 6)
 
     mind.alive = False
     loop.cancel()
@@ -315,7 +317,7 @@ async def test_something_from_elsewhere_still_steers_the_turn_in_flight():
     late is how she answers a question the room has moved past."""
     from src.core.perception.types import Author
 
-    channel = PerceptionBus(window=0.03, text_window=0.05, max_window=1.0)
+    channel = bus()
     platform = Written()
     mind = _mind(channel, platform)
     mind._sent = [{"platform": "telegram", "channel": "99", "text": "reply 1"}]
