@@ -252,3 +252,33 @@ async def test_ignored_rescue_is_an_error_event():
     assert m._said is None
     errors = [e for e in m.events.events if e[0] is EventCategory.ERROR]
     assert any("even after the one rescue" in e[2] for e in errors)
+
+
+# --- the declaration itself -------------------------------------------------
+
+
+def test_audience_declaration_is_wired():
+    """`reaches` is declared where the audience is, not guessed at rescue time.
+
+    `speak` speaks to the room and `discord_summon` DMs an invite: both must
+    suppress the rescue. `discord_leave_voice` only moves the body, so it
+    must not.
+    """
+    from src.core.mind.tools import MindTools
+    from src.core.skills.voice.surface import VoiceSurface
+
+    mind_box = MindTools(surfaces_with(), speak=lambda **k: "",
+                         stay_silent=lambda **k: "")
+    assert mind_box.registry().get("speak").reaches is True
+
+    voice = VoiceSurface.__new__(VoiceSurface)
+    voice.active = True
+    voice.voice_channel = None
+    tools = {t.name: t for t in voice.tools()}
+    assert tools["discord_summon"].reaches is True
+    assert tools["discord_send_message"].reaches is True
+    assert "discord_leave_voice" not in tools
+
+    voice.voice_channel = "123"
+    tools = {t.name: t for t in voice.tools()}
+    assert tools["discord_leave_voice"].reaches is False

@@ -81,6 +81,7 @@ class MindTools:
                 },
             }, "required": ["mood", "message"]},
             self._speak,
+            reaches=True,
         )
         registry.add(
             "stay_silent",

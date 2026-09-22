@@ -434,6 +434,7 @@ class VoiceSurface(PlatformSkill):
                     "text": {"type": "string", "description": "optional extra line in the DM"}},
                  "required": ["user_id", "channel_id"]},
                 self._tool_summon,
+                reaches=True,
             ),
         ]
 

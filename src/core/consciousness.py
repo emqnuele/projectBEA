@@ -935,8 +935,9 @@ class Consciousness:
         worked, which is the worst possible thing for the log to be doing while
         a capability is quietly missing.
         """
-        result = await self._run_tool(call)
-        tool = self.tools.registry().get(call.name)
+        registry = self.tools.registry()
+        result = await self._run_tool(call, registry)
+        tool = registry.get(call.name)
         self._acted.append({"tool": call.name, "arguments": call.arguments,
                             "result": result,
                             # whether this could stand in for an answer: a tool
@@ -952,8 +953,8 @@ class Consciousness:
         )
         return result
 
-    async def _run_tool(self, call: ToolCall) -> str:
-        registry = self.tools.registry()
+    async def _run_tool(self, call: ToolCall, registry=None) -> str:
+        registry = registry if registry is not None else self.tools.registry()
         tool = registry.get(call.name)
         if tool is None:
             return f"ERROR: unknown tool '{call.name}'."
