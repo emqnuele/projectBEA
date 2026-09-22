@@ -1021,12 +1021,7 @@ class Consciousness:
     # --- unified text tools -------------------------------------------------
 
     def _skill_for_platform(self, platform: str):
-        """The active skill that can write on `platform`, if there is one."""
-        for skill in self.surfaces.active():
-            if (getattr(skill, "platform", None) == platform
-                    and callable(getattr(skill, "deliver", None))):
-                return skill
-        return None
+        return self.tools.writer(platform)
 
     async def _send_text(self, platform: str, channel: str, text: str,
                          reply_to: str = "") -> str:
