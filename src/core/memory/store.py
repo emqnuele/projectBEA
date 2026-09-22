@@ -96,6 +96,33 @@ class HotFact:
 # --- roster -----------------------------------------------------------------
 
 
+def _upsert_identity(cur, identity: str, platform: str, display_name: str) -> None:
+    """One sighting of an account, inside the caller's transaction."""
+    now = time.time()
+    native_id = identity.split(":", 1)[1] if ":" in identity else identity
+    cur.execute(
+        "INSERT INTO identities (identity, platform, native_id, display_name, "
+        "first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(identity) DO UPDATE SET last_seen = excluded.last_seen, "
+        # a blank new name must not wipe the one we have
+        "display_name = CASE WHEN excluded.display_name != '' "
+        "  THEN excluded.display_name ELSE identities.display_name END",
+        (identity, platform, native_id, display_name or "", now, now),
+    )
+
+
+# the session count rides along as a subquery: counting it per row made every
+# roster listing one extra query per identity
+_ROSTER_SELECT = (
+    "SELECT i.identity, i.display_name, i.platform, i.first_seen, i.last_seen, "
+    "       i.person_id, r.message_count, r.donation_total, r.had_1on1, "
+    "       r.marked_by_bea, r.promoted, "
+    "       (SELECT COUNT(*) FROM roster_sessions s WHERE s.identity = i.identity) "
+    "       AS session_count "
+    "FROM identities i JOIN roster r ON r.identity = i.identity "
+)
+
+
 class RosterStore:
     """The tally for every identity Bea has ever seen."""
 
@@ -104,11 +131,7 @@ class RosterStore:
 
     def get(self, identity: str) -> Optional[RosterEntry]:
         row = self.db.query_one(
-            "SELECT i.identity, i.display_name, i.platform, i.first_seen, i.last_seen, "
-            "       i.person_id, r.message_count, r.donation_total, r.had_1on1, "
-            "       r.marked_by_bea, r.promoted "
-            "FROM identities i JOIN roster r ON r.identity = i.identity "
-            "WHERE i.identity = ?",
+            _ROSTER_SELECT + "WHERE i.identity = ?",
             (identity,),
         )
         return self._entry(row) if row else None
@@ -117,19 +140,8 @@ class RosterStore:
                session_id: Optional[str] = None, is_1on1: bool = False,
                donation: float = 0.0) -> RosterEntry:
         """Registers one sighting. An INSERT, not a rewrite of the whole roster."""
-        now = time.time()
-        native_id = identity.split(":", 1)[1] if ":" in identity else identity
-
         with self.db.cursor() as cur:
-            cur.execute(
-                "INSERT INTO identities (identity, platform, native_id, display_name, "
-                "first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(identity) DO UPDATE SET last_seen = excluded.last_seen, "
-                # a blank new name must not wipe the one we have
-                "display_name = CASE WHEN excluded.display_name != '' "
-                "  THEN excluded.display_name ELSE identities.display_name END",
-                (identity, platform, native_id, display_name or "", now, now),
-            )
+            _upsert_identity(cur, identity, platform, display_name)
             cur.execute(
                 "INSERT INTO roster (identity, message_count, donation_total, had_1on1) "
                 "VALUES (?, 1, ?, ?) "
@@ -166,17 +178,8 @@ class RosterStore:
         What `link_person` needs: the speaker may never have been tallied, and
         two statements apart a crash would leave a tally with no card.
         """
-        now = time.time()
-        native_id = identity.split(":", 1)[1] if ":" in identity else identity
         with self.db.cursor() as cur:
-            cur.execute(
-                "INSERT INTO identities (identity, platform, native_id, display_name, "
-                "first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(identity) DO UPDATE SET last_seen = excluded.last_seen, "
-                "display_name = CASE WHEN excluded.display_name != '' "
-                "  THEN excluded.display_name ELSE identities.display_name END",
-                (identity, platform, native_id, display_name or "", now, now),
-            )
+            _upsert_identity(cur, identity, platform, display_name)
             cur.execute(
                 "INSERT INTO roster (identity, message_count, donation_total, had_1on1) "
                 "VALUES (?, 1, 0, 0) "
@@ -202,20 +205,18 @@ class RosterStore:
         )
         return self.get(row["identity"]) if row else None
 
+    def count(self) -> int:
+        return int(self.db.scalar(
+            "SELECT COUNT(*) FROM identities i JOIN roster r ON r.identity = i.identity"))
+
     def all(self) -> List[RosterEntry]:
         rows = self.db.query(
-            "SELECT i.identity, i.display_name, i.platform, i.first_seen, i.last_seen, "
-            "       i.person_id, r.message_count, r.donation_total, r.had_1on1, "
-            "       r.marked_by_bea, r.promoted "
-            "FROM identities i JOIN roster r ON r.identity = i.identity "
-            "ORDER BY i.last_seen DESC"
+            _ROSTER_SELECT + "ORDER BY i.last_seen DESC"
         )
         return [self._entry(r) for r in rows]
 
-    def _entry(self, row) -> RosterEntry:
-        sessions = self.db.scalar(
-            "SELECT COUNT(*) FROM roster_sessions WHERE identity = ?", (row["identity"],)
-        )
+    @staticmethod
+    def _entry(row) -> RosterEntry:
         return RosterEntry(
             identity=row["identity"],
             display_name=row["display_name"] or "",
@@ -228,7 +229,7 @@ class RosterStore:
             marked_by_bea=bool(row["marked_by_bea"]),
             promoted=bool(row["promoted"]),
             person_id=row["person_id"],
-            session_count=int(sessions),
+            session_count=int(row["session_count"]),
         )
 
 
@@ -346,6 +347,9 @@ class PeopleStore:
         """Same person, another platform. Never automatic — always a decision."""
         self.db.execute("UPDATE identities SET person_id = ? WHERE identity = ?",
                         (person_id, identity))
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM people"))
 
     def all(self) -> List[PersonCard]:
         rows = self.db.query("SELECT * FROM people ORDER BY updated_at DESC")
@@ -723,8 +727,7 @@ class WindowStore:
 
     def _setting(self, key: str) -> int:
         try:
-            return int(self.db.scalar(
-                "SELECT value FROM settings WHERE key = ?", (key,), default=0))
+            return int(self.db.get_setting(key, default=0))
         except (TypeError, ValueError):
             return 0
 

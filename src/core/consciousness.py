@@ -1276,25 +1276,16 @@ class Consciousness:
         try:
             prose = self._handoff.last_prose or ""
             if prose:
-                self.memory.db.execute(
-                    "INSERT INTO settings (key, value) VALUES (?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    (HANDOFF_PROSE_KEY, prose),
-                )
+                self.memory.db.put_setting(HANDOFF_PROSE_KEY, prose)
             else:
-                self.memory.db.execute(
-                    "DELETE FROM settings WHERE key = ?", (HANDOFF_PROSE_KEY,),
-                )
+                self.memory.db.drop_setting(HANDOFF_PROSE_KEY)
         except Exception as e:
             logger.warning(f"Could not save the handoff bridge: {e}")
 
     def _load_bridge(self) -> None:
         """Restores the handoff recap saved by _save_bridge, if any."""
         try:
-            prose = self.memory.db.scalar(
-                "SELECT value FROM settings WHERE key = ?", (HANDOFF_PROSE_KEY,),
-                default="",
-            )
+            prose = self.memory.db.get_setting(HANDOFF_PROSE_KEY)
             self._handoff.last_prose = str(prose or "")
         except Exception as e:
             logger.warning(f"Could not restore the handoff bridge: {e}")

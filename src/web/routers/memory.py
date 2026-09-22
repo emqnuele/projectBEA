@@ -19,8 +19,9 @@ def counts(brain: AIVtuberBrain) -> Dict[str, Any]:
     memory = brain.memory
     try:
         return {
-            "people": len(memory.people.all()),
-            "roster": len(memory.roster.all()),
+            # counted, not loaded: every card and tally row costs queries of its own
+            "people": memory.people.count(),
+            "roster": memory.roster.count(),
             "memories": memory.rag.count() if memory.rag else 0,
             "hot_facts": len(memory.hot.active()),
             "self_facts": len(memory.selflore.facts()),

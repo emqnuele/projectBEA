@@ -153,9 +153,7 @@ class AffectState:
 
     def _load(self) -> Affect:
         try:
-            raw = self.memory.db.scalar(
-                "SELECT value FROM settings WHERE key = ?", (SETTINGS_KEY,), default="",
-            )
+            raw = self.memory.db.get_setting(SETTINGS_KEY)
             data = json.loads(raw) if raw else {}
             return Affect(
                 float(data.get("valence", 0.0)),
@@ -174,11 +172,7 @@ class AffectState:
             "updated_at": self._affect.updated_at,
         })
         try:
-            self.memory.db.execute(
-                "INSERT INTO settings (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (SETTINGS_KEY, payload),
-            )
+            self.memory.db.put_setting(SETTINGS_KEY, payload)
         except Exception as e:
             logger.warning(f"Could not save her mood: {e}")
 
