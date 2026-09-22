@@ -224,6 +224,8 @@ answering on it.
      `reaches=True` (audience: `speak`, chat sends, reacts, DMs, explicit
      silence) count as reaching someone; side effects (`objective_*`,
      `play_minecraft`, body actions, recall) never stand in for the answer.
+     An audience success suppresses the rescue even if plain text follows it —
+     no double answer, the extra words stay in `thought`.
 7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **mirror** the turn into the sliding
     window (`_record_window`) — retention is token-budgeted (ceiling 150k by
     default, up to 500k),

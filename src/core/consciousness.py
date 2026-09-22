@@ -602,6 +602,10 @@ class Consciousness:
             return f"plain text nobody heard (tools: {tools})"
         if self._acted and all(_tool_failed(c) for c in self._acted):
             return f"every tool failed ({tools})"
+        failed_audience = [str(c["tool"]) for c in self._acted
+                           if bool(c.get("reaches")) and _tool_failed(c)]
+        if failed_audience:
+            return f"audience tool failed ({', '.join(failed_audience)}; tools: {tools})"
         return f"nothing landed (tools: {tools})"
 
     def _reached_someone(self) -> bool:
