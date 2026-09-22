@@ -15,6 +15,7 @@ from src.core.language import directive, speaks_first
 from src.core.mind.correlation import CorrelationRegistry
 from src.core.mind.handoff import HandoffWorker
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
+from src.core.mind.operating import unarmed
 from src.core.mind.routing import STAGE, channel_of, conversation_key, platform_of
 from src.core.mind.single_context import SingleContext
 from src.core.mind.token_budget import TokenBudget
@@ -67,6 +68,9 @@ class Consciousness:
     # written channels mirror voice: send_message may continue (multi-step
     # written turns), but saying nothing anywhere ends the turn.
     _TERMINAL_TOOLS = {"speak", "stay_silent", "say_nothing"}
+
+    # how long shutdown waits for a message still being typed out
+    _DELIVERY_GRACE = 10.0
 
     # one rescue, not a loop: plain text is private thinking, so a text-only
     # answer means nobody heard her. Rather than staying mute, she gets told once.
@@ -125,7 +129,6 @@ class Consciousness:
         if attention is not None and getattr(attention, "window", None) is None:
             attention.window = self.sliding_window
         self.idle_after = cc.get("idle_after", 30.0)
-        self.window = cc.get("window", 0.3)
         self.burst_steps = cc.get("burst_steps", 6)
         self.correlation_timeout = cc.get("correlation_timeout", 30.0)
         # whether a line starts being spoken while the model is still writing it
@@ -148,10 +151,14 @@ class Consciousness:
         self._live: Optional[LiveLine] = None
 
         # what this turn has done so far, for the record written at the end of it
+        self._thought: List[str] = []
         self._acted: List[Dict[str, Any]] = []
         self._said: Optional[Dict[str, Any]] = None
         self._sent: List[Dict[str, Any]] = []
         self._bg_tasks: set = set()
+        # the written answers still going out: shutdown waits for these, so a
+        # conversation does not end halfway through her own sentence
+        self._deliveries: set = set()
         self.turns = TurnLog(
             cc.get("turn_log_dir", "data/turns"), cc.get("turn_log_days", 14),
         ) if cc.get("turn_log", True) else None
@@ -159,10 +166,12 @@ class Consciousness:
         # a request lifecycle, not part of thinking
         self.correlations = CorrelationRegistry()
 
-        # rebuilt only when a capability is toggled, not twice per model step
         self.tools = MindTools(surfaces, speak=self._speak, stay_silent=self._stay_silent,
                                send_text=self._send_text, react_to=self._react_to,
                                say_nothing=self._say_nothing)
+        # the skill sections the promise check last looked at: it only has
+        # something to say when they change, and they change rarely
+        self._promised: str = ""
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -180,7 +189,6 @@ class Consciousness:
                 await s.start()
             except Exception as e:
                 logger.error(f"Surface '{s.name}' failed to start: {e}")
-        self.tools.invalidate()
         self._loop_task = asyncio.create_task(self.run())
         logger.info("Consciousness started.")
 
@@ -217,11 +225,14 @@ class Consciousness:
             await s.start()
         elif not state and s.active:
             await s.stop()
-        self.tools.invalidate()
         logger.info(f"Surface '{name}' -> {'active' if s.active else 'inactive'}.")
 
     async def stop(self):
         self.alive = False
+        # a written answer is handed over and not waited on, so at shutdown
+        # there may be lines of it still going out at a human pace. Dropping
+        # them would end a conversation halfway through her own sentence.
+        await self._drain_deliveries()
         # background flushes still in flight must land first: otherwise one
         # could overwrite with an older snapshot what is flushed below
         pending = [t for t in self._persist_tasks if not t.done()]
@@ -331,9 +342,9 @@ class Consciousness:
                 t_turn = time.perf_counter()
                 steps = 0
                 spent = Usage()
-                self._acted, self._said, self._sent = [], None, []
+                self._thought, self._acted, self._said, self._sent = [], [], None, []
                 for _ in range(self.burst_steps):
-                    steer = self.bus.drain_nowait()
+                    steer = self._steering()
                     if steer:
                         self.correlations.extend_batch(steer)
                         self._remember(steer)
@@ -354,8 +365,7 @@ class Consciousness:
                         logger.info(f"llm step {steps} took {(time.perf_counter() - t_llm) * 1000:.0f}ms"
                                     f"{' (tools: ' + ', '.join(c.name for c in assistant.tool_calls) + ')' if assistant.tool_calls else ' (final)'}")
                     context.append(assistant_to_message(assistant))
-                    if assistant.content:
-                        self.events.publish(EventCategory.THOUGHT, "consciousness", assistant.content)
+                    self._think_aloud(assistant.content)
 
                     if assistant.is_final:
                         break
@@ -374,15 +384,17 @@ class Consciousness:
                     ):
                         break
 
-                # text-only answer to something real: plain text is private
-                # thinking, so nobody heard her — one rescue, not a loop
-                if self._needs_answer(batch) and not self._acted:
+                # nobody heard her: either she only wrote plain text, which is
+                # private thinking, or every tool she reached for failed. Both
+                # end the same way and both get the same one rescue — the
+                # question is whether anything landed, never whether she tried
+                if self._needs_answer(batch) and not self._reached_someone():
                     context.append({"role": "user", "content": self._NO_TOOL_NUDGE})
+                    steps += 1
                     assistant = await self._think(context)
                     spent = spent + assistant.usage
                     context.append(assistant_to_message(assistant))
-                    if assistant.content:
-                        self.events.publish(EventCategory.THOUGHT, "consciousness", assistant.content)
+                    self._think_aloud(assistant.content)
                     if not assistant.is_final:
                         for call in assistant.tool_calls:
                             obs = await self._dispatch(call)
@@ -490,6 +502,36 @@ class Consciousness:
         except Exception as e:
             logger.error(f"Could not drop the unspoken line: {e}")
 
+    def _steering(self) -> List[Perception]:
+        """What arrived mid-turn and still belongs to this turn.
+
+        Something that lands while she is thinking is steering: she has not
+        answered yet, and reading it now is what stops her replying to a
+        question the room has already moved past. Something that lands in a
+        conversation she has **already** answered this turn is the next thing
+        that person said, and folding it into the same turn is how one person
+        typing three lines gets three replies. It goes back on the bus, where
+        the quiet gap will batch it with whatever else they are still writing.
+        """
+        answered = self._answered()
+        if not answered:
+            return self.bus.drain_nowait()
+
+        steer: List[Perception] = []
+        for p in self.bus.drain_nowait():
+            if conversation_key(p) in answered:
+                self.bus.put(p)
+            else:
+                steer.append(p)
+        return steer
+
+    def _answered(self) -> set:
+        """The conversations she has already replied in, this turn."""
+        keys = {f"{sent['platform']}:{sent['channel']}" for sent in self._sent}
+        if self._said:
+            keys.add(STAGE)
+        return keys
+
     # --- attention: order, never filter -------------------------------------
 
     @staticmethod
@@ -509,6 +551,19 @@ class Consciousness:
         return any(p.kind is not PerceptionKind.IDLE and not (p.meta or {}).get("noise")
                    for p in batch)
 
+    def _reached_someone(self) -> bool:
+        """Did anything she did this turn actually get somewhere.
+
+        Reaching for a tool is not the same as the tool working, and the
+        difference is the whole point: a call that came back
+        `ERROR: unknown tool` used to count as having acted, so the one rescue
+        was spent on a turn nobody heard and she simply went quiet.
+        """
+        if self._said or self._sent:
+            return True
+        return any(not str(call["result"]).startswith(("ERROR", "FAILED"))
+                   for call in self._acted)
+
     def _annotate(self, batch: List[Perception]) -> List["tuple[Perception, float]"]:
         """Priority per perception, highest first. Nothing is ever dropped."""
         if not self.attention:
@@ -520,20 +575,37 @@ class Consciousness:
         self.total_tokens += spent.total
         self.total_calls += steps
         cached = f", {round(spent.cache_hit * 100)}% cached" if spent.cached_tokens else ""
+        # what she thought rather than said, when the provider reports it: it is
+        # the difference between a long answer and a long silence before one
+        thought = f", {spent.reasoning_tokens} reasoning" if spent.reasoning_tokens else ""
         self.events.publish(
             EventCategory.SYSTEM, "cost",
-            f"turn: {steps} call(s), {spent.total} tokens, {elapsed_ms:.0f}ms{cached}",
+            f"turn: {steps} call(s), {spent.total} tokens, {elapsed_ms:.0f}ms{cached}{thought}",
             metadata={
                 "steps": steps,
                 "prompt_tokens": spent.prompt_tokens,
                 "completion_tokens": spent.completion_tokens,
                 "cached_tokens": spent.cached_tokens,
+                "reasoning_tokens": spent.reasoning_tokens,
                 "tokens": spent.total,
                 "ms": round(elapsed_ms),
                 "session_tokens": self.total_tokens,
                 "session_calls": self.total_calls,
             },
         )
+
+    def _think_aloud(self, content: Optional[str]) -> None:
+        """Her inner monologue: shown live, and kept for the record.
+
+        Plain text is private thinking — nobody hears it, and every token of it
+        is a token of delay before she says anything. Keeping it is what makes
+        "why did she go quiet" and "why was that turn slow" answerable after
+        the fact instead of the following stream.
+        """
+        if not content:
+            return
+        self._thought.append(content)
+        self.events.publish(EventCategory.THOUGHT, "consciousness", content)
 
     def _write_down(self, context: List[Dict[str, Any]], batch: List[Perception],
                     steps: int, spent: Usage, elapsed_ms: float) -> None:
@@ -544,6 +616,7 @@ class Consciousness:
             self.turns.write(turn_record(
                 context=context,
                 perceptions=[p.render() for p in batch],
+                thought=self._thought,
                 calls=self._acted,
                 spoke=self._heard(),
                 usage=spent,
@@ -612,6 +685,7 @@ class Consciousness:
         # the monologue rules are only true on an idle turn, so they belong to
         # the briefing rather than in here
         sections = self.surfaces.context_sections(exclude=("idle",))
+        self._check_promises(sections)
         # right after who she is, and in the cached half on purpose: which
         # language to answer in is true for the whole session, and a Japanese
         # line came back in English 5 times out of 8 without it — the prompt
@@ -620,6 +694,25 @@ class Consciousness:
         return {"role": "system",
                 "content": compose(self._get_soul(), language,
                                    self._get_operating(), *sections)}
+
+    def _check_promises(self, sections: List[str]) -> None:
+        """Complains when a skill offers her a tool the schema does not carry.
+
+        Only the code-generated sections, never the soul or the manual: those
+        are files somebody edits, and naming a tool from a capability that is
+        switched off is their business. A skill describing a door she is not
+        given is always a bug, and it is the kind that only shows up once the
+        world moves — she joins a call, the owner writes the plan.
+        """
+        promised = "\n".join(sections)
+        if promised == self._promised:
+            return
+        self._promised = promised
+        missing = unarmed(promised, self.tools.names())
+        if missing:
+            logger.error(
+                f"The prompt offers tools the mind has not been given: "
+                f"{', '.join(missing)}. She will call them and be told they do not exist.")
 
     def _briefing(self, batch: List[Perception], is_idle: bool = False,
                   dynamic: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
@@ -668,7 +761,9 @@ class Consciousness:
         is and with whom, injected from code rather than hoped from prose — and
         the destination a `send_message` must name back.
         """
-        header = "[NEW INPUT — arrived while you were mid-action; decide if it's worth reacting to now]" \
+        header = ("[STILL COMING IN — this arrived while you were mid-action, "
+                  "and you have not answered it yet. Fold it into the answer you "
+                  "are about to give; do not send a separate reply for it.]") \
             if steering else "[PERCEPTIONS — answer where each arrived: `speak` for voice/stage, `send_message(platform, channel, text)` for the rest]"
         orientation = self._orientation(annotated)
         now = time.time()
@@ -769,9 +864,23 @@ class Consciousness:
         return self.tools.schemas()
 
     async def _dispatch(self, call: ToolCall) -> str:
-        self.events.publish(EventCategory.TOOL, "consciousness", f"{call.name}({call.arguments})")
+        """Runs one tool and says, on the record, how it went.
+
+        The call and its outcome are one event, published once the outcome is
+        known. Published on the way in, a tool that came back
+        `ERROR: unknown tool` looked on the dashboard exactly like one that
+        worked, which is the worst possible thing for the log to be doing while
+        a capability is quietly missing.
+        """
         result = await self._run_tool(call)
         self._acted.append({"tool": call.name, "arguments": call.arguments, "result": result})
+        failed = result.startswith(("ERROR", "FAILED"))
+        self.events.publish(
+            EventCategory.ERROR if failed else EventCategory.TOOL, "consciousness",
+            f"{call.name}({call.arguments}) → {result}" if failed
+            else f"{call.name}({call.arguments})",
+            metadata={"tool": call.name, "arguments": call.arguments, "result": result},
+        )
         return result
 
     async def _run_tool(self, call: ToolCall) -> str:
@@ -903,32 +1012,61 @@ class Consciousness:
     # --- unified text tools -------------------------------------------------
 
     def _skill_for_platform(self, platform: str):
+        """The active skill that can write on `platform`, if there is one."""
         for skill in self.surfaces.active():
-            if getattr(skill, "platform", None) == platform:
+            if (getattr(skill, "platform", None) == platform
+                    and callable(getattr(skill, "deliver", None))):
                 return skill
         return None
 
     async def _send_text(self, platform: str, channel: str, text: str,
                          reply_to: str = "") -> str:
-        """Writes where it arrived. The destination rides in the arguments."""
+        """Writes where it arrived. The destination rides in the arguments.
+
+        Handed to the platform and not waited on. Every line is sent with a
+        typing pause in front of it — up to four seconds each, on purpose, so
+        it reads like somebody writing — and waiting for that inside the tool
+        call held the whole mind for as long as the answer was long. A turn
+        answering three lines sat there for ten seconds while everything that
+        arrived in the meantime piled up behind it. Her voice has worked this
+        way since it existed; this is the written half catching up.
+        """
         skill = self._skill_for_platform(platform)
         if skill is None:
             return (f"FAILED: no active skill for platform '{platform}'. "
                     f"Use speak for voice/stage.")
-        try:
-            sent = await skill.deliver(str(channel), text,
-                                       reply_to=reply_to or None)
-        except Exception as e:
-            logger.warning(f"send_message to {platform}:{channel} failed: {e}")
-            return f"FAILED: {e}"
-        if not sent:
-            return "FAILED: nothing was sent."
+        messages = skill.message_count(text)
+        if not messages:
+            return "FAILED: there was nothing to send."
+
         key = f"{platform}:{channel}"
         self._sent.append({"platform": platform, "channel": str(channel), "text": text})
         if self.attention:
             self.attention.mark_spoke(key)
         self._log_outgoing(key, platform, str(channel), text)
-        return f"Sent ({len(sent)} message(s))."
+        task = self._in_background(self._deliver(skill, platform, str(channel), text,
+                                                  reply_to or None))
+        self._deliveries.add(task)
+        task.add_done_callback(self._deliveries.discard)
+        return f"Sending ({messages} message(s))."
+
+    async def _deliver(self, skill, platform: str, channel: str, text: str,
+                       reply_to: Optional[str]) -> None:
+        """One written answer, out at a human pace, off the mind's clock."""
+        try:
+            sent = await skill.deliver(channel, text, reply_to=reply_to)
+        except Exception as e:
+            sent = []
+            logger.warning(f"send_message to {platform}:{channel} failed: {e}")
+        if sent:
+            return
+        # she has been told it went; the only honest thing left is to say so
+        # where somebody can see it
+        self.events.publish(
+            EventCategory.ERROR, "consciousness",
+            f"Nothing reached {platform}:{channel} — the message was lost.",
+            metadata={"platform": platform, "channel": channel, "text": text},
+        )
 
     async def _react_to(self, platform: str, channel: str, message_id: str,
                         emoji: str) -> str:
@@ -1076,6 +1214,31 @@ class Consciousness:
         task = asyncio.create_task(work())
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
+
+    async def _drain_deliveries(self) -> None:
+        """Lets the messages still on their way out finish, within reason."""
+        pending = [t for t in self._deliveries if not t.done()]
+        if not pending:
+            return
+        logger.info(f"Waiting for {len(pending)} message(s) still being sent.")
+        done, late = await asyncio.wait(pending, timeout=self._DELIVERY_GRACE)
+        del done
+        for task in late:
+            task.cancel()
+        if late:
+            logger.warning(f"{len(late)} message(s) were still being sent at shutdown.")
+
+    def _in_background(self, coroutine) -> "asyncio.Task":
+        """Runs something the turn should not wait for, and keeps a reference.
+
+        Without the reference the task is only referred to by the event loop
+        and may be collected mid-flight, which is a message that silently
+        never goes out.
+        """
+        task = asyncio.create_task(coroutine)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+        return task
 
     def _schedule_persist(self) -> None:
         """Carries the ram window over to the disk, behind the turn.

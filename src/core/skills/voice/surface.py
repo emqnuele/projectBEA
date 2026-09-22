@@ -176,23 +176,26 @@ class VoiceSurface(PlatformSkill):
 
         Sitting alone in an empty channel forever is the most obviously
         non-human thing she can do.
+
+        Read off the socket the bot already pushes on every voice state change,
+        not asked for: this runs on a clock of seconds, and a question the bot
+        answers unprompted is not worth thirty http round trips a minute.
         """
         if not self.voice_channel or self._auto_leave_seconds <= 0:
             return
-        now = time.time() if now is None else now
-
-        result = await self.transport.list_voice_channels()
-        if not result.get("ok"):
+        if not self.channel.connected:
+            # nothing knows who is in there but the socket; without it she
+            # cannot tell an empty room from a quiet one, and walking out of a
+            # call full of people is the worse mistake
+            self._alone_since = None
             return
-        channel = next((c for c in result.get("channels", [])
-                        if str(c.get("channelId")) == self.voice_channel), None)
-        if channel is None:
+        if self.channel.channel_id is None:
             # she is not in it any more, whoever ended it
             self._forget_call()
             return
 
-        others = [m for m in channel.get("members", []) if str(m.get("id")) != "bot"]
-        if others:
+        now = time.time() if now is None else now
+        if self.channel.listeners > 0:
             self._alone_since = None
             return
 

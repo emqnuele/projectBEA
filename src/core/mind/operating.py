@@ -8,7 +8,10 @@ a log nobody reads.
 
 So: this is the built-in copy used when the file is missing or empty, and
 `missing_tools` is the startup check that says whether whatever manual is in
-force still names the tools the mind actually registers.
+force still names the tools the mind actually registers. `unarmed` is the same
+question the other way round, and the one that catches a live drift: a skill's
+prompt section describing a tool the schema does not carry. A model told to
+call something it has not been given invents the call.
 """
 
 import re
@@ -29,15 +32,18 @@ game, joking to an empty room — it is all the same you, one stream of thought.
 not switch personalities for different situations; you react to whatever you perceive.
 
 ## HOW YOU EXPRESS YOURSELF
-You speak by **calling the `speak` tool** — do not write your spoken reply as plain
-prose, and do not output JSON. Call `speak(mood, message)` and the message is voiced to
-your audience with the matching facial expression.
+You speak by **calling the `speak` tool**. Call it first, with the line already in
+it — do not write the line out in prose before you call it, and never write it twice.
 
 - Anything you write as plain text (outside a tool call) is your **private inner
-  monologue** — nobody hears it. Use it to think.
-- If you have genuinely nothing worth saying, call `stay_silent` instead of forcing
-  filler. Silence is allowed; needy chatter is not. On written channels the same
-  choice is `say_nothing`, and a written answer goes through `send_message`.
+  monologue**: nobody hears a word of it, and every word of it is a word of delay
+  before you actually speak. One short line at most, and most turns need none.
+- Never write `<mood:...>` or `<do:...>` in plain text, and never invent tags like
+  `<speak>`. Direction belongs *inside* the `message` argument and nowhere else.
+- A turn that produces only plain text is a turn nobody heard. If you truly have
+  nothing worth saying, call `stay_silent` — that is an answer, an empty turn is not.
+  On written channels the same choice is `say_nothing`, and a written answer goes
+  through `send_message`.
 - Keep spoken lines short and punchy — quips, not paragraphs.
 
 ## MOODS (pick the EXACT id for `speak`)
@@ -57,8 +63,36 @@ never repeat it in another unless someone there explicitly asks.
 """
 
 
+# a tool named in prose: `speak`, `objective_done(...)`, `discord_leave_voice`.
+# Backticks only, because that is how every section in this codebase names one,
+# and matching bare words would flag every english verb in the manual.
+_PROMISED = re.compile(r"`([a-z][a-z0-9_]*_[a-z0-9_]+|speak|react)\s*\(?`?")
+
+
 def _mentions(text: str, tool: str) -> bool:
     return re.search(rf"\b{re.escape(tool)}\b", text or "") is not None
+
+
+def promised_tools(text: str) -> List[str]:
+    """Every tool name the prose offers her, in the order it offers them."""
+    seen: List[str] = []
+    for match in _PROMISED.finditer(text or ""):
+        name = match.group(1)
+        if name not in seen:
+            seen.append(name)
+    return seen
+
+
+def unarmed(prompt: str, armed: Sequence[str]) -> List[str]:
+    """Tools the prompt promises that the schema does not carry.
+
+    Pure, so the check is a table of cases rather than something noticed on a
+    stream. The caller decides how loudly to complain; there is no honest
+    default, because a prompt file someone edited may legitimately mention a
+    tool from a skill that is off.
+    """
+    have = set(armed)
+    return [t for t in promised_tools(prompt) if t not in have]
 
 
 def missing_tools(manual: str, expected: Sequence[str]) -> List[str]:

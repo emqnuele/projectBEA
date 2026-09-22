@@ -408,9 +408,20 @@ CONSCIOUSNESS = Section(
         Setting("idle_after", "Idle after", "float",
                 "Seconds of silence before she notices there is silence.",
                 240.0, minimum=10, maximum=3600),
-        Setting("window", "Batching window", "float",
-                "How long she waits to see if more arrives before thinking.",
+        Setting("window", "Quiet gap, live", "float",
+                "How long the senses must stay quiet before she thinks. This is "
+                "the one a voice call waits: a second of dead air is a second "
+                "she took to answer.",
                 0.3, minimum=0.0, maximum=5.0),
+        Setting("text_window", "Quiet gap, typing", "float",
+                "The same for written messages. Longer, because a pause between "
+                "two typed lines is somebody still typing — at 0 she answers "
+                "each line of a paragraph separately.",
+                1.2, minimum=0.0, maximum=10.0),
+        Setting("max_window", "Longest batch", "float",
+                "Ceiling on one batch however busy it gets, so a chat that never "
+                "stops cannot hold a turn open forever.",
+                8.0, minimum=1.0, maximum=60.0),
         Setting("burst_steps", "Steps per turn", "int",
                 "How many tool steps one live turn may take.",
                 6, minimum=1, maximum=20),

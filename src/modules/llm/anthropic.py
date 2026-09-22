@@ -1,8 +1,8 @@
 """The Anthropic Messages transport (`POST {base}/messages`).
 
 Claude direct and any anthropic-compatible endpoint. The app reasons in
-OpenAI-shaped messages and tools, so this transport translates both ways:
-system messages become the `system` parameter, tool turns become
+OpenAI-shaped messages and tools, so this transport translates both ways: the
+leading system messages become the `system` parameter, tool turns become
 `tool_use`/`tool_result` blocks, and tool schemas are flattened onto
 `input_schema`. Auth is `x-api-key`, not bearer.
 """
@@ -121,13 +121,26 @@ class AnthropicClient(AsyncLLMClient):
 
 
 def _to_messages(messages: List[Dict[str, Any]]):
-    """The app's OpenAI-shaped history onto anthropic messages plus system."""
+    """The app's OpenAI-shaped history onto anthropic messages plus system.
+
+    Only the *leading* system messages become `system`. One that arrives after
+    the conversation has started is the briefing for this moment, placed below
+    the window on purpose so that everything in front of it can be cached;
+    collecting it into `system` would move it to the top of the prompt and
+    re-bill the whole window every turn. It travels as a user turn, which is
+    where it already sits and what the perception frame after it is anyway.
+    """
     systems: List[str] = []
     converted: List[Dict[str, Any]] = []
+    started = False
     for msg in messages:
         role = msg.get("role")
-        if role == "system":
+        if role == "system" and not started:
             systems.append(str(msg.get("content") or ""))
+            continue
+        started = True
+        if role == "system":
+            converted.append({"role": "user", "content": str(msg.get("content") or "")})
         elif role == "assistant" and msg.get("tool_calls"):
             blocks: List[Dict[str, Any]] = []
             if msg.get("content"):

@@ -32,6 +32,11 @@ REQUEST_TIMEOUT = 120.0
 NO_STREAM_COOLDOWN = 120.0
 
 
+class _StreamRefused(RuntimeError):
+    """The stream ended before it began: nothing was assembled, so retrying is
+    free and whatever is tried next is still the same turn."""
+
+
 class ProviderError(RuntimeError):
     """A failed request, with the status and the provider's own words.
 
@@ -192,26 +197,50 @@ class AsyncLLMClient(LLMClient, LLMInterface):
         """`complete`, handing over each tool call's arguments as they arrive.
 
         `on_tool_delta` runs on the loop, inline: the chunks already arrive
-        here, so there is no thread handover to protect. A failure before
-        anything was assembled falls back to the ordinary call — losing a
-        second of latency, not the turn. Past that point failures raise, so
-        the pool fails over instead of blending two voices onto one line.
+        here, so there is no thread handover to protect.
+
+        Failing before anything has been assembled costs a second of latency
+        and not the turn: the reasoning hint is dropped and the stream tried
+        again, exactly as `_send` does for the ordinary call, and only then
+        does it fall back to not streaming at all. Without that retry a model
+        that refuses the hint lost speaking-early for two minutes at a time,
+        forever, having already paid for the refused request. Past the first
+        event failures raise, so the pool fails over instead of blending two
+        voices onto one line.
         """
         if on_tool_delta is None or self._stream_blocked():
             return await self.complete(messages, tools=tools)
 
+        body = self.build_body(messages, tools=tools, stream=True)
+        try:
+            return await self._stream_once(body, on_tool_delta)
+        except _StreamRefused:
+            pass
+
+        if self.reasoning.negotiable:
+            logger.info(f"{self.model_name} refused the reasoning parameters while "
+                        f"streaming; trying again without them.")
+            plain = {k: v for k, v in body.items() if k not in self.reasoning.optional_keys}
+            try:
+                return await self._stream_once(plain, on_tool_delta)
+            except _StreamRefused:
+                pass
+
+        return await self._fallback(messages, tools)
+
+    async def _stream_once(self, body: Dict[str, Any], on_tool_delta) -> AssistantMessage:
+        """One streamed turn. Raises `_StreamRefused` if nothing ever arrived."""
         texts: List[str] = []
         calls: Dict[int, Dict[str, Any]] = {}
         usage = Usage()
         seen_any = False
         tell = on_tool_delta
         try:
-            async for event, data in self._post_stream(
-                    self.build_body(messages, tools=tools, stream=True)):
+            async for event, data in self._post_stream(body):
                 for kind, index, name, payload in self.iter_events(event, data):
                     if kind == "error":
                         if not seen_any:
-                            return await self._fallback(messages, tools)
+                            raise _StreamRefused(str(payload))
                         raise ProviderError(f"{self.model_name}: {payload}")
                     seen_any = True
                     if kind == "usage":
@@ -226,9 +255,9 @@ class AsyncLLMClient(LLMClient, LLMInterface):
                     else:
                         if not self._take_call(calls, index, name, payload, tell):
                             tell = None
-        except ProviderError:
+        except ProviderError as e:
             if not seen_any:
-                return await self._fallback(messages, tools)
+                raise _StreamRefused(str(e)) from e
             raise
 
         tool_calls = []
@@ -365,4 +394,5 @@ def _merge_usage(into: Usage, update: Usage) -> Usage:
         prompt_tokens=update.prompt_tokens or into.prompt_tokens,
         completion_tokens=update.completion_tokens or into.completion_tokens,
         cached_tokens=update.cached_tokens or into.cached_tokens,
+        reasoning_tokens=update.reasoning_tokens or into.reasoning_tokens,
     )

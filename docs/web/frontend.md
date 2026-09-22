@@ -20,10 +20,13 @@ Design decisions worth knowing before changing anything:
   blue by default). It is reserved for one meaning: she is awake, speaking or
   acting. Nothing decorative may use it.
 - **The event colours are a ladder, not a rainbow.** `--flux-out`, `--flux-think`,
-  `--flux-act` and `--flux-in` are all derived from the accent by mixing toward
-  the neutral text colour, so importance reads as saturation and the badge
-  beside them carries the kind. Red is the one exception, because failure has to
-  be unmistakable.
+  `--flux-act`, `--flux-tool` and `--flux-in` are all derived from the accent by
+  mixing toward the neutral text colour, so importance reads as saturation and
+  the badge beside them carries the kind. Red is the one exception, because
+  failure has to be unmistakable. `FLUX` in `cn.js` carries one badge per
+  category the engine publishes and the Activity page one filter each; a
+  category missing from either is invisible rather than obvious, so
+  `test/flux.test.js` checks both against the list in `src/core/events.py`.
 - **One connection.** `BrainProvider` opens a single `EventSource` and polls the
   two snapshot endpoints in one place. Pages never fetch status themselves.
 - **Nothing fails quietly.** Every request goes through `api.js`, which turns a

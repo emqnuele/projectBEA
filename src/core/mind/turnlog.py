@@ -135,7 +135,8 @@ def _trim(value: Any) -> Any:
 
 def turn_record(*, context: List[Dict[str, Any]], perceptions: List[str],
                 calls: List[Dict[str, Any]], spoke: Optional[Dict[str, str]],
-                usage, steps: int, ms: float, model: str = "") -> Dict[str, Any]:
+                usage, steps: int, ms: float, model: str = "",
+                thought: Optional[List[str]] = None) -> Dict[str, Any]:
     """One turn, as the object that gets written down.
 
     Kept apart from the writing so the shape can be tested without a disk, and
@@ -152,9 +153,14 @@ def turn_record(*, context: List[Dict[str, Any]], perceptions: List[str],
         "prompt": system[0] if system else "",
         "briefing": "\n\n".join(system[1:]),
         "perceptions": perceptions,
+        # what she wrote as plain text: nobody heard it, and it is most of what
+        # a slow turn was spent on. Without it the log can say a turn took
+        # twenty seconds and produced nothing, and not why.
+        "thought": list(thought or []),
         "tools": calls,
         "spoke": spoke,
         "prompt_tokens": usage.prompt_tokens,
         "completion_tokens": usage.completion_tokens,
         "cached_tokens": usage.cached_tokens,
+        "reasoning_tokens": usage.reasoning_tokens,
     }

@@ -16,6 +16,7 @@ const FILTERS = [
     { id: 'thought', label: 'Thoughts', color: 'var(--flux-think)', match: (e) => e.category === 'thought' },
     { id: 'output', label: 'Speech', color: 'var(--flux-out)', match: (e) => e.category === 'output' },
     { id: 'skill', label: 'Actions', color: 'var(--flux-act)', match: (e) => e.category === 'skill' },
+    { id: 'tool', label: 'Tools', color: 'var(--flux-tool)', match: (e) => e.category === 'tool' },
     { id: 'error', label: 'Errors', color: 'var(--flux-err)', match: (e) => e.category === 'error' },
     { id: 'cost', label: 'Cost', color: 'var(--flux-cost)', match: (e) => e.source === 'cost' },
     { id: 'attention', label: 'Attention', color: 'var(--flux-mute)', match: (e) => e.source === 'attention' },

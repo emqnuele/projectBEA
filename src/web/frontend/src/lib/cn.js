@@ -9,6 +9,7 @@ export const FLUX = {
     thought: { label: 'THINK', color: 'var(--flux-think)', name: 'Thought' },
     output: { label: 'OUT', color: 'var(--flux-out)', name: 'Speech' },
     skill: { label: 'ACT', color: 'var(--flux-act)', name: 'Action' },
+    tool: { label: 'TOOL', color: 'var(--flux-tool)', name: 'Tool call' },
     error: { label: 'FAIL', color: 'var(--flux-err)', name: 'Error' },
     system: { label: 'SYS', color: 'var(--flux-mute)', name: 'System' },
 };

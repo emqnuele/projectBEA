@@ -94,13 +94,22 @@ not to a skill. Everything else is armed by whichever skill is active:
 | `dream` | `go_to_sleep` |
 | `memory` | none — recall is injected every turn via `context_for` |
 
-The registry is built once and cached; it is rebuilt only when a capability is
-toggled (`MindTools.invalidate()`), not on every model step.
+Some of those are armed by the skill's own state rather than by its toggle:
+`discord_leave_voice` only while she is in a call, the `objective_*` tools only
+while there is a plan, `recall_donors` only once somebody has donated, the game
+tools only while the mod is connected. So the registry is assembled from the
+live skills on **every** read rather than cached — the whole set costs
+microseconds, and a prompt naming a tool the schema does not carry is a call
+she invents. `unarmed` (`src/core/mind/operating.py`) logs an `ERROR` when the
+two disagree.
 
 Written answers go through the unified tools — `send_message(platform,
 channel, text)`, `react`, `say_nothing` — with the destination in the
-arguments. There is no `speak` on a written channel: answering out loud is
-impossible by construction, not by a rule in the prompt.
+arguments. `send_message` names, and accepts, only the platforms something can
+actually deliver to: minecraft is typed into with `mc_chat` and a donation has
+no channel to answer in, so neither is a destination. There is no `speak` on a
+written channel: answering out loud is impossible by construction, not by a
+rule in the prompt.
 
 ---
 

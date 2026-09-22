@@ -155,15 +155,6 @@ class AIVtuberBrain:
         """The owner's plan for the stream."""
         return self.memory.plan
 
-    def plan_changed(self) -> None:
-        """The dashboard edited the plan: her toolbox may have just changed.
-
-        Going from no plan to a plan arms `objective_done` and friends, and the
-        tool set is cached until something says it moved.
-        """
-        if self.consciousness:
-            self.consciousness.tools.invalidate()
-
     @property
     def is_sleeping(self) -> bool:
         return bool(self.consciousness and self.consciousness.sleeping)
@@ -305,7 +296,12 @@ class AIVtuberBrain:
 
     def _build_consciousness(self):
         """Wires the single-brain stack. Started later only if enabled in config."""
-        self.perception_bus = PerceptionBus(window=self.config.consciousness.get("window", 0.3))
+        cc = self.config.consciousness
+        self.perception_bus = PerceptionBus(
+            window=cc.get("window", 0.3),
+            text_window=cc.get("text_window", 1.2),
+            max_window=cc.get("max_window", 8.0),
+        )
         self.skill_registry = SkillRegistry()
 
         for skill_cls in SKILL_CLASSES:

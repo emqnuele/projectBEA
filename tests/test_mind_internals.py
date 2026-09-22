@@ -94,10 +94,18 @@ class Skills:
 
 
 class Capability:
+    """A skill whose tool set moves with its own state, the way real ones do."""
+
     def __init__(self, name, tool_names, active=True):
         self.name = name
         self.active = active
         self._tool_names = tool_names
+
+    def arm(self, name):
+        self._tool_names.append(name)
+
+    def disarm(self, name):
+        self._tool_names.remove(name)
 
     def tools(self):
         return [Tool(n, "does a thing", {"type": "object", "properties": {}}, lambda: "ok")
@@ -124,30 +132,35 @@ def test_an_inactive_capability_is_disarmed():
     assert "discord_reply" not in {t.name for t in box.registry().tools()}
 
 
-def test_the_registry_is_built_once_not_twice_per_step():
-    """It used to be rebuilt on every schema lookup AND every dispatch."""
-    box = toolbox(Capability("discord", ["discord_reply"]))
-    assert box.registry() is box.registry()
-    assert box.registry() is box.registry()
-
-
-def test_toggling_a_capability_rebuilds_it():
+def test_toggling_a_capability_off_disarms_its_tools():
     capability = Capability("discord", ["discord_reply"])
     box = toolbox(capability)
-    first = box.registry()
+    assert "discord_reply" in box.names()
 
     capability.active = False
-    box.invalidate()
-    assert box.registry() is not first
-    assert "discord_reply" not in {t.name for t in box.registry().tools()}
+    assert "discord_reply" not in box.names()
 
 
-def test_the_cache_notices_a_changed_capability_set_on_its_own():
+def test_a_tool_a_skill_grows_mid_session_is_armed_at_once():
+    """The bug this replaces: `discord_leave_voice` appears the moment she
+    joins a call, and the set of *active skills* has not moved — so a toolbox
+    cached against that set went on offering a schema without it while the
+    prompt told her to use it."""
     capability = Capability("discord", ["discord_reply"])
     box = toolbox(capability)
-    box.registry()
-    capability.active = False
-    assert "discord_reply" not in {t.name for t in box.registry().tools()}
+    assert "discord_leave_voice" not in box.names()
+
+    capability.arm("discord_leave_voice")
+    assert "discord_leave_voice" in box.names()
+    assert box.get("discord_leave_voice") is not None
+
+
+def test_a_tool_a_skill_drops_mid_session_is_disarmed_at_once():
+    capability = Capability("discord", ["discord_reply", "discord_leave_voice"])
+    box = toolbox(capability)
+    capability.disarm("discord_leave_voice")
+    assert "discord_leave_voice" not in box.names()
+    assert box.get("discord_leave_voice") is None
 
 
 def test_schemas_carry_every_armed_tool():

@@ -24,7 +24,7 @@ reactive chat path — the consciousness is the only mind.
 
 | Component | File | Role |
 |---|---|---|
-| `PerceptionBus` | `src/core/perception/bus.py` | the one sensory channel (asyncio.Queue + coalescing window) |
+| `PerceptionBus` | `src/core/perception/bus.py` | the one sensory channel: an asyncio.Queue that closes a batch on a quiet gap |
 | `SkillRegistry` | `src/core/skills/base.py` | the catalog of capabilities |
 | `SingleContext` | `src/core/mind/single_context.py` | the one sliding window: token-budgeted log that breathes 0 → 120k → ~50k |
 | `TokenBudget` | `src/core/mind/token_budget.py` | the counter: ceiling 150k, trigger 120k, hot/cold split (pure) |
@@ -66,7 +66,7 @@ ProjectBEA/
 │   ├── pngs/               # avatars per mood (idle/talking)
 │   └── prompts/            # soul · operating · monologue · minecraft · chat
 ├── docs/                   # this documentation, rendered by the docs site
-├── tests/                  # 91 files, no network
+├── tests/                  # 112 files, no network
 └── src/
     ├── cli.py              # argument parsing and composition
     ├── core/
@@ -152,6 +152,14 @@ conversation key (`src/core/mind/routing.py`) only tags *where a perception
 came from* — answering the same message twice, from two contexts that know
 nothing about each other, is the worst failure mode here.
 
+Two things hold that rule up, and both live outside the model. The **batch
+boundary** is a quiet gap rather than a stopwatch: the bus keeps taking until
+nothing new has arrived for `text_window` (1.2s for typed text) or `window`
+(0.3s for a live sense), so three lines typed in a row are one batch. And a
+perception that lands *during* a turn, in a conversation she has already
+answered in that turn, goes back on the bus instead of being read to her as
+fresh input — one answer per conversation per turn, always.
+
 What is the **stage**: her voice, a Discord call, the game, the console, Twitch
 chat. She is present, live, and answers out loud. What is a **written
 conversation**: asynchronous text — a Discord channel, a Telegram group. It is
@@ -172,11 +180,15 @@ answering on it.
 
 1. **Drain the bus.** With the `idle` skill active, `bus.wait_or_idle(idle_after)`
    synthesises an `IDLE` perception after the timeout; otherwise `bus.drain()`
-   blocks until something real happens. A batch of pure texture — everything in
-   it marked `noise`, like the game body's heartbeat — does not count as
-   something happening: it is swallowed and the timer keeps running, or a
-   surface that ticks faster than `idle_after` would hold the silence off
-   forever and she would never notice it.
+   blocks until something real happens. Both then **settle** the batch the same
+   way: every arrival pushes the deadline out, and the batch closes when the
+   senses have been quiet for the gap that the most impatient thing in it
+   wants — `text_window` for a typed message, `window` for a voice line or a
+   game event — or at `max_window` however busy it stays. A batch of pure
+   texture — everything in it marked `noise`, like the game body's heartbeat —
+   does not count as something happening: it is swallowed and the timer keeps
+   running, or a surface that ticks faster than `idle_after` would hold the
+   silence off forever and she would never notice it.
 2. **Barge-in.** If Bea is speaking and the batch contains anything that is not
    `IDLE`, her voice is interrupted.
 3. **Correlations.** Collect the `correlation_id`s in the batch — HTTP callers
@@ -185,17 +197,29 @@ answering on it.
     priority, highest first: addressed and follow-up always 1.0, everything
     else a clamped score. Nothing is dropped, nothing costs a model call —
     the model itself decides what deserves an answer.
-4. **Rebuild the briefing** (`_briefing`):
-    The static part (soul + operating manual) is deliberately split from the dynamic part (RAG, person cards, live state) so providers can cache the static prompt. The dynamic part runs in `asyncio.to_thread` so a slow retrieval never stalls the loop.
+4. **Rebuild the briefing** (`_briefing`): the static part (soul + operating
+    manual + the active skills' sections) is deliberately split from the
+    dynamic part (RAG, person cards, live state) and travels as its own system
+    message *below* the sliding window, so a provider caches the static prompt
+    **and the window behind it**. Every transport preserves that order:
+    `_to_items` and `_to_messages` hoist only the *leading* system messages
+    into `instructions` / `system`. The dynamic part runs in
+    `asyncio.to_thread` so a slow retrieval never stalls the loop.
 5. **Append the perception frame** as a `user` message.
 6. **Reasoning burst**, up to `burst_steps` (6) steps:
-   - `bus.drain_nowait()` folds anything that arrived *during* reasoning in as a
-     **steering** frame with an explicit header;
+   - `_steering()` folds anything that arrived *during* reasoning in as a
+     **steering** frame with an explicit header — except what belongs to a
+     conversation she has already answered this turn, which goes back on the
+     bus and becomes the next batch;
    - `llm.complete(context, tools=…)`; the LLM **streams** its response back;
    - free assistant text is **inner monologue** (published as
-     `EventCategory.THOUGHT`) and is never spoken;
-    - tools run; if she spoke (`speak`) or chose silence (`stay_silent`,
-      `say_nothing`) the turn ends without burning another model call.
+     `EventCategory.THOUGHT`, kept in the Turn Log) and is never spoken;
+    - tools run, and each one publishes its own outcome — `EventCategory.TOOL`
+      when it worked, `EventCategory.ERROR` when it did not;
+    - if she spoke (`speak`) or chose silence (`stay_silent`, `say_nothing`)
+      the turn ends without burning another model call.
+   - if nothing she did reached anybody — only plain text, or every tool
+     failed — she is told so once and given one more step (`_NO_TOOL_NUDGE`).
 7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **mirror** the turn into the sliding
     window (`_record_window`) — retention is token-budgeted (150k ceiling),
     never message-count-trimmed. The turn only marks the window dirty; a flush
@@ -205,10 +229,18 @@ answering on it.
 
 Details that matter:
 
-- **`speak` is streamed:** The model streams its text line by line. Voice synthesis and chunking happen while she is still writing, reducing latency.
+- **`speak` is streamed:** the model streams the `message` argument out of a
+  JSON string that has not closed yet, so voice synthesis and chunking start
+  while she is still writing the line.
+- **`send_message` is handed over, not waited on:** every written line goes out
+  with a typing pause in front of it, and the mind does not hold still for it.
+  A message that never lands is published as an error rather than lost, and
+  stopping the mind waits (up to ten seconds) for the lines still going out.
 - **Body actions** (`long_running=True`) run in a single-slot task that preempts
   the previous one; the result comes back as a perception.
-- **The Turn Log:** Every turn she takes is recorded, capturing her exact context, perceptions, and tool calls.
+- **The Turn Log:** every turn is recorded — the prompt in force, the briefing,
+  the perceptions, what she thought in plain text, the tool calls with their
+  outcomes, and what it cost, reasoning tokens included.
 
 ---
 
@@ -264,6 +296,15 @@ infrastructure (`start`/`stop`).
 
 `enabled` reads `config.skills[key].enabled`: **the UI is the single source of
 truth**. Bea can never arm a capability by herself.
+
+**The toolbox is assembled on every read** (`src/core/mind/tools.py`). A skill's
+tools move with the skill's own state and not with whether it is switched on:
+`discord_leave_voice` exists only while she is in a call, `objective_done` only
+while there is a plan, the game tools only while the mod is connected. The
+whole set costs microseconds to build, and `unarmed`
+(`src/core/mind/operating.py`) logs an `ERROR` when a skill's prompt section
+names a tool the schema does not carry — a model told to call something it has
+not been given invents the call.
 
 | Skill | `name` | toggle | What it does |
 |---|---|---|---|
@@ -594,6 +635,11 @@ Errors are **not raised**: they come back as observations, so the model can
 react to them instead of dropping the loop. `surface` is what a long-running
 action's result gets attributed to when it comes back as a perception.
 
+An observation starting `ERROR` or `FAILED` is published as
+`EventCategory.ERROR` rather than `EventCategory.TOOL`, and it does not count
+as having answered anybody: a turn whose only tool call failed gets the same
+rescue as a turn that produced nothing but plain text.
+
 ---
 
 ## Testing
@@ -608,7 +654,16 @@ stream.
 `tests/fakes.py` carries the piece neither this project nor its reference had: a
 `FakeLLMClient` that replays scripted `AssistantMessage`s. With it, the whole
 consciousness loop runs end-to-end without a network, and questions like "how
-many model calls did those thirty chat messages cost?" become assertions.
+many model calls did those thirty chat messages cost?" or "how many replies did
+those three typed lines get?" become assertions rather than something you find
+out on stream (`tests/test_one_batch_one_turn.py`).
+
+Three checks exist because the two halves of one fact are written in two
+places and used to drift: `tests/test_prompt_promises.py` (every tool a skill's
+prompt section names is in the schema), `tests/test_the_manual.py` (the shipped
+operating manual and the built-in copy of it say the same thing) and
+`src/web/frontend/test/flux.test.js` (every event category the engine publishes
+has a badge and a filter in the dashboard).
 
 Coverage is not a percentage target. The rule is: **every new pure function
 arrives with its tests in the same commit.**

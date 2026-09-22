@@ -104,6 +104,14 @@ class PlatformSkill(Skill):
         """
         return native_id if await self.deliver(str(native_id), text) else None
 
+    def message_count(self, text: str) -> int:
+        """How many messages this answer becomes here, before any of it is sent.
+
+        The mind reports it back to the model without waiting for the delivery,
+        which takes as long as it takes to look like somebody typing.
+        """
+        return len(self.humanizer.split(text))
+
     async def deliver(self, channel_id: str, text: str,
                       reply_to: Optional[str] = None) -> List[str]:
         """Writes line by line, with typing in between. Returns what went out."""

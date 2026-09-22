@@ -7,7 +7,14 @@ differently, so it gets translated once, here.
 
 `optional_keys` names the fields a model may reject: some models force
 reasoning and answer 400 to anything that switches it off. Those calls are
-retried without them instead of failing.
+retried without them instead of failing — the ordinary one and the streamed
+one alike.
+
+"off" means *as little as this endpoint allows*, and that is not the same
+string everywhere. OpenRouter documents an explicit switch; gpt-5 has a floor
+rather than an off; groq's gpt-oss only takes low, medium and high. Writing one
+of those names into another provider's request is how a working model turns
+into a 400, so each one is spelled out on its own line below with what it is.
 """
 
 from dataclasses import dataclass, field
@@ -37,7 +44,7 @@ class ReasoningStyle:
 NO_STYLE = ReasoningStyle()
 
 
-def _openai(level: str) -> ReasoningStyle:
+def _openai_chat(level: str) -> ReasoningStyle:
     # chat completions on openai-family models; minimal is the floor there
     effort = "minimal" if level == "off" else level
     return ReasoningStyle({"reasoning_effort": effort}, ("reasoning_effort",))
@@ -54,23 +61,40 @@ def _local(level: str) -> ReasoningStyle:
     return ReasoningStyle({"reasoning_effort": effort}, ("reasoning_effort",))
 
 
-def _responses(level: str) -> ReasoningStyle:
-    # the responses api carries effort as an object; minimal is the floor for
-    # "answer now" on gpt-5, and openrouter documents the same scale.
-    # Model-dependent all the way down (newer models accept none, some
-    # reject minimal), so negotiable like the rest: whatever refuses it
-    # gets the call again without it rather than a failure.
+def _openai(level: str) -> ReasoningStyle:
+    # the responses api carries effort as an object. `minimal` is the floor for
+    # "answer now" on gpt-5 — there is no off — and newer models accept `none`,
+    # which is why this stays negotiable rather than guessing per model.
     effort = "minimal" if level == "off" else level
     return ReasoningStyle({"reasoning": {"effort": effort}}, ("reasoning",))
 
 
+def _openrouter(level: str) -> ReasoningStyle:
+    # openrouter documents a switch rather than a floor: `enabled: false` turns
+    # reasoning off on every family it routes to, while `effort` is an
+    # openai-family scale that a deepseek or a qwen simply ignores. Sending the
+    # floor to switch it off is how a model went on thinking for eight seconds
+    # a turn with the config saying reasoning was off.
+    if level == "off":
+        return ReasoningStyle({"reasoning": {"enabled": False}}, ("reasoning",))
+    return ReasoningStyle({"reasoning": {"effort": level}}, ("reasoning",))
+
+
+def _groq(level: str) -> ReasoningStyle:
+    # groq's own models take low, medium and high and nothing below: `none` is
+    # accepted by some of them and rejected by gpt-oss, so "off" asks for the
+    # least it will take rather than for a value half the catalogue 400s on.
+    effort = "low" if level == "off" else level
+    return ReasoningStyle({"reasoning": {"effort": effort}}, ("reasoning",))
+
+
 _TRANSLATORS = {
-    "openrouter": _responses,
-    "groq": _responses,
-    "openai": _responses,
+    "openrouter": _openrouter,
+    "groq": _groq,
+    "openai": _openai,
     # chat completions shaped
     "local": _local,
-    "openai_compat": _openai,
+    "openai_compat": _openai_chat,
     # google's openai endpoint and the anthropic family take no documented
     # equivalent: gemini thinking levels are a different scale where minimal
     # errors, and anthropic thinking is opt-in with token budgets — both are

@@ -220,6 +220,12 @@ her always first — and the model decides what deserves words.
 Nothing is ever dropped at the gate; the cost control is architectural (one
 reasoning cycle per batch, not one per message).
 
+That holds for one person too. Type *"hey"*, *"how are you"*, *"everything alright?"* as
+three messages and you get one reply: the batch closes when you stop typing,
+not a fraction of a second after you started, and a line that lands while she
+is already answering you waits for the next turn instead of earning a second
+reply. Three messages, one person, one answer — the way a person reads them.
+
 | Priority | When |
 |---|---|
 | **1.0** | Addressed by name, spoken to directly, answering her, or something her own body reported. Past cooldown and quiet hours. |

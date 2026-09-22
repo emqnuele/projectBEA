@@ -49,6 +49,7 @@
   --flux-out: var(--accent);
   --flux-think: color-mix(in oklab, var(--accent) 72%, var(--text-dim));
   --flux-act: color-mix(in oklab, var(--accent) 52%, var(--text-dim));
+  --flux-tool: color-mix(in oklab, var(--accent) 43%, var(--text-dim));
   --flux-in: color-mix(in oklab, var(--accent) 34%, var(--text-dim));
   --flux-cost: var(--text-dim);
   --flux-mute: var(--text-faint);
@@ -123,6 +124,7 @@
   --color-flux-think: var(--flux-think);
   --color-flux-out: var(--flux-out);
   --color-flux-act: var(--flux-act);
+  --color-flux-tool: var(--flux-tool);
   --color-flux-err: var(--flux-err);
   --color-flux-cost: var(--flux-cost);
   --color-flux-mute: var(--flux-mute);

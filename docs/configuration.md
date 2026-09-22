@@ -187,6 +187,8 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         "enabled": true,
         "idle_after": 240.0,
         "window": 0.3,
+        "text_window": 1.2,
+        "max_window": 8.0,
         "burst_steps": 6,
         "correlation_timeout": 90.0,
         "context_max_tokens": 150000,
@@ -301,7 +303,9 @@ engine refuses to start and says which key is missing.
 |---|---|---|
 | `enabled` | `true` | Off means no mind at all: nothing perceives, nothing answers |
 | `idle_after` | `240.0` | Seconds of silence before an IDLE perception. Only applies while the `monologue` skill is on |
-| `window` | `0.3` | How long the bus coalesces a burst into one batch |
+| `window` | `0.3` | The quiet gap a live sense waits for one more of its own: a voice line, a game event. The batch closes when nothing new has arrived for this long |
+| `text_window` | `1.2` | The same for written messages. Longer because the pause between two typed lines is somebody still typing — at `0` she answers each line of a paragraph separately |
+| `max_window` | `8.0` | Ceiling on one batch however busy it gets, so a chat that never stops cannot hold a turn open forever |
 | `burst_steps` | `6` | Max reasoning steps in one turn |
 | `correlation_timeout` | `90.0` | How long an HTTP caller waits for her reply before giving up |
 | `context_max_tokens` | `150000` | Hard ceiling of the one sliding window, in tokens |

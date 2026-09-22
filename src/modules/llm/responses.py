@@ -1,8 +1,8 @@
 """The Responses API transport (`POST {base}/responses`).
 
-OpenAI's item-based protocol: the system prompt travels as `instructions`,
-history as input items, tools flat (no nested `function` key), tool results as
-`function_call_output` linked by `call_id`. Stateless on purpose — history goes
+OpenAI's item-based protocol: the stable half of the system prompt travels as
+`instructions`, history as input items, tools flat (no nested `function` key),
+tool results as `function_call_output` linked by `call_id`. Stateless on purpose — history goes
 in on every call and `store` stays false, which is both a privacy choice and a
 requirement on endpoints that reject server-side state.
 """
@@ -122,14 +122,27 @@ class ResponsesClient(AsyncLLMClient):
 
 
 def _to_items(messages: List[Dict[str, Any]]):
-    """The app's OpenAI-shaped history onto responses input items."""
+    """The app's OpenAI-shaped history onto responses input items.
+
+    Only the *leading* system messages become `instructions`. A system message
+    that arrives after the conversation has started is the briefing for this
+    moment — the date, how she feels, what recall turned up — and it is put
+    there deliberately, below the window and directly above the perceptions it
+    describes, so that a provider can cache everything in front of it.
+    Collecting it into `instructions` moved it to the very top, where it sat in
+    front of the entire sliding window and re-billed all of it on every turn:
+    the prefix cache ended where the soul ended.
+    """
     instructions: List[str] = []
     inputs: List[Dict[str, Any]] = []
+    started = False
     for msg in messages:
         role = msg.get("role")
-        if role == "system":
+        if role == "system" and not started:
             instructions.append(str(msg.get("content") or ""))
-        elif role == "assistant" and msg.get("tool_calls"):
+            continue
+        started = True
+        if role == "assistant" and msg.get("tool_calls"):
             if msg.get("content"):
                 inputs.append({"role": "assistant", "content": str(msg["content"])})
             for tc in msg["tool_calls"]:
@@ -156,9 +169,11 @@ def _flat_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
 
 def _usage(data: Optional[Dict[str, Any]]) -> Usage:
     data = data or {}
-    details = data.get("input_tokens_details") or {}
+    prompt = data.get("input_tokens_details") or {}
+    answer = data.get("output_tokens_details") or {}
     return Usage(
         prompt_tokens=int(data.get("input_tokens", 0) or 0),
         completion_tokens=int(data.get("output_tokens", 0) or 0),
-        cached_tokens=int(details.get("cached_tokens", 0) or 0),
+        cached_tokens=int(prompt.get("cached_tokens", 0) or 0),
+        reasoning_tokens=int(answer.get("reasoning_tokens", 0) or 0),
     )

@@ -1,8 +1,15 @@
 """What the mind can do right now.
 
-The set only changes when a capability is toggled, so it is cached and
-invalidated then rather than rebuilt on every model step. `speak` and
-`stay_silent` live here: they belong to the mind, not to a skill.
+Assembled fresh on every read. A skill's tool set moves with the skill's own
+state and not with whether the skill is on: `discord_leave_voice` exists only
+while she is in a call, the objective tools only while there is a plan, the
+game tools only while the mod is connected. None of that shows up in the set of
+active skills, so a toolbox cached against that set offers the model a prompt
+that names tools the schema does not carry — and a model told to call something
+it has not been given invents the call. The whole set costs microseconds to
+build; correctness is worth more than that.
+
+`speak` and `stay_silent` live here: they belong to the mind, not to a skill.
 
 One loop, one toolbox: written answers go out through `send_message` with an
 explicit destination (`platform`, `channel`) — no bound "here", because a
@@ -15,9 +22,6 @@ from typing import Callable, List, Optional
 from src.core.agent.tools import Tool, ToolRegistry
 from src.core.expression.tags import DIRECTIONS
 from src.core.mind.moods import enum_schema
-from src.utils.logger import get_logger
-
-logger = get_logger("bea.mind.tools")
 
 MOOD, DO = DIRECTIONS
 
@@ -35,18 +39,22 @@ class MindTools:
         self._send_text = send_text
         self._react_to = react_to
         self._say_nothing = say_nothing
-        self._cache: Optional[ToolRegistry] = None
-        self._cached_for: tuple = ()
 
-    def invalidate(self) -> None:
-        """Called when a capability is toggled: the set of tools just changed."""
-        self._cache = None
+    def platforms(self) -> List[str]:
+        """The platforms she can actually write on, right now.
+
+        A skill with a `platform` is not necessarily one that takes text —
+        donations have a platform and no channel to answer in, and minecraft
+        is typed into with `mc_chat`. Offering her a destination nothing can
+        deliver to is a message she sends into a failure.
+        """
+        return sorted({
+            s.platform for s in self.surfaces.active()
+            if getattr(s, "platform", "") and callable(getattr(s, "deliver", None))
+        })
 
     def registry(self) -> ToolRegistry:
-        signature = tuple(sorted(s.name for s in self.surfaces.active()))
-        if self._cache is not None and signature == self._cached_for:
-            return self._cache
-
+        """Every tool armed right now, rebuilt from the live skills."""
         registry = ToolRegistry()
         registry.add(
             "speak",
@@ -75,17 +83,19 @@ class MindTools:
             {"type": "object", "properties": {"reason": {"type": "string"}}, "required": []},
             self._stay_silent,
         )
-        if self._send_text is not None:
+        written = self.platforms()
+        if self._send_text is not None and written:
+            # the list is read off the live skills rather than written out:
+            # naming a platform she cannot reach is a destination she will try
+            where = ", ".join(written)
             registry.add(
                 "send_message",
-                "Write a text message where it arrived: telegram, discord text, "
-                "twitch chat, minecraft chat. The destination is explicit every "
-                "time — read it off the [via ...] tag on the line you answer. "
-                "Each LINE becomes its own message, with a typing pause in "
-                "between — write like you text.",
+                f"Write a text message where it arrived: {where}. The destination "
+                "is explicit every time — read it off the [via ...] tag on the "
+                "line you answer. Each LINE becomes its own message, with a "
+                "typing pause in between — write like you text.",
                 {"type": "object", "properties": {
-                    "platform": {"type": "string",
-                                 "description": "telegram, discord, twitch or minecraft"},
+                    "platform": {"type": "string", "enum": written},
                     "channel": {"type": "string",
                                 "description": "the channel id from the [via ...] tag"},
                     "text": {"type": "string"},
@@ -118,11 +128,11 @@ class MindTools:
             )
         for tool in self.surfaces.tools():
             registry.register(tool)
-
-        self._cache = registry
-        self._cached_for = signature
-        logger.debug(f"Tool registry rebuilt: {len(registry)} tools for {signature}.")
         return registry
+
+    def names(self) -> List[str]:
+        """What she can call right now, for the check that the prompt agrees."""
+        return [t.name for t in self.registry().tools()]
 
     def schemas(self) -> Optional[List[dict]]:
         return self.registry().schemas() or None
