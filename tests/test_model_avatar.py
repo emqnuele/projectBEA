@@ -42,8 +42,6 @@ class SilentTTS:
         rng = np.random.default_rng(0)
         return rng.normal(0, 0.2, self.samples).astype(np.float32), 24000
 
-    async def speak(self, text, output_device_id):
-        pass
 
     def reload_config(self, config):
         pass

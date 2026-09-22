@@ -377,7 +377,7 @@ def test_an_unwritable_env_file_fails_the_whole_save(client, tmp_path, monkeypat
     def refuse(*args, **kwargs):
         raise OSError(13, "Permission denied")
 
-    monkeypatch.setattr("pathlib.Path.write_text", refuse)
+    monkeypatch.setattr("src.setup.env_file.atomic_write_text", refuse)
 
     res = api.post("/config", json={"config": {"groq_key": "gsk", "language": "it"}})
 

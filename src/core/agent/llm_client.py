@@ -3,9 +3,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from src.core.agent.types import AssistantMessage
 
-# (tool name, the new characters of its arguments). Called as a tool call is
-# being written, so the arguments are a JSON fragment and not yet an object.
-# (index, tool name, raw argument delta). The index is which of the turn's tool
+# (index, tool name, raw argument delta), called while a tool call is still
+# being written, so the delta is a JSON fragment. The index is which of the turn's tool
 # calls this belongs to: a provider may write two of them at once, and without
 # it one call's arguments end up inside another's.
 ToolDelta = Callable[[int, str, str], None]
@@ -40,7 +39,7 @@ class LLMClient(ABC):
         """One JSON-mode turn, awaitable.
 
         Background work (diary, dreamer, profiles) runs inside the same event
-        loop as the consciousness. The blocking `generate_json` froze it for the
+        loop as the consciousness. A blocking json call froze it for the
         whole call — with a dozen sessions to dream, Bea went deaf for minutes.
         """
         ...

@@ -38,10 +38,6 @@ class Brain:
     def persona(self):
         return persona_of(self.config)
 
-    @property
-    def surface_registry(self):
-        return self.skill_registry
-
     def model_for(self, _role):
         return self.llm
 

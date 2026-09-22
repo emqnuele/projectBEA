@@ -1,7 +1,4 @@
-from typing import Optional
-
 from src.core.agent.llm_client import LLMClient
-from src.interfaces.base_interfaces import STTInterface
 from src.modules.llm.anthropic import AnthropicClient
 from src.modules.llm.chat import ChatCompletionsClient
 from src.modules.llm.providers import ANTHROPIC, CHAT, RESPONSES, get
@@ -15,13 +12,12 @@ class LLMConfigError(Exception):
     pass
 
 
-def build_client(provider: str, model: str, config,
-                 stt: Optional[STTInterface] = None) -> LLMClient:
+def build_client(provider: str, model: str, config) -> LLMClient:
     """Builds one tool-aware client for an explicit provider/model pair.
 
     The single place that knows how to instantiate a provider. `ModelRegistry`
-    calls it once per pool entry; `build_llm` calls it for the legacy single-model
-    path. Transports are natively async over aiohttp: no thread pools.
+    calls it once per pool entry. Transports are natively async over aiohttp:
+    no thread pools.
     """
     preset = get(provider)
     if preset is None:
@@ -58,27 +54,13 @@ def build_client(provider: str, model: str, config,
         from src.modules.llm.responses import ResponsesClient
 
         return ResponsesClient(base_url=base_url, model_name=model, api_key=api_key,
-                               stt=stt, reasoning=reasoning, **fields)
+                               reasoning=reasoning, **fields)
     if transport == CHAT:
         return ChatCompletionsClient(base_url=base_url, model_name=model, api_key=api_key,
-                                     stt=stt, reasoning=reasoning,
+                                     reasoning=reasoning,
                                      send_tool_choice=preset.send_tool_choice, **fields)
     if transport == ANTHROPIC:
         return AnthropicClient(base_url=base_url, model_name=model, api_key=api_key,
-                               stt=stt, reasoning=reasoning, **fields)
+                               reasoning=reasoning, **fields)
 
     raise LLMConfigError(f"Provider {provider!r} has no transport.")  # unreachable
-
-
-def build_llm(config, stt: Optional[STTInterface] = None) -> LLMClient:
-    """Builds the client described by `llm_provider` + `<provider>_model`.
-
-    Kept for callers that want one explicit model rather than a role pool.
-    """
-    preset = get(getattr(config, "llm_provider", ""))
-    if preset is None:
-        from src.modules.llm.providers import PROVIDERS
-
-        raise LLMConfigError(f"Unknown LLM provider: {config.llm_provider!r}. "
-                             f"Valid: {list(PROVIDERS)}")
-    return build_client(preset.id, getattr(config, preset.model_field), config, stt=stt)

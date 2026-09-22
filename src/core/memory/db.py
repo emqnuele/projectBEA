@@ -205,3 +205,18 @@ class Database:
             return default
         value = row[0]
         return default if value is None else value
+
+    # --- the key/value table every store keeps its odds and ends in ---------
+
+    def get_setting(self, key: str, default: Any = "") -> Any:
+        return self.scalar("SELECT value FROM settings WHERE key = ?", (key,), default=default)
+
+    def put_setting(self, key: str, value: Any) -> None:
+        self.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
+    def drop_setting(self, key: str) -> None:
+        self.execute("DELETE FROM settings WHERE key = ?", (key,))

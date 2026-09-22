@@ -152,7 +152,7 @@ def test_a_tool_a_skill_grows_mid_session_is_armed_at_once():
 
     capability.arm("discord_leave_voice")
     assert "discord_leave_voice" in box.names()
-    assert box.get("discord_leave_voice") is not None
+    assert box.registry().get("discord_leave_voice") is not None
 
 
 def test_a_tool_a_skill_drops_mid_session_is_disarmed_at_once():
@@ -160,7 +160,7 @@ def test_a_tool_a_skill_drops_mid_session_is_disarmed_at_once():
     box = toolbox(capability)
     capability.disarm("discord_leave_voice")
     assert "discord_leave_voice" not in box.names()
-    assert box.get("discord_leave_voice") is None
+    assert box.registry().get("discord_leave_voice") is None
 
 
 def test_schemas_carry_every_armed_tool():

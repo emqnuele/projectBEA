@@ -241,7 +241,7 @@ async def main(args=None):
     # llm: one pool per role, so a provider outage does not silence her and the
     # dreamer never competes with the mind
     logger.info("Wiring her mind…")
-    registry = ModelRegistry(config, stt=stt)
+    registry = ModelRegistry(config)
     try:
         registry.get("mind")
     except ModelPoolError as e:

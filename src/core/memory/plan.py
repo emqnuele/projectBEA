@@ -68,16 +68,10 @@ class StreamPlan:
 
     @property
     def directive(self) -> str:
-        return str(self.db.scalar(
-            "SELECT value FROM settings WHERE key = ?", (DIRECTIVE_KEY,), default="",
-        ))
+        return str(self.db.get_setting(DIRECTIVE_KEY))
 
     def set_directive(self, text: str) -> None:
-        self.db.execute(
-            "INSERT INTO settings (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (DIRECTIVE_KEY, (text or "").strip()),
-        )
+        self.db.put_setting(DIRECTIVE_KEY, (text or "").strip())
 
     # --- the objectives -----------------------------------------------------
 

@@ -10,7 +10,6 @@ import json
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.types import AssistantMessage, ToolCall, Usage
-from src.interfaces.base_interfaces import STTInterface
 from src.modules.llm.base import AsyncLLMClient, ProviderError
 from src.modules.llm.reasoning import ReasoningStyle
 from src.utils.llm_utils import parse_llm_json
@@ -26,14 +25,13 @@ class ChatCompletionsClient(AsyncLLMClient):
     query_path = "/chat/completions"
 
     def __init__(self, base_url: str, model_name: str, api_key: Optional[str] = None,
-                 stt: Optional[STTInterface] = None,
                  reasoning: Optional[ReasoningStyle] = None,
                  send_tool_choice: bool = True,
                  key_field: str = "", model_field: str = "", url_field: str = ""):
         # some endpoints document tools but reject tool_choice (ollama does):
         # the quirk travels per provider rather than per call
         self.send_tool_choice = send_tool_choice
-        super().__init__(base_url, model_name, api_key, stt, reasoning,
+        super().__init__(base_url, model_name, api_key, reasoning,
                          key_field, model_field, url_field)
 
     def build_body(self, messages: List[Dict[str, Any]],

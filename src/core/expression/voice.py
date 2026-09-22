@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import time
 import uuid
 from typing import Any, List, Optional, Tuple
 
@@ -20,7 +19,7 @@ class Expression:
     """The single output sink for everything Bea expresses.
 
     Owns the VOICE actuator: TTS generation, local audio playback, the avatar and
-    the caption, barge-in/interruption and the resume buffer. Every surface that
+    the caption and barge-in/interruption. Every surface that
     used to roll its own speech path (chat, discord voice, minecraft thoughts,
     monologue) routes through here so the rendering logic lives in one place.
 
@@ -46,8 +45,8 @@ class Expression:
         self.caption = caption
         self.event_manager = event_manager
 
-        # the last mood she was seen in, so a state change (falling asleep, a
-        # resumed sentence) does not silently reset her face to neutral
+        # the last mood she was seen in, so a state change (falling asleep)
+        # does not silently reset her face to neutral
         self._mood = DEFAULT_MOOD
 
         # what she goes back to when a line ends. `idle` most of the time, but
@@ -60,10 +59,6 @@ class Expression:
         self.current_speech_task: Optional[asyncio.Task] = None
         self.audio_lock = asyncio.Lock()
 
-        self.current_audio_buffer = None
-        self.playback_start_time = 0.0
-        self.playback_sample_rate = 24000
-        self.resume_buffer = None
         self._playback_device_id = None
 
         # the live call, when there is one; the voice skill hands it over
@@ -120,7 +115,7 @@ class Expression:
         and it only ever knew the *estimated* length of the audio, not whether
         the room was still hearing it.
         """
-        call = getattr(self, "call", None)
+        call = self.call
         if call is not None and call.current is not None:
             return True
         return self._is_speaking
@@ -150,7 +145,7 @@ class Expression:
     def match_clip(self, word: str) -> str:
         return self._match_clip(word)
 
-    def _prosody(self, mood: str, feeling=None):
+    def prosody_for(self, mood: str, feeling=None):
         """How this line should sound, or None when nothing should colour it.
 
         `feeling` is how she felt when she decided to say it. The mind hands it
@@ -200,10 +195,6 @@ class Expression:
             return
 
         import sounddevice as sd
-
-        self.current_audio_buffer = audio_data
-        self.playback_sample_rate = sample_rate
-        self.playback_start_time = time.time()
 
         self._safe_play(sd, audio_data, sample_rate, device_id)
 
@@ -263,7 +254,7 @@ class Expression:
             pass
 
         # a cached working device beats the config order on later turns
-        cached = getattr(self, "_playback_device_id", None)
+        cached = self._playback_device_id
         if cached in candidates:
             candidates.remove(cached)
             candidates.insert(0, cached)
@@ -304,10 +295,6 @@ class Expression:
     # `LiveLine` owns the order things happen in; everything below is what one
     # beat actually does. Split that way so the ordering can be tested without
     # a sound card and the rendering without a queue.
-
-    def prosody_for(self, mood: str, feeling=None):
-        """How a line in this mood should sound. The public half of `_prosody`."""
-        return self._prosody(mood, feeling)
 
     def playback_lock(self, line: LiveLine):
         """Only one line at a time may hold the local sound card."""
@@ -507,7 +494,7 @@ class Expression:
         finally:
             self.is_speaking = False
 
-    # --- barge-in / resume --------------------------------------------------
+    # --- barge-in -----------------------------------------------------------
 
     async def interrupt(self, ramp_ms: int = 200) -> str:
         """Stops current speech/typing, in the call and on the local device alike.
@@ -527,25 +514,6 @@ class Expression:
         if call is not None and call.live:
             self.interrupted = await call.stop(ramp_ms=ramp_ms)
 
-        if self.is_speaking and self.current_audio_buffer is not None:
-            try:
-                elapsed = time.time() - self.playback_start_time
-                consumed_samples = int(elapsed * self.playback_sample_rate)
-                total_samples = len(self.current_audio_buffer)
-
-                if consumed_samples < total_samples:
-                    remaining = self.current_audio_buffer[consumed_samples:]
-                    if len(remaining) > (0.5 * self.playback_sample_rate):
-                        self.resume_buffer = remaining
-                        logger.info(f"Buffered {len(remaining)/self.playback_sample_rate:.2f}s for resume.")
-                    else:
-                        self.resume_buffer = None
-                else:
-                    self.resume_buffer = None
-            except Exception as e:
-                logger.error(f"Error calculating resume buffer: {e}")
-                self.resume_buffer = None
-
         try:
             import sounddevice as sd
             sd.stop()
@@ -562,30 +530,3 @@ class Expression:
 
         self.is_speaking = False
         return "Interrupted"
-
-    async def resume(self):
-        """Resumes speech from the buffered tail, if any."""
-        if self.resume_buffer is None:
-            logger.info("No resume buffer found.")
-            return
-
-        logger.info("Resuming speech...")
-        self.is_speaking = True
-        try:
-            async with self.audio_lock:
-                # the mood she was cut off in, not `normal`: finishing an angry
-                # sentence with a neutral face is worse than not finishing it
-                self.avatar.show(self._mood, "talking")
-
-                self.current_speech_task = asyncio.create_task(
-                    self._play_audio(self.resume_buffer, self.playback_sample_rate, self.config.audio_device_id)
-                )
-                try:
-                    await self.current_speech_task
-                except asyncio.CancelledError:
-                    pass
-
-                self.resume_buffer = None
-        finally:
-            self.is_speaking = False
-            self.avatar.show(self._mood, self._resting)

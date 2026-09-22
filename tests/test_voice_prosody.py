@@ -29,8 +29,6 @@ class RecordingTTS(TTSInterface):
         # the runner that decides it has no sound card
         return np.zeros(0, dtype=np.float32), 24000
 
-    async def speak(self, text, output_device_id):
-        pass
 
     def reload_config(self, config):
         pass

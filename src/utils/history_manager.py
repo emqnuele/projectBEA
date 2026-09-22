@@ -1,5 +1,4 @@
 import json
-import os
 import threading
 import time
 from datetime import datetime
@@ -7,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.core.perf import perf_enabled
+from src.utils.files import atomic_write_text
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.utils.history")
@@ -151,7 +151,7 @@ class HistoryManager:
 
         with self._lock:
             if not self.current_session_file:
-                self._new_session_locked()
+                self._fresh_session_locked()
             self.history.append(message)
             self._store_locked()
 
@@ -192,9 +192,6 @@ class HistoryManager:
             self._timer.cancel()
             self._timer = None
 
-    def _new_session_locked(self) -> None:
-        self._fresh_session_locked()
-
     def _fresh_session_locked(self) -> None:
         # two sessions born in the same second must not share a file
         timestamp = int(time.time())
@@ -217,7 +214,7 @@ class HistoryManager:
 
     def _write_now_locked(self) -> None:
         if not self.current_session_file:
-            self._new_session_locked()
+            self._fresh_session_locked()
         assert self.current_session_file is not None
         try:
             _atomic_write(self.current_session_file, self._snapshot_locked())
@@ -226,11 +223,6 @@ class HistoryManager:
         else:
             self._dirty = False
             self._last_write = time.monotonic()
-
-    def _save_to_disk(self):
-        """Saves current history to JSON file."""
-        with self._lock:
-            self._write_now_locked()
 
     def delete_session(self, session_id: str) -> bool:
         """Removes a session file. The active session is never deletable."""
@@ -249,9 +241,4 @@ class HistoryManager:
 
 def _atomic_write(path: Path, data: Dict[str, Any]) -> None:
     # a crash mid-write must leave the previous file, never half of the new one
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    atomic_write_text(path, json.dumps(data, indent=2, ensure_ascii=False))

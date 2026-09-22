@@ -68,7 +68,7 @@ class MinecraftSurface(Skill):
         return self.config.skills.get("minecraft", {})
 
     async def start(self) -> None:
-        if not self.skill_config.get("enabled", False):
+        if not self.enabled:
             logger.info("MinecraftSurface inactive (minecraft skill disabled).")
             return
         url = self.skill_config.get("server_url", "ws://127.0.0.1:8080")

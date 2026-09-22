@@ -280,11 +280,7 @@ class DreamSkill(Skill):
         memory = getattr(self.context, "memory", None)
         if memory is None:
             return
-        memory.db.execute(
-            "INSERT INTO settings (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (LAST_NIGHT_KEY, today.isoformat()),
-        )
+        memory.db.put_setting(LAST_NIGHT_KEY, today.isoformat())
 
     def last_night(self) -> str:
         """The date of the last consolidation pass, `""` when she never dreamt."""
@@ -294,9 +290,7 @@ class DreamSkill(Skill):
         memory = getattr(self.context, "memory", None)
         if memory is None:
             return ""
-        return str(memory.db.scalar(
-            "SELECT value FROM settings WHERE key = ?", (LAST_NIGHT_KEY,), default="",
-        ))
+        return str(memory.db.get_setting(LAST_NIGHT_KEY))
 
 
 def _first_line(text: str, limit: int = 120) -> str:

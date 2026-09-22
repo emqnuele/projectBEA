@@ -29,6 +29,11 @@ class PlatformSkill(Skill):
     # can she open a private conversation with someone here?
     supports_dm: bool = True
 
+    @property
+    def supports_reactions(self) -> bool:
+        """Whether she may answer a message with an emoji here."""
+        return True
+
     def initialize(self) -> None:
         self.humanizer = TextHumanizer(hard_limit=self.message_limit)
 

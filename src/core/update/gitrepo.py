@@ -138,12 +138,6 @@ class Repo:
         except GitError:
             return False
 
-    def remote_url(self, name: str = "origin") -> str:
-        try:
-            return self.out("remote", "get-url", name)
-        except GitError:
-            return ""
-
     def branch(self) -> Optional[str]:
         """The current branch, or None on a detached HEAD."""
         name = self.out("rev-parse", "--abbrev-ref", "HEAD")

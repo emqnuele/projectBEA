@@ -174,6 +174,12 @@ class MinecraftClient:
     def _on_close(self, ws, code, msg) -> None:
         self.is_connected = False
         logger.info("Disconnected from Minecraft mod.")
+        # no completion can arrive over a closed socket: fail now, not after the timeout
+        try:
+            self.loop.call_soon_threadsafe(
+                self._resolve_pending, "FAILED: the connection to the game dropped mid-action.")
+        except RuntimeError:
+            pass  # the loop is already closed: nobody is waiting
 
     def _on_message(self, ws, message: str) -> None:
         try:

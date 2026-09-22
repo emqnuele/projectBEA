@@ -12,6 +12,7 @@ minutes at a time, and doing that on the event loop would freeze every other
 screen — including the one drawing the progress bar for this very run.
 """
 
+import asyncio
 import threading
 import time
 from pathlib import Path
@@ -95,7 +96,7 @@ def force_check() -> Dict[str, Any]:
 
 
 @router.post("/apply", status_code=202)
-def start_update() -> Dict[str, Any]:
+async def start_update() -> Dict[str, Any]:
     if not _config_flag("allow_web_apply"):
         raise HTTPException(
             status_code=403,
@@ -114,7 +115,9 @@ def start_update() -> Dict[str, Any]:
             "report": None,
         }
 
-    threading.Thread(target=_work, name="bea-update", daemon=True).start()
+    # the reload afterwards touches objects that live on the loop, so it is handed back to it
+    loop = asyncio.get_running_loop()
+    threading.Thread(target=_work, args=(loop,), name="bea-update", daemon=True).start()
     return _snapshot_run() or {}
 
 
@@ -124,7 +127,7 @@ def run_progress() -> Optional[Dict[str, Any]]:
     return _snapshot_run()
 
 
-def _work() -> None:
+def _work(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
     global _run
 
     def progress(step: runner.Step) -> None:
@@ -150,12 +153,18 @@ def _work() -> None:
             _run["report"] = report.describe()
 
     if report.status == runner.UPDATED:
-        _reload()
+        if loop is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(_reload)
+        else:
+            _reload()
 
 
 def _snapshot_run() -> Optional[Dict[str, Any]]:
     with _guard:
-        return dict(_run) if _run is not None else None
+        if _run is None:
+            return None
+        # the steps are still being written by the update thread
+        return {**_run, "steps": [dict(step) for step in _run["steps"]]}
 
 
 # --- the conflicts the merge could not settle --------------------------------

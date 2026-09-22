@@ -104,9 +104,7 @@ def onboarding_completed(memory) -> bool:
     if memory is None:
         return False
     try:
-        return bool(memory.db.scalar(
-            "SELECT value FROM settings WHERE key = ?", (ONBOARDING_KEY,), default=None,
-        ))
+        return bool(memory.db.get_setting(ONBOARDING_KEY, default=None))
     except Exception as e:
         logger.warning(f"Could not read the onboarding flag: {e}")
         return False
@@ -116,10 +114,7 @@ def mark_onboarding_completed(memory) -> None:
     if memory is None:
         return
     try:
-        memory.db.execute(
-            "INSERT INTO settings (key, value) VALUES (?, '1') "
-            "ON CONFLICT(key) DO UPDATE SET value = '1'", (ONBOARDING_KEY,),
-        )
+        memory.db.put_setting(ONBOARDING_KEY, "1")
     except Exception as e:
         logger.warning(f"Could not record the onboarding flag: {e}")
 

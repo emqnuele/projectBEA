@@ -54,7 +54,7 @@ land in the same batch. Bea answers one turn at a time, several chats in
 parallel.
 
 Replies go out through the humanizer — one line per message, with a typing pause
-between them. Telegram reactions are not used (`supports_reactions = False`).
+between them. She may answer with a reaction instead, unless `reactions` is off.
 
 ---
 

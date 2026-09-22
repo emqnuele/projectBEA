@@ -10,6 +10,8 @@ export function useBrain() {
 }
 
 const EVENT_LIMIT = 400;
+// ids remembered to drop a replayed event; more than the server can ever replay
+const SEEN_LIMIT = 2000;
 const STATUS_EVERY = 1500;
 const OVERVIEW_EVERY = 8000;
 
@@ -39,6 +41,10 @@ export function BrainProvider({ children }) {
     const pushEvent = useCallback((event) => {
         if (!event || seen.current.has(event.id)) return;
         seen.current.add(event.id);
+        // the server only replays its last 200, so older ids can never come back
+        if (seen.current.size > SEEN_LIMIT) {
+            seen.current.delete(seen.current.values().next().value);
+        }
         setEvents((prev) => [event, ...prev].slice(0, EVENT_LIMIT));
     }, []);
 

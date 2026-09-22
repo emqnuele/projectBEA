@@ -1,8 +1,6 @@
 """Does this actually work? One button per thing that can be misconfigured."""
 
-import inspect
 import time
-from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -23,15 +21,14 @@ class TestResult(BaseModel):
 async def test_llm(brain: AIVtuberBrain = Depends(get_brain)):
     try:
         started = time.perf_counter()
-        # `chat` is the one-shot helper the openai-compatible client adds on top
-        # of the port; a backend without it fails here and is reported as such
-        probe: Any = brain.llm
-        result = probe.chat("Reply with the single word: ok.", system_prompt="You are a test probe.")
-        if inspect.isawaitable(result):
-            result = await result
+        # `complete` is the contract every client and every pool honours
+        reply = await brain.llm.complete([
+            {"role": "system", "content": "You are a test probe."},
+            {"role": "user", "content": "Reply with the single word: ok."},
+        ])
         elapsed = int((time.perf_counter() - started) * 1000)
         return TestResult(ok=True, message=f"{brain.config.llm_provider} answered in {elapsed} ms",
-                          detail=str(result[1] if isinstance(result, tuple) and len(result) > 1 else result)[:200])
+                          detail=(reply.content or "")[:200])
     except Exception as e:
         return TestResult(ok=False, message="The model did not answer", detail=str(e)[:300])
 

@@ -2,9 +2,9 @@
 
 The old clients went through their vendors' sync sdks, drained on a worker
 thread. Everything now speaks https directly through aiohttp, so the event loop
-is never parked behind a thread hop: this base owns sessions, errors, stream
-assembly and the legacy helpers, and each transport only maps its own wire
-format onto normalized events.
+is never parked behind a thread hop: this base owns sessions, errors and stream
+assembly, and each transport only maps its own wire format onto normalized
+events.
 """
 
 import json
@@ -15,7 +15,6 @@ import aiohttp
 
 from src.core.agent.llm_client import LLMClient
 from src.core.agent.types import AssistantMessage, ToolCall, Usage
-from src.interfaces.base_interfaces import LLMInterface, STTInterface
 from src.modules.llm.reasoning import NO_STYLE, ReasoningStyle
 from src.utils.logger import get_logger
 from src.utils.sanitize import clean_model_output
@@ -53,7 +52,7 @@ class ProviderError(RuntimeError):
 StreamEvent = Tuple[str, int, str, Any]
 
 
-class AsyncLLMClient(LLMClient, LLMInterface):
+class AsyncLLMClient(LLMClient):
     """One https client, parameterised by endpoint instead of subclassed.
 
     `query_path` is appended to `base_url`. Subclasses translate payloads;
@@ -63,13 +62,11 @@ class AsyncLLMClient(LLMClient, LLMInterface):
     query_path = ""
 
     def __init__(self, base_url: str, model_name: str, api_key: Optional[str] = None,
-                 stt: Optional[STTInterface] = None,
                  reasoning: Optional[ReasoningStyle] = None,
                  key_field: str = "", model_field: str = "", url_field: str = ""):
         self.base_url = (base_url or "").rstrip("/")
         self.model_name = model_name
         self.api_key = api_key
-        self.stt = stt
         self.reasoning = reasoning or NO_STYLE
         # the config fields this instance was built from, so a reload reads the
         # same places the factory did instead of each transport repeating it
@@ -309,33 +306,6 @@ class AsyncLLMClient(LLMClient, LLMInterface):
     async def complete_json(self, user_input: str, system_prompt: Optional[str] = None,
                             history: Optional[list] = None) -> Union[Dict, list]:
         return await self.json_turn(self._build_messages(user_input, system_prompt, history))
-
-    # --- legacy helpers -----------------------------------------------------
-
-    async def chat(self, user_input: str, system_prompt: Optional[str] = None,
-                   history: Optional[list] = None) -> Tuple[str, str, dict]:
-        """One json turn, as (mood, message, metadata). Raises on failure.
-
-        Raising rather than returning a fallback is deliberate: the pool can
-        only fail over to the next model when it sees the error.
-        """
-        reply = await self.complete_json(user_input, system_prompt, history)
-        if isinstance(reply, dict):
-            return reply.get("mood", "neutral"), reply.get("message", ""), {}
-        return "neutral", str(reply), {}
-
-    async def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None,
-                         history: Optional[list] = None) -> Tuple[str, str, dict]:
-        if not self.stt:
-            return "neutral", "I cannot hear you (STT module not configured).", {}
-        transcription = self.stt.transcribe(audio_path)
-        if not transcription:
-            return "neutral", "I heard nothing.", {}
-        return await self.chat(transcription, system_prompt, history)
-
-    async def generate_json(self, user_input: str, system_prompt: Optional[str] = None,
-                            history: Optional[list] = None) -> Union[Dict, list]:
-        return await self.complete_json(user_input, system_prompt, history)
 
     def reload_config(self, config) -> None:
         if self._key_field:

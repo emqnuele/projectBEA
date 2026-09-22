@@ -1,4 +1,3 @@
-import asyncio
 import os
 
 import edge_tts
@@ -12,12 +11,11 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.tts.edge")
 
 class EdgeTTSWrapper(TTSInterface):
-    def __init__(self, voice: str = "en-US-JennyNeural", pitch: str = "+0Hz", rate: str = "+0%", volume: str = "+0%", output_file: str = "temp_tts.mp3"):
+    def __init__(self, voice: str = "en-US-JennyNeural", pitch: str = "+0Hz", rate: str = "+0%", volume: str = "+0%"):
         self.voice = voice
         self.pitch = pitch
         self.rate = rate
         self.volume = volume
-        self.output_file = output_file
 
     def reload_config(self, config) -> None:
         # asked for rather than read off the config: which voice a setup means
@@ -44,54 +42,6 @@ class EdgeTTSWrapper(TTSInterface):
             combine_percent(self.rate, prosody.rate),
             combine_percent(self.volume, prosody.volume),
         )
-
-    async def _generate_audio_file(self, text: str, filename: str, prosody=None) -> None:
-        """Generates the audio file."""
-        pitch, rate, volume = self._voice_for(prosody)
-        communicate = edge_tts.Communicate(text, self.voice, pitch=pitch, rate=rate, volume=volume)
-        await communicate.save(filename)
-
-    def _play_audio_sync(self, device_id: int, filename: str):
-        """Synchronous audio playback using OutputStream for better thread safety."""
-        # imported where it is used, not at module scope: generating audio must not
-        # need PortAudio, and a headless box (CI, a server) has no such library
-        import sounddevice as sd
-
-        if not os.path.exists(filename):
-            logger.error(f"TTS file not found: {filename}")
-            return
-
-        try:
-            data, fs = sf.read(filename, dtype='float32')
-
-            #print(f"[DEBUG] Audio Loaded. Shape: {data.shape}, Range: [{data.min():.3f}, {data.max():.3f}], Device: {device_id}")
-
-            silence_duration = 0.2
-            num_silence_samples = int(fs * silence_duration)
-
-            if data.ndim == 1:
-                silence = np.zeros(num_silence_samples, dtype='float32')
-                channels = 1
-            else:
-                silence = np.zeros((num_silence_samples, data.shape[1]), dtype='float32')
-                channels = data.shape[1]
-
-            final_audio = np.concatenate((silence, data))
-
-            logger.debug(f"starting playback stream. channels: {channels}, samplerate: {fs}")
-
-            # use non-blocking play and manual sleep to avoid c-level wait crashes
-            sd.play(final_audio, samplerate=fs, device=device_id, blocking=False)
-
-            # calculate duration and sleep in the thread
-            duration = len(final_audio) / fs
-            import time
-            time.sleep(duration)
-
-            logger.debug("playback stream finished.")
-
-        except Exception as e:
-            logger.error(f"error playing audio: {e}")
 
     async def generate_audio(self, text: str, prosody=None) -> tuple[np.ndarray, int]:
         """Generates audio and returns numpy array + sample rate."""
@@ -120,20 +70,3 @@ class EdgeTTSWrapper(TTSInterface):
                     os.remove(unique_filename)
                 except OSError:
                     pass
-
-    async def speak(self, text: str, output_device_id: int) -> None:
-        """Generates and plays audio."""
-        import sounddevice as sd
-
-        # deprecated: brain should use generate_audio
-        data, fs = await self.generate_audio(text)
-        if len(data) == 0:
-            return
-
-        # simple playback wrapper
-        try:
-             sd.play(data, samplerate=fs, device=output_device_id, blocking=False)
-             duration = len(data) / fs
-             await asyncio.sleep(duration)
-        except Exception as e:
-            logger.error(f"playback error: {e}")

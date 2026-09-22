@@ -10,7 +10,7 @@ import pytest
 
 from src.modules.llm.anthropic import AnthropicClient
 from src.modules.llm.chat import ChatCompletionsClient
-from src.modules.llm.factory import LLMConfigError, build_client, build_llm
+from src.modules.llm.factory import LLMConfigError, build_client
 from src.modules.llm.providers import PROVIDERS, get
 from src.modules.llm.responses import ResponsesClient
 
@@ -154,7 +154,9 @@ def test_a_bad_protocol_choice_is_rejected():
 
 
 def test_the_legacy_single_model_path_reaches_the_new_providers():
-    client = build_llm(Config(llm_provider="local", local_model="qwen3:8b"))
+    from src.core.agent.registry import MIND, ModelRegistry
+
+    client = ModelRegistry(Config(llm_provider="local", local_model="qwen3:8b")).get(MIND)
     assert isinstance(client, ChatCompletionsClient)
     assert client.model_name == "qwen3:8b"
 

@@ -105,6 +105,20 @@ def test_dying_ends_every_action_at_once():
     assert first.done() and second.done()
 
 
+def test_losing_the_connection_ends_whatever_she_was_doing():
+    """No completion can come back over a closed socket; the caller used to
+    wait out the whole minute for one."""
+    loop = asyncio.new_event_loop()
+    client = MinecraftClient("ws://x", loop, on_event=lambda k, d: None)
+    waiting = _awaiting(client, loop, "r1")
+
+    client._on_close(None, 1006, "gone")
+    loop.run_until_complete(asyncio.sleep(0))
+
+    assert waiting.done() and waiting.result().startswith("FAILED")
+    loop.close()
+
+
 def test_a_combat_packet_reaches_the_surface():
     client, seen = client_with_recorder()
     client._handle({"type": "combat", "event": "hurt", "source": "player"})

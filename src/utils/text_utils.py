@@ -63,18 +63,6 @@ def sentences(text: str) -> List[str]:
     return out
 
 
-def _clip_to_width(text: str, width: int) -> str:
-    """The longest prefix of `text` that fits in `width` columns."""
-    out, used = [], 0
-    for char in text:
-        step = display_width(char)
-        if used + step > width:
-            break
-        out.append(char)
-        used += step
-    return "".join(out)
-
-
 def _last_space(line: List[str]) -> Optional[int]:
     """Where to break a full line so a latin word survives it, or None."""
     for i in range(len(line) - 1, 0, -1):
@@ -133,55 +121,6 @@ def wrap_to_width(message: str, width: int) -> List[str]:
         lines.append("".join(line).rstrip())
     return [line for line in lines if line]
 
-
-def fit_text_for_box(
-    message: str,
-    *,
-    line_width: int,
-    max_lines: Optional[int],
-    base_font_size: int,
-    min_font_size: int,
-    font_step: int,
-) -> Tuple[str, int]:
-    """The message wrapped, and the font size that makes it fit the box."""
-    safe_base = max(1, base_font_size)
-    safe_min = max(1, min_font_size)
-    safe_step = max(1, font_step)
-
-    chosen_lines: List[str] = []
-    chosen_size = safe_base
-    chosen_width = line_width
-
-    # no limit means one page, however many lines it takes
-    allow_infinite = max_lines is None or max_lines <= 0
-    limit_lines = 0 if max_lines is None else max_lines
-
-    for size in range(safe_base, safe_min - 1, -safe_step):
-        width = max(1, int(round(line_width * safe_base / size)))
-        wrapped = wrap_to_width(message, width)
-        if not wrapped:
-            wrapped = [""]
-
-        if allow_infinite or len(wrapped) <= limit_lines:
-            chosen_lines = wrapped
-            chosen_size = size
-            chosen_width = width
-            break
-
-    if not chosen_lines:
-        chosen_size = safe_min
-        chosen_width = max(1, int(round(line_width * safe_base / chosen_size)))
-        chosen_lines = wrap_to_width(message, chosen_width) or [""]
-
-    if not allow_infinite and len(chosen_lines) > limit_lines:
-        chosen_lines = chosen_lines[:limit_lines]
-        last = chosen_lines[-1]
-        ellipsis = "..."
-        if display_width(last) + len(ellipsis) > chosen_width:
-            last = _clip_to_width(last, max(0, chosen_width - len(ellipsis)))
-        chosen_lines[-1] = f"{last}{ellipsis}"
-
-    return "\n".join(chosen_lines), chosen_size
 
 def paginate_text_for_box(
     message: str,

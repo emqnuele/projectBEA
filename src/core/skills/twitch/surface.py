@@ -136,7 +136,7 @@ class TwitchSkill(PlatformSkill):
             channel_id=line.channel,
             # chat is a room, not a conversation: low by default so only the
             # gate's presence score (or her name) pulls her in
-            salience=0.9 if line.bits else 0.4,
+            salience=0.9 if line.bits else float(self.skill_config.get("chatter_salience", 0.4)),
             meta={"tallied": True, "bits": line.bits},
         )
 

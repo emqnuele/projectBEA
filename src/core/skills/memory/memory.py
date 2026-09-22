@@ -7,7 +7,6 @@ from typing import Dict, List, Optional
 from src.core.agent.tools import Tool
 from src.core.memory.rag import SOURCE_PERSON
 from src.core.memory.transcript import MIN_SPOKEN_LINES, render_stream, spoken_count
-from src.core.perception.types import PerceptionKind
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.memory.generator import DiaryGenerator
@@ -44,6 +43,9 @@ class MemorySkill(Skill):
     def initialize(self) -> None:
         self.generator: Optional[DiaryGenerator] = None
         self._pending: Optional[asyncio.Task] = None
+        # every page still being written, not just the latest: an unreferenced
+        # task can be collected mid-flight, and shutdown waits for all of them
+        self._writing: set = set()
 
     @property
     def rag(self):
@@ -96,19 +98,12 @@ class MemorySkill(Skill):
             return None
         # silence asks nothing: an idle-only batch has no question for the
         # past, and embedding it would spend the model to retrieve noise
-        if not any(self._is_memorable(p) for p in batch):
+        if not any(p.is_memorable for p in batch):
             return None
         query = " ".join(_clean_for_query(p.render()) for p in batch)
         if not query.strip():
             return None
         return self.retrieve_context(query) or None
-
-    @staticmethod
-    def _is_memorable(p) -> bool:
-        """The same two exclusions the stream uses: the idle tick is the loop
-        talking to itself, and a noise-flagged heartbeat is already carried
-        by the live state. Neither is a question worth asking the past."""
-        return p.kind is not PerceptionKind.IDLE and not (p.meta or {}).get("noise")
 
     def retrieve_context(self, query: str, limit: int = RECALL_LIMIT) -> str:
         """Two blocks, explicitly labelled: facts, and things she made up."""
@@ -179,6 +174,8 @@ class MemorySkill(Skill):
             return
         self._pending = asyncio.create_task(
             self._process_session_async(session_id, transcript))
+        self._writing.add(self._pending)
+        self._pending.add_done_callback(self._writing.discard)
 
     async def _process_session_async(self, session_id: str,
                                      transcript: Optional[str] = None) -> None:
@@ -229,6 +226,9 @@ class MemorySkill(Skill):
         """Saves the current session on shutdown. Must be awaited."""
         if not self.enabled or self.rag is None:
             return
+        # a page for an earlier session may still be being written
+        if self._writing:
+            await asyncio.gather(*list(self._writing), return_exceptions=True)
         hm = getattr(self.context, "history_manager", None)
         if not hm or not hm.session_id:
             return

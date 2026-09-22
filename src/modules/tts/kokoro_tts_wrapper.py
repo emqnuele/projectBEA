@@ -160,24 +160,3 @@ class KokoroTTSWrapper(TTSInterface):
              samples = samples.astype(np.float32)
 
         return samples, sample_rate
-
-    async def speak(self, text: str, output_device_id: int) -> None:
-        # imported where it is used, not at module scope: generating audio must not
-        # need PortAudio, and a headless box (CI, a server) has no such library
-        import sounddevice as sd
-
-        # deprecated: brain should use generate_audio and handle playback
-        # kept for compatibility or direct usage
-        samples, sample_rate = await self.generate_audio(text)
-        if len(samples) == 0:
-            return
-
-        try:
-             # play using sounddevice (non-blocking + sleep)
-            sd.play(samples, samplerate=sample_rate, device=output_device_id, blocking=False)
-
-            # manual sleep async
-            duration = len(samples) / sample_rate
-            await asyncio.sleep(duration)
-        except Exception as e:
-            logger.error(f"error during playback: {e}")

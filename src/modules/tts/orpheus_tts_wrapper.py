@@ -23,12 +23,10 @@ class OrpheusTTSWrapper(TTSInterface):
     def __init__(self,
                  api_key: Optional[str],
                  endpoint_url: Optional[str],
-                 voice: str = "tara",
-                 output_file: str = "temp_orpheus_tts.wav"):
+                 voice: str = "tara"):
         self.api_key = api_key
         self.endpoint_url = endpoint_url
         self.voice = voice
-        self.output_file = output_file
         self.client = requests.Session()
 
     def reload_config(self, config) -> None:
@@ -82,49 +80,6 @@ class OrpheusTTSWrapper(TTSInterface):
         except Exception as e:
             logger.error(f"API error: {e}")
             raise
-
-    def _play_audio_sync(self, device_id: int, filename: str):
-        # imported where it is used, not at module scope: generating audio must
-        # not need PortAudio, and a headless box (CI, a server) has no such library
-        import sounddevice as sd
-
-        """plays the downloaded audio file assuming Raw PCM 24kHz."""
-        if not os.path.exists(filename):
-            logger.error("audio file not found.")
-            return
-
-        try:
-            fs = 24000
-            channels = 1
-            subtype = 'PCM_16'
-
-            data, fs = sf.read(
-                filename,
-                samplerate=fs,
-                channels=channels,
-                subtype=subtype,
-                format='RAW',
-                dtype='float32'
-            )
-
-            silence_duration = 0.5
-            num_silence_samples = int(fs * silence_duration)
-
-            if data.ndim == 1:
-                silence = np.zeros(num_silence_samples, dtype='float32')
-            else:
-                silence = np.zeros((num_silence_samples, data.shape[1]), dtype='float32')
-
-            final_audio = np.concatenate((silence, data))
-
-            sd.play(final_audio, samplerate=fs, device=device_id, blocking=False)
-
-            duration = len(final_audio) / fs
-            import time
-            time.sleep(duration)
-
-        except Exception as e:
-            logger.error(f"error playing audio: {e}")
 
     def _stream_pcm_sync(self, text: str):
         """Yields raw PCM blocks straight off the response, no file in between.
@@ -223,31 +178,3 @@ class OrpheusTTSWrapper(TTSInterface):
                     os.remove(unique_filename)
                 except OSError:
                     pass
-
-    async def speak(self, text: str, output_device_id: int) -> None:
-        import sounddevice as sd
-
-        # deprecated: brain should use generate_audio
-        data, fs = await self.generate_audio(text)
-        if len(data) == 0:
-            return
-
-        try:
-            # initial silence padding
-            silence_duration = 0.5
-            num_silence_samples = int(fs * silence_duration)
-
-            if data.ndim == 1:
-                silence = np.zeros(num_silence_samples, dtype='float32')
-            else:
-                silence = np.zeros((num_silence_samples, data.shape[1]), dtype='float32')
-
-            final_audio = np.concatenate((silence, data))
-
-            sd.play(final_audio, samplerate=fs, device=output_device_id, blocking=False)
-
-            duration = len(final_audio) / fs
-            await asyncio.sleep(duration)
-
-        except Exception as e:
-            logger.error(f"playback error: {e}")

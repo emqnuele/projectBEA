@@ -19,7 +19,7 @@ voice; `say_nothing` is the written equivalent of `stay_silent`.
 
 from typing import Callable, List, Optional
 
-from src.core.agent.tools import Tool, ToolRegistry
+from src.core.agent.tools import ToolRegistry
 from src.core.expression.tags import DIRECTIONS
 from src.core.mind.moods import enum_schema
 
@@ -48,10 +48,15 @@ class MindTools:
         is typed into with `mc_chat`. Offering her a destination nothing can
         deliver to is a message she sends into a failure.
         """
-        return sorted({
-            s.platform for s in self.surfaces.active()
-            if getattr(s, "platform", "") and callable(getattr(s, "deliver", None))
-        })
+        return sorted({s.platform for s in self._writers()})
+
+    def writer(self, platform: str):
+        """The active skill that can write on `platform`, if there is one."""
+        return next((s for s in self._writers() if s.platform == platform), None)
+
+    def _writers(self):
+        return (s for s in self.surfaces.active()
+                if getattr(s, "platform", "") and callable(getattr(s, "deliver", None)))
 
     def registry(self) -> ToolRegistry:
         """Every tool armed right now, rebuilt from the live skills."""
@@ -136,6 +141,3 @@ class MindTools:
 
     def schemas(self) -> Optional[List[dict]]:
         return self.registry().schemas() or None
-
-    def get(self, name: str) -> Optional[Tool]:
-        return self.registry().get(name)

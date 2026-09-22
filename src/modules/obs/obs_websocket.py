@@ -196,6 +196,3 @@ class OBSController(OBSInterface):
                 self.set_text("", source_name, font_size=font_size)
 
         return font_size
-
-    def clear_text(self, source_name: str, font_size: int) -> None:
-        self.set_text("", source_name, font_size=font_size)

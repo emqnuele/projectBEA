@@ -43,7 +43,7 @@ from src.setup.config_plan import (
     apply_answers,
     env_updates,
 )
-from src.setup.env_file import merge_env
+from src.setup.env_file import update_env
 from src.setup.prefetch import Job, plan
 from src.utils.huggingface import download_hint
 
@@ -438,8 +438,7 @@ def _ask_hf_token(console: Console) -> None:
     # in this process too, not only in .env: the downloads below are about to
     # read it, and nothing reloads the file between here and there
     os.environ["HF_TOKEN"] = token
-    existing = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.exists() else ""
-    ENV_FILE.write_text(merge_env(existing, {"HF_TOKEN": token}), encoding="utf-8")
+    update_env(ENV_FILE, {"HF_TOKEN": token})
     console.print("  [green]✓[/green] Saved to .env, and used for the downloads below.\n")
 
 
@@ -594,8 +593,7 @@ def _write(console: Console, answers: Dict[str, Any]) -> None:
 
     secrets = env_updates(answers)
     if secrets:
-        existing = ENV_FILE.read_text(encoding="utf-8") if ENV_FILE.exists() else ""
-        ENV_FILE.write_text(merge_env(existing, secrets), encoding="utf-8")
+        update_env(ENV_FILE, secrets)
 
     # BrainConfig loads config.json in __post_init__, so anything the wizard does
     # not ask about survives a re-run untouched

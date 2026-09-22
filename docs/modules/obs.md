@@ -84,8 +84,7 @@ source at the size the text was actually typed at — a long line shrinks to fit
 and clearing at the configured size resizes the box on screen.
 
 The typing task and the playback task run in parallel — both are asyncio tasks,
-and `Expression.interrupt()` cancels them together on barge-in, keeping what was
-left unsaid in the resume buffer.
+and `Expression.interrupt()` cancels them together on barge-in.
 
 ---
 
@@ -107,20 +106,6 @@ An unknown mood falls back to `"neutral"`. The states `sleeping` and `listening`
 use their own entry in `avatar_map` when there is one, and otherwise fall back to
 the mood's image and log a warning. Full resolution order is in the
 [avatar module](avatar.md).
-
----
-
-## `clear_text()`
-
-A convenience method on `OBSController` that sets the text source to an empty string, preserving the given font size:
-
-```python
-obs.clear_text(source_name="AIText", font_size=75)
-```
-
-It is equivalent to `set_text("", source_name, font_size=font_size)`.
-`Expression` calls `set_text("", ...)` directly in most places; `clear_text()`
-is a helper and the two are interchangeable.
 
 ---
 
