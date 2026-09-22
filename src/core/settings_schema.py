@@ -452,43 +452,46 @@ CONSCIOUSNESS = Section(
         Setting("burst_steps", "Steps per turn", "int",
                 "How many tool steps one live turn may take.",
                 6, minimum=1, maximum=20),
-        Setting("context_max_tokens", "How much she keeps", "int",
-                "The size of her one context window. Everything else about it "
-                "follows this number: she hands off at four fifths of it and "
-                "settles near a third. More is more of the evening remembered "
-                "— and a proportionally larger prompt on every single turn, so "
-                "it costs more per turn and asks more of the model. Above "
-                "~200k, check your model's own context window first: past it "
-                "there is no degrading, only a refused call.",
+        Setting("context_max_tokens", "Memory size", "int",
+                "How much conversation she remembers, in tokens. Drag it up "
+                "and she keeps more of the evening — but every reply costs "
+                "more, and your model needs a context window at least this "
+                "big. Past your model's own limit there is no degrading, "
+                "only a refused call.",
                 WINDOW_MIN_TOKENS, minimum=WINDOW_MIN_TOKENS,
                 maximum=WINDOW_MAX_TOKENS, ui="slider", step=WINDOW_STEP_TOKENS,
-                derives=(("handoff_trigger_tokens", "hands off at", TRIGGER_RATIO),
-                         ("handoff_target_tokens", "rests near", TARGET_RATIO),
-                         ("hot_tokens", "keeps verbatim", HOT_RATIO))),
-        Setting("handoff_trigger_tokens", "Handoff starts at", "int",
-                "Pins where the background handoff starts, instead of letting "
-                "it follow the window size. 0 follows. Must stay above "
-                "'window rests near'.",
+                derives=(("handoff_trigger_tokens", "recaps at", TRIGGER_RATIO),
+                         ("handoff_target_tokens", "settles near", TARGET_RATIO),
+                         ("hot_tokens", "keeps word-for-word", HOT_RATIO))),
+        Setting("handoff_trigger_tokens", "Recap starts at", "int",
+                "Manual override: the memory size at which she pauses to "
+                "summarize the old past. Leave at 0 and it follows the "
+                "slider above. Must stay above 'settles near'.",
                 0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
-        Setting("handoff_target_tokens", "Window rests near", "int",
-                "Pins the size the window breathes back down to after a "
-                "handoff. 0 follows the window size. Must stay below "
-                "'handoff starts at'.",
+        Setting("handoff_target_tokens", "Settles near", "int",
+                "Manual override: how small the memory shrinks back to after "
+                "a recap. Leave at 0 and it follows the slider above. Must "
+                "stay below 'recap starts at'.",
                 0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
-        Setting("hot_tokens", "Hot window", "int",
-                "Pins how many recent tokens cross a handoff verbatim, never "
-                "compressed. 0 follows the window size.",
+        Setting("hot_tokens", "Kept word-for-word", "int",
+                "Manual override: how much of the latest chat survives a "
+                "recap exactly as written, never summarized. Leave at 0 and "
+                "it follows the slider above.",
                 0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
-        Setting("hot_seconds", "Hot age", "float",
-                "How old a turn may be and still count as happening right now. "
-                "Older than this, it becomes compressible past.",
+        Setting("hot_seconds", "Still now for", "float",
+                "How far back still counts as 'happening right now'. Older "
+                "than this, a message may be summarized like any other past.",
                 1800.0, minimum=60.0, maximum=21600.0, advanced=True),
-        Setting("context_handoff", "Sliding handoff", "bool",
-                "Off, the window only grows until the ceiling trims it.", True),
-        Setting("window_persist_after_turn", "Persist after each turn", "bool",
-                "Off, the window only reaches disk on shutdown — a crash loses the evening.", True),
-        Setting("dynamic_context_timeout", "Recall waits at most", "float",
-                "Seconds a turn waits for retrieved context before answering without it.",
+        Setting("context_handoff", "Memory recap", "bool",
+                "On, she periodically summarizes the old past to make room "
+                "and keeps talking. Off, the memory only grows until the "
+                "size above cuts it.", True),
+        Setting("window_persist_after_turn", "Save memory each turn", "bool",
+                "On, the memory reaches disk after every turn. Off, it only "
+                "saves on shutdown — a crash loses the evening.", True),
+        Setting("dynamic_context_timeout", "Waits for memories", "float",
+                "Seconds a turn waits for retrieved memories before answering "
+                "without them.",
                 5.0, minimum=0.0, maximum=30.0),
     ],
 )
@@ -607,11 +610,11 @@ def _window_shape_errors(config, sec: Section, staged: Dict[str, Any],
         return {}
     return {
         "handoff_trigger_tokens":
-            f"must stay above window rests near ({budget.target_tokens:,}): "
-            "at this ceiling they meet and every turn hands off",
+            f"must stay above settles near ({budget.target_tokens:,}): "
+            "at this size they meet and every turn recaps",
         "handoff_target_tokens":
-            f"must stay below handoff starts at ({budget.trigger_tokens:,}): "
-            "at this ceiling they meet and every turn hands off",
+            f"must stay below recap starts at ({budget.trigger_tokens:,}): "
+            "at this size they meet and every turn recaps",
     }
 
 

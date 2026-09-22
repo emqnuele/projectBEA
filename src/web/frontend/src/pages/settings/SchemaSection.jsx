@@ -311,7 +311,7 @@ export function createSchemaSection(sectionKey) {
                         <div className="mt-2.5">
                             <Group
                                 title="Advanced"
-                                description="Numbers the settings above already work out. Set one and it stops following them."
+                                description="Manual overrides for the slider above. Leave everything at 0 and the slider decides."
                             >
                                 {advanced.map(renderField)}
                             </Group>
@@ -367,6 +367,10 @@ export function createSchemaSection(sectionKey) {
 function DerivedShape({ setting, ceiling, values }) {
     const shape = windowShape(Number(ceiling ?? setting.default ?? 0), setting.derives, values);
     const warning = shapeWarning(Number(ceiling ?? setting.default ?? 0), setting.derives, values);
+    const labelOf = (key, fallback) => {
+        const found = shape.find((d) => d.key === key)?.label ?? fallback;
+        return found.charAt(0).toUpperCase() + found.slice(1);
+    };
     return (
         <div className="space-y-1 px-0.5">
             <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[11px] text-faint">
@@ -381,8 +385,9 @@ function DerivedShape({ setting, ceiling, values }) {
             {warning && (
                 <p className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--flux-err)' }}>
                     <AlertTriangle size={11} className="shrink-0" />
-                    Hands off at {compact(warning.trigger)} meets rests near {compact(warning.target)} —
-                    every turn would hand off. Raise the trigger or lower the rest.
+                    {labelOf('handoff_trigger_tokens', 'recap')} {compact(warning.trigger)} meets{' '}
+                    {labelOf('handoff_target_tokens', 'rest').toLowerCase()} {compact(warning.target)} —
+                    every turn would recap. Raise the first or lower the second.
                 </p>
             )}
         </div>
