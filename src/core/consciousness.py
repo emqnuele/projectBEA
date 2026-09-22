@@ -333,7 +333,7 @@ class Consciousness:
                 spent = Usage()
                 self._acted, self._said, self._sent = [], None, []
                 for _ in range(self.burst_steps):
-                    steer = self.bus.drain_nowait()
+                    steer = self._steering()
                     if steer:
                         self.correlations.extend_batch(steer)
                         self._remember(steer)
@@ -492,6 +492,36 @@ class Consciousness:
             await line.cancel()
         except Exception as e:
             logger.error(f"Could not drop the unspoken line: {e}")
+
+    def _steering(self) -> List[Perception]:
+        """What arrived mid-turn and still belongs to this turn.
+
+        Something that lands while she is thinking is steering: she has not
+        answered yet, and reading it now is what stops her replying to a
+        question the room has already moved past. Something that lands in a
+        conversation she has **already** answered this turn is the next thing
+        that person said, and folding it into the same turn is how one person
+        typing three lines gets three replies. It goes back on the bus, where
+        the quiet gap will batch it with whatever else they are still writing.
+        """
+        answered = self._answered()
+        if not answered:
+            return self.bus.drain_nowait()
+
+        steer: List[Perception] = []
+        for p in self.bus.drain_nowait():
+            if conversation_key(p) in answered:
+                self.bus.put(p)
+            else:
+                steer.append(p)
+        return steer
+
+    def _answered(self) -> set:
+        """The conversations she has already replied in, this turn."""
+        keys = {f"{sent['platform']}:{sent['channel']}" for sent in self._sent}
+        if self._said:
+            keys.add(STAGE)
+        return keys
 
     # --- attention: order, never filter -------------------------------------
 
@@ -704,7 +734,9 @@ class Consciousness:
         is and with whom, injected from code rather than hoped from prose — and
         the destination a `send_message` must name back.
         """
-        header = "[NEW INPUT — arrived while you were mid-action; decide if it's worth reacting to now]" \
+        header = ("[STILL COMING IN — this arrived while you were mid-action, "
+                  "and you have not answered it yet. Fold it into the answer you "
+                  "are about to give; do not send a separate reply for it.]") \
             if steering else "[PERCEPTIONS — answer where each arrived: `speak` for voice/stage, `send_message(platform, channel, text)` for the rest]"
         orientation = self._orientation(annotated)
         now = time.time()

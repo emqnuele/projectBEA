@@ -278,3 +278,59 @@ async def test_hey_come_stai_tutto_bene_gets_one_reply():
         pass
 
     assert platform.sent == ["reply 1"], f"she answered {len(platform.sent)} times"
+
+
+async def test_a_line_that_lands_after_she_answered_becomes_the_next_turn():
+    """The other half of the same bug: what arrives *during* a turn used to be
+    read back to her as fresh input, so she answered the same person twice in
+    one turn. She has already replied — it waits, and gets batched."""
+    channel = PerceptionBus(window=0.03, text_window=0.05, max_window=1.0)
+    platform = Written()
+    mind = _mind(channel, platform)
+    mind.alive = True
+    loop = asyncio.create_task(mind.run())
+
+    channel.put(dm("hey", 1))
+    await asyncio.sleep(0.07)          # she is now mid-turn (the model takes 50ms)
+    channel.put(dm("come stai", 2))
+    channel.put(dm("tutto bene?", 3))
+    await asyncio.sleep(0.6)
+
+    mind.alive = False
+    loop.cancel()
+    try:
+        await loop
+    except asyncio.CancelledError:
+        pass
+
+    assert platform.sent == ["reply 1", "reply 2"], platform.sent
+
+
+async def test_something_from_elsewhere_still_steers_the_turn_in_flight():
+    """Deferring is only right for a conversation she has answered. A voice
+    line while she is writing a telegram reply is a barge-in, and reading it
+    late is how she answers a question the room has moved past."""
+    from src.core.perception.types import Author
+
+    channel = PerceptionBus(window=0.03, text_window=0.05, max_window=1.0)
+    platform = Written()
+    mind = _mind(channel, platform)
+    mind._sent = [{"platform": "telegram", "channel": "99", "text": "reply 1"}]
+
+    heard = Perception(
+        kind=PerceptionKind.VOICE, surface="voice:discord",
+        content="[ema] (voice): aspetta", salience=0.9,
+        author=Author(platform="discord", native_id="1", display_name="ema"))
+    channel.put(heard)
+    channel.put(dm("e comunque", 4))
+
+    steering = mind._steering()
+    assert [p.content for p in steering] == ["[ema] (voice): aspetta"]
+    assert len(channel.drain_nowait()) == 1   # the telegram line went back
+
+
+def test_the_steering_header_asks_her_to_fold_it_in():
+    channel = PerceptionBus(window=0.0)
+    mind = _mind(channel, Written())
+    header = mind._frame([(dm("ciao", 1), 1.0)], steering=True)["content"]
+    assert "do not send a separate reply" in header.lower()
