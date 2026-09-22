@@ -112,7 +112,10 @@ class AIVtuberBrain:
         self.affect: Optional[AffectState] = None
         self.profiler: Optional[Profiler] = None
         self.spontaneous: Optional[SpontaneousPresence] = None
+        self.reach: Optional[Reach] = None
+        self.rhythm: Optional[RhythmTick] = None
         self._rhythm_task: Optional[asyncio.Task] = None
+        self._warmup_task: Optional[asyncio.Task] = None
         self.consciousness: Optional[Consciousness] = None
 
     @property
@@ -682,7 +685,7 @@ class AIVtuberBrain:
         interval = float(rhythm.get("tick_seconds", 900))
         while True:
             await asyncio.sleep(interval)
-            if self.is_sleeping:
+            if self.is_sleeping or self.rhythm is None:
                 continue
             try:
                 started = await self.rhythm.run_once()
@@ -700,7 +703,7 @@ class AIVtuberBrain:
             logger.info("Single-brain consciousness is active.")
             # prime cold network paths so the FIRST real message doesn't pay
             # dns/tls/model-routing latency (the 'slow only at first' symptom)
-            asyncio.create_task(self._warmup())
+            self._warmup_task = asyncio.create_task(self._warmup())
             if (getattr(self.config, "rhythm", {}) or {}).get("enabled", True):
                 self._rhythm_task = asyncio.create_task(self._rhythm_loop())
 
@@ -719,9 +722,10 @@ class AIVtuberBrain:
         logger.info("Warmup complete (LLM + memory primed).")
 
     async def stop_skills(self):
-        if self._rhythm_task:
-            self._rhythm_task.cancel()
-            self._rhythm_task = None
+        for task in (self._warmup_task, self._rhythm_task):
+            if task is not None:
+                task.cancel()
+        self._warmup_task = self._rhythm_task = None
         if self.consciousness:
             await self.consciousness.stop()
 

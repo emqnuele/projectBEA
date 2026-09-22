@@ -1,11 +1,12 @@
 import asyncio
-import contextlib
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from src.core.fanout import Fanout
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.events")
@@ -49,11 +50,10 @@ class EventManager:
     """The ring buffer the dashboard reads, plus live fan-out to subscribers."""
 
     def __init__(self, max_history: int = 200):
-        self.events: List[BrainEvent] = []
+        self.events: "deque[BrainEvent]" = deque(maxlen=max_history)
         self.max_history = max_history
-        # live subscribers (the dashboard's SSE stream). Bounded queues, because
-        # a browser tab that stopped reading must not grow without limit.
-        self._subscribers: List["asyncio.Queue[Dict[str, Any]]"] = []
+        # bounded per subscriber: a browser tab that stopped reading must not grow without limit
+        self._fanout = Fanout(QUEUE_LIMIT, "event")
 
     def publish(self, category: EventCategory, source: str, message: str,
                 metadata: Optional[Dict[str, Any]] = None):
@@ -63,19 +63,16 @@ class EventManager:
             message=message,
             metadata=metadata or {},
         )
-
         self.events.append(event)
-
-        # keep buffer size in check
-        if len(self.events) > self.max_history:
-            self.events.pop(0)
-
-        self._fanout(_render(event))
+        self._fanout.publish(_render(event))
         logger.debug(f"[{category.upper()}] [{source}] {message}")
 
     def get_events(self, limit: int = 50) -> List[Dict]:
         """Returns recent events."""
-        return [_render(e) for e in self.events[-limit:]]
+        return [_render(e) for e in self._recent(limit)]
+
+    def _recent(self, limit: int) -> List[BrainEvent]:
+        return list(self.events)[-limit:] if limit > 0 else []
 
     # --- live subscription --------------------------------------------------
 
@@ -85,27 +82,11 @@ class EventManager:
         The backlog matters: a dashboard connecting mid-session should see what
         just happened rather than an empty screen until something else occurs.
         """
-        queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue(maxsize=QUEUE_LIMIT)
-        for event in self.events[-backlog:]:
-            with contextlib.suppress(asyncio.QueueFull):
-                queue.put_nowait(_render(event))
-        self._subscribers.append(queue)
-        return queue
+        return self._fanout.subscribe([_render(e) for e in self._recent(backlog)])
 
     def unsubscribe(self, queue) -> None:
-        if queue in self._subscribers:
-            self._subscribers.remove(queue)
+        self._fanout.unsubscribe(queue)
 
     @property
     def subscriber_count(self) -> int:
-        return len(self._subscribers)
-
-    def _fanout(self, payload: Dict[str, Any]) -> None:
-        for queue in list(self._subscribers):
-            try:
-                queue.put_nowait(payload)
-            except asyncio.QueueFull:
-                # a subscriber that stopped reading is dropped rather than
-                # allowed to slow down the brain that is trying to publish
-                logger.debug("Dropping a stalled event subscriber.")
-                self.unsubscribe(queue)
+        return len(self._fanout)

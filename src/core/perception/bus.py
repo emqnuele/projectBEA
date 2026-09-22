@@ -8,6 +8,13 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.perception.bus")
 
 
+def _running_loop() -> Optional[asyncio.AbstractEventLoop]:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+
 class PerceptionBus:
     """The single sensory channel feeding the one consciousness.
 
@@ -36,10 +43,16 @@ class PerceptionBus:
         # turn open for as long as it keeps talking
         self.max_window = max_window if max_window > 0 else max(window, self.text_window) * 10
         self._queue: "asyncio.Queue[Perception]" = asyncio.Queue()
+        # the loop that drains the queue, once it has started to
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def put(self, perception: Perception) -> None:
-        """Thread/async-safe-ish enqueue (call from the running loop)."""
-        self._queue.put_nowait(perception)
+        """Enqueues from the loop or from any other thread."""
+        loop = self._loop
+        if loop is not None and not loop.is_closed() and loop is not _running_loop():
+            loop.call_soon_threadsafe(self._queue.put_nowait, perception)
+        else:
+            self._queue.put_nowait(perception)
         logger.debug(f"perceived [{perception.kind}] from {perception.surface}: {perception.content[:60]}")
 
     def drain_nowait(self) -> List[Perception]:
@@ -54,6 +67,7 @@ class PerceptionBus:
 
     async def drain(self, window: Optional[float] = None) -> List[Perception]:
         """Waits for at least one perception, then for the senses to go quiet."""
+        self._loop = asyncio.get_running_loop()
         first = await self._queue.get()
         return await self.settle([first], window)
 
@@ -109,6 +123,7 @@ class PerceptionBus:
         Past the timeout it settles exactly like `drain`: the batch must not
         depend on whether the monologue happens to be switched on.
         """
+        self._loop = asyncio.get_running_loop()
         deadline = time.monotonic() + idle_after
         while True:
             remaining = deadline - time.monotonic()

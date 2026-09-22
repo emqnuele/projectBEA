@@ -12,10 +12,8 @@ import contextlib
 from pathlib import Path
 from typing import Any, Dict, List
 
+from src.core.fanout import Fanout
 from src.core.mind.moods import DEFAULT_MOOD
-from src.utils.logger import get_logger
-
-logger = get_logger("bea.stage")
 
 # how many patches a stalled page may buffer before it is dropped
 QUEUE_LIMIT = 200
@@ -89,7 +87,8 @@ class StageChannel:
     """One-way fan-out from the engine to however many browser sources exist."""
 
     def __init__(self) -> None:
-        self._subscribers: List["asyncio.Queue[Dict[str, Any]]"] = []
+        # a page that stopped reading must not slow down the engine
+        self._fanout = Fanout(QUEUE_LIMIT, "stage")
         self._state: Dict[str, Any] = {"mood": DEFAULT_MOOD, "state": "idle", "caption": ""}
 
     # --- writing ------------------------------------------------------------
@@ -99,7 +98,7 @@ class StageChannel:
         for key, value in patch.items():
             if key not in TRANSIENT:
                 self._state[key] = value
-        self._fanout(patch)
+        self._fanout.publish(patch)
 
     def snapshot(self) -> Dict[str, Any]:
         """Everything a page needs to draw her correctly the instant it loads."""
@@ -108,29 +107,17 @@ class StageChannel:
     # --- reading ------------------------------------------------------------
 
     def subscribe(self) -> "asyncio.Queue[Dict[str, Any]]":
-        queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue(maxsize=QUEUE_LIMIT)
-        self._subscribers.append(queue)
-        return queue
+        return self._fanout.subscribe()
 
     def unsubscribe(self, queue) -> None:
-        if queue in self._subscribers:
-            self._subscribers.remove(queue)
+        self._fanout.unsubscribe(queue)
 
     @property
     def subscriber_count(self) -> int:
-        return len(self._subscribers)
-
-    def _fanout(self, payload: Dict[str, Any]) -> None:
-        for queue in list(self._subscribers):
-            try:
-                queue.put_nowait(payload)
-            except asyncio.QueueFull:
-                # a page that stopped reading must not slow down the engine
-                logger.debug("Dropping a stalled stage subscriber.")
-                self.unsubscribe(queue)
+        return len(self._fanout)
 
     def close(self) -> None:
-        for queue in list(self._subscribers):
+        for queue in self._fanout.queues():
             self.unsubscribe(queue)
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait({"closed": True})

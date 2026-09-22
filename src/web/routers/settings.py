@@ -54,8 +54,9 @@ def get_config(brain: AIVtuberBrain = Depends(get_brain)):
     return brain.config.public_dict()
 
 
+# async like the section save: the reload rebuilds avatar ports that live on the loop
 @router.post("/config")
-def update_config(request: ConfigUpdateRequest, brain: AIVtuberBrain = Depends(get_brain)):
+async def update_config(request: ConfigUpdateRequest, brain: AIVtuberBrain = Depends(get_brain)):
     try:
         plan = plan_config(brain.config, request.config)
     except WriteRejected as e:

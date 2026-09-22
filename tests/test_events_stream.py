@@ -89,3 +89,25 @@ def test_usage_adds_up():
 
 def test_a_provider_that_reports_nothing_costs_zero():
     assert Usage().total == 0
+
+
+async def test_an_event_published_from_a_worker_thread_reaches_the_reader():
+    """A settings save publishes from fastapi's thread pool, not from the loop."""
+    import asyncio
+    import threading
+    import time
+
+    m = EventManager()
+    queue = m.subscribe(backlog=0)
+
+    def later() -> None:
+        # long enough that the loop is asleep in its selector when this lands
+        time.sleep(0.1)
+        m.publish(EventCategory.SYSTEM, "test", "from a thread")
+
+    started = time.monotonic()
+    threading.Thread(target=later).start()
+    event = await asyncio.wait_for(queue.get(), timeout=2.0)
+
+    assert event["message"] == "from a thread"
+    assert time.monotonic() - started < 1.0

@@ -267,12 +267,22 @@ class Consciousness:
             except (asyncio.CancelledError, Exception):
                 pass
             self._handoff_task = None
+        await self._cancel_background()
         for s in self.surfaces.all():
             try:
                 await s.stop()
             except Exception:
                 pass
         logger.info("Consciousness stopped.")
+
+    async def _cancel_background(self) -> None:
+        """Cancels a body action, a profile pass or a line still playing."""
+        pending = [t for t in (self._body_task, *self._bg_tasks) if t is not None and not t.done()]
+        self._body_task = None
+        for task in pending:
+            task.cancel()
+        # consumed, so none of them is reported as an exception never retrieved
+        await asyncio.gather(*pending, return_exceptions=True)
 
     # --- HTTP correlation ---------------------------------------------------
 
@@ -961,7 +971,7 @@ class Consciousness:
                     latency.mark(TTS)
             else:
                 # fire-and-forget so reasoning keeps going
-                asyncio.create_task(self._finish_line(line))
+                self._in_background(self._finish_line(line))
         elif self.expression.call_is_live:
             # every sentence of a turn goes to the room, not just the first: the
             # call is a sink she pushes into, not one reply she hands back
@@ -972,7 +982,7 @@ class Consciousness:
                 latency.mark(TTS)
         else:
             # fire-and-forget so reasoning keeps going
-            asyncio.create_task(self._speak_local_safe(mood, message, feeling))
+            self._in_background(self._speak_local_safe(mood, message, feeling))
 
         # whoever is blocked on a written answer gets one either way
         self.correlations.resolve(lambda r: True, {"mood": mood, "message": message})
@@ -1213,9 +1223,7 @@ class Consciousness:
                 except Exception as e:
                     logger.warning(f"Background profiling failed: {e}")
 
-        task = asyncio.create_task(work())
-        self._bg_tasks.add(task)
-        task.add_done_callback(self._bg_tasks.discard)
+        self._in_background(work())
 
     async def _drain_deliveries(self) -> None:
         """Lets the messages still on their way out finish, within reason."""
@@ -1275,11 +1283,9 @@ class Consciousness:
                 logger.warning(f"Background window persist failed: {e}")
                 self.sliding_window.mark_dirty()
 
-        task = asyncio.create_task(work())
+        task = self._in_background(work())
         self._persist_tasks.add(task)
         task.add_done_callback(self._persist_tasks.discard)
-        self._bg_tasks.add(task)
-        task.add_done_callback(self._bg_tasks.discard)
 
     def _save_bridge(self) -> None:
         """Mirrors the handoff recap to disk. A restart restores it in start()."""
@@ -1331,12 +1337,9 @@ class Consciousness:
         Called on every reload, so a ceiling changed in the dashboard takes
         effect on the next turn rather than at the next restart. Everything
         runs inside `resize` on the loop thread: the resize may evict, and an
-        eviction racing an append would lose the running total — but
-        `POST /config` is a synchronous route and reaches here from FastAPI's
-        thread pool. So it is posted to the loop rather than run where it was
-        called, and only run inline when there is no loop to post it to
-        (start-up, tests, or the async settings route, which already runs on
-        the loop).
+        eviction racing an append would lose the running total. A caller on
+        another thread has it posted to the loop; with no loop to post to
+        (start-up, tests) it runs inline.
         """
         def resize() -> None:
             cc = self.config.consciousness
