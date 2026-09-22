@@ -146,14 +146,33 @@ threading a counter through every layer. The consciousness publishes it as a
 `system`/`cost` event — the point of the attention gate is spending fewer calls,
 and that cannot be tuned unseen.
 
+Two of its four numbers are there to make an invisible problem visible:
+
+- **`cached_tokens`** is the part of the prompt the provider recognised. It is
+  the only signal that the prompt is still shaped the way caching wants it —
+  something volatile moving near the top drives it to zero and nothing else
+  about the turn looks different.
+- **`reasoning_tokens`** is the part of the answer the model thought rather
+  than said (`spoken_tokens` is the rest). A model that ignores the hint to
+  stop reasoning looks exactly like a model writing a long answer, and the
+  difference is several seconds of silence before she opens her mouth.
+
+**What a provider can cache** is decided by message order, not by this module:
+the loop keeps the stable half of the prompt first and the briefing for this
+moment *below* the sliding window. Both item-based transports therefore hoist
+only the **leading** system messages into `instructions` / `system`; one that
+arrives after the conversation has started keeps its place. Collecting them all
+would put a block that changes every turn in front of the whole window and
+re-bill every token of it.
+
 ---
 
 ## Providers
 
 The table above is the whole list. Notes per transport:
 
-**Responses** (`responses.py`). The item-based protocol: the system prompt
-travels as `instructions`, tools are flat (`type`, `name`, `description`,
+**Responses** (`responses.py`). The item-based protocol: the leading system
+messages travel as `instructions`, tools are flat (`type`, `name`, `description`,
 `parameters` — no nested `function` key), tool results come back as
 `function_call_output` items linked by `call_id`. Every call sends the full
 history and `store: false`: nothing is kept server-side, which is both a
@@ -171,7 +190,8 @@ but not `tool_choice`). JSON mode uses `response_format` with the same
 fallback. Google AI Studio is reached through Gemini's OpenAI-compatible
 endpoint, which documents chat completions and nothing else.
 
-**Messages** (`anthropic.py`). System messages become the `system` parameter,
+**Messages** (`anthropic.py`). The leading system messages become the `system`
+parameter and a later one travels as a user turn in place,
 assistant tool calls become `tool_use` blocks, `tool` turns become
 `tool_result` blocks addressed by `tool_use_id`, and tool schemas are
 flattened onto `input_schema`. Auth is `x-api-key`. There is no JSON mode on
@@ -182,12 +202,23 @@ Every model in the `mind` pool must support tool calls, whichever protocol it
 speaks — Bea speaks *only* through the `speak` tool.
 
 `models.reasoning` (`off`, `low`, `medium`, `high`, `auto`) is a latency
-setting, not a quality one: it translates per provider to the documented
-minimum — `reasoning.effort: minimal` on Responses, `reasoning_effort: none`
-on local runners (Ollama clamps `minimal` to `low`, so `none` is the only
-real off), nothing at all where no equivalent exists (Gemini's thinking scale
-has no shared floor, Anthropic thinking is opt-in and off by default). A
-model that rejects its hint is retried without it rather than failing.
+setting, not a quality one. "Off" means *as little as this endpoint allows*,
+and that is not the same request everywhere — writing one provider's spelling
+into another's body is how a working model turns into a 400:
+
+| Provider | `off` sends | Why |
+|---|---|---|
+| OpenRouter | `reasoning: {enabled: false}` | a switch that works on every family it routes to; `effort` is an OpenAI-family scale a DeepSeek or a Qwen ignores |
+| OpenAI | `reasoning: {effort: "minimal"}` | gpt-5 has a floor rather than an off |
+| Groq | `reasoning: {effort: "low"}` | gpt-oss takes low, medium and high and nothing below |
+| Ollama / local | `reasoning_effort: "none"` | it clamps `minimal` to `low`, so `none` is the only real off, and omitting the field auto-enables thinking |
+| Any OpenAI-compatible | `reasoning_effort: "minimal"` | the chat-shaped spelling of the same floor |
+| Google, Anthropic | nothing | no documented equivalent; both are fast by default |
+
+A model that rejects its hint is retried without it rather than failing — on
+the streamed call as well as the ordinary one. Without that the streamed retry
+was never attempted: the refused request was paid for, streaming was switched
+off for two minutes, and she lost speaking-early for the next forty turns.
 
 ---
 

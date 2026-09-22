@@ -76,7 +76,14 @@ reach her some other way, that is a design problem, not a shortcut.
 
 **One mind.** There is a single always-on loop reading one frame per batch
 from one sliding window. Written channels are read in the same frame and
-answered with `send_message` — there is never a second consciousness.
+answered with `send_message` — there is never a second consciousness. One
+conversation gets one answer per turn: what a person says while she is already
+answering them waits for the next batch rather than earning a second reply.
+
+**One set of facts about what she can do.** The toolbox is assembled from the
+live skills every time it is read, and a skill's prompt section may only name
+tools that skill is arming right now. A prompt that offers a door the schema
+does not have is a tool call she invents.
 
 **One sink.** Everything she does leaves through the expression layer. That is
 what makes it possible to answer "what did she actually do" by looking in one

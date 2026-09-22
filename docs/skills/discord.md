@@ -105,14 +105,21 @@ was worth reacting to.
 | `discord_send_dm(user_id, text)` | private message |
 | `discord_list_voice_channels()` | who is in which call right now |
 | `discord_join_voice(channel_id)` | go hang out |
-| `discord_leave_voice()` | leave |
+| `discord_leave_voice()` | leave — armed only while she is actually in a call |
 | `discord_summon(user_id, channel_id, text)` | DM someone an invite link — a bot cannot ring |
 
 Every one goes through `DiscordTransport`, which returns `{"ok": bool, ...}` so
 a failure becomes a clean observation Bea can react to rather than an exception.
 
 Text written with any of these is delivered by the **humanizer**: one line per
-message, with a typing indicator and a delay proportional to length.
+message, with a typing indicator and a delay proportional to length. The mind
+hands the answer over and carries on — the pauses are what make it read like
+somebody typing, and they are not the loop's to sit through.
+
+`discord_leave_voice` is in the schema only while `voice_channel` is set, and
+the prompt only offers it then. That is one set of facts, not two: the toolbox
+is assembled from the live skills on every read, so being dragged into a call
+by somebody else arms the door exactly as joining one herself does.
 
 ---
 
@@ -135,6 +142,13 @@ src/core/skills/voice/bot/
 **Express routes** (`api/server.js`): `GET /health`, `POST /send`,
 `POST /reply`, `POST /typing`, `POST /react`, `POST /dm`, `POST /summon`,
 `GET /voice/channels`, `POST /voice/join`, `POST /voice/leave`.
+
+**Who is in the call travels the other way.** `voiceStateUpdate` makes the bot
+push `{type: "joined", channel_id, listeners}` on the socket, so the brain is
+told rather than asking: `auto_leave_seconds` is checked every two seconds and
+`GET /voice/channels` is not called at all on that path. With the socket down
+the clock is held instead of run — walking out of a call full of people is
+worse than sitting in an empty one a little longer.
 
 **Voice in:** per-user Opus stream → `prism-media` decoder → 48 kHz stereo PCM →
 VAD gate + turn buffer → 16 kHz mono WAV → `POST /discord/audio` (or
