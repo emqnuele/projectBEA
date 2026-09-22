@@ -3,12 +3,13 @@
 import asyncio
 import json
 import time
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from src.core.brain import AIVtuberBrain
+from src.core.skills.base import Skill
 from src.core.update.version import current_version
 from src.web.deps import current_brain, get_brain
 from src.web.routers.memory import counts as memory_counts
@@ -21,16 +22,8 @@ STARTED_AT = time.time()
 
 def _engine_summary(brain: AIVtuberBrain) -> Dict[str, Any]:
     config = brain.config
-    model = {
-        "openrouter": config.openrouter_model,
-        "openai": config.openai_model,
-        "groq": config.groq_model,
-        "google": config.google_model,
-        "claude": config.claude_model,
-        "openai_compat": config.openai_compat_model,
-        "anthropic_compat": config.anthropic_compat_model,
-        "local": config.local_model,
-    }.get(config.llm_provider, "")
+    # every provider keeps its model in `<provider>_model`
+    model = str(getattr(config, f"{config.llm_provider}_model", "") or "")
     stt = getattr(brain, "stt", None)
     stt_state: Dict[str, Any] = (
         stt.status() if stt is not None and hasattr(stt, "status")
@@ -47,13 +40,12 @@ def _engine_summary(brain: AIVtuberBrain) -> Dict[str, Any]:
     }
 
 
+def _toggleable(brain: AIVtuberBrain) -> List[Skill]:
+    return brain.skill_registry.toggleable() if brain.skill_registry is not None else []
+
+
 def _status(brain: AIVtuberBrain) -> Dict[str, Any]:
-    active_skills = []
-    if brain.skill_registry is not None:
-        active_skills = [
-            skill.skill_name for skill in brain.skill_registry.toggleable()
-            if skill.active and skill.skill_name is not None
-        ]
+    active_skills = [skill.skill_name for skill in _toggleable(brain) if skill.active]
     return {
         "is_speaking": brain.is_speaking,
         "is_sleeping": brain.is_sleeping,
@@ -84,17 +76,14 @@ async def wake_bea(brain: AIVtuberBrain = Depends(get_brain)):
 
 @router.get("/skills")
 def list_skills(brain: AIVtuberBrain = Depends(get_brain)):
-    skills_data = {}
-    if brain.skill_registry is not None:
-        for skill in brain.skill_registry.toggleable():
-            key = skill.skill_name
-            if key is not None:
-                skills_data[key] = {
-                    "enabled": skill.enabled,
-                    "config": brain.config.skills.get(key, {}),
-                    "active": skill.active,
-                }
-    return skills_data
+    return {
+        skill.skill_name: {
+            "enabled": skill.enabled,
+            "config": brain.config.skills.get(skill.skill_name, {}),
+            "active": skill.active,
+        }
+        for skill in _toggleable(brain) if skill.skill_name
+    }
 
 
 @router.post("/skills/{name}/toggle")
@@ -157,16 +146,8 @@ async def stream_events(
 @router.get("/overview")
 def overview(brain: AIVtuberBrain = Depends(get_brain)):
     """One call for the home screen: status, plan, skills, memory and engine."""
-    skills = []
-    if brain.skill_registry is not None:
-        for skill in brain.skill_registry.toggleable():
-            if skill.skill_name is None:
-                continue
-            skills.append({
-                "name": skill.skill_name,
-                "enabled": skill.enabled,
-                "active": skill.active,
-            })
+    skills = [{"name": skill.skill_name, "enabled": skill.enabled, "active": skill.active}
+              for skill in _toggleable(brain)]
 
     history = brain.history_manager
     dream = brain.dream_skill

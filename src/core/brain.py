@@ -213,8 +213,8 @@ class AIVtuberBrain:
         """The operating manual, with a floor under it.
 
         The file is meant to be edited; it is not meant to be able to vanish.
-        Without the built-in copy a deleted file left her with no mood table, no
-        inner-monologue rule and no explanation of the digest.
+        Without the built-in copy a deleted file left her with no mood table and
+        no inner-monologue rule.
         """
         rules = load_text(self.config.operating_prompt_path)
         if not rules:

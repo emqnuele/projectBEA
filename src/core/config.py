@@ -1,4 +1,3 @@
-import copy
 import json
 import os
 from dataclasses import asdict, dataclass, field
@@ -13,14 +12,6 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.config")
 
 CONFIG_FILE = "config.json"
-
-# secrets nested inside the `skills` dict: (skill key, field). Top-level secrets
-# live in BrainConfig.SECRET_KEYS.
-SECRET_SKILL_FIELDS: List[Tuple[str, str]] = [
-    ("discord", "token"),
-    ("telegram", "token"),
-    ("twitch", "oauth_token"),
-]
 
 MASK = "********"
 
@@ -43,6 +34,13 @@ SECRET_ENV_VARS: Dict[str, str] = {
     "telegram.token": "TELEGRAM_TOKEN",
     "twitch.oauth_token": "TWITCH_OAUTH_TOKEN",
 }
+
+# derived, so a new secret is declared once: the ones nested inside the
+# `skills` dict as (skill key, field). Top-level ones are BrainConfig.SECRET_KEYS
+SECRET_SKILL_FIELDS: List[Tuple[str, str]] = [
+    (skill, field_name) for skill, _, field_name in
+    (key.partition(".") for key in SECRET_ENV_VARS if "." in key)
+]
 
 
 def deep_merge(base: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
@@ -140,8 +138,6 @@ class BrainConfig:
     tts_rate: str = "+10%"
     tts_volume: str = "+33%"
 
-
-
     # orpheus
     orpheus_key: Optional[str] = field(default_factory=lambda: os.getenv("ORPHEUS_API_KEY"))
     orpheus_endpoint: Optional[str] = field(default_factory=lambda: os.getenv("ORPHEUS_ENDPOINT", ""))
@@ -153,8 +149,6 @@ class BrainConfig:
     kokoro_voice: str = "af_bella"
     kokoro_speed: float = 1.0
     kokoro_lang: str = "en-us"
-
-
 
     # avatar: one slot per mood, derived so a new mood is never avatar-less.
     # Used by the `png` backend; the others have their own maps under `stage`.
@@ -376,10 +370,8 @@ class BrainConfig:
     def __post_init__(self):
         self.load_from_file()
 
-    # secret keys
-    SECRET_KEYS = ["openrouter_key", "openai_key", "groq_key", "google_key", "claude_key",
-                   "openai_compat_key", "anthropic_compat_key", "local_key",
-                   "orpheus_key", "orpheus_endpoint"]
+    # the top-level secrets, derived from the one map
+    SECRET_KEYS = [key for key in SECRET_ENV_VARS if "." not in key]
 
     def load_from_file(self):
         """Loads configuration from config.json if it exists."""
@@ -486,7 +478,7 @@ class BrainConfig:
         has open, so it must never carry a usable key. Masked (rather than
         removed) nested secrets so the UI can still show 'a token is set'.
         """
-        data = copy.deepcopy(asdict(self))
+        data = asdict(self)
 
         for secret in self.SECRET_KEYS:
             data.pop(secret, None)
