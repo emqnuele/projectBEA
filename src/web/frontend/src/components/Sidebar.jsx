@@ -1,121 +1,31 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-    Check, ChevronLeft, MessageSquarePlus, PanelLeft, Pencil, Settings, Trash2, X,
+    ChevronLeft, Menu, PanelLeft, Settings, X,
 } from 'lucide-react';
-import { api } from '../api';
+import { SURFACES } from '../lib/nav';
+import { useStore } from '../store';
 import { cn } from '../lib/cn';
-import { NAV } from '../lib/nav';
-import { AUTHOR, LINKS, pretty } from '../lib/links';
-import { relativeTime } from '../lib/format';
-import { DESKTOP, useMediaQuery } from '../hooks/useMediaQuery';
-import { useToast } from '../state/ToastProvider';
-import { useDialog } from '../state/DialogProvider';
-import { useBrain } from '../state/BrainProvider';
 import { Glass } from './glass/Glass';
 import { IconButton } from './ui/controls';
-import { Spinner } from './ui/feedback';
 
-const COLLAPSE_KEY = 'bea.sidebar.collapsed';
+export function Sidebar() {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const { sidebarCollapsed, toggleSidebar, activeSurface, setActiveSurface } = useStore();
+    const location = useLocation();
+    const collapsed = sidebarCollapsed;
 
-export function Sidebar({ mobileOpen, onCloseMobile }) {
-    const [collapsedPreference, setCollapsedPreference] = useState(
-        () => localStorage.getItem(COLLAPSE_KEY) === '1',
-    );
-    const [sessions, setSessions] = useState(null);
-    const [renaming, setRenaming] = useState(null);
-    const [draftTitle, setDraftTitle] = useState('');
-
-    const navigate = useNavigate();
-    const toast = useToast();
-    const dialog = useDialog();
-    const isDesktop = useMediaQuery(DESKTOP);
-    const { status, refreshOverview, name } = useBrain();
-    const activeSession = status?.session_id;
-
-    // the rail only narrows on desktop: on a phone this is a drawer that slides
-    // over the page, and a 74px drawer would be a worse version of the menu
-    const rail = collapsedPreference && isDesktop;
-
-    useEffect(() => {
-        localStorage.setItem(COLLAPSE_KEY, collapsedPreference ? '1' : '0');
-    }, [collapsedPreference]);
-
-    const loadSessions = useCallback(async () => {
-        try {
-            setSessions(await api.sessions());
-        } catch {
-            setSessions([]);
-        }
-    }, []);
-
-    useEffect(() => { loadSessions(); }, [loadSessions, activeSession]);
-
-    const startNewChat = async () => {
-        const ok = await dialog.confirm({
-            title: 'Start a new conversation?',
-            message: 'The current one is saved and closed. She keeps what she learned from it.',
-            confirmLabel: 'Start new',
-        });
-        if (!ok) return;
-        try {
-            await api.createSession();
-            await loadSessions();
-            await refreshOverview();
-            navigate('/dashboard/chat');
-            toast.success('New conversation started');
-        } catch (e) {
-            toast.error('Could not start a conversation', e.message);
-        }
-    };
-
-    const openSession = async (id) => {
-        try {
-            await api.activateSession(id);
-            await loadSessions();
-            navigate('/dashboard/chat');
-        } catch (e) {
-            toast.error('Could not open that conversation', e.message);
-        }
-    };
-
-    const saveTitle = async (id) => {
-        const title = draftTitle.trim();
-        setRenaming(null);
-        if (!title) return;
-        try {
-            await api.renameSession(id, title);
-            await loadSessions();
-        } catch (e) {
-            toast.error('Could not rename it', e.message);
-        }
-    };
-
-    const removeSession = async (session) => {
-        const ok = await dialog.confirm({
-            title: `Delete "${sessionLabel(session)}"?`,
-            message: 'The transcript is removed from disk. What she already remembers from it stays.',
-            confirmLabel: 'Delete',
-            danger: true,
-        });
-        if (!ok) return;
-        try {
-            await api.deleteSession(session.id);
-            await loadSessions();
-            toast.success('Conversation deleted');
-        } catch (e) {
-            toast.error('Could not delete it', e.message);
-        }
-    };
+    // Derive active surface from current path
+    const currentSurface = SURFACES.find((s) => location.pathname.startsWith(s.to))?.to || '/overview';
 
     return (
         <>
             <AnimatePresence>
-                {mobileOpen && (
+                {menuOpen && (
                     <motion.div
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={onCloseMobile}
+                        onClick={() => setMenuOpen(false)}
                         className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px] lg:hidden"
                     />
                 )}
@@ -123,198 +33,97 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
 
             <Glass
                 as="nav"
-                aria-label="Sections"
+                aria-label="Navigation"
                 className={cn(
                     'fixed inset-y-0 left-0 z-50 flex w-[264px] flex-col overflow-hidden rounded-none border-y-0 border-l-0 p-3',
                     'transition-transform duration-300 lg:static lg:z-auto lg:h-full lg:rounded-b4 lg:border',
                     'lg:translate-x-0 lg:transition-[width] lg:duration-300',
-                    rail ? 'lg:w-[76px]' : 'lg:w-[248px]',
-                    mobileOpen ? 'translate-x-0' : '-translate-x-full',
+                    collapsed ? 'lg:w-[72px]' : 'lg:w-[248px]',
+                    menuOpen ? 'translate-x-0' : '-translate-x-full',
                 )}
             >
-                <header
-                    className={cn(
-                        'mb-3 flex shrink-0 items-center pt-0.5',
-                        rail ? 'justify-center' : 'gap-2 px-1',
-                    )}
-                >
-                    <BrandMark rail={rail} />
-                    {!rail && (
+                {/* --- brand --- */}
+                <header className={cn('mb-4 flex shrink-0 items-center', collapsed ? 'justify-center' : 'gap-2.5 px-1')}>
+                    <BrandMark />
+                    {!collapsed && (
                         <IconButton
-                            label="Collapse the sidebar"
+                            label="Collapse sidebar"
                             size="sm"
-                            onClick={() => setCollapsedPreference(true)}
+                            onClick={toggleSidebar}
                             className="ml-auto max-lg:hidden"
                         >
                             <ChevronLeft size={14} />
                         </IconButton>
                     )}
-                    <IconButton label="Close the menu" size="sm" onClick={onCloseMobile} className="ml-auto lg:hidden">
+                    <IconButton label="Close menu" size="sm" onClick={() => setMenuOpen(false)} className="ml-auto lg:hidden">
                         <X size={15} />
                     </IconButton>
                 </header>
 
+                {/* --- surfaces --- */}
                 <ul className="shrink-0 space-y-0.5">
-                    {NAV.map((item) => (
-                        <li key={item.to}>
-                            <NavLink
-                                to={item.to}
-                                end={item.end}
-                                onClick={onCloseMobile}
-                                title={rail ? item.label : undefined}
-                                className={({ isActive }) => cn(
-                                    'group relative flex items-center rounded-b2 py-2 text-[13px] font-medium transition-colors',
-                                    rail ? 'justify-center px-0' : 'gap-3 px-2.5',
-                                    isActive ? 'text-text' : 'text-dim hover:bg-fill-2 hover:text-text',
-                                )}
-                            >
-                                {({ isActive }) => (
-                                    <>
-                                        {isActive && (
-                                            <motion.span
-                                                layoutId="nav-active"
-                                                transition={{ type: 'spring', stiffness: 520, damping: 40 }}
-                                                className="absolute inset-0 rounded-b2 border border-line bg-fill-3"
-                                            />
-                                        )}
-                                        <span className="relative shrink-0"><item.icon size={17} /></span>
-                                        {!rail && <span className="relative truncate">{item.label}</span>}
-                                        {isActive && !rail && (
-                                            <span
-                                                className="relative ml-auto h-1.5 w-1.5 rounded-full"
-                                                style={{ background: 'var(--vital)' }}
-                                            />
-                                        )}
-                                    </>
-                                )}
-                            </NavLink>
-                        </li>
-                    ))}
+                    {SURFACES.map((surface) => {
+                        const isActive = currentSurface === surface.to;
+                        return (
+                            <li key={surface.to}>
+                                <NavLink
+                                    to={surface.to}
+                                    end={surface.end}
+                                    onClick={() => setMenuOpen(false)}
+                                    title={collapsed ? surface.label : undefined}
+                                    className={cn(
+                                        'group relative flex items-center rounded-b2 py-2 text-[13px] font-medium transition-colors',
+                                        collapsed ? 'justify-center px-0' : 'gap-3 px-2.5',
+                                        isActive ? 'text-text' : 'text-dim hover:bg-fill-2 hover:text-text',
+                                    )}
+                                >
+                                    {isActive && (
+                                        <motion.span
+                                            layoutId="nav-active"
+                                            transition={{ type: 'spring', stiffness: 520, damping: 40 }}
+                                            className="absolute inset-0 rounded-b2 border border-line bg-fill-3"
+                                        />
+                                    )}
+                                    <span className="relative shrink-0"><surface.icon size={17} /></span>
+                                    {!collapsed && <span className="relative truncate">{surface.label}</span>}
+                                    {!collapsed && (
+                                        <span className="relative ml-auto font-mono text-[10px] text-faint">
+                                            {surface.shortcut || ''}
+                                        </span>
+                                    )}
+                                </NavLink>
+                            </li>
+                        );
+                    })}
                 </ul>
 
-                <div className="mt-4 flex min-h-0 flex-1 flex-col">
-                    <div className={cn('mb-2 flex shrink-0 items-center', rail ? 'justify-center' : 'gap-2 px-2.5')}>
-                        {!rail && (
-                            <span className="text-[10px] font-semibold uppercase tracking-widest text-faint">
-                                Conversations
-                            </span>
-                        )}
-                        <IconButton
-                            label="New conversation"
-                            size="sm"
-                            onClick={startNewChat}
-                            className={cn(!rail && 'ml-auto')}
-                        >
-                            <MessageSquarePlus size={15} />
-                        </IconButton>
-                    </div>
+                <div className="mt-auto" />
 
-                    {!rail && (
-                        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-2 pr-0.5">
-                            {sessions === null && (
-                                <div className="flex justify-center py-4"><Spinner /></div>
-                            )}
-                            {sessions?.length === 0 && (
-                                <p className="px-2.5 py-2 text-[11px] leading-snug text-faint">
-                                    Nothing yet. Say something to her and it lands here.
-                                </p>
-                            )}
-                            {sessions?.map((session) => {
-                                const isActive = session.id === activeSession;
-                                if (renaming === session.id) {
-                                    return (
-                                        <div key={session.id} className="flex items-center gap-1 px-1 py-1">
-                                            <input
-                                                autoFocus
-                                                value={draftTitle}
-                                                onChange={(e) => setDraftTitle(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') saveTitle(session.id);
-                                                    if (e.key === 'Escape') setRenaming(null);
-                                                }}
-                                                aria-label="Conversation name"
-                                                className="min-w-0 flex-1 rounded-b1 border border-line-strong bg-fill-2 px-2 py-1 text-xs text-text outline-none"
-                                            />
-                                            <IconButton label="Save the name" size="sm" onClick={() => saveTitle(session.id)}>
-                                                <Check size={13} />
-                                            </IconButton>
-                                        </div>
-                                    );
-                                }
-                                return (
-                                    <div
-                                        key={session.id}
-                                        className={cn(
-                                            'group flex items-center gap-1 rounded-b2 px-1 transition-colors',
-                                            isActive
-                                                ? 'border border-line bg-fill-3'
-                                                : 'border border-transparent hover:bg-fill',
-                                        )}
-                                    >
-                                        <button
-                                            onClick={() => openSession(session.id)}
-                                            title={`Open “${sessionLabel(session)}”`}
-                                            className="min-w-0 flex-1 px-1.5 py-1.5 text-left"
-                                        >
-                                            <span className={cn('block truncate text-xs font-medium', isActive ? 'text-text' : 'text-dim')}>
-                                                {sessionLabel(session)}
-                                            </span>
-                                            <span className="block truncate text-[10px] text-faint">
-                                                {relativeTime(session.timestamp)} · {session.message_count} messages
-                                            </span>
-                                        </button>
-                                        <span className="flex shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                                            <IconButton
-                                                label="Rename"
-                                                size="sm"
-                                                onClick={() => { setRenaming(session.id); setDraftTitle(sessionLabel(session)); }}
-                                            >
-                                                <Pencil size={12} />
-                                            </IconButton>
-                                            {!isActive && (
-                                                <IconButton label="Delete" size="sm" onClick={() => removeSession(session)}>
-                                                    <Trash2 size={12} />
-                                                </IconButton>
-                                            )}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-
+                {/* --- bottom --- */}
                 <div className="mt-2 shrink-0 border-t border-line pt-2">
-                    {rail && (
+                    {collapsed && (
                         <div className="mb-1 flex justify-center">
-                            <IconButton
-                                label="Expand the sidebar"
-                                onClick={() => setCollapsedPreference(false)}
-                            >
+                            <IconButton label="Expand sidebar" onClick={toggleSidebar}>
                                 <PanelLeft size={17} />
                             </IconButton>
                         </div>
                     )}
                     <NavLink
-                        to="/dashboard/settings"
-                        onClick={onCloseMobile}
-                        title={rail ? 'Settings' : undefined}
-                        className={({ isActive }) => cn(
+                        to="/system"
+                        title={collapsed ? 'System' : undefined}
+                        className={cn(
                             'flex items-center rounded-b2 py-2 text-[13px] font-medium transition-colors',
-                            rail ? 'justify-center px-0' : 'gap-3 px-2.5',
-                            isActive ? 'bg-fill-3 text-text' : 'text-dim hover:bg-fill-2 hover:text-text',
+                            collapsed ? 'justify-center px-0' : 'gap-3 px-2.5',
+                            location.pathname.startsWith('/system') ? 'bg-fill-3 text-text' : 'text-dim hover:bg-fill-2 hover:text-text',
                         )}
                     >
                         <Settings size={17} className="shrink-0" />
-                        {!rail && <span>Settings</span>}
+                        {!collapsed && <span>System</span>}
                     </NavLink>
-                    {!rail && (
-                        <>
-                            <p className="truncate px-2.5 pt-2 font-mono text-[10px] tracking-wider text-faint">
-                                {name} Control Room{status?.version ? ` · v${status.version}` : ''}
-                            </p>
-                            <ProjectLinks />
-                        </>
+                    {!collapsed && (
+                        <p className="truncate px-2.5 pt-2 font-mono text-[10px] tracking-wider text-faint">
+                            SHURA // Command Center
+                        </p>
                     )}
                 </div>
             </Glass>
@@ -322,56 +131,21 @@ export function Sidebar({ mobileOpen, onCloseMobile }) {
     );
 }
 
-/**
- * Whose project this is, and where the rest of it is written down.
- *
- * At the bottom of the rail, under the version, because it is the one thing
- * here that is not about running her — and because the docs are the answer to
- * most of the questions this screen raises.
- */
-function ProjectLinks() {
-    const links = [
-        { href: LINKS.docs, label: 'Docs' },
-        { href: LINKS.site, label: pretty(LINKS.site) },
-        { href: LINKS.author, label: `by ${AUTHOR}` },
-    ];
+function BrandMark() {
+    const collapsed = useStore((s) => s.sidebarCollapsed);
     return (
-        <p className="flex flex-wrap items-center gap-x-1.5 px-2.5 pt-1 text-[10px] text-faint">
-            {links.map((link, index) => (
-                <React.Fragment key={link.href}>
-                    {index > 0 && <span aria-hidden="true">·</span>}
-                    <a
-                        href={link.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="transition-colors hover:text-dim"
-                    >
-                        {link.label}
-                    </a>
-                </React.Fragment>
-            ))}
-        </p>
-    );
-}
-
-function sessionLabel(session) {
-    return session.title?.trim() || session.preview?.replace(/\.\.\.$/, '') || 'Untitled';
-}
-
-function BrandMark({ rail }) {
-    return (
-        <div className={cn('flex min-w-0 items-center', rail ? 'justify-center' : 'gap-2.5')}>
-            <img
-                src="/bea.ico"
-                alt=""
-                width={32}
-                height={32}
-                className="h-8 w-8 shrink-0 rounded-b2 border border-line object-cover"
-            />
-            {!rail && (
+        <div className={cn('flex min-w-0 items-center', collapsed ? 'justify-center' : 'gap-2.5')}>
+            <div className="relative grid h-8 w-8 shrink-0 place-items-center rounded-b2 bg-accent/10 text-accent">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                    <path d="M2 17l10 5 10-5" />
+                    <path d="M2 12l10 5 10-5" />
+                </svg>
+            </div>
+            {!collapsed && (
                 <span className="min-w-0">
-                    <span className="block truncate font-display text-[13px] font-bold leading-none text-text">{name}</span>
-                    <span className="mt-1 block truncate text-[10px] uppercase tracking-widest text-faint">Control room</span>
+                    <span className="block truncate font-display text-[13px] font-bold leading-none text-text">SHURA</span>
+                    <span className="mt-1 block truncate text-[10px] uppercase tracking-widest text-faint">Command Center</span>
                 </span>
             )}
         </div>

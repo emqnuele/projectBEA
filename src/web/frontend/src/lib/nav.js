@@ -1,33 +1,42 @@
 import {
-    Activity, Blocks, BrainCircuit, Gauge, ListChecks, MessageSquare, Users, Wrench,
+    Activity, Blocks, Brain, Bug, FolderArchive, Gauge, ListChecks,
+    MessageSquare, Network, Users, Wrench,
 } from 'lucide-react';
 
-export const NAV = [
-    { to: '/dashboard', end: true, label: 'Overview', icon: Gauge, hint: 'Everything at a glance' },
-    { to: '/dashboard/chat', label: 'Talk', icon: MessageSquare, hint: 'Your own conversation with her' },
-    { to: '/dashboard/plan', label: 'Today', icon: ListChecks, hint: "The stream's objectives" },
-    { to: '/dashboard/activity', label: 'Activity', icon: Activity, hint: 'What she is perceiving and doing' },
-    { to: '/dashboard/memory', label: 'Memory', icon: Users, hint: 'Who she knows and what she remembers' },
-    { to: '/dashboard/skills', label: 'Abilities', icon: Blocks, hint: 'What she is able to do' },
-    { to: '/dashboard/maintenance', label: 'Maintenance', icon: Wrench, hint: 'Updates, and whether anything is broken' },
+export const SURFACES = [
+    { to: '/overview', end: true, label: 'Overview', icon: Gauge, hint: 'Everything at a glance' },
+    { to: '/workspace', label: 'Workspace', icon: MessageSquare, hint: 'Active project and collaboration' },
+    { to: '/memory', label: 'Memory', icon: Users, hint: 'What she remembers and who she knows' },
+    { to: '/dream-studio', label: 'Dream Studio', icon: Brain, hint: 'Observe Dream lifecycle and state' },
+    { to: '/agents', label: 'Agents', icon: ListChecks, hint: 'Active tasks and agent visibility' },
+    { to: '/skills', label: 'Skills', icon: Blocks, hint: 'Skill registry and toggles' },
+    { to: '/mcp', label: 'MCP / Tools', icon: Network, hint: 'Configured servers and tool inventory' },
+    { to: '/artifacts', label: 'Artifacts', icon: FolderArchive, hint: 'Workspace files and artifacts' },
+    { to: '/activity', label: 'Activity', icon: Activity, hint: 'Live event feed and audit trail' },
+    { to: '/system', label: 'System', icon: Wrench, hint: 'Health, config, diagnostics' },
 ];
 
 export const SETTINGS_SECTIONS = [
-    { id: 'personality', label: 'Personality', hint: 'Her name, her pronouns, who she is' },
     { id: 'mind', label: 'Mind', hint: 'Language and the files behind her' },
-    { id: 'engine', label: 'Provider', hint: 'Keys and the default model' },
-    { id: 'models', label: 'Models', hint: 'Which models think for her, and how fast' },
-    { id: 'attention', label: 'Attention', hint: 'What wakes her and what she lets pass' },
-    { id: 'rhythm', label: 'Initiative', hint: 'When she starts something herself' },
-    { id: 'discord', label: 'Discord', hint: 'Voice, DMs and who she listens to' },
-    { id: 'telegram', label: 'Telegram', hint: 'Groups, DMs, photos and voice notes' },
-    { id: 'twitch', label: 'Twitch', hint: 'Chat, raids and subs' },
+    { id: 'provider', label: 'Provider', hint: 'API keys and the default model' },
     { id: 'voice', label: 'Voice', hint: 'How she sounds and where the audio goes' },
-    { id: 'hearing', label: 'Hearing', hint: 'How speech becomes text' },
-    { id: 'stream', label: 'Stream', hint: 'OBS, the avatar and the text bubble' },
-    { id: 'world', label: 'Minecraft', hint: 'Her body on the server' },
-    { id: 'donations', label: 'Donations', hint: 'The webhook that tells her about money' },
-    { id: 'appearance', label: 'Appearance', hint: 'Theme, glass and motion' },
+    { id: 'appearance', label: 'Appearance', hint: 'Theme, glass, motion' },
+    { id: 'atlas', label: 'ATLAS', hint: 'Operational layer configuration' },
 ];
 
-export const BRAND_ICON = BrainCircuit;
+export const BRAND_ICON = Brain;
+
+export const SHORTCUTS = {
+    togglePalette: { key: 'k', ctrl: true, label: '⌘K' },
+    toggleSidebar: { key: 'b', ctrl: true, label: '⌘B' },
+    navOverview: { key: '1', ctrl: true, label: '⌘1' },
+    navWorkspace: { key: '2', ctrl: true, label: '⌘2' },
+    navMemory: { key: '3', ctrl: true, label: '⌘3' },
+    navDreamStudio: { key: '4', ctrl: true, label: '⌘4' },
+    navAgents: { key: '5', ctrl: true, label: '⌘5' },
+    navSkills: { key: '6', ctrl: true, label: '⌘6' },
+    navMcp: { key: '7', ctrl: true, label: '⌘7' },
+    navArtifacts: { key: '8', ctrl: true, label: '⌘8' },
+    navActivity: { key: '9', ctrl: true, label: '⌘9' },
+    navSystem: { key: '0', ctrl: true, label: '⌘0' },
+};

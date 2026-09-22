@@ -111,6 +111,40 @@ export const api = {
     dreamWake: () => request('/dream/wake', { method: 'POST' }),
     saveMemory: () => request('/memory/save', { method: 'POST' }),
 
+    // ATLAS: the project / work-item layer
+    atlasSnapshot: () => request('/atlas/snapshot'),
+    atlasListProjects: () => request('/atlas/projects'),
+    atlasCreateProject: (name, description = '') =>
+        request('/atlas/projects', { method: 'POST', body: { name, description } }),
+    atlasListWorkItems: (projectId) =>
+        request(`/atlas/projects/${encodeURIComponent(projectId)}/work-items`),
+    atlasCreateWorkItem: (projectId, title, { description = '', status = 'todo', priority = 'normal' } = {}) =>
+        request(`/atlas/projects/${encodeURIComponent(projectId)}/work-items`, {
+            method: 'POST',
+            body: { title, description, status, priority },
+        }),
+    atlasListMilestones: (projectId) =>
+        request(`/atlas/projects/${encodeURIComponent(projectId)}/milestones`),
+    atlasCreateMilestone: (projectId, name, { description = '', dueAt = null } = {}) =>
+        request(`/atlas/projects/${encodeURIComponent(projectId)}/milestones`, {
+            method: 'POST',
+            body: { name, description, dueAt },
+        }),
+    atlasListDecisions: (projectId) =>
+        request(`/atlas/projects/${encodeURIComponent(projectId)}/decisions`),
+    atlasCreateDecision: (projectId, title, { description = '', rationale = '' } = {}) =>
+        request(`/atlas/projects/${encodeURIComponent(projectId)}/decisions`, {
+            method: 'POST',
+            body: { title, description, rationale },
+        }),
+    atlasListArtifacts: (projectId) =>
+        request(`/atlas/projects/${encodeURIComponent(projectId)}/artifacts`),
+    atlasCreateArtifact: (projectId, name, content, { type = 'note' } = {}) =>
+        request(`/atlas/projects/${encodeURIComponent(projectId)}/artifacts`, {
+            method: 'POST',
+            body: { name, content, type },
+        }),
+
     people: () => request('/memory/people'),
     roster: (limit = 60) => request(`/memory/roster?limit=${limit}`),
     selfLore: () => request('/memory/self'),

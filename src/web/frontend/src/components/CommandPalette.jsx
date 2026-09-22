@@ -3,10 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { CornerDownLeft, Moon, Search, Square, Sun } from 'lucide-react';
 import { api } from '../api';
 import { cn } from '../lib/cn';
-import { NAV, SETTINGS_SECTIONS } from '../lib/nav';
-import { useBrain } from '../state/BrainProvider';
-import { useAppearance } from '../state/AppearanceProvider';
-import { useToast } from '../state/ToastProvider';
+import { SURFACES } from '../lib/nav';
+import { useStore } from '../store';
 import { Modal } from './ui/Modal';
 
 export function CommandPalette({ open, onClose }) {
@@ -15,13 +13,11 @@ export function CommandPalette({ open, onClose }) {
     const listRef = useRef(null);
 
     const navigate = useNavigate();
-    const toast = useToast();
-    const { isSleeping, isSpeaking, interrupt, toggleSleep, refreshOverview } = useBrain();
-    const { toggleTheme, settings } = useAppearance();
+    const { status, theme, toggleTheme } = useStore();
 
     const commands = useMemo(() => {
         const go = (to) => () => navigate(to);
-        const items = NAV.map((item) => ({
+        const items = SURFACES.map((item) => ({
             id: item.to,
             label: item.label,
             hint: item.hint,
@@ -30,78 +26,32 @@ export function CommandPalette({ open, onClose }) {
             run: go(item.to),
         }));
 
-        for (const section of SETTINGS_SECTIONS) {
-            items.push({
-                id: `settings-${section.id}`,
-                label: `Settings · ${section.label}`,
-                hint: section.hint,
-                group: 'Go to',
-                run: go(`/dashboard/settings/${section.id}`),
-            });
-        }
-
         items.push(
             {
-                id: 'new-chat',
-                label: 'Start a new conversation',
-                hint: 'Closes the current one and keeps what she learned',
-                group: 'Do',
-                run: async () => {
-                    await api.createSession();
-                    await refreshOverview();
-                    navigate('/dashboard/chat');
-                    toast.success('New conversation started');
-                },
-            },
-            {
                 id: 'sleep',
-                label: isSleeping ? 'Wake her up' : 'Put her to sleep',
-                hint: isSleeping ? 'Back to the live loop' : 'Runs a dream pass over what she remembers',
+                label: 'Run a dream pass',
+                hint: 'Consolidates memory overnight',
                 group: 'Do',
-                icon: isSleeping ? Sun : Moon,
-                run: toggleSleep,
+                icon: Moon,
+                run: async () => { await api.dreamRun(); },
             },
             {
                 id: 'theme',
-                label: settings.theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme',
+                label: theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
                 group: 'Do',
-                icon: settings.theme === 'dark' ? Sun : Moon,
+                icon: theme === 'dark' ? Sun : Moon,
                 run: toggleTheme,
-            },
-            {
-                id: 'save-memory',
-                label: 'Save this conversation to memory now',
-                hint: 'Does not wait for the next dream pass',
-                group: 'Do',
-                run: async () => {
-                    const result = await api.saveMemory();
-                    if (result.status === 'success') toast.success('Saved to long-term memory');
-                    else toast.error('Nothing was saved', result.message);
-                },
             },
         );
 
-        if (isSpeaking) {
-            items.unshift({
-                id: 'interrupt',
-                label: 'Stop her talking',
-                hint: 'Cuts the audio and the typing immediately',
-                group: 'Do',
-                icon: Square,
-                run: interrupt,
-            });
-        }
-
         return items;
-    }, [navigate, isSleeping, isSpeaking, interrupt, toggleSleep, toggleTheme, settings.theme, toast, refreshOverview]);
+    }, [navigate, toggleTheme, theme]);
 
     const results = useMemo(() => {
         const needle = query.trim().toLowerCase();
         const matched = needle
-            ? commands.filter((c) =>
-                c.label.toLowerCase().includes(needle) || c.hint?.toLowerCase().includes(needle))
+            ? commands.filter((c) => c.label.toLowerCase().includes(needle) || c.hint?.toLowerCase().includes(needle))
             : commands;
-        // the group heading belongs to the data, not to a variable mutated while rendering
         return matched.map((command, index, all) => ({
             ...command,
             startsGroup: index === 0 || all[index - 1].group !== command.group,
@@ -117,9 +67,7 @@ export function CommandPalette({ open, onClose }) {
         onClose();
         try {
             await command.run();
-        } catch (e) {
-            toast.error('That command failed', e.message);
-        }
+        } catch (e) {}
     };
 
     const onKeyDown = (event) => {
@@ -161,7 +109,7 @@ export function CommandPalette({ open, onClose }) {
                 <div ref={listRef} className="max-h-[52vh] overflow-y-auto p-2">
                     {results.length === 0 && (
                         <p className="px-3 py-6 text-center text-[13px] text-faint">
-                            Nothing matches “{query}”.
+                            Nothing matches "{query}".
                         </p>
                     )}
                     {results.map((command, index) => {

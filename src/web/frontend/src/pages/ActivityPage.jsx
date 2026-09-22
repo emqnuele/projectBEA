@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Brain, Download, Pause, Play, Search, Terminal, X } from 'lucide-react';
 import { cn, fluxOf } from '../lib/cn';
 import { clockTime, compact } from '../lib/format';
-import { useBrain } from '../state/BrainProvider';
+import { useStore } from '../store';
 import { useToast } from '../state/ToastProvider';
 import { AttentionFlux } from '../components/AttentionFlux';
 import { Glass } from '../components/glass/Glass';
@@ -21,30 +21,50 @@ const FILTERS = [
     { id: 'attention', label: 'Attention', color: 'var(--flux-mute)', match: (e) => e.source === 'attention' },
 ];
 
-const DEFAULT_OFF = ['attention'];
+const SEVERITY_FILTERS = [
+    { id: 'all', label: 'All' },
+    { id: 'critical', label: 'Critical', match: (e) => e.category === 'error' || (e.metadata?.severity === 'critical') },
+    { id: 'warning', label: 'Warning', match: (e) => e.metadata?.severity === 'warning' },
+    { id: 'normal', label: 'Normal', match: (e) => e.category !== 'error' && e.metadata?.severity !== 'critical' && e.metadata?.severity !== 'warning' },
+];
 
+const SOURCE_FILTER_SOURCES = ['system', 'skill', 'user', 'brain', 'atlas'];
+
+/**
+ * Live event feed: everything that has reached the brain, in order.
+ *
+ * Events come through the global store via the SSE hook that App wires up.
+ * This page is a view over that shared state — it does not open its own
+ * connection, so closing it does not lose the stream.
+ */
 export default function ActivityPage() {
-    const { events, streaming } = useBrain();
+    const events = useStore((s) => s.events);
+    const streaming = useStore((s) => s.streaming);
     const toast = useToast();
 
-    const [off, setOff] = useState(DEFAULT_OFF);
+    const [off, setOff] = useState(['attention']);
     const [query, setQuery] = useState('');
     const [paused, setPaused] = useState(false);
     const [frozen, setFrozen] = useState(null);
+    const [severity, setSeverity] = useState('all');
+    const [source, setSource] = useState('all');
 
     const live = useMemo(() => {
         const active = FILTERS.filter((f) => !off.includes(f.id));
         const needle = query.trim().toLowerCase();
+        const severityMatch = SEVERITY_FILTERS.find((s) => s.id === severity)?.match;
         return events.filter((event) => {
             if (!active.some((f) => f.match(event))) return false;
+            if (severityMatch && !severityMatch(event)) return false;
+            if (source !== 'all' && event.source !== source) return false;
             if (!needle) return true;
             return event.message?.toLowerCase().includes(needle)
                 || event.source?.toLowerCase().includes(needle);
         });
-    }, [events, off, query]);
+    }, [events, off, query, severity, source]);
 
-    // freezing takes a copy once, instead of writing to a ref on every render
-    useEffect(() => { setFrozen(paused ? live : null); }, [paused]); // eslint-disable-line react-hooks/exhaustive-deps
+    // take a snapshot once, so the UI keeps showing the same rows while paused
+    React.useEffect(() => { setFrozen(paused ? live : null); }, [paused]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const shown = paused && frozen ? frozen : live;
 
@@ -61,33 +81,29 @@ export default function ActivityPage() {
     };
 
     return (
-        <div className="flex h-full flex-col gap-2.5">
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex h-full flex-col gap-2.5"
+        >
             <div className="grid shrink-0 gap-2.5 lg:grid-cols-[1fr_auto]">
                 <Glass quiet className="rounded-b3 p-4">
                     <div className="mb-3 flex items-center gap-2.5">
                         <Brain size={14} className="text-faint" />
                         <h2 className="font-display text-[13px] font-semibold text-text">Attention gate</h2>
-                        <p className="truncate text-[11px] text-faint">
-                            Every perception, and the verdict she gave it
-                        </p>
+                        <p className="truncate text-[11px] text-faint">Every perception, and the verdict she gave it</p>
                     </div>
                     <AttentionFlux count={96} size="lg" />
                 </Glass>
-
                 <Glass quiet className="grid grid-cols-3 gap-3 rounded-b3 p-4 lg:w-64 lg:grid-cols-1">
                     <Vital label="Events" value={<CountUp value={events.length} />} />
-                    <Vital
-                        label="Errors"
-                        value={<CountUp value={errors} />}
-                        color={errors ? 'var(--flux-err)' : undefined}
-                    />
-                    <Vital
-                        label="Session"
-                        value={cost ? `${compact(cost.metadata.session_tokens)} tok` : '—'}
-                    />
+                    <Vital label="Errors" value={<CountUp value={errors} />} color={errors ? 'var(--flux-err)' : undefined} />
+                    <Vital label="Session" value={cost ? `${compact(cost.metadata?.session_tokens ?? 0)} tok` : '—'} />
                 </Glass>
             </div>
 
+            {/* --- filter bar --- */}
             <Glass quiet className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-b3">
                 <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
                     <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-faint">
@@ -123,6 +139,15 @@ export default function ActivityPage() {
                     </div>
 
                     <div className="ml-auto flex items-center gap-1.5">
+                        {/* severity + source dropdowns */}
+                        <select value={severity} onChange={(e) => setSeverity(e.target.value)} className="rounded-b1 border border-line bg-fill px-2 py-1 text-[10px] text-text outline-none">
+                            {SEVERITY_FILTERS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                        </select>
+                        <select value={source} onChange={(e) => setSource(e.target.value)} className="rounded-b1 border border-line bg-fill px-2 py-1 text-[10px] text-text outline-none">
+                            <option value="all">All sources</option>
+                            {SOURCE_FILTER_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+
                         <label className="relative">
                             <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-faint" />
                             <input
@@ -130,26 +155,15 @@ export default function ActivityPage() {
                                 onChange={(e) => setQuery(e.target.value)}
                                 placeholder="Filter"
                                 aria-label="Filter the log"
-                                className="w-28 rounded-b1 border border-line bg-fill py-1 pl-7 pr-6 text-[11px]
-                                           text-text outline-none transition-all placeholder:text-faint
-                                           focus:w-44"
+                                className="w-28 rounded-b1 border border-line bg-fill py-1 pl-7 pr-6 text-[11px] text-text outline-none transition-all placeholder:text-faint focus:w-44"
                             />
                             {query && (
-                                <button
-                                    onClick={() => setQuery('')}
-                                    aria-label="Clear filter"
-                                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-faint hover:text-text"
-                                >
+                                <button onClick={() => setQuery('')} aria-label="Clear filter" className="absolute right-1.5 top-1/2 -translate-y-1/2 text-faint hover:text-text">
                                     <X size={11} />
                                 </button>
                             )}
                         </label>
-                        <IconButton
-                            label={paused ? 'Resume the feed' : 'Freeze the feed'}
-                            size="sm"
-                            onClick={() => setPaused((p) => !p)}
-                            variant={paused ? 'vital' : 'ghost'}
-                        >
+                        <IconButton label={paused ? 'Resume the feed' : 'Freeze the feed'} size="sm" onClick={() => setPaused((p) => !p)} variant={paused ? 'vital' : 'ghost'}>
                             {paused ? <Play size={12} /> : <Pause size={12} />}
                         </IconButton>
                         <IconButton label="Copy this log" size="sm" onClick={exportLog}>
@@ -169,7 +183,7 @@ export default function ActivityPage() {
                                 : 'Turn a filter back on, or clear the search, to see them.'}
                             {events.length > 0 && (
                                 <span className="mt-4 block">
-                                    <Button size="sm" variant="outline" onClick={() => { setQuery(''); setOff([]); }}>
+                                    <Button size="sm" variant="outline" onClick={() => { setQuery(''); setOff([]); setSeverity('all'); setSource('all'); }}>
                                         Show everything
                                     </Button>
                                 </span>
@@ -187,7 +201,37 @@ export default function ActivityPage() {
                     {paused && <span style={{ color: 'var(--vital)' }}>frozen — new events are still arriving</span>}
                 </div>
             </Glass>
-        </div>
+
+            {/* --- terminal-style raw viewer --- */}
+            <Glass quiet className="flex h-44 flex-col overflow-hidden rounded-b3">
+                <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+                    <Terminal size={12} className="text-faint" />
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-faint">raw event stream</span>
+                    <span className="ml-auto font-mono text-[9px] text-faint">{shown.length} events</span>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto bg-sunk p-2">
+                    {shown.length === 0 ? (
+                        <p className="py-4 text-center font-mono text-[11px] text-faint">no events to display</p>
+                    ) : (
+                        <pre className="font-mono text-[10.5px] leading-relaxed text-dim">
+                            {[...shown].reverse().map((e) => {
+                                const flux = fluxOf(e);
+                                const ts = clockTime(e.timestamp);
+                                const meta = e.metadata ? ` ${JSON.stringify(e.metadata)}` : '';
+                                return (
+                                    <div key={e.id} className="flex gap-2 hover:bg-fill">
+                                        <span className="shrink-0 text-faint">{ts}</span>
+                                        <span className="w-12 shrink-0 font-bold" style={{ color: flux.color }}>{flux.label}</span>
+                                        <span className="w-20 shrink-0 truncate text-faint">{e.source}</span>
+                                        <span className="min-w-0 flex-1 break-words text-dim">{e.message}{meta}</span>
+                                    </div>
+                                );
+                            })}
+                        </pre>
+                    )}
+                </div>
+            </Glass>
+        </motion.div>
     );
 }
 
@@ -210,21 +254,16 @@ function EventRow({ event }) {
                     !metadata.length && 'cursor-default',
                 )}
             >
-                <span className="tnum shrink-0 pt-px font-mono text-[10px] text-faint">
-                    {clockTime(event.timestamp)}
-                </span>
+                <span className="tnum shrink-0 pt-px font-mono text-[10px] text-faint">{clockTime(event.timestamp)}</span>
                 <span
                     className="w-12 shrink-0 rounded px-1.5 py-0.5 text-center font-mono text-[9px] font-bold"
                     style={{ color: flux.color, background: `color-mix(in srgb, ${flux.color} 13%, transparent)` }}
                 >
                     {flux.label}
                 </span>
-                <span className="min-w-0 flex-1 break-words font-mono text-[11.5px] leading-relaxed text-dim">
-                    {event.message}
-                </span>
-                {metadata.length > 0 && (
-                    <span className="shrink-0 font-mono text-[9px] text-faint">{metadata.length} fields</span>
-                )}
+                <span className="w-20 shrink-0 truncate font-mono text-[10px] text-faint">{event.source}</span>
+                <span className="min-w-0 flex-1 break-words font-mono text-[11.5px] leading-relaxed text-dim">{event.message}</span>
+                {metadata.length > 0 && <span className="shrink-0 font-mono text-[9px] text-faint">{metadata.length} fields</span>}
             </button>
 
             <AnimatePresence>
@@ -233,7 +272,7 @@ function EventRow({ event }) {
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden bg-sunk px-3 pb-2.5 pl-[7.5rem]"
+                        className="overflow-hidden bg-sunk px-3 pb-2.5 pl-[10rem]"
                     >
                         {metadata.map(([key, value]) => (
                             <div key={key} className="flex gap-3 border-b border-line py-1 last:border-0">
@@ -254,9 +293,7 @@ function Vital({ label, value, color }) {
     return (
         <div>
             <p className="font-mono text-[9px] uppercase tracking-wider text-faint">{label}</p>
-            <p className="font-display text-lg font-bold leading-tight" style={{ color: color || 'var(--text)' }}>
-                {value}
-            </p>
+            <p className="font-display text-lg font-bold leading-tight" style={{ color: color || 'var(--text)' }}>{value}</p>
         </div>
     );
 }

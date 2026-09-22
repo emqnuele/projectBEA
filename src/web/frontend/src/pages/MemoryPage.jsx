@@ -1,27 +1,31 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Flame, Heart, Save, Search, Sparkles, Thermometer, User, Users } from 'lucide-react';
+import { Flame, Heart, RefreshCw, Save, Search, Sparkles, Thermometer, User, Users } from 'lucide-react';
 import { api } from '../api';
+import { cn } from '../lib/cn';
 import { compact, dayAndTime, relativeTime, titleCase } from '../lib/format';
 import { useToast } from '../state/ToastProvider';
 import { Glass } from '../components/glass/Glass';
 import { Button, Segmented } from '../components/ui/controls';
 import { Badge, EmptyState, Skeleton, Spinner } from '../components/ui/feedback';
+import { CountUp } from '../components/motion/effects';
 
 const TABS = [
-    { value: 'people', label: 'People she knows' },
-    { value: 'roster', label: 'Everyone she has met' },
+    { value: 'people', label: 'People' },
+    { value: 'roster', label: 'Roster' },
     { value: 'recall', label: 'Recall' },
-    { value: 'self', label: 'Herself' },
+    { value: 'self', label: 'Self' },
 ];
 
-/**
- * What she remembers, finally visible.
- *
- * The engine keeps person cards, a roster, a searchable memory and a self-lore
- * it writes on its own while she dreams. None of it had a screen: the only way
- * to see any of it was to open the SQLite file.
- */
+const SUGGESTED_QUERIES = [
+    'minecraft',
+    'stream setup',
+    'owner',
+    'discord',
+    'obs',
+    'goals',
+];
+
 export default function MemoryPage() {
     const [tab, setTab] = useState('people');
     const [people, setPeople] = useState(null);
@@ -67,13 +71,15 @@ export default function MemoryPage() {
                     <div>
                         <h1 className="font-display text-[13px] font-semibold text-text">Memory</h1>
                         <p className="text-[11px] text-faint">
-                            {loading ? 'reading…' : `${people.length} cards · ${roster.length} identities seen`}
+                            {loading
+                                ? 'reading…'
+                                : `${people.length} cards · ${roster.length} identities · ${self.facts.length} self-facts`}
                         </p>
                     </div>
                 </div>
                 <Segmented value={tab} onChange={setTab} options={TABS} size="sm" />
                 <Button size="sm" variant="outline" onClick={saveNow} loading={saving}>
-                    <Save size={13} /> Save this chat now
+                    <Save size={13} /> Save now
                 </Button>
             </Glass>
 
@@ -100,8 +106,7 @@ function PeopleGrid({ people }) {
     if (people.length === 0) {
         return (
             <EmptyState icon={User} title="She has not written anyone down yet">
-                A card appears once someone has been around long enough to be worth remembering —
-                the dream pass is what writes them.
+                A card appears once someone has been around long enough to be worth remembering.
             </EmptyState>
         );
     }
@@ -121,12 +126,12 @@ function PeopleGrid({ people }) {
                                 className="grid h-9 w-9 shrink-0 place-items-center rounded-b2 font-display text-sm font-bold"
                                 style={{ background: 'var(--cognition-soft)', color: 'var(--cognition)' }}
                             >
-                                {person.name.slice(0, 1).toUpperCase()}
+                                {person.name?.slice(0, 1)?.toUpperCase() || '?'}
                             </span>
                             <div className="min-w-0 flex-1">
                                 <p className="truncate font-display text-sm font-semibold text-text">{person.name}</p>
                                 <p className="truncate font-mono text-[10px] text-faint">
-                                    {person.identities.map((id) => id.split(':')[0]).filter((v, i, a) => a.indexOf(v) === i).join(' · ') || 'unknown'}
+                                    {person.identities?.map((id) => id.split(':')[0]).filter((v, i, a) => a.indexOf(v) === i).join(' · ') || 'unknown'}
                                 </p>
                             </div>
                         </div>
@@ -151,7 +156,7 @@ function PeopleGrid({ people }) {
                             </p>
                         )}
 
-                        {person.facts.length > 0 && (
+                        {person.facts?.length > 0 && (
                             <ul className="mt-3 space-y-1.5">
                                 {person.facts.slice(-5).map((fact, i) => (
                                     <li key={i} className="flex gap-2 text-[12px] leading-snug text-dim">
@@ -164,7 +169,7 @@ function PeopleGrid({ people }) {
 
                         <p className="mt-auto pt-3 font-mono text-[10px] text-faint">
                             updated {relativeTime(person.last_updated)}
-                            {person.facts.length > 5 && ` · ${person.facts.length} facts`}
+                            {person.facts?.length > 5 && ` · ${person.facts.length} facts`}
                         </p>
                     </Glass>
                 </motion.div>
@@ -180,14 +185,13 @@ function RosterTable({ roster }) {
         const needle = query.trim().toLowerCase();
         if (!needle) return roster;
         return roster.filter((entry) =>
-            entry.name?.toLowerCase().includes(needle) || entry.identity.toLowerCase().includes(needle));
+            entry.name?.toLowerCase().includes(needle) || entry.identity?.toLowerCase().includes(needle));
     }, [roster, query]);
 
     if (roster.length === 0) {
         return (
             <EmptyState icon={Users} title="Nobody on the roster yet">
-                Everyone who says something on any channel gets a tally here, long before she decides
-                they are worth a card.
+                Everyone who says something on any channel gets a tally here.
             </EmptyState>
         );
     }
@@ -265,9 +269,7 @@ function RecallPanel() {
             <Glass className="rounded-b3 p-5">
                 <h2 className="font-display text-lg font-bold text-text">Ask her memory something</h2>
                 <p className="mt-1 text-[12px] leading-relaxed text-dim">
-                    The same semantic search she runs on herself every turn. Facts people told her are kept
-                    apart from things she said herself — she invents on purpose, and her own lines must never
-                    come back as truth.
+                    The same semantic search she runs on herself every turn.
                 </p>
                 <form onSubmit={search} className="mt-4 flex gap-2">
                     <input
@@ -275,17 +277,29 @@ function RecallPanel() {
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="what does she know about minecraft?"
                         aria-label="Search her memory"
-                        className="min-w-0 flex-1 rounded-b2 border border-line bg-fill px-3 py-2
-                                   text-[13px] text-text outline-none transition-colors
-                                   placeholder:text-faint"
+                        className="min-w-0 flex-1 rounded-b2 border border-line bg-fill px-3 py-2 text-[13px] text-text outline-none transition-colors placeholder:text-faint"
                     />
                     <Button type="submit" variant="primary" loading={busy} disabled={!query.trim()}>
                         <Search size={14} /> Recall
                     </Button>
                 </form>
+
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                    {SUGGESTED_QUERIES.map((suggestion) => (
+                        <button
+                            key={suggestion}
+                            onClick={() => { setQuery(suggestion); }}
+                            className="rounded-full border border-line px-2.5 py-1 text-[11px] text-dim transition-colors hover:border-line-strong hover:text-text"
+                        >
+                            {suggestion}
+                        </button>
+                    ))}
+                </div>
             </Glass>
 
-            {busy && <div className="flex justify-center py-8"><Spinner size={20} /></div>}
+            {busy && (
+                <div className="flex justify-center py-8"><Spinner size={20} /></div>
+            )}
 
             {result && !busy && (
                 <div className="grid gap-2.5 md:grid-cols-2">

@@ -1,66 +1,73 @@
 @import "tailwindcss";
 
 /* ===========================================================================
-   Bea — Control Room
-   Dark by default: this runs at night, next to OBS. Warm amber means she is
-   alive and speaking; cold periwinkle means she is computing. Nothing else in
-   the interface is allowed to use the warm accent.
+   SHURA — Command Center
+   Dark by default: near-black ground, neon blue primary, neon pink secondary.
+   Terminal-informed typography. Glitch-arcane accents. High contrast.
    ======================================================================== */
 
 :root {
   color-scheme: dark;
 
-  --bg: #08080a;
-  --bg-raised: #0e0e12;
-  --bg-sunken: #050506;
+  /* --- backgrounds --- */
+  --bg: #0a0a12;
+  --bg-raised: #12121f;
+  --bg-sunken: #06060c;
 
-  --line: rgb(255 255 255 / 9%);
-  --line-strong: rgb(255 255 255 / 18%);
+  /* --- borders --- */
+  --line: rgb(255 255 255 / 7%);
+  --line-strong: rgb(255 255 255 / 14%);
 
-  --text: #ededf0;
-  --text-dim: #9a9aa4;
-  --text-faint: #64646e;
+  /* --- text --- */
+  --text: #e8e8f0;
+  --text-dim: #8a8a9a;
+  --text-faint: #5a5a6a;
 
-  --glass-tint: rgb(255 255 255 / 4.5%);
-  --glass-tint-raised: rgb(255 255 255 / 8%);
-  --glass-sheen: rgb(255 255 255 / 55%);
+  /* --- fills (rest, hover, selected) --- */
+  --fill: rgb(255 255 255 / 2.5%);
+  --fill-2: rgb(255 255 / 5%);
+  --fill-3: rgb(255 255 / 9%);
+  --sunk: rgb(0 0 0 / 28%);
 
-  /* the three fills every small surface uses: rest, hover, selected.
-     They invert with the theme — a white wash is invisible on a light ground. */
-  --fill: rgb(255 255 255 / 3%);
-  --fill-2: rgb(255 255 255 / 6%);
-  --fill-3: rgb(255 255 255 / 10%);
-  --sunk: rgb(0 0 0 / 24%);
-
-  /* The interface is black and white. Exactly one hue is allowed in, and the
-     operator picks it in Settings › Appearance — everything below is derived
-     from it, so changing it never breaks the relationships between states. */
-  --accent-raw: #3d7dff;
+  /* --- accent: neon blue --- */
+  --accent-raw: #00d0ff;
   --accent: var(--accent-raw);
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
 
-  /* she is awake, she is speaking: the only saturated thing on screen */
+  /* --- secondary: neon pink/purple --- */
+  --secondary-raw: #ff2a8a;
+  --secondary: var(--secondary-raw);
+  --secondary-soft: color-mix(in oklab, var(--secondary) 14%, transparent);
+
+  /* --- dream/occult: deep purple --- */
+  --dream: #6600aa;
+  --dream-soft: color-mix(in oklab, var(--dream) 12%, transparent);
+
+  /* --- vital (active, speaking, alive) --- */
   --vital: var(--accent);
-  --vital-soft: color-mix(in oklab, var(--accent) 16%, transparent);
-  --cognition: color-mix(in oklab, var(--accent) 72%, var(--text-dim));
-  --cognition-soft: color-mix(in oklab, var(--accent) 12%, transparent);
+  --vital-soft: var(--accent-soft);
 
-  /* the flux is a ladder, not a rainbow: saturation and lightness carry
-     importance, and the badge next to it carries the kind */
+  /* --- cognition (thinking) --- */
+  --cognition: color-mix(in oklab, var(--accent) 60%, var(--text-dim));
+  --cognition-soft: color-mix(in oklab, var(--accent) 10%, transparent);
+
+  /* --- flux ladder (saturation = importance) --- */
   --flux-out: var(--accent);
   --flux-think: color-mix(in oklab, var(--accent) 72%, var(--text-dim));
   --flux-act: color-mix(in oklab, var(--accent) 52%, var(--text-dim));
   --flux-in: color-mix(in oklab, var(--accent) 34%, var(--text-dim));
   --flux-cost: var(--text-dim);
   --flux-mute: var(--text-faint);
-  /* red is not a choice: it is the one colour that has to mean failure */
-  --flux-err: #ff5f6d;
+  --flux-err: #ff3a3a;
+  --flux-success: #00ffaa;
 
+  /* --- radii --- */
   --r-1: 0.5rem;
   --r-2: 0.875rem;
   --r-3: 1.25rem;
   --r-4: 1.75rem;
 
-  /* liquid glass — every one of these is a slider in Settings › Appearance */
+  /* --- glass --- */
   --lg-frost: 18px;
   --lg-light: 0.5;
   --lg-depth: 1;
@@ -70,36 +77,6 @@
 
   --frost-full: blur(var(--lg-frost)) saturate(var(--lg-saturate)) brightness(var(--lg-brightness));
   --frost-quiet: blur(calc(var(--lg-frost) * 0.6)) saturate(var(--lg-saturate));
-}
-
-:root[data-theme="light"] {
-  color-scheme: light;
-
-  --bg: #ededef;
-  --bg-raised: #f8f8f9;
-  --bg-sunken: #e3e3e6;
-
-  --line: rgb(12 12 16 / 11%);
-  --line-strong: rgb(12 12 16 / 21%);
-
-  --text: #131316;
-  --text-dim: #5c5c66;
-  --text-faint: #8b8b95;
-
-  --glass-tint: rgb(255 255 255 / 46%);
-  --glass-tint-raised: rgb(255 255 255 / 66%);
-  --glass-sheen: rgb(255 255 255 / 85%);
-
-  --fill: rgb(10 12 20 / 3.5%);
-  --fill-2: rgb(10 12 20 / 6%);
-  --fill-3: rgb(10 12 20 / 10%);
-  --sunk: rgb(10 12 20 / 5%);
-
-  /* the same hue, darkened until it holds up against a white ground */
-  --accent: color-mix(in oklab, var(--accent-raw) 74%, #000);
-  --flux-err: #c9243a;
-
-  --lg-brightness: 1.02;
 }
 
 @theme {
@@ -115,6 +92,12 @@
   --color-text: var(--text);
   --color-dim: var(--text-dim);
   --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-soft: var(--secondary-soft);
+  --color-dream: var(--dream);
+  --color-dream-soft: var(--dream-soft);
   --color-vital: var(--vital);
   --color-vital-soft: var(--vital-soft);
   --color-cognition: var(--cognition);
@@ -124,6 +107,7 @@
   --color-flux-out: var(--flux-out);
   --color-flux-act: var(--flux-act);
   --color-flux-err: var(--flux-err);
+  --color-flux-success: var(--flux-success);
   --color-flux-cost: var(--flux-cost);
   --color-flux-mute: var(--flux-mute);
 
@@ -132,7 +116,6 @@
   --radius-b3: var(--r-3);
   --radius-b4: var(--r-4);
 
-  --font-display: "Bricolage Grotesque", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
@@ -162,12 +145,9 @@ body {
   overscroll-behavior: none;
 }
 
-h1,
-h2,
-h3,
-.font-display {
-  font-family: var(--font-display);
-  font-optical-sizing: auto;
+h1, h2, h3 {
+  font-family: var(--font-sans);
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
@@ -176,28 +156,15 @@ h3,
 }
 
 ::selection {
-  background: var(--vital-soft);
+  background: var(--accent-soft);
   color: var(--text);
 }
 
-/* One focus ring for the whole app.
-   No border-radius here: forcing one made the ring a different shape from the
-   control it was wrapping, which is what made it look pasted on. An outline
-   follows the element's own radius by itself. */
 :focus-visible {
   outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
   outline-offset: 2px;
 }
 
-/* a panel that takes focus only so the keyboard has somewhere to land */
-[data-focus-ring="off"]:focus-visible {
-  outline: none;
-}
-
-/* A text field already has a border to say it is focused, so it says it there
-   instead of wearing a second ring on the outside. This is the only place that
-   styles field focus — no component adds its own `focus:border-*`, or the two
-   fight over the cascade. */
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
@@ -206,16 +173,9 @@ select:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 14%, transparent);
 }
 
-/* …unless it has no border of its own, in which case its container carries it */
-input.bare:focus-visible,
-textarea.bare:focus-visible {
-  border-color: transparent;
-  box-shadow: none;
-}
-
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -224,7 +184,7 @@ textarea.bare:focus-visible {
 
 ::-webkit-scrollbar-thumb {
   background: var(--line-strong);
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   background-clip: content-box;
   border-radius: 99px;
 }
@@ -234,195 +194,70 @@ textarea.bare:focus-visible {
   background-clip: content-box;
 }
 
+/* --- components ---------------------------------------------------------- */
+
 @layer components {
-  /* --- liquid glass -------------------------------------------------------- */
-
-  /*
-    Three stacked layers instead of one property: the frost is declared on its own
-    so that a browser without SVG-in-backdrop-filter drops only the refraction and
-    keeps a working surface, rather than invalidating the whole declaration.
-  */
-
   .glass {
     position: relative;
     isolation: isolate;
     border-radius: var(--r-3);
     border: 1px solid var(--line);
-    background: var(--glass-tint);
+    background: var(--fill);
     box-shadow:
-      0 calc(2px * var(--lg-depth)) calc(10px * var(--lg-depth)) rgb(0 0 0 / calc(0.16 * var(--lg-depth))),
-      0 calc(12px * var(--lg-depth)) calc(40px * var(--lg-depth)) rgb(0 0 0 / calc(0.22 * var(--lg-depth))),
-      inset 0 1px 0 rgb(255 255 255 / calc(0.5 * var(--lg-light))),
-      inset 0 -1px 0 rgb(255 255 255 / calc(0.08 * var(--lg-light)));
-  }
-
-  .glass::before,
-  .glass::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-  }
-
-  /* frost — the plain, always-supported part */
-  .glass::before {
-    z-index: -2;
-    backdrop-filter: var(--frost-full);
-  }
-
-  /* refraction — strongest at the rim, almost nothing in the middle (splay) */
-  .glass::after {
-    z-index: -1;
-    backdrop-filter: url(#lg-refract);
-    -webkit-mask-image: radial-gradient(
-      ellipse at center,
-      transparent 0%,
-      transparent calc(var(--lg-splay) * 100%),
-      #000 100%
-    );
-    mask-image: radial-gradient(
-      ellipse at center,
-      transparent 0%,
-      transparent calc(var(--lg-splay) * 100%),
-      #000 100%
-    );
-  }
-
-  /* the rainbow fringe, kept to a hairline at the very edge */
-  .glass-dispersion {
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: inherit;
-    pointer-events: none;
-    backdrop-filter: url(#lg-disperse);
-    opacity: 0.85;
-    -webkit-mask-image: radial-gradient(
-      ellipse at center,
-      transparent 0%,
-      transparent calc(var(--lg-splay) * 100% + 6%),
-      #000 100%
-    );
-    mask-image: radial-gradient(
-      ellipse at center,
-      transparent 0%,
-      transparent calc(var(--lg-splay) * 100% + 6%),
-      #000 100%
-    );
-  }
-
-  /* the light that tells you it is a physical surface, not a rectangle */
-  .glass-sheen {
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: inherit;
-    pointer-events: none;
-    background:
-      linear-gradient(
-        145deg,
-        rgb(255 255 255 / calc(0.14 * var(--lg-light))) 0%,
-        transparent 34%,
-        transparent 66%,
-        rgb(255 255 255 / calc(0.05 * var(--lg-light))) 100%
-      );
-  }
-
-  /* cheaper surface for the many small tiles: frost only, no SVG cost */
-  .glass-quiet {
-    position: relative;
-    border-radius: var(--r-3);
-    border: 1px solid var(--line);
-    background: var(--glass-tint);
-    backdrop-filter: var(--frost-quiet);
-    box-shadow:
-      0 1px 2px rgb(0 0 0 / calc(0.12 * var(--lg-depth))),
+      0 calc(2px * var(--lg-depth)) calc(10px * var(--lg-depth)) rgb(0 0 0 / calc(0.18 * var(--lg-depth))),
+      0 calc(12px * var(--lg-depth)) calc(40px * var(--lg-depth)) rgb(0 0 0 / calc(0.25 * var(--lg-depth))),
       inset 0 1px 0 rgb(255 255 255 / calc(0.4 * var(--lg-light)));
   }
 
-}
-
-/* Safari before 16.4 only knows the prefixed property. It lives in its own rule
-   because the minifier collapses two prefixes of the same property inside one
-   rule down to whichever came last — which is how the production build ended up
-   with no frost at all. */
-@supports not (backdrop-filter: blur(1px)) {
   .glass::before {
-    -webkit-backdrop-filter: var(--frost-full);
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: inherit;
+    backdrop-filter: var(--frost-full);
+    pointer-events: none;
   }
 
   .glass-quiet {
-    -webkit-backdrop-filter: var(--frost-quiet);
+    position: relative;
+    border-radius: var(--r-2);
+    border: 1px solid var(--line);
+    background: var(--fill);
+    backdrop-filter: var(--frost-quiet);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / calc(0.3 * var(--lg-light)));
   }
-}
 
-/* when the operator turns refraction off entirely */
-:root[data-glass="off"] .glass::after,
-:root[data-glass="off"] .glass-dispersion {
-  display: none;
+  .shura-card {
+    border-radius: var(--r-3);
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+  }
 }
 
 /* --- motion -------------------------------------------------------------- */
 
-@keyframes bea-rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+@keyframes shura-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
 
-@keyframes bea-pulse {
-  0%,
-  100% {
-    opacity: 0.45;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.25);
-  }
+@keyframes shura-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.25); }
 }
 
-@keyframes bea-bar {
-  0%,
-  100% {
-    transform: scaleY(0.22);
-  }
-  50% {
-    transform: scaleY(1);
-  }
-}
-
-@keyframes bea-sweep {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(300%);
-  }
+@keyframes shura-glow {
+  0%, 100% { box-shadow: 0 0 8px color-mix(in oklab, var(--accent) 30%, transparent); }
+  50% { box-shadow: 0 0 20px color-mix(in oklab, var(--accent) 60%, transparent); }
 }
 
 .rise {
-  animation: bea-rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: shura-rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.shimmer {
-  position: relative;
-  overflow: hidden;
-}
-
-.shimmer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: 33%;
-  background: linear-gradient(90deg, transparent, var(--glass-tint-raised), transparent);
-  animation: bea-sweep 1.4s ease-in-out infinite;
+.glow-pulse {
+  animation: shura-glow 2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
