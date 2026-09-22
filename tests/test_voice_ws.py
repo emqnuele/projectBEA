@@ -43,7 +43,7 @@ def client():
     surface = Surface()
 
     class BrainStub:
-        surface_registry = Registry(surface)
+        skill_registry = Registry(surface)
 
     previous = deps.brain_instance
     deps.brain_instance = BrainStub()

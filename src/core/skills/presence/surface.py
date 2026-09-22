@@ -35,7 +35,7 @@ class PresenceSkill(Skill):
         self.agenda = memory.agenda
         # the registry itself, not a snapshot: skills register one after another
         # and this one is built in the middle of that loop
-        self.reach = Reach(memory=memory, surfaces=self.brain.surface_registry,
+        self.reach = Reach(memory=memory, surfaces=self.brain.skill_registry,
                            persona=persona_of(self.config))
 
     @property

@@ -50,7 +50,7 @@ class Context:
 
     def __init__(self, memory, surfaces):
         self.memory = memory
-        self.surface_registry = surfaces
+        self.skill_registry = surfaces
 
 
 @pytest.fixture
@@ -129,7 +129,7 @@ async def test_she_can_write_to_someone_on_another_platform(memory):
     _person(memory, "Ema", "telegram:2")
     s = skill(memory, "telegram")
     answer = await call(s, "message_person", who="Ema", text="ehi, tutto bene?")
-    telegram = s.context.surface_registry.get("chat:telegram")
+    telegram = s.context.skill_registry.get("chat:telegram")
     assert telegram.dms == [("2", "ehi, tutto bene?")]
     assert "telegram" in answer.lower()
 
@@ -144,7 +144,7 @@ async def test_she_may_pick_the_platform_herself(memory):
     _person(memory, "Ema", "telegram:2", "discord:1")
     s = skill(memory, "telegram", "discord")
     await call(s, "message_person", who="Ema", text="ciao", platform="discord")
-    assert s.context.surface_registry.get("chat:discord").dms == [("1", "ciao")]
+    assert s.context.skill_registry.get("chat:discord").dms == [("1", "ciao")]
 
 
 # --- deciding to come back to it ---------------------------------------------
@@ -208,16 +208,18 @@ def test_an_empty_agenda_adds_nothing_to_her_context(memory):
 
 def test_it_initializes_against_what_the_brain_really_exposes(memory):
     """The brain passes itself as context, and it calls its registry
-    `surface_registry`. Reaching for a name it does not have is an
+    `skill_registry`. Reaching for a name it does not have is an
     AttributeError at startup, on a core skill."""
+    import inspect
+
     from src.core.brain import AIVtuberBrain
 
-    assert hasattr(AIVtuberBrain, "surface_registry")
+    assert "self.skill_registry" in inspect.getsource(AIVtuberBrain.__init__)
 
     class BrainShaped:
         def __init__(self, mem):
             self.memory = mem
-            self.surface_registry = SkillRegistry()
+            self.skill_registry = SkillRegistry()
 
     s = PresenceSkill(Config(), bus=None, expression=None, context=BrainShaped(memory))
     s.initialize()
@@ -231,7 +233,7 @@ async def test_the_registry_it_holds_stays_live(memory):
     class BrainShaped:
         def __init__(self, mem):
             self.memory = mem
-            self.surface_registry = SkillRegistry()
+            self.skill_registry = SkillRegistry()
 
     brain = BrainShaped(memory)
     s = PresenceSkill(Config(), bus=None, expression=None, context=brain)
@@ -239,5 +241,5 @@ async def test_the_registry_it_holds_stays_live(memory):
     s.active = True
 
     _person(memory, "Ema", "telegram:2")
-    brain.surface_registry.register(Recorder("telegram"))
+    brain.skill_registry.register(Recorder("telegram"))
     assert await call(s, "message_person", who="Ema", text="ciao") == "Written to Ema on telegram."

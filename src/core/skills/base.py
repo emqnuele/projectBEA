@@ -21,7 +21,6 @@ class SkillContext(Protocol):
     history_manager: Any
     event_manager: Any
     skill_registry: Any
-    surface_registry: Any
     consciousness: Any
     stt: Any
     llm: Any

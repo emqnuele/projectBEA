@@ -128,11 +128,6 @@ class AIVtuberBrain:
         return self.expression.is_speaking
 
     @property
-    def surface_registry(self) -> Optional[SkillRegistry]:
-        # legacy alias kept for the input entrypoints
-        return self.skill_registry
-
-    @property
     def memory_skill(self) -> Optional[MemorySkill]:
         skill = self.skill_registry.get("memory") if self.skill_registry else None
         return skill if isinstance(skill, MemorySkill) else None
@@ -371,10 +366,6 @@ class AIVtuberBrain:
             logger.warning(f"No '{role}' model ({e}); falling back to the mind's.")
             return self.llm
 
-    @property
-    def consciousness_active(self) -> bool:
-        return bool(self.consciousness and self.consciousness.alive)
-
     async def set_skill_enabled(self, name: str, state: bool) -> bool:
         """Single source of truth: the UI toggles a skill (by its config key) and
         the matching capability is armed/disarmed live in the consciousness. Bea
@@ -503,13 +494,6 @@ class AIVtuberBrain:
             logger.info("Correlation timed out (Bea did not respond).")
             return None
 
-    async def perform_output_task(self, mood: str, message: str):
-        """Kept for the CLI loop: the consciousness already renders speech, so
-        rendering here would double the output. No-op while the brain is alive."""
-        if self.consciousness_active:
-            return
-        await self.expression.speak(mood, message, route="local")
-
     async def interrupt(self):
         """Barge-in: stops current speech via Expression and logs it."""
         result = await self.expression.interrupt()
@@ -527,7 +511,7 @@ class AIVtuberBrain:
         is not what `voice:discord` does. The caller knows which one it asked
         for; the registry cannot.
         """
-        return self.surface_registry.get(name) if self.surface_registry else None
+        return self.skill_registry.get(name) if self.skill_registry else None
 
     async def generate_response(self, user_text: str, system_prompt: Optional[str] = None) -> Tuple[str, str]:
         """Deposits a chat perception and waits for Bea to decide to reply."""
@@ -563,16 +547,6 @@ class AIVtuberBrain:
         if not payload:
             return DEFAULT_MOOD, "", transcript
         return payload.get("mood", DEFAULT_MOOD), payload.get("message", ""), transcript
-
-    async def process_text_input(self, user_text: str):
-        mood, message = await self.generate_response(user_text)
-        await self.perform_output_task(mood, message)
-        return mood, message
-
-    async def process_audio_input(self, audio_path: str):
-        mood, message, _ = await self.generate_audio_response(audio_path)
-        await self.perform_output_task(mood, message)
-        return mood, message
 
     async def process_discord_interaction(self, audio_path: str, username: str,
                                           user_id: Optional[str] = None,
@@ -671,9 +645,9 @@ class AIVtuberBrain:
             if user_text.lower().startswith("audio:"):
                 audio_path = user_text[6:].strip()
                 logger.info(f"I will process audio from: {audio_path}")
-                await self.process_audio_input(audio_path)
+                await self.generate_audio_response(audio_path)
             else:
-                await self.process_text_input(user_text)
+                await self.generate_response(user_text)
 
     async def _rhythm_loop(self):
         """The slow clock: every so often, does she want to start something?

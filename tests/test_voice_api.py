@@ -28,7 +28,7 @@ def client(tmp_path, monkeypatch):
         def __init__(self):
             self.config = BrainConfig()
             self.stt = None
-            self.surface_registry = None
+            self.skill_registry = None
             self.perceived = []
 
         async def process_discord_interaction(self, path, username, **kw):
@@ -79,6 +79,16 @@ def test_the_temp_file_is_cleaned_up_even_when_it_fails(client, tmp_path):
 
     leftovers = list((tmp_path / "temp_discord").glob("*.wav"))
     assert leftovers == []
+
+
+def test_a_username_is_never_part_of_the_temp_path(client, tmp_path):
+    """The name comes from the client: a separator in it used to be a path."""
+    api, _ = client
+
+    api.post("/discord/audio", files=upload(), data={"username": "../../escaped"})
+
+    assert not (tmp_path.parent / "escaped").exists()
+    assert list(tmp_path.glob("**/*escaped*")) == []
 
 
 # --- the text side still works ----------------------------------------------

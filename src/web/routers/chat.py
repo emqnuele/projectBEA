@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from src.core.brain import AIVtuberBrain
@@ -81,17 +81,9 @@ def delete_session(session_id: str, brain: AIVtuberBrain = Depends(get_brain)):
 
 
 @router.post("/chat")
-async def chat(
-    request: ChatRequest,
-    background_tasks: BackgroundTasks,
-    brain: AIVtuberBrain = Depends(get_brain),
-):
-    # 1. generate text
+async def chat(request: ChatRequest, brain: AIVtuberBrain = Depends(get_brain)):
+    # she speaks it herself; this only waits to hand the words back
     mood, message = await brain.generate_response(request.message)
-
-    # 2. schedule output
-    background_tasks.add_task(brain.perform_output_task, mood, message)
-
     return {
         "status": "success",
         "response": {
