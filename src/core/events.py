@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import json
 import os
 import time
 import uuid
@@ -33,6 +34,7 @@ class EventSeverity(str, Enum):
     """Severity level for events."""
     DEBUG = "debug"
     INFO = "info"
+    SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
     CRITICAL = "critical"
@@ -45,6 +47,18 @@ class EventVisibility(str, Enum):
     ALL = "all"            # everywhere
 
 
+# -- generic event_type labels used in event metadata -----------------
+# dream/events.py and dream/consolidation.py import these to label
+# lifecycle / progress / error events consistently with the rest of the
+# event taxonomy (presence, speech, atlas all use the same field).
+EVENT_TYPE_INFO = "info"
+EVENT_TYPE_STATE = "state"
+EVENT_TYPE_LIFECYCLE = "lifecycle"
+EVENT_TYPE_PROGRESS = "progress"
+EVENT_TYPE_ERROR = "error"
+EVENT_TYPE_MUTATION = "mutation"
+
+
 @dataclass
 class BrainEvent:
     category: EventCategory
@@ -53,6 +67,7 @@ class BrainEvent:
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    sequence: int = field(default=0)
 
     def to_dict(self) -> Dict[str, Any]:
         """Return event as a flat dict with metadata merged to top level."""
@@ -87,6 +102,14 @@ class BrainEvent:
     def parent_event_id(self) -> Optional[str]:
         return self.metadata.get("parent_event_id")
 
+    @property
+    def severity(self) -> Optional[str]:
+        return self.metadata.get("severity")
+
+    @property
+    def visibility(self) -> Optional[str]:
+        return self.metadata.get("visibility")
+
 
 def _render(event: BrainEvent) -> Dict[str, Any]:
     """Render an event as a flat dict, with metadata merged to top level."""
@@ -94,6 +117,7 @@ def _render(event: BrainEvent) -> Dict[str, Any]:
         "id": event.id,
         "event_id": event.id,
         "timestamp": event.timestamp,
+        "sequence": event.sequence,
         "category": event.category.value,
         "source": event.source,
         "message": event.message,
@@ -110,11 +134,14 @@ class EventManager:
         self.events: List[BrainEvent] = []
         self.max_history = max_history
         self.journal_path = journal_path
+        self._sequence_counter: int = 0
         if journal_path:
             try:
                 os.makedirs(os.path.dirname(journal_path), exist_ok=True)
             except Exception:
                 pass
+            # reload persisted events from journal
+            self._load_journal(journal_path)
         # live subscribers (the dashboard's SSE stream). Bounded queues, because
         # a browser tab that stopped reading must not grow without limit.
         self._subscribers: List[Tuple[Any, Optional[str], Optional[str]]] = []
@@ -129,8 +156,12 @@ class EventManager:
         merged = dict(metadata or {})
         if event_type is not None:
             merged["event_type"] = event_type
+        elif "event_type" not in merged:
+            merged["event_type"] = EVENT_TYPE_INFO
         if subsystem is not None:
             merged["subsystem"] = subsystem
+        elif "subsystem" not in merged:
+            merged["subsystem"] = "core"
         if severity is not None:
             merged["severity"] = severity
         if visibility is not None:
@@ -147,8 +178,14 @@ class EventManager:
             message=message,
             metadata=merged,
         )
+        event.sequence = self._sequence_counter
+        self._sequence_counter += 1
 
         self.events.append(event)
+
+        # persist to journal if one is configured
+        if self.journal_path:
+            self._write_journal(event)
 
         # keep buffer size in check
         if len(self.events) > self.max_history:
@@ -161,6 +198,10 @@ class EventManager:
     def get_events(self, limit: int = 50) -> List[Dict]:
         """Returns recent events."""
         return [_render(e) for e in self.events[-limit:]]
+
+    def event_to_dict(self, event: BrainEvent) -> Dict[str, Any]:
+        """Render a single BrainEvent as a flat dict (same format as _render)."""
+        return _render(event)
 
     def filter_events(self, **kwargs) -> List[Dict]:
         """Returns events matching all kwargs as metadata fields."""
@@ -184,14 +225,17 @@ class EventManager:
                 results.append(_render(event))
         return results
 
-    def replay(self, run_id: Optional[str] = None, subsystem: Optional[str] = None, limit: int = 100) -> List[Dict]:
-        """Replay events for a specific run_id/subsystem combination."""
+    def replay(self, run_id: Optional[str] = None, subsystem: Optional[str] = None,
+                event_type: Optional[str] = None, limit: int = 100) -> List[Dict]:
+        """Replay events for a specific run_id/subsystem/event_type combination."""
         results = []
         for event in self.events:
             metadata = event.metadata
             if run_id is not None and metadata.get("run_id") != run_id:
                 continue
             if subsystem is not None and metadata.get("subsystem") != subsystem:
+                continue
+            if event_type is not None and metadata.get("event_type") != event_type:
                 continue
             results.append(_render(event))
         return results[-limit:]
@@ -251,3 +295,47 @@ class EventManager:
                 except asyncio.QueueFull:
                     logger.debug("Dropping a stalled event subscriber.")
                     self.unsubscribe(subscriber)
+
+    # -- journal persistence ---------------------------------------------------
+
+    def _write_journal(self, event: BrainEvent) -> None:
+        """Append a single event as a JSON line to the journal file."""
+        if not self.journal_path:
+            return
+        try:
+            with open(self.journal_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(_render(event), ensure_ascii=False) + "\n")
+        except Exception:
+            logger.warning("Event journal write failed", exc_info=True)
+
+    def _load_journal(self, journal_path: str) -> None:
+        """Load persisted events from a JSONL journal file on startup."""
+        try:
+            with open(journal_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        d = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    ev = BrainEvent(
+                        category=EventCategory(d.get("category", "system")),
+                        source=d.get("source", ""),
+                        message=d.get("message", ""),
+                        metadata={k: v for k, v in d.items()
+                                  if k not in ("id", "event_id", "timestamp",
+                                               "category", "source", "message",
+                                               "sequence")},
+                        timestamp=d.get("timestamp", time.time()),
+                        id=d.get("id", str(uuid.uuid4())),
+                    )
+                    ev.sequence = d.get("sequence", 0)
+                    self.events.append(ev)
+            if self.events:
+                self._sequence_counter = max(ev.sequence for ev in self.events) + 1
+        except FileNotFoundError:
+            pass
+        except Exception:
+            logger.warning("Event journal load failed", exc_info=True)
