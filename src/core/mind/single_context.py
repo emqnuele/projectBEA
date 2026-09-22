@@ -53,7 +53,7 @@ class SingleContext:
         self.store = store
         # the hot present can never exceed the ceiling: promising more verbatim
         # than fits forces the swap to silently drop the present it just kept
-        self.hot_tokens = min(max(1_000, int(hot_tokens)), max(1_000, self.budget.max_tokens))
+        self.hot_tokens = self._clamp_hot(hot_tokens)
         self.hot_seconds = max(60.0, float(hot_seconds))
         self.version = 0
         self._entries: List[BudgetEntry] = []
@@ -71,6 +71,38 @@ class SingleContext:
         # tokens dropped by the emergency valve without ever being summarized:
         # cumulative, so unsummarized amnesia stays auditable from status()
         self.evicted_tokens = 0
+
+    def _clamp_hot(self, hot_tokens: Any) -> int:
+        return min(max(1_000, int(hot_tokens)), max(1_000, self.budget.max_tokens))
+
+    def retarget(self, budget: TokenBudget, hot_tokens: int) -> bool:
+        """Resizes the live window in place. Returns whether anything changed.
+
+        Loop thread only, like every other write: it may evict, and an eviction
+        racing an append would lose the running total. The valve runs here and
+        not at the next append so that a ceiling lowered from the dashboard is
+        honoured while she is idle too — otherwise the window would sit over
+        its own ceiling, and say so, until somebody happened to speak.
+
+        Nothing is re-estimated: entries keep the token counts they were
+        measured with, so resizing costs one pass over what no longer fits and
+        nothing at all when the window is already smaller than the new ceiling.
+        """
+        same = (budget.max_tokens == self.budget.max_tokens
+                and budget.trigger_tokens == self.budget.trigger_tokens
+                and budget.target_tokens == self.budget.target_tokens
+                and self._clamp_hot(hot_tokens) == self.hot_tokens)
+        if same:
+            return False
+        self.budget = budget
+        self.hot_tokens = self._clamp_hot(hot_tokens)
+        # a lowered ceiling trims the same way an append over it would: oldest
+        # first, the continuity bridge pinned, and every dropped token counted
+        # as unsummarized amnesia rather than quietly vanishing
+        while self._total > self.budget.max_tokens and len(self._entries) > 1:
+            self._evict_oldest()
+        self._shrink_lone_entry()
+        return True
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -112,21 +144,27 @@ class SingleContext:
         # thing that reconstructs the past first defeats the handoff.
         while self._total > self.budget.max_tokens and len(self._entries) > 1:
             self._evict_oldest()
-        # pathological single entry still over the ceiling (prose reserve,
-        # estimator skew): shrink it in place rather than pinning the window
-        if self._total > self.budget.max_tokens and len(self._entries) == 1:
-            only = self._entries[0]
-            payload = only.payload if isinstance(only.payload, dict) else {}
-            shrunk = truncate_to_budget(str(payload.get("content", "")),
-                                        self.budget.max_tokens)
-            self._total -= only.tokens
-            only.tokens = estimate_tokens(shrunk) + MESSAGE_OVERHEAD_TOKENS
-            if isinstance(only.payload, dict):
-                only.payload["content"] = shrunk
-            self._total += only.tokens
+        self._shrink_lone_entry()
 
         self._dirty = True
         return entry
+
+    def _shrink_lone_entry(self) -> None:
+        """Pathological single entry still over the ceiling (prose reserve,
+        estimator skew, a ceiling lowered under it): shrink it in place rather
+        than pinning the window at a size it can never come back down from."""
+        if self._total <= self.budget.max_tokens or len(self._entries) != 1:
+            return
+        only = self._entries[0]
+        payload = only.payload if isinstance(only.payload, dict) else {}
+        shrunk = truncate_to_budget(str(payload.get("content", "")),
+                                    self.budget.max_tokens)
+        self._total -= only.tokens
+        only.tokens = estimate_tokens(shrunk) + MESSAGE_OVERHEAD_TOKENS
+        if isinstance(only.payload, dict):
+            only.payload["content"] = shrunk
+        self._total += only.tokens
+        self._dirty = True
 
     def _evict_oldest(self) -> None:
         """drops the oldest evictable entry, sparing the continuity bridge."""
@@ -294,6 +332,7 @@ class SingleContext:
             "max_tokens": self.budget.max_tokens,
             "trigger_tokens": self.budget.trigger_tokens,
             "target_tokens": self.budget.target_tokens,
+            "hot_tokens": self.hot_tokens,
             "needs_handoff": self.budget.needs_handoff(total),
             "over_max": self.budget.over_max(total),
             "valve_evicted_tokens": self.evicted_tokens,

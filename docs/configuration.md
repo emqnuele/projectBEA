@@ -192,9 +192,9 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         "burst_steps": 6,
         "correlation_timeout": 90.0,
         "context_max_tokens": 150000,
-        "handoff_trigger_tokens": 120000,
-        "handoff_target_tokens": 50000,
-        "hot_tokens": 30000,
+        "handoff_trigger_tokens": 0,
+        "handoff_target_tokens": 0,
+        "hot_tokens": 0,
         "hot_seconds": 1800.0,
         "context_handoff": true,
         "window_persist_after_turn": true,
@@ -308,10 +308,10 @@ engine refuses to start and says which key is missing.
 | `max_window` | `8.0` | Ceiling on one batch however busy it gets, so a chat that never stops cannot hold a turn open forever |
 | `burst_steps` | `6` | Max reasoning steps in one turn |
 | `correlation_timeout` | `90.0` | How long an HTTP caller waits for her reply before giving up |
-| `context_max_tokens` | `150000` | Hard ceiling of the one sliding window, in tokens |
-| `handoff_trigger_tokens` | `120000` | Window size that starts the background handoff |
-| `handoff_target_tokens` | `50000` | Size the window breathes back down to after a handoff |
-| `hot_tokens` | `30000` | Recent tokens kept verbatim across a handoff, never compressed |
+| `context_max_tokens` | `150000` | Size of the one sliding window, in tokens. Slider, 150k–500k, applies without a restart. The trigger, resting size and hot present follow it (four fifths, a third, a fifth); a bigger window means a proportionally larger prompt on every turn |
+| `handoff_trigger_tokens` | `0` | Advanced pin: window size that starts the background handoff. `0` follows the window size |
+| `handoff_target_tokens` | `0` | Advanced pin: size the window breathes back down to after a handoff. `0` follows the window size |
+| `hot_tokens` | `0` | Advanced pin: recent tokens kept verbatim across a handoff, never compressed. `0` follows the window size |
 | `hot_seconds` | `1800.0` | Recent seconds kept verbatim across a handoff |
 | `context_handoff` | `true` | Off means the window only grows until the ceiling trims it |
 | `window_persist_after_turn` | `true` | Off means the window only reaches disk on shutdown |

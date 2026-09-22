@@ -238,7 +238,8 @@ reply. Three messages, one person, one answer — the way a person reads them.
 ## One mind, one window
 
 She does not keep a separate head per chat. Every turn lands in a single
-sliding context window — 150k tokens max — that breathes instead of filling
+sliding context window — 150k tokens by default, adjustable up to 500k in
+Settings — that breathes instead of filling
 up: around 120k a background handoff writes down what went cold ("you talked
 about food for two hours") while the last half hour travels verbatim, and the
 window settles back near 50k. What was happening stays happening.

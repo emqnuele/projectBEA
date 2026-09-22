@@ -12,6 +12,14 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 from src.core.config import MASK
+from src.core.mind.token_budget import (
+    HOT_RATIO,
+    TARGET_RATIO,
+    TRIGGER_RATIO,
+    WINDOW_MAX_TOKENS,
+    WINDOW_MIN_TOKENS,
+    WINDOW_STEP_TOKENS,
+)
 
 TYPES = ("bool", "int", "float", "string", "secret", "select", "list")
 
@@ -32,6 +40,21 @@ class Setting:
     maximum: Optional[float] = None
     # a value that only takes effect after a restart, so the ui can say so
     restart: bool = False
+    # how the dashboard should draw it when a plain field is the wrong shape:
+    # "slider" for a number whose range matters more than its digits
+    ui: str = ""
+    # granularity of that slider, in the setting's own unit
+    step: Optional[float] = None
+    # a knob most people should never touch: folded away behind a disclosure
+    # rather than hidden, because hiding it is how it stops being auditable
+    advanced: bool = False
+    # other numbers this one implies, as (key, label, fraction) triples. Each
+    # key is the setting that may pin that number instead, so the dashboard can
+    # show what is actually in force. The dashboard
+    # shows them beside the control so the owner sees the whole shape of what
+    # they are moving; they are carried from here rather than recomputed in the
+    # browser, so the ratios keep exactly one definition
+    derives: Sequence = ()
 
     @property
     def secret(self) -> bool:
@@ -43,6 +66,9 @@ class Setting:
             "help": self.help, "default": self.default,
             "options": list(self.options), "min": self.minimum,
             "max": self.maximum, "restart": self.restart,
+            "ui": self.ui, "step": self.step, "advanced": self.advanced,
+            "derives": [{"key": key, "label": label, "ratio": ratio}
+                        for key, label, ratio in self.derives],
         }
 
 
@@ -425,23 +451,35 @@ CONSCIOUSNESS = Section(
         Setting("burst_steps", "Steps per turn", "int",
                 "How many tool steps one live turn may take.",
                 6, minimum=1, maximum=20),
-        Setting("context_max_tokens", "Window ceiling", "int",
-                "Hard ceiling of the one sliding window, in tokens. Past this, "
-                "the cold past is trimmed at once, never the hot ongoing.",
-                150000, minimum=10000, maximum=1000000),
+        Setting("context_max_tokens", "How much she keeps", "int",
+                "The size of her one context window. Everything else about it "
+                "follows this number: she hands off at four fifths of it and "
+                "settles near a third. More is more of the evening remembered "
+                "— and a proportionally larger prompt on every single turn, so "
+                "it costs more per turn and asks more of the model. Above "
+                "~200k, check your model's own context window first: past it "
+                "there is no degrading, only a refused call.",
+                WINDOW_MIN_TOKENS, minimum=WINDOW_MIN_TOKENS,
+                maximum=WINDOW_MAX_TOKENS, ui="slider", step=WINDOW_STEP_TOKENS,
+                derives=(("handoff_trigger_tokens", "hands off at", TRIGGER_RATIO),
+                         ("handoff_target_tokens", "rests near", TARGET_RATIO),
+                         ("hot_tokens", "keeps verbatim", HOT_RATIO))),
         Setting("handoff_trigger_tokens", "Handoff starts at", "int",
-                "Window size that starts the background handoff to the next window.",
-                120000, minimum=5000, maximum=1000000),
+                "Pins where the background handoff starts, instead of letting "
+                "it follow the window size. 0 follows.",
+                0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
         Setting("handoff_target_tokens", "Window rests near", "int",
-                "Size the window breathes back down to after a handoff.",
-                50000, minimum=5000, maximum=500000),
+                "Pins the size the window breathes back down to after a "
+                "handoff. 0 follows the window size.",
+                0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
         Setting("hot_tokens", "Hot window", "int",
-                "Recent tokens kept verbatim across a handoff, never compressed.",
-                30000, minimum=5000, maximum=200000),
+                "Pins how many recent tokens cross a handoff verbatim, never "
+                "compressed. 0 follows the window size.",
+                0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
         Setting("hot_seconds", "Hot age", "float",
                 "How old a turn may be and still count as happening right now. "
                 "Older than this, it becomes compressible past.",
-                1800.0, minimum=60.0, maximum=21600.0),
+                1800.0, minimum=60.0, maximum=21600.0, advanced=True),
         Setting("context_handoff", "Sliding handoff", "bool",
                 "Off, the window only grows until the ceiling trims it.", True),
         Setting("window_persist_after_turn", "Persist after each turn", "bool",

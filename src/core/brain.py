@@ -402,6 +402,10 @@ class AIVtuberBrain:
         self.llm = self.registry.get(MIND)
         if self.consciousness:
             self.consciousness.llm = self.llm
+            # the window is the one thing every skill shares: a ceiling changed
+            # in the dashboard has to reach the live one, or the setting says
+            # it is applied while the mind keeps the size it started with
+            self.consciousness.apply_budget()
         self.tts.reload_config(self.config)
         self.obs.reload_config(self.config)
         self._reload_stage()

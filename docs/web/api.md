@@ -535,7 +535,8 @@ out to six endpoints on load.
               "stt_provider": "groq", "language": "en", "obs_connected": false },
   "context": { "enabled": true, "version": 3, "total_tokens": 41200,
               "max_tokens": 150000, "trigger_tokens": 120000,
-              "target_tokens": 50000, "needs_handoff": false, "over_max": false,
+              "target_tokens": 50000, "hot_tokens": 30000,
+              "needs_handoff": false, "over_max": false,
               "handoff_enabled": true, "handoff_running": false,
               "handoff_swaps": 1, "continuity_chars": 812 }
 }
@@ -546,10 +547,11 @@ the first one.
 
 #### `GET /context`
 The one sliding window, live: budget (`total_tokens`, `max_tokens`,
-`trigger_tokens`, `target_tokens`, `needs_handoff`, `over_max`), handoff state
+`trigger_tokens`, `target_tokens`, `hot_tokens`, `needs_handoff`, `over_max`), handoff state
 (`handoff_enabled`, `handoff_running`, `handoff_swaps`), and continuity
 (`last_prose`, `continuity_chars`). `{"enabled": false}` before the mind
-starts.
+starts. `max_tokens` is the ceiling from Settings (default 150000, up to
+500000); the trigger, target and hot figures follow it unless pinned.
 
 ---
 
