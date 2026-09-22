@@ -74,7 +74,8 @@ between them. She may answer with a reaction instead, unless `reactions` is off.
   "enabled": false,
   "token": "",
   "owner_id": "",
-  "allowed_chats": []
+  "allowed_chats": [],
+  "group_salience": 0.8
 }
 ```
 
@@ -83,6 +84,7 @@ between them. She may answer with a reaction instead, unless `reactions` is off.
 | `token` | Bot token. Lives in `.env` as `TELEGRAM_TOKEN`; typing it in the dashboard writes it there, never into `config.json` |
 | `owner_id` | Your Telegram user id; messages from it count as the owner, which bypasses cooldown and quiet hours |
 | `allowed_chats` | Chat ids Bea may read. **Empty means every chat she is added to** |
+| `group_salience` | How strongly an ordinary group message pulls at her attention (`0.8`, like every busy room). A DM always pulls at `0.9`. A `config.json` still carrying the old displayed default `0.6` — from when the knob was shown but never read — is dropped on load so groups keep pulling at `0.8` |
 
 Trigger words come from `attention.trigger_words`, not from this block — they
 are the same names everywhere.

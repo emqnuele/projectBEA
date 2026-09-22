@@ -169,7 +169,7 @@ TELEGRAM = Section(
                 "Runs voice notes through speech-to-text so she can answer them.", True),
         Setting("group_salience", "Group pull", "float",
                 "How strongly an ordinary group message pulls at her attention.",
-                0.6, minimum=0.0, maximum=1.0),
+                0.8, minimum=0.0, maximum=1.0),
     ],
 )
 
@@ -193,7 +193,8 @@ DISCORD = Section(
                 "Loopback port the engine talks to the bot on. Change it on a clash.",
                 3030, minimum=1024, maximum=65535, restart=True),
         Setting("brain_api_url", "Engine URL", "string",
-                "Where the bot calls back into the engine.",
+                "Where the bot calls back into the engine. Leave it at the default "
+                "and it follows --host/--port; change it and yours always wins.",
                 "http://127.0.0.1:8000", restart=True),
         Setting("duck_threshold_ms", "Lower her voice after", "int",
                 "How long someone talks over her before she drops her volume. "

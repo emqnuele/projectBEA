@@ -226,6 +226,15 @@ async def main(args=None):
     config = BrainConfig()
     apply_cli_overrides(config, args)
 
+    # the discord bot calls back into the engine over HTTP: an untouched
+    # `brain_api_url` follows this launch's --host/--port, a customized one wins.
+    # In-memory only — nothing here reaches config.json.
+    try:
+        from src.core.skills.voice.transport import apply_cli_address
+        apply_cli_address(config, args.host, args.port)
+    except Exception as e:
+        logger.debug(f"Could not derive the discord callback URL: {e}")
+
     # 2. modules
     #
     # each of these says what it is about to do rather than what it has done:

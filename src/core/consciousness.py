@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -174,7 +173,7 @@ class Consciousness:
         self._dynamic_timeout = float(cc.get("dynamic_context_timeout", 5.0))
         self.idle_after = cc.get("idle_after", 30.0)
         self.burst_steps = cc.get("burst_steps", 6)
-        self.correlation_timeout = cc.get("correlation_timeout", 30.0)
+        self.correlation_timeout = cc.get("correlation_timeout", 90.0)
         # whether a line starts being spoken while the model is still writing it
         self.stream_speech = bool(cc.get("stream_speech", True))
 
@@ -734,10 +733,13 @@ class Consciousness:
         at the end of the turn: what she was told about this moment is not part
         of the conversation, and leaving it in would have her answering a memory
         retrieved for a question somebody asked ten minutes ago.
+
+        The clock lives in exactly one place — `ClockSkill.live_state()`, which
+        already carries the day, the time and the configured zone. A second date
+        line here used the machine clock instead, so the two disagreed around
+        midnight in a UTC container.
         """
-        parts: List[str] = [
-            f"CURRENT DATE: {datetime.datetime.now().strftime('%Y-%m-%d')}"
-        ]
+        parts: List[str] = []
 
         # whether anyone has written to her is something the loop knows, so it
         # is told rather than inferred: the system prompt only ever says to

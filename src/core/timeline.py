@@ -69,6 +69,21 @@ def resolve_timezone(name: str) -> Optional[tzinfo]:
         return None
 
 
+def timezone_of(config) -> str:
+    """Her configured zone, or "" for the machine clock."""
+    return str(getattr(config, "timezone", "") or "")
+
+
+def now_in_timezone(timezone: str = "") -> datetime:
+    """Now in the configured zone. The single clock everything dates from."""
+    return datetime.now(resolve_timezone(timezone))
+
+
+def today_in_timezone(timezone: str = "") -> str:
+    """Today's date in the configured zone, for prompts and records."""
+    return now_in_timezone(timezone).strftime("%Y-%m-%d")
+
+
 def now_block(
     now: datetime,
     *,

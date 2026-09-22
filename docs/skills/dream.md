@@ -29,7 +29,11 @@ moves. The soul is who she is; self-lore is what she has picked up since.
 | Hook | What it adds |
 |---|---|
 | `context_section` | `## ABOUT YOU` — up to 15 self-facts, capped so a growing lore never takes over |
-| `live_state()` | `[RIGHT NOW]` — up to 6 live hot facts |
+| `live_state()` | `[HOT FACTS]` — up to 6 live hot facts |
+
+`[RIGHT NOW]` belongs to the clock alone (`ClockSkill`): the day, the time and
+the configured zone. Hot facts used to reuse the same header, so every briefing
+carried two of them.
 
 Hot facts have a TTL and prune themselves: an expired row is simply not
 selected, so there is no sweeper job.

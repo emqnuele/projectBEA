@@ -1,4 +1,3 @@
-import datetime
 from typing import Dict, List, Optional, Tuple
 
 from src.core.agent.tools import Tool
@@ -11,6 +10,7 @@ from src.core.skills.social.people import (
     resolve_or_create_card,
     should_promote,
 )
+from src.core.timeline import today_in_timezone
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.social")
@@ -112,7 +112,7 @@ class SocialMemory(Skill):
         if not should_promote(entry):
             return None
         reason = promotion_reason(entry)
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        today = today_in_timezone(str(getattr(self.config, "timezone", "") or ""))
         return promote_entry(self.roster, self.people, entry, reason=reason,
                              seed_facts=[f"first noticed {today} ({reason})"])
 

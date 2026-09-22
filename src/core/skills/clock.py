@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Optional
 
 from src.core.skills.base import Skill
-from src.core.timeline import now_block, resolve_timezone
+from src.core.timeline import now_block, now_in_timezone
 
 
 class ClockSkill(Skill):
@@ -24,7 +24,7 @@ class ClockSkill(Skill):
         return str(getattr(self.config, "timezone", "") or "")
 
     def now(self) -> datetime:
-        return datetime.now(resolve_timezone(self._timezone))
+        return now_in_timezone(self._timezone)
 
     def _awake_seconds(self) -> Optional[float]:
         memory = getattr(self.context, "memory", None)

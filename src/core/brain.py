@@ -105,7 +105,7 @@ class AIVtuberBrain:
         # how a word she writes inline becomes something she actually has
         self._install_matchers()
 
-        # unified consciousness (built in initialize, started only if enabled)
+        # unified consciousness (built in initialize, always started)
         self.perception_bus: Optional[PerceptionBus] = None
         self.skill_registry: Optional[SkillRegistry] = None
         self.attention: Optional[Attention] = None
@@ -293,7 +293,9 @@ class AIVtuberBrain:
             return f"unavailable ({e})"
 
     def _build_consciousness(self):
-        """Wires the single-brain stack. Started later only if enabled in config."""
+        """Wires the single-brain stack. The mind is always on: there is no
+        separate reactive path, so there is nothing an off switch could leave
+        running."""
         cc = self.config.consciousness
         self.perception_bus = PerceptionBus(
             window=cc.get("window", 0.3),
@@ -672,7 +674,7 @@ class AIVtuberBrain:
 
     async def start_skills(self):
         """Starts the consciousness loop (which starts every enabled skill)."""
-        if self.consciousness and self.config.consciousness.get("enabled", False):
+        if self.consciousness:
             await self.consciousness.start()
             logger.info("Single-brain consciousness is active.")
             # prime cold network paths so the FIRST real message doesn't pay

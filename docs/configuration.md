@@ -184,7 +184,6 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "faster_whisper_download_root": "data/models/whisper",
     "faster_whisper_vad": true,
     "consciousness": {
-        "enabled": true,
         "idle_after": 240.0,
         "window": 0.3,
         "text_window": 1.2,
@@ -299,9 +298,11 @@ engine refuses to start and says which key is missing.
 
 ## consciousness
 
+The mind is always on: there is no off switch, because there is no other path
+that could answer while it is off.
+
 | Key | Default | Description |
 |---|---|---|
-| `enabled` | `true` | Off means no mind at all: nothing perceives, nothing answers |
 | `idle_after` | `240.0` | Seconds of silence before an IDLE perception. Only applies while the `monologue` skill is on |
 | `window` | `0.3` | The quiet gap a live sense waits for one more of its own: a voice line, a game event. The batch closes when nothing new has arrived for this long |
 | `text_window` | `1.2` | The same for written messages. Longer because the pause between two typed lines is somebody still typing — at `0` she answers each line of a paragraph separately |
@@ -511,7 +512,7 @@ the single source of truth** — Bea can never arm a capability herself.
 | `monologue` | `prompt_path` — the timer is `consciousness.idle_after` | [monologue](skills/monologue.md) |
 | `minecraft` | `server_url`, `idle_nudge_seconds`, `commentary_seconds`, `steps_per_goal`, `tick_seconds`, `body_context_rounds`, `system_prompt_path`, `body_prompt_path` | [minecraft](skills/minecraft.md) |
 | `discord` | `api_port`, `brain_api_url`, `admin_id`, `duck_threshold_ms`, `interrupt_threshold_ms`, `fill_silences`, `silence_seconds`, `silence_jitter_seconds`, `silence_min_gap_seconds`, `unprompted_per_minute`, `token` | [discord](skills/discord.md) |
-| `telegram` | `owner_id`, `allowed_chats`, `token` | [telegram](skills/telegram.md) |
+| `telegram` | `owner_id`, `allowed_chats`, `group_salience`, `token` | [telegram](skills/telegram.md) |
 | `twitch` | `channel`, `nick`, `oauth_token` | [twitch](skills/twitch.md) |
 | `donations` | `secret` | [donations](skills/donations.md) |
 

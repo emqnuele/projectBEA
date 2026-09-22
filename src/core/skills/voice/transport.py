@@ -19,6 +19,62 @@ logger = get_logger("bea.skills.voice.transport")
 # reachable over TCP, so it gets a credential and stays off the network.
 LOOPBACK = "127.0.0.1"
 
+# what `brain_api_url` means when nobody chose anything: the engine's own
+# default address. `--port`/`--host` move the engine, so an untouched default
+# follows them (see `apply_cli_address`); a customized value always wins.
+DEFAULT_BRAIN_API_URL = "http://127.0.0.1:8000"
+
+
+def _dial_host(host: str) -> str:
+    """The host the bot can actually call back on.
+
+    The server may bind `0.0.0.0` (every interface), which is not a dialable
+    address — the bot lives on this machine, so it calls back on loopback.
+    """
+    host = (host or "").strip() or LOOPBACK
+    if host == "0.0.0.0":
+        return LOOPBACK
+    return host
+
+
+def effective_brain_api_url(config: BrainConfig, host: str, port: int) -> str:
+    """The engine URL the bot should call, without writing anything down.
+
+    Untouched (absent or still the default) follows `--host`/`--port`;
+    anything else was chosen on purpose and wins as-is.
+    """
+    configured = config.skills.get("discord", {}).get("brain_api_url", DEFAULT_BRAIN_API_URL)
+    if configured and configured != DEFAULT_BRAIN_API_URL:
+        return configured
+    return f"http://{_dial_host(host)}:{port}"
+
+
+def apply_cli_address(config: BrainConfig, host: str, port: int) -> str:
+    """Point an untouched `brain_api_url` at this launch's engine address.
+
+    In-memory only: nothing is written to config.json here, so a later dashboard
+    save is still the moment a value gets pinned down. Returns the URL in force
+    and warns when a customized value points elsewhere than this launch.
+    """
+    from urllib.parse import urlparse
+
+    effective = effective_brain_api_url(config, host, port)
+    discord = config.skills.setdefault("discord", {})
+    if "brain_api_url" not in discord or discord.get("brain_api_url") == DEFAULT_BRAIN_API_URL:
+        discord["brain_api_url"] = effective
+        return effective
+    try:
+        configured_port = urlparse(str(discord.get("brain_api_url"))).port
+    except Exception:
+        configured_port = None
+    if configured_port is not None and configured_port != int(port):
+        logger.warning(
+            f"discord.brain_api_url points at port {configured_port} but the engine "
+            f"is on :{port} (--port). The bot keeps calling the configured URL; "
+            f"change Engine URL in Settings -> Discord if that is not what you want."
+        )
+    return str(discord.get("brain_api_url"))
+
 
 class DiscordTransport:
     """Owns the Discord bot: a node.js subprocess (bot/) plus its HTTP send API.
@@ -59,7 +115,7 @@ class DiscordTransport:
 
     def _brain_api_url(self) -> str:
         # where the node bot calls back into the brain (its senses)
-        return self.config.skills.get("discord", {}).get("brain_api_url", "http://127.0.0.1:8000")
+        return self.config.skills.get("discord", {}).get("brain_api_url", DEFAULT_BRAIN_API_URL)
 
     @property
     def running(self) -> bool:

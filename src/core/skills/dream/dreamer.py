@@ -1,4 +1,3 @@
-import datetime
 from typing import Any, Dict, List, Optional
 
 from src.core.language import write_in
@@ -6,6 +5,7 @@ from src.core.memory.rag import SOURCE_PERSON
 from src.core.memory.transcript import MIN_SPOKEN_LINES, render_stream, spoken_count
 from src.core.persona import Persona
 from src.core.skills.social.people import record_person
+from src.core.timeline import today_in_timezone
 from src.utils.logger import get_logger
 from src.utils.prompts import load_text
 
@@ -36,6 +36,7 @@ class Dreamer:
 
     def __init__(self, *, llm, history_manager, roster, people, selflore, recent,
                  sessions, conversations, rag=None, persona=None, language: str = "",
+                 timezone: str = "",
                  prompt_path: str = DEFAULT_PROMPT_PATH):
         self.llm = llm
         self.history = history_manager
@@ -50,6 +51,7 @@ class Dreamer:
         self.rag = rag
         self.persona = persona or Persona()
         self.language = language
+        self.timezone = timezone or ""
         self.prompt_path = prompt_path or DEFAULT_PROMPT_PATH
 
     @property
@@ -98,7 +100,7 @@ class Dreamer:
 
     async def _dream_session(self, rows: List[Dict]) -> Optional[Dict]:
         convo = render_stream(rows)
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        today = today_in_timezone(self.timezone)
         system = (self._prompt
                   .replace("{date}", today)
                   .replace("{language}", write_in(self.language)))
