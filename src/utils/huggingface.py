@@ -50,8 +50,9 @@ def download_hint(error: Exception) -> Optional[str]:
 # Every library that pulls weights draws its own progress bar, and two of them
 # draw it with a bare `print`. Inside a live display that is not a second bar —
 # it is the first one, shredded. Whoever is watching gets one bar, ours.
+# the hub's own flag stays out: it is frozen at import for the whole process,
+# and a later enable_progress_bars() from fastembed then warns on every start
 QUIET_ENV = {
-    "HF_HUB_DISABLE_PROGRESS_BARS": "1",
     # windows without developer mode cannot symlink, and the hub explains the
     # fallback — which works — in nine lines, on every single start
     "HF_HUB_DISABLE_SYMLINKS_WARNING": "1",
@@ -65,8 +66,6 @@ def quiet() -> Iterator[None]:
     previous = {name: os.environ.get(name) for name in QUIET_ENV}
     os.environ.update(QUIET_ENV)
 
-    # the hub reads that flag once, at import, which by now has happened: the
-    # environment alone would be a no-op for the process we are in
     reenable: Optional[Callable[[], None]] = None
     try:
         # the module, not the package: the three are re-exported without being
