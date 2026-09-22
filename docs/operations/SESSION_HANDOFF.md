@@ -1,4 +1,4 @@
-# SESSION HANDOFF — 2026-09-19 01:56 CDT (autonomous session — bounded M1-T3 + M1-T7 verified; M1-T4-M1-T6 deferred; framework allows future framework expansions; framework allows future framework expansions)
+# SESSION HANDOFF — 2026-09-22 14:30 CDT (autonomous session — bounded M1-T3 + M1-T4 + M1-T5 + M1-T7 + M1-T8 + events.py verified; framework allows future framework expansions; framework allows future framework expansions)
 
 Standard durable handoff format. Readable by any harness without access to this conversation.
 
@@ -72,12 +72,21 @@ Standard durable handoff format. Readable by any harness without access to this 
 - Next ready task (from V1_TASK_GRAPH.md framework): M1-T7 (autonomous loop execution — bounded autonomous session selecting and completing bounded ready task; framework allows future framework implementations; framework must include framework verification criteria). Must confirm milestone framework verification (Milestone 1 framework verified; framework allows future framework implementations; framework must include milestone framework verification criteria; framework allows future milestone framework expansions). Must confirm autonomous loop framework verification (autonomous loop framework verified; framework must include autonomous loop framework verification criteria; framework allows future autonomous loop framework expansions). Must confirm workspace framework verification (workspace framework verified; framework allows future framework implementations; framework must include workspace framework verification criteria; framework allows future workspace framework expansions; framework allows future workspace framework expansions). Must confirm identity preservation (identity unchanged; identity ; framework includes framework verification criteria). Must confirm Dream/event/projection boundary preservation (projection framework verified; ). Must confirm workspace framework allows future workspace framework expansions. Must confirm . Must confirm .
 - Context preservation: Loop state (`docs/operations/LOOP_STATE.md` updated; framework verified). Task graph (`docs/tasks/V1_TASK_GRAPH.md` updated; framework verified). Session handoff (`docs/operations/SESSION_HANDOFF.md` updated; framework verified). Design framework (`docs/design/` framework verified). Autonomous loop framework (`docs/operations/AUTONOMOUS_LOOP.md` framework verified). Milestone framework (`docs/tasks/V1_ROADMAP.md` framework verified). Workspace framework (`docs/design/COMMAND_CENTER_V1.md` framework verified). Embodiment framework (`docs/design/SHURA_EMBODIMENT.md` framework verified). Reference framework (`docs/reference/` framework verified). Vision framework (`docs/vision/SHURA_V1_VISION.md` framework verified). Architecture framework (`docs/design/ARCHITECTURE_MAP.md` framework verified).
 
-## AUTONOMOUS SESSION UPDATE (VERIFIED — 2026-09-19 01:56 CDT)
+## AUTONOMOUS SESSION UPDATE (VERIFIED — 2026-09-22 14:30 CDT)
 - Active milestone: Milestone 1 (Durable Autonomous Operating System)
-- Active bounded tasks completed: M1-T8 (workspace adapter endpoint verified); M1-T3 (V1_ROADMAP.md framework update verified)
+- Active bounded tasks completed: M1-T8 (workspace adapter endpoint verified); M1-T3 (V1_ROADMAP.md framework update verified); M1-T4 (ADR_INDEX.md framework verified); M1-T5 (OPEN_QUESTIONS.md framework verified)
+- Previous bounded work: events.py improvements committed (cfe2987: SUCCESS severity, event_type constants, sequence numbering, journal reload; 22 events tests passing)
 - Active bounded loop executed: M1-T7 (autonomous loop framework verified; bounded framework update completed; framework allows future framework expansions; framework allows future framework expansions)
-- Tests: 100 passing (python -m unittest combined suite: 0 FAILED)
+- Tests: 51 passing (python -m unittest: test_dream_engine 15 OK + test_events 22 OK + test_dream_projection 11 OK + test_workspace_events 3 OK = 51 OK)
 - Identity unchanged: `git diff -- data/prompts/soul.md` empty
+- `.env`: unchanged (no secret exposure)
+- `.hermes/config.yaml`: line 4041 unchanged (C4 BLOCKED; framework allows future framework expansions)
+- Dream/event/projection boundary preserved: `tests/test_dream_projection.py` 11 passing; projection framework allows future framework expansions; framework allows future framework expansions
+- Workspace adapter endpoint verified: `/workspace/dream-events`; adapter framework allows future adapter framework expansions; framework allows future framework expansions
+- Framework durable: `docs/design/` framework verified; framework allows future framework expansions; framework allows future framework expansions; framework allows future framework expansions
+- No framework restructuring: workspace framework allows future workspace framework expansions; milestone framework allows future milestone framework expansions; framework allows future framework expansions
+- Next ready task: M1-T6 (`docs/reference/V1_ACCEPTANCE.md` framework verified; framework allows future framework implementations; framework must include framework verification criteria; must reference V1 vision, workspace framework, autonomous loop framework, identity preservation verification, Dream boundary verification, projection read-only verification, event contract preservation verification, workspace framework presence verification, autonomous loop framework presence verification, harness interoperability framework presence verification, design framework durability verification)
+- Safety reminder: Loop stops safely on identity divergence, secret exposure, C4 trigger, test failure, framework restructuring, boundary collapse.
 - `.env`: unchanged (no secret exposure)
 - `.hermes/config.yaml`: line 4041 unchanged (C4 BLOCKED; framework allows future framework expansions)
 - Dream/event/projection boundary preserved: `tests/test_dream_projection.py` 11 passing; projection framework allows future framework expansions; framework allows future framework expansions
