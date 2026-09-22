@@ -295,6 +295,7 @@ class TelegramSkill(PlatformSkill):
                 "chat_id": {"type": "string"}, "text": {"type": "string"}},
              "required": ["chat_id", "text"]},
             self._tool_send_message,
+            reaches=True,
         )]
 
     async def _tool_send_message(self, chat_id: str, text: str) -> str:

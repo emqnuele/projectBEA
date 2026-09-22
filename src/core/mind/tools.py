@@ -81,12 +81,14 @@ class MindTools:
                 },
             }, "required": ["mood", "message"]},
             self._speak,
+            reaches=True,
         )
         registry.add(
             "stay_silent",
             "Choose to say nothing right now.",
             {"type": "object", "properties": {"reason": {"type": "string"}}, "required": []},
             self._stay_silent,
+            reaches=True,
         )
         written = self.platforms()
         if self._send_text is not None and written:
@@ -108,6 +110,7 @@ class MindTools:
                                  "description": "optional message id to quote"}},
                  "required": ["platform", "channel", "text"]},
                 self._send_text,
+                reaches=True,
             )
         if self._react_to is not None:
             registry.add(
@@ -121,6 +124,7 @@ class MindTools:
                     "emoji": {"type": "string"}},
                  "required": ["platform", "channel", "message_id", "emoji"]},
                 self._react_to,
+                reaches=True,
             )
         if self._say_nothing is not None:
             registry.add(
@@ -130,6 +134,7 @@ class MindTools:
                 {"type": "object", "properties": {"reason": {"type": "string"}},
                  "required": []},
                 self._say_nothing,
+                reaches=True,
             )
         for tool in self.surfaces.tools():
             registry.register(tool)

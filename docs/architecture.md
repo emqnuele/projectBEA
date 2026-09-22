@@ -218,8 +218,14 @@ answering on it.
       when it worked, `EventCategory.ERROR` when it did not;
     - if she spoke (`speak`) or chose silence (`stay_silent`, `say_nothing`)
       the turn ends without burning another model call.
-   - if nothing she did reached anybody — only plain text, or every tool
-     failed — she is told so once and given one more step (`_NO_TOOL_NUDGE`).
+   - if nothing she did reached anybody — a final answer written as plain
+     text, or every audience-reaching tool failed — she is told so once and
+     given one more step (`_NO_TOOL_NUDGE`). Only tools that declare
+     `reaches=True` (audience: `speak`, chat sends, reacts, DMs, explicit
+     silence) count as reaching someone; side effects (`objective_*`,
+     `play_minecraft`, body actions, recall) never stand in for the answer.
+     An audience success suppresses the rescue even if plain text follows it —
+     no double answer, the extra words stay in `thought`.
 7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **mirror** the turn into the sliding
     window (`_record_window`) — retention is token-budgeted (ceiling 150k by
     default, up to 500k),
@@ -646,7 +652,10 @@ action's result gets attributed to when it comes back as a perception.
 An observation starting `ERROR` or `FAILED` is published as
 `EventCategory.ERROR` rather than `EventCategory.TOOL`, and it does not count
 as having answered anybody: a turn whose only tool call failed gets the same
-rescue as a turn that produced nothing but plain text.
+rescue as a turn that produced nothing but plain text. Whether a tool can
+stand in for an answer is declared on the tool itself (`Tool.reaches`, default
+`False`); the turn record carries a `rescued` flag so "she chose silence" and
+"nobody heard her" stay distinguishable after the fact.
 
 ---
 

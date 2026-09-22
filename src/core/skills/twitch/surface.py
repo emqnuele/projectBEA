@@ -263,6 +263,7 @@ class TwitchSkill(PlatformSkill):
             {"type": "object", "properties": {"text": {"type": "string"}},
              "required": ["text"]},
             self._tool_say,
+            reaches=True,
         )]
 
     async def _tool_say(self, text: str) -> str:

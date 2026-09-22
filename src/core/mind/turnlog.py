@@ -136,7 +136,8 @@ def _trim(value: Any) -> Any:
 def turn_record(*, context: List[Dict[str, Any]], perceptions: List[str],
                 calls: List[Dict[str, Any]], spoke: Optional[Dict[str, str]],
                 usage, steps: int, ms: float, model: str = "",
-                thought: Optional[List[str]] = None) -> Dict[str, Any]:
+                thought: Optional[List[str]] = None,
+                rescued: bool = False) -> Dict[str, Any]:
     """One turn, as the object that gets written down.
 
     Kept apart from the writing so the shape can be tested without a disk, and
@@ -159,6 +160,9 @@ def turn_record(*, context: List[Dict[str, Any]], perceptions: List[str],
         "thought": list(thought or []),
         "tools": calls,
         "spoke": spoke,
+        # whether the one rescue had to be spent on this turn: the only thing
+        # that separates "she chose silence" from "nobody heard her"
+        "rescued": rescued,
         "prompt_tokens": usage.prompt_tokens,
         "completion_tokens": usage.completion_tokens,
         "cached_tokens": usage.cached_tokens,
