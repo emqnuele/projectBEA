@@ -126,7 +126,6 @@ class Consciousness:
         if attention is not None and getattr(attention, "window", None) is None:
             attention.window = self.sliding_window
         self.idle_after = cc.get("idle_after", 30.0)
-        self.window = cc.get("window", 0.3)
         self.burst_steps = cc.get("burst_steps", 6)
         self.correlation_timeout = cc.get("correlation_timeout", 30.0)
         # whether a line starts being spoken while the model is still writing it

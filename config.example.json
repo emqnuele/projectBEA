@@ -162,6 +162,8 @@
         "enabled": true,
         "idle_after": 240.0,
         "window": 0.3,
+        "text_window": 1.2,
+        "max_window": 8.0,
         "burst_steps": 6,
         "correlation_timeout": 90.0,
         "context_max_tokens": 150000,

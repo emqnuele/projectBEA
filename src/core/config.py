@@ -280,7 +280,11 @@ class BrainConfig:
     consciousness: Dict[str, Any] = field(default_factory=lambda: {
         "enabled": True,
         "idle_after": 240.0,       # seconds of silence before an IDLE perception (monologue = last resort)
-        "window": 0.3,             # perception aggregation window
+        # the batch closes when the senses go quiet for this long, not this
+        # long after the first thing arrived
+        "window": 0.3,             # quiet gap for a live sense (voice, game)
+        "text_window": 1.2,        # quiet gap for written text: a person is still typing
+        "max_window": 8.0,         # ceiling on one batch, so a busy chat cannot hold the turn
         "burst_steps": 6,          # max reasoning steps per perception batch
         "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
         # ongoing present: what counts as "happening right now" across a handoff

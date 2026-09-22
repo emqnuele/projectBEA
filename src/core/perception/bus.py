@@ -14,10 +14,27 @@ class PerceptionBus:
     Every surface (chat, voice, game, future twitch/telegram) pushes `Perception`
     objects here. The consciousness loop drains them. This replaces the ad-hoc
     per-channel buffering (interaction_buffer, pending_transcripts, flush timers).
+
+    One batch, one frame, one turn — and the batch is what this file decides.
+    It closes on a **quiet gap**: nothing new for `window` seconds, rather than
+    `window` seconds after the first thing arrived. Somebody typing "hey" /
+    "come stai" / "tutto bene?" pauses about a second between lines and means
+    one thing by all three; a stopwatch started by the first of them hands the
+    loop one line at a time and she answers three times.
     """
 
-    def __init__(self, window: float = 0.3):
+    def __init__(self, window: float = 0.3, max_window: float = 0.0,
+                 text_window: float = 0.0):
+        # the gap a live sense waits for one more of its own: a voice line, a
+        # game event, a donation. Short, because a second of dead air in a call
+        # is a second she took to answer.
         self.window = window
+        # the gap written text waits. Longer, because the pause between two
+        # typed lines is a person still typing, not a person who has finished.
+        self.text_window = text_window if text_window > 0 else window
+        # and the ceiling on the whole batch, so a busy chat cannot hold the
+        # turn open for as long as it keeps talking
+        self.max_window = max_window if max_window > 0 else max(window, self.text_window) * 10
         self._queue: "asyncio.Queue[Perception]" = asyncio.Queue()
 
     def put(self, perception: Perception) -> None:
@@ -36,27 +53,46 @@ class PerceptionBus:
         return items
 
     async def drain(self, window: Optional[float] = None) -> List[Perception]:
-        """Waits for at least one perception, then aggregates within `window`.
-
-        Coalesces a short burst (e.g. several speakers at once) into one batch so
-        the consciousness reasons over them together instead of one at a time.
-        """
-        window = self.window if window is None else window
+        """Waits for at least one perception, then for the senses to go quiet."""
         first = await self._queue.get()
-        items = [first]
+        return await self.settle([first], window)
 
-        deadline = time.time() + window
+    async def settle(self, items: List[Perception],
+                     window: Optional[float] = None) -> List[Perception]:
+        """Keeps taking until nothing new has arrived for a gap, or `max_window`.
+
+        Every arrival pushes the deadline out, so the batch closes when the
+        person stops rather than on a clock they never saw. The gap is set by
+        the most impatient thing in the batch: one voice line among three typed
+        ones means she answers at voice speed.
+        """
+        gap = self._gap(items) if window is None else window
+        if gap <= 0:
+            items.extend(self.drain_nowait())
+            items.sort(key=lambda p: p.ts)
+            return items
+
+        ceiling = time.monotonic() + self.max_window
         while True:
-            remaining = deadline - time.time()
+            remaining = min(gap, ceiling - time.monotonic())
             if remaining <= 0:
                 break
             try:
-                items.append(await asyncio.wait_for(self._queue.get(), timeout=remaining))
+                arrived = await asyncio.wait_for(self._queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
                 break
+            items.append(arrived)
+            if window is None:
+                gap = min(gap, self._gap([arrived]))
 
         items.sort(key=lambda p: p.ts)
         return items
+
+    def _gap(self, items: List[Perception]) -> float:
+        """How long this batch waits for one more thing to arrive."""
+        gaps = [self.text_window if p.kind is PerceptionKind.CHAT else self.window
+                for p in items]
+        return min(gaps) if gaps else self.window
 
     async def wait_or_idle(self, idle_after: float) -> List[Perception]:
         """Drains perceptions; if `idle_after` seconds pass with none, emits an IDLE.
@@ -69,6 +105,9 @@ class PerceptionBus:
         she would never notice the silence at all. The game body heartbeats
         every few seconds, so this is the difference between a mind that can
         start on its own while playing and one that cannot.
+
+        Past the timeout it settles exactly like `drain`: the batch must not
+        depend on whether the monologue happens to be switched on.
         """
         deadline = time.monotonic() + idle_after
         while True:
@@ -80,11 +119,9 @@ class PerceptionBus:
             except asyncio.TimeoutError:
                 return [self._idle()]
 
-            items = [first]
-            items.extend(self.drain_nowait())
+            items = await self.settle([first])
             if all((p.meta or {}).get("noise") for p in items):
                 continue
-            items.sort(key=lambda p: p.ts)
             return items
 
     @staticmethod
