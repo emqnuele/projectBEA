@@ -148,6 +148,7 @@ class Consciousness:
         self._live: Optional[LiveLine] = None
 
         # what this turn has done so far, for the record written at the end of it
+        self._thought: List[str] = []
         self._acted: List[Dict[str, Any]] = []
         self._said: Optional[Dict[str, Any]] = None
         self._sent: List[Dict[str, Any]] = []
@@ -331,7 +332,7 @@ class Consciousness:
                 t_turn = time.perf_counter()
                 steps = 0
                 spent = Usage()
-                self._acted, self._said, self._sent = [], None, []
+                self._thought, self._acted, self._said, self._sent = [], [], None, []
                 for _ in range(self.burst_steps):
                     steer = self._steering()
                     if steer:
@@ -354,8 +355,7 @@ class Consciousness:
                         logger.info(f"llm step {steps} took {(time.perf_counter() - t_llm) * 1000:.0f}ms"
                                     f"{' (tools: ' + ', '.join(c.name for c in assistant.tool_calls) + ')' if assistant.tool_calls else ' (final)'}")
                     context.append(assistant_to_message(assistant))
-                    if assistant.content:
-                        self.events.publish(EventCategory.THOUGHT, "consciousness", assistant.content)
+                    self._think_aloud(assistant.content)
 
                     if assistant.is_final:
                         break
@@ -384,8 +384,7 @@ class Consciousness:
                     assistant = await self._think(context)
                     spent = spent + assistant.usage
                     context.append(assistant_to_message(assistant))
-                    if assistant.content:
-                        self.events.publish(EventCategory.THOUGHT, "consciousness", assistant.content)
+                    self._think_aloud(assistant.content)
                     if not assistant.is_final:
                         for call in assistant.tool_calls:
                             obs = await self._dispatch(call)
@@ -585,6 +584,19 @@ class Consciousness:
             },
         )
 
+    def _think_aloud(self, content: Optional[str]) -> None:
+        """Her inner monologue: shown live, and kept for the record.
+
+        Plain text is private thinking — nobody hears it, and every token of it
+        is a token of delay before she says anything. Keeping it is what makes
+        "why did she go quiet" and "why was that turn slow" answerable after
+        the fact instead of the following stream.
+        """
+        if not content:
+            return
+        self._thought.append(content)
+        self.events.publish(EventCategory.THOUGHT, "consciousness", content)
+
     def _write_down(self, context: List[Dict[str, Any]], batch: List[Perception],
                     steps: int, spent: Usage, elapsed_ms: float) -> None:
         """Files the turn away, for the questions that only come up afterwards."""
@@ -594,6 +606,7 @@ class Consciousness:
             self.turns.write(turn_record(
                 context=context,
                 perceptions=[p.render() for p in batch],
+                thought=self._thought,
                 calls=self._acted,
                 spoke=self._heard(),
                 usage=spent,

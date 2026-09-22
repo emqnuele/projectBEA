@@ -136,3 +136,22 @@ async def test_the_rescue_is_counted_in_what_the_turn_cost():
     cost = [e for e in m.events.events if e[1] == "cost"]
     assert cost, "no cost was published"
     assert cost[0][3]["steps"] == m.llm.call_count
+
+
+# --- and what she was thinking while she did it ------------------------------
+
+
+async def test_the_monologue_is_kept_with_the_turn():
+    import datetime
+
+    from src.core.mind.turnlog import TurnLog
+
+    m = mind(AssistantMessage(content="uff, che palle"), speaks("eccomi"))
+    m.turns = TurnLog(str(__import__("tempfile").mkdtemp()), 1)
+    await run(m)
+
+    day = datetime.datetime.now().strftime("%Y-%m-%d")
+    written = [__import__("json").loads(line)
+               for line in m.turns.path_for(day).read_text().splitlines() if line]
+    assert written[0]["thought"] == ["uff, che palle"]
+    assert written[0]["spoke"]["message"] == "eccomi"

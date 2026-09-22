@@ -256,3 +256,31 @@ def test_a_long_string_buried_in_a_tool_call_is_capped_too(tmp_path):
     kept = line["tools"][0]["result"]
     assert len(kept) < MAX_FIELD_CHARS + 100
     assert kept.endswith("chars)")
+
+
+# --- what she thought, not only what she did ---------------------------------
+
+
+def test_the_record_keeps_what_she_wrote_as_plain_text():
+    """Most of a slow turn is spent here and nobody hears any of it, so a log
+    without it can say a turn took twenty seconds and not why."""
+    record = turn_record(
+        context=[{"role": "system", "content": "soul"}],
+        perceptions=["[ema] ciao"],
+        thought=["ok she wants a reply", "keep it short"],
+        calls=[], spoke=None, usage=Usage(), steps=2, ms=20000,
+    )
+    assert record["thought"] == ["ok she wants a reply", "keep it short"]
+
+
+def test_a_turn_she_thought_nothing_through_records_an_empty_list():
+    record = turn_record(context=[], perceptions=[], calls=[], spoke=None,
+                         usage=Usage(), steps=1, ms=1)
+    assert record["thought"] == []
+
+
+def test_the_record_says_how_much_of_the_answer_was_thinking():
+    record = turn_record(context=[], perceptions=[], calls=[], spoke=None,
+                         usage=Usage(1000, 500, 800, 460), steps=1, ms=1)
+    assert record["completion_tokens"] == 500
+    assert record["reasoning_tokens"] == 460
