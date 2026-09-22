@@ -275,8 +275,9 @@ class Consciousness:
         for s in self.surfaces.all():
             try:
                 await s.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                # said out loud: a skill that fails to stop may leave a process behind
+                logger.error(f"Surface '{s.name}' failed to stop: {e}")
         logger.info("Consciousness stopped.")
 
     async def _cancel_background(self) -> None:
