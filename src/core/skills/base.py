@@ -89,21 +89,6 @@ class Skill:
     async def stop(self) -> None:
         self.active = False
 
-    # --- output sinks (override the ones this skill supports) ---------------
-
-    async def emit_text(self, text: str, meta: Optional[Dict[str, Any]] = None) -> List[str]:
-        """Send a text message out on this skill (discord/twitch/telegram).
-
-        Returns the id of each message that went out — one line of hers can
-        become several — so a caller can reply into the thread it just started.
-        Nothing sent, nothing returned.
-
-        There is deliberately no `emit_voice` beside it: audio leaves the brain
-        in exactly one place, `Expression`, which is what lets ducking, stopping
-        and knowing how far a sentence got live together.
-        """
-        return []
-
     # --- context contributed while this skill is active --------------------
 
     @property

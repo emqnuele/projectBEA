@@ -212,14 +212,6 @@ class RosterStore:
         )
         return [self._entry(r) for r in rows]
 
-    def regulars(self, limit: int = 20) -> List[RosterEntry]:
-        """The people she has actually seen around — a query, not a full scan."""
-        rows = self.db.query(
-            "SELECT i.identity FROM identities i JOIN roster r ON r.identity = i.identity "
-            "ORDER BY r.message_count DESC LIMIT ?", (limit,),
-        )
-        return [e for r in rows if (e := self.get(r["identity"])) is not None]
-
     def _entry(self, row) -> RosterEntry:
         sessions = self.db.scalar(
             "SELECT COUNT(*) FROM roster_sessions WHERE identity = ?", (row["identity"],)
@@ -448,12 +440,6 @@ class HotFacts:
     def clear_source(self, source: str) -> None:
         self.db.execute("DELETE FROM hot_facts WHERE source = ?", (source,))
 
-    def prune(self) -> int:
-        rows = self.db.query("SELECT id FROM hot_facts WHERE expires_at <= ?", (time.time(),))
-        if rows:
-            self.db.execute("DELETE FROM hot_facts WHERE expires_at <= ?", (time.time(),))
-        return len(rows)
-
     def render(self, max_items: int = 6) -> str:
         facts = self.active()[:max_items]
         if not facts:
@@ -624,31 +610,6 @@ class Conversations:
             "ORDER BY id DESC LIMIT ?", (identity, limit),
         )
         return [r["content"] for r in reversed(rows)]
-
-    def participants(self, conversation_key: str, limit: int = 10) -> List[str]:
-        rows = self.db.query(
-            "SELECT DISTINCT author_identity FROM messages WHERE conversation_key = ? "
-            "AND author_identity IS NOT NULL ORDER BY id DESC LIMIT ?",
-            (conversation_key, limit),
-        )
-        return [r["author_identity"] for r in rows]
-
-    def seconds_since_bea_spoke(self, conversation_key: str,
-                                now: Optional[float] = None) -> Optional[float]:
-        ts = self.db.scalar(
-            "SELECT MAX(ts) FROM messages WHERE conversation_key = ? AND role = 'bea'",
-            (conversation_key,), default=None,
-        )
-        return None if ts is None else (now if now is not None else time.time()) - float(ts)
-
-    def recent_activity(self, conversation_key: str, window_seconds: float = 120.0,
-                        now: Optional[float] = None) -> int:
-        """`now` is injectable so callers with their own clock stay consistent."""
-        reference = now if now is not None else time.time()
-        return int(self.db.scalar(
-            "SELECT COUNT(*) FROM messages WHERE conversation_key = ? AND role = 'user' "
-            "AND ts >= ?", (conversation_key, reference - window_seconds),
-        ))
 
     def dashboard_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         """What the dashboard shows: the owner typing, and her answers.

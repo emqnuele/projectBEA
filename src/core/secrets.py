@@ -28,10 +28,6 @@ def env_var(path: str) -> Optional[str]:
     return SECRET_ENV_VARS.get(path)
 
 
-def is_secret(path: str) -> bool:
-    return path in SECRET_ENV_VARS
-
-
 def split(path: str) -> Tuple[Optional[str], str]:
     """`discord.token` -> ("discord", "token"); `groq_key` -> (None, "groq_key")."""
     skill, _, field = path.rpartition(".")

@@ -19,7 +19,7 @@ voice; `say_nothing` is the written equivalent of `stay_silent`.
 
 from typing import Callable, List, Optional
 
-from src.core.agent.tools import Tool, ToolRegistry
+from src.core.agent.tools import ToolRegistry
 from src.core.expression.tags import DIRECTIONS
 from src.core.mind.moods import enum_schema
 
@@ -136,6 +136,3 @@ class MindTools:
 
     def schemas(self) -> Optional[List[dict]]:
         return self.registry().schemas() or None
-
-    def get(self, name: str) -> Optional[Tool]:
-        return self.registry().get(name)
