@@ -159,7 +159,6 @@
     "faster_whisper_download_root": "data/models/whisper",
     "faster_whisper_vad": true,
     "consciousness": {
-        "enabled": true,
         "idle_after": 240.0,
         "window": 0.3,
         "text_window": 1.2,

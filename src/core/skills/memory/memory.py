@@ -64,7 +64,8 @@ class MemorySkill(Skill):
         if model_for is not None:
             self.generator = DiaryGenerator(
                 model_for("background"),
-                persona=persona_of(self.config), language=self.config.language)
+                persona=persona_of(self.config), language=self.config.language,
+                timezone=str(getattr(self.config, "timezone", "") or ""))
         else:
             logger.error("MemorySkill: no model available for the diary generator!")
         self.active = True

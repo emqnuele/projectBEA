@@ -274,7 +274,6 @@ class BrainConfig:
 
     # unified consciousness loop (single always-on brain)
     consciousness: Dict[str, Any] = field(default_factory=lambda: {
-        "enabled": True,
         "idle_after": 240.0,       # seconds of silence before an IDLE perception (monologue = last resort)
         # the batch closes when the senses go quiet for this long, not this
         # long after the first thing arrived
@@ -407,6 +406,36 @@ class BrainConfig:
                                         ("hot_tokens", 30_000)):
                         if consciousness.get(key) == legacy:
                             consciousness[key] = 0
+
+                # migration: `consciousness.enabled` is gone — the mind is the
+                # only path and is always on. A stored `false` used to leave her
+                # mute with every dashboard chat waiting out the 90s correlation
+                # timeout, which read as her choosing silence. Drop it so an old
+                # file cannot keep that state.
+                if isinstance(consciousness, dict):
+                    if consciousness.pop("enabled", None) is not None:
+                        logger.warning(
+                            "config.json carries consciousness.enabled, which no longer "
+                            "means anything — the mind is always on. Dropping it."
+                        )
+
+                # migration: `group_salience` was declared at 0.6 but never read,
+                # so every group message actually pulled at 0.8. A stored 0.6 is
+                # the old default somebody saved, not a choice — drop it so the
+                # wired default (0.8) keeps the historical behaviour. Anything
+                # else was chosen on purpose and stays.
+                skills = data.get("skills")
+                if isinstance(skills, dict):
+                    telegram = skills.get("telegram")
+                    if isinstance(telegram, dict) and telegram.get("group_salience") == 0.6:
+                        telegram.pop("group_salience", None)
+                        logger.warning(
+                            "config.json carries telegram.group_salience 0.6, which was "
+                            "the displayed default of a setting that was never read — "
+                            "group messages always pulled at 0.8. Dropping it so the "
+                            "behaviour stays what it was. Set Group pull explicitly "
+                            "to keep 0.6."
+                        )
 
                 # migration: image to avatar source
                 if "obs_image_source" in data and "obs_avatar_source" not in data:

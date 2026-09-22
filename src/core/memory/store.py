@@ -449,7 +449,7 @@ class HotFacts:
         if not facts:
             return ""
         lines = "\n".join(f"- {f.text}" for f in facts)
-        return f"[RIGHT NOW]\n{lines}"
+        return f"[HOT FACTS]\n{lines}"
 
 
 # --- self -------------------------------------------------------------------

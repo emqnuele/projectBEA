@@ -2,6 +2,8 @@ const {
     joinVoiceChannel,
     getVoiceConnection,
     VoiceConnectionStatus,
+    VoiceConnectionDisconnectReason,
+    entersState,
     EndBehaviorType,
     createAudioPlayer,
     createAudioResource,
@@ -51,6 +53,12 @@ const DUCK_RAMP_MS = 250;
 const UNDUCK_RAMP_MS = 200;
 const STOP_RAMP_MS = 200;
 
+// how long a dropped connection gets to find its way back before it is
+// declared dead. The official @discordjs/voice pattern: a transient blip
+// moves the connection to Signalling/Connecting on its own, and only a
+// connection still stuck in Disconnected after this is destroyed.
+const DISCONNECT_TIMEOUT_MS = 5000;
+
 class VoiceManager {
     constructor(client) {
         this.client = client;
@@ -70,8 +78,10 @@ class VoiceManager {
         this.link = new BrainLink(this);
         this.link.start();
 
-        // people coming and going changes how she should read the room
-        client.on('voiceStateUpdate', () => this.announceCall());
+        // people coming and going changes how she should read the room, and
+        // being dragged elsewhere changes where she is
+        client.on('voiceStateUpdate', (oldState, newState) =>
+            this.handleVoiceStateUpdate(oldState, newState));
     }
 
     // she is in at most one call at a time
@@ -138,9 +148,15 @@ class VoiceManager {
                 this.announceCall();
             });
 
+            // a network blip moves the connection to Signalling/Connecting on
+            // its own; only a connection still stuck here afterwards is dead.
+            // Destroying it matters: without the destroy Discord keeps her in
+            // the call while the brain thinks she left — sitting there deaf.
             connection.on(VoiceConnectionStatus.Disconnected, () => {
                 console.log(`[VoiceManager] Disconnected from guild ${guildId}`);
-                this.cleanup(guildId);
+                this.handleDisconnect(guildId).catch((err) => {
+                    console.error(`[VoiceManager] Disconnect handling failed:`, err.message);
+                });
             });
 
             connection.on(VoiceConnectionStatus.Destroyed, () => {
@@ -161,6 +177,82 @@ class VoiceManager {
             data.connection.destroy();
         }
         this.cleanup(guildId);
+    }
+
+    // a dropped voice connection: wait out the transient, destroy the dead.
+    // `entersState` is injected so the tests can answer without a real call.
+    async handleDisconnect(guildId, waitFor = entersState) {
+        const data = this.connections.get(guildId);
+        if (!data) return;
+        const connection = data.connection;
+
+        const state = connection.state || {};
+        // kicked (4014) or had the endpoint pulled: reconnecting is futile
+        if (state.reason === VoiceConnectionDisconnectReason.WebSocketClose
+            && state.closeCode === 4014) {
+            console.log(`[VoiceManager] Kicked from guild ${guildId}; destroying.`);
+            try { connection.destroy(); } catch (e) { /* already gone */ }
+            this.cleanup(guildId);
+            return;
+        }
+        // asked for it ourselves via handleLeave: the destroy is already done
+        if (state.reason === VoiceConnectionDisconnectReason.Manual) {
+            this.cleanup(guildId);
+            return;
+        }
+
+        try {
+            await Promise.race([
+                waitFor(connection, VoiceConnectionStatus.Signalling, DISCONNECT_TIMEOUT_MS),
+                waitFor(connection, VoiceConnectionStatus.Connecting, DISCONNECT_TIMEOUT_MS),
+            ]);
+            console.log(`[VoiceManager] Reconnecting in guild ${guildId}; keeping the call.`);
+            this.announceCall();
+        } catch (e) {
+            console.log(`[VoiceManager] Connection in guild ${guildId} stayed down; destroying.`);
+            try { connection.destroy(); } catch (err) { /* already gone */ }
+            this.cleanup(guildId);
+        }
+    }
+
+    // the bot is the authority on where she is only when the brain is told:
+    // a drag to another channel must move her state, a kick must end it.
+    // Anything anyone else does only changes how many people are in the room.
+    handleVoiceStateUpdate(oldState, newState) {
+        try {
+            const botId = this.client && this.client.user ? this.client.user.id : null;
+            const memberId = (newState && newState.member && newState.member.id)
+                || (oldState && oldState.member && oldState.member.id);
+            if (botId && memberId && memberId !== botId) {
+                this.announceCall();
+                return;
+            }
+
+            const guildId = (newState && newState.guild && newState.guild.id)
+                || (oldState && oldState.guild && oldState.guild.id);
+            const newChannel = (newState && newState.channelId) || null;
+            const data = guildId ? this.connections.get(guildId) : null;
+
+            if (!newChannel) {
+                // kicked, or disconnected from the outside: the voice connection
+                // object is dead either way, so destroy it rather than leaving
+                // Discord thinking she is still in the call
+                if (data && data.connection) {
+                    try { data.connection.destroy(); } catch (e) { /* already gone */ }
+                }
+                if (guildId) this.cleanup(guildId);
+                else this.announceCall();
+                return;
+            }
+
+            if (data && newChannel !== data.channelId) {
+                console.log(`[VoiceManager] Moved in guild ${guildId}: ${data.channelId} -> ${newChannel}`);
+                data.channelId = newChannel;
+            }
+            this.announceCall();
+        } catch (e) {
+            console.error('[VoiceManager] voiceStateUpdate failed:', e.message);
+        }
     }
 
     cleanup(guildId) {
@@ -186,11 +278,14 @@ class VoiceManager {
 
     listenToUsers(guildId) {
         const data = this.connections.get(guildId);
-        // Ready fires again on a reconnect, and a second subscription would
-        // hand every packet over twice
-        if (!data || data.tick) return;
+        if (!data) return;
 
         const receiver = data.connection.receiver;
+        // Ready fires again on a reconnect with a NEW receiver: the tick guard
+        // below must not leave the new one without a listener, or she goes
+        // deaf while still sitting in the call
+        if (data.tick && data.receiver === receiver) return;
+        data.receiver = receiver;
 
         // discord opens a stream per burst of transmission, not per sentence,
         // so this fires again every time somebody takes a breath. What it opens
@@ -200,7 +295,7 @@ class VoiceManager {
             this.createStream(guildId, userId);
         });
 
-        data.tick = setInterval(() => this.sweep(guildId), TICK_MS);
+        if (!data.tick) data.tick = setInterval(() => this.sweep(guildId), TICK_MS);
     }
 
     /** The turn of somebody who is talking, or about to be. */
@@ -477,3 +572,4 @@ class VoiceManager {
 
 module.exports = VoiceManager;
 module.exports.buildJoinOptions = buildJoinOptions;
+module.exports.DISCONNECT_TIMEOUT_MS = DISCONNECT_TIMEOUT_MS;

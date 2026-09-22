@@ -7,12 +7,12 @@ wrote English quietly pulled an Italian conversation back towards English every
 turn, and the drift looked like it was coming out of the model.
 """
 
-import datetime
 from typing import Dict, Optional
 
 from src.core.agent.llm_client import LLMClient
 from src.core.language import write_in
 from src.core.persona import Persona
+from src.core.timeline import today_in_timezone
 from src.utils.logger import get_logger
 from src.utils.prompts import load_text
 
@@ -26,10 +26,12 @@ FALLBACK = ("You are a diary writer. Summarize the following conversation in JSO
 
 class DiaryGenerator:
     def __init__(self, llm: LLMClient, *, persona: Optional[Persona] = None,
-                 language: str = "", prompt_path: str = DEFAULT_PROMPT_PATH):
+                 language: str = "", timezone: str = "",
+                 prompt_path: str = DEFAULT_PROMPT_PATH):
         self.llm = llm
         self.persona = persona or Persona()
         self.language = language
+        self.timezone = timezone or ""
         self.prompt_path = prompt_path or DEFAULT_PROMPT_PATH
 
     @property
@@ -51,7 +53,7 @@ class DiaryGenerator:
         if not conversation_text:
             return None
 
-        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        today_str = today_in_timezone(self.timezone)
         system_prompt = (self.prompt_template
                          .replace("{date}", today_str)
                          .replace("{language}", write_in(self.language)))

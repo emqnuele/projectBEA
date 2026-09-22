@@ -8,6 +8,7 @@ from src.core.mind.handoff import HANDOFF_HEADER
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.dream.dreamer import DAY_SECONDS, Dreamer
+from src.core.timeline import now_in_timezone
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.dream")
@@ -68,9 +69,10 @@ class DreamSkill(Skill):
         a night nor doubles one.
         """
         hour = int(self.config.skills.get("dream", {}).get("hour", 4))
+        timezone = str(getattr(self.config, "timezone", "") or "")
         while self.active:
             await asyncio.sleep(300)
-            now = datetime.datetime.now()
+            now = now_in_timezone(timezone)
             if now.hour != hour or self._dreamed_tonight(now.date()):
                 continue
             self._mark_dreamed_tonight(now.date())
@@ -103,6 +105,7 @@ class DreamSkill(Skill):
             conversations=self.brain.memory.conversations,
             rag=getattr(self.brain.memory, "rag", None),
             persona=persona_of(self.config), language=self.config.language,
+            timezone=str(getattr(self.config, "timezone", "") or ""),
         )
 
     # --- always-in-context --------------------------------------------------
@@ -127,7 +130,8 @@ class DreamSkill(Skill):
 
         # 1. birthday countdown (from the structured profile)
         bday = self.selflore.profile().get("birthday")  # "MM-DD"
-        days = _days_until(bday) if bday else None
+        timezone = str(getattr(self.config, "timezone", "") or "")
+        days = _days_until(bday, timezone) if bday else None
         if days is not None:
             if days == 0:
                 self.recent.add("today is your birthday!", ttl, "morning_pass")
@@ -272,11 +276,13 @@ class DreamSkill(Skill):
         so a restart at 4:30 used to find an empty variable and dream the same
         night a second time.
         """
-        today = today or datetime.datetime.now().date()
+        if today is None:
+            today = now_in_timezone(str(getattr(self.config, "timezone", "") or "")).date()
         return self._last_night() == today.isoformat()
 
     def _mark_dreamed_tonight(self, today: Optional[datetime.date] = None) -> None:
-        today = today or datetime.datetime.now().date()
+        if today is None:
+            today = now_in_timezone(str(getattr(self.config, "timezone", "") or "")).date()
         memory = getattr(self.context, "memory", None)
         if memory is None:
             return
@@ -298,10 +304,10 @@ def _first_line(text: str, limit: int = 120) -> str:
     return line if len(line) <= limit else line[: limit - 1] + "…"
 
 
-def _days_until(mm_dd: str) -> Optional[int]:
+def _days_until(mm_dd: str, timezone: str = "") -> Optional[int]:
     try:
         month, day = [int(x) for x in mm_dd.split("-")]
-        today = datetime.date.today()
+        today = now_in_timezone(timezone).date()
         target = datetime.date(today.year, month, day)
         if target < today:
             target = datetime.date(today.year + 1, month, day)

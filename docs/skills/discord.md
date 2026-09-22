@@ -150,6 +150,14 @@ told rather than asking: `auto_leave_seconds` is checked every two seconds and
 the clock is held instead of run — walking out of a call full of people is
 worse than sitting in an empty one a little longer.
 
+Being dragged to another channel updates the tracked `channelId` and
+re-announces; being kicked destroys the voice connection and reports `left`.
+A dropped connection waits `DISCONNECT_TIMEOUT_MS` (5s) for the library to
+move it back to `Signalling`/`Connecting` on its own — a transient blip keeps
+the call — and only a connection still stuck in `Disconnected` afterwards is
+destroyed and reported `left`, so Discord never keeps her sitting in a call
+the brain thinks she left.
+
 **Voice in:** per-user Opus stream → `prism-media` decoder → 48 kHz stereo PCM →
 VAD gate + turn buffer → 16 kHz mono WAV → `POST /discord/audio` (or
 `POST /voice/transcript`) → transcription → a perception. The request ends there.
@@ -279,7 +287,7 @@ it never reads as local changes to the updater; an old
 |---|---|
 | `token` | Bot token. Lives in `.env` as `DISCORD_TOKEN`; typing it in the dashboard writes it there, never into `config.json` |
 | `api_port` | Port for the bot's Express API; passed to the subprocess as `PORT` |
-| `brain_api_url` | Where the bot calls back into the brain |
+| `brain_api_url` | Where the bot calls back into the brain. An untouched value follows `--host`/`--port` (with `0.0.0.0` dialled back as `127.0.0.1`); a customized one always wins, and a mismatch with the running engine is logged at startup |
 | `admin_id` | Discord user id allowed to run `!wl` |
 | `duck_threshold_ms` | Overlapping voiced speech before ducking to 0.25 gain (default `400`) |
 | `fill_silences` | Whether she may speak into a quiet call unasked |

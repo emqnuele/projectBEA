@@ -61,6 +61,13 @@ class TelegramSkill(PlatformSkill):
     def skill_config(self) -> dict:
         return self.config.skills.get("telegram", {})
 
+    @property
+    def _group_salience(self) -> float:
+        try:
+            return float(self.skill_config.get("group_salience", 0.8))
+        except (TypeError, ValueError):
+            return 0.8
+
     def _token(self) -> str:
         return os.getenv("TELEGRAM_TOKEN", "") or self.skill_config.get("token", "")
 
@@ -185,6 +192,8 @@ class TelegramSkill(PlatformSkill):
                 is_dm=private,
                 mentions_self=called,
                 reply_to_self=bool(bot_id is not None and reply_user_id == bot_id),
+                # a DM pulls like a DM; a group line pulls what the owner chose
+                salience=0.9 if private else self._group_salience,
                 meta={"chat_title": getattr(message.chat, "title", "") or "",
                       "media": kind},
             )
