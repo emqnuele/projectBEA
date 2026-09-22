@@ -80,7 +80,6 @@ def merge_env(text: str, updates: Dict[str, str], *, empty_clears: bool = False)
 
 def update_env(path: Union[str, Path], updates: Dict[str, str], *,
                empty_clears: bool = False) -> None:
-    """Applies `updates` to the file at `path`, creating it if needed."""
     path = Path(path)
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     # atomic: the engine reads this file at start, and a torn write loses every key

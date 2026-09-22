@@ -7,7 +7,6 @@ from typing import Dict, List, Optional
 from src.core.agent.tools import Tool
 from src.core.memory.rag import SOURCE_PERSON
 from src.core.memory.transcript import MIN_SPOKEN_LINES, render_stream, spoken_count
-from src.core.perception.types import PerceptionKind
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.memory.generator import DiaryGenerator
@@ -99,19 +98,12 @@ class MemorySkill(Skill):
             return None
         # silence asks nothing: an idle-only batch has no question for the
         # past, and embedding it would spend the model to retrieve noise
-        if not any(self._is_memorable(p) for p in batch):
+        if not any(p.is_memorable for p in batch):
             return None
         query = " ".join(_clean_for_query(p.render()) for p in batch)
         if not query.strip():
             return None
         return self.retrieve_context(query) or None
-
-    @staticmethod
-    def _is_memorable(p) -> bool:
-        """The same two exclusions the stream uses: the idle tick is the loop
-        talking to itself, and a noise-flagged heartbeat is already carried
-        by the live state. Neither is a question worth asking the past."""
-        return p.kind is not PerceptionKind.IDLE and not (p.meta or {}).get("noise")
 
     def retrieve_context(self, query: str, limit: int = RECALL_LIMIT) -> str:
         """Two blocks, explicitly labelled: facts, and things she made up."""

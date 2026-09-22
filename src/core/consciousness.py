@@ -118,22 +118,11 @@ class Consciousness:
         # every persist in flight, not just the latest: a fast pair of turns
         # must not orphan the first write while the second is awaited
         self._persist_tasks: set = set()
-        self._handoff_enabled = bool(cc.get("context_handoff", True))
-        # ram first: the turn only marks the window dirty, and the write
-        # happens behind it — never inside it
-        self._persist_after_turn = bool(cc.get("window_persist_after_turn", True))
-        # how long a turn waits for retrieved context before answering
-        # without it: the disk must never hold the conversation hostage
-        self._dynamic_timeout = float(cc.get("dynamic_context_timeout", 5.0))
+        self._read_knobs(cc)
         # the follow-up gate reads the one window, never sqlite: without this
         # the gate is blind and every "are they answering me" is a flat no
         if attention is not None and getattr(attention, "window", None) is None:
             attention.window = self.sliding_window
-        self.idle_after = cc.get("idle_after", 30.0)
-        self.burst_steps = cc.get("burst_steps", 6)
-        self.correlation_timeout = cc.get("correlation_timeout", 30.0)
-        # whether a line starts being spoken while the model is still writing it
-        self.stream_speech = bool(cc.get("stream_speech", True))
 
         # what provoked the turn in flight: `speak` needs it to know who to pin
         # a strong reaction on, and a tool handler is not handed the batch
@@ -173,6 +162,21 @@ class Consciousness:
         # the skill sections the promise check last looked at: it only has
         # something to say when they change, and they change rarely
         self._promised: str = ""
+
+    def _read_knobs(self, cc: Dict[str, Any]) -> None:
+        """The live knobs, read the same way at start and on every reload."""
+        self._handoff_enabled = bool(cc.get("context_handoff", True))
+        # ram first: the turn only marks the window dirty, and the write
+        # happens behind it — never inside it
+        self._persist_after_turn = bool(cc.get("window_persist_after_turn", True))
+        # how long a turn waits for retrieved context before answering
+        # without it: the disk must never hold the conversation hostage
+        self._dynamic_timeout = float(cc.get("dynamic_context_timeout", 5.0))
+        self.idle_after = cc.get("idle_after", 30.0)
+        self.burst_steps = cc.get("burst_steps", 6)
+        self.correlation_timeout = cc.get("correlation_timeout", 30.0)
+        # whether a line starts being spoken while the model is still writing it
+        self.stream_speech = bool(cc.get("stream_speech", True))
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -294,7 +298,6 @@ class Consciousness:
 
     async def run(self):
         while self.alive:
-            briefing: Optional[Dict[str, Any]] = None
             try:
                 idle = self.surfaces.get("idle")
                 if idle and idle.active:
@@ -315,10 +318,7 @@ class Consciousness:
                 # asleep: she stops reacting, not perceiving. The stream above
                 # keeps everything for the consolidation; the window stays out
                 # of it, because she is not there to experience any of it.
-                if self.sleeping:
-                    continue
-
-                if not batch:
+                if self.sleeping or not batch:
                     continue
 
                 # texture, not events: game snapshots already live in the live
@@ -327,106 +327,7 @@ class Consciousness:
                 if not self._needs_mind(batch):
                     continue
 
-                is_idle = bool(batch) and all(p.kind == PerceptionKind.IDLE for p in batch)
-                if not is_idle:
-                    logger.info(f"batch of {len(batch)} perception(s): "
-                                f"{', '.join(p.surface for p in batch)}")
-
-                # a voice input barges in on an ongoing monologue; text is just queued
-                if self.expression.is_speaking and any(p.kind == PerceptionKind.VOICE for p in batch):
-                    await self.expression.interrupt()
-
-                annotated = self._annotate(batch)
-                t_ctx = time.perf_counter()
-                system = self._system_message()
-                window_msgs = self.sliding_window.messages()
-                briefing = await self._build_briefing(batch, is_idle=is_idle)
-                if not is_idle:
-                    logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
-                context: List[Dict[str, Any]] = [system, *window_msgs]
-                if briefing:
-                    context.append(briefing)
-                frame = self._frame(annotated)
-                context.append(frame)
-                self._batch = list(batch)
-                frames = [(frame, annotated)]
-
-                t_turn = time.perf_counter()
-                steps = 0
-                spent = Usage()
-                self._thought, self._acted, self._said, self._sent = [], [], None, []
-                for _ in range(self.burst_steps):
-                    steer = self._steering()
-                    if steer:
-                        self.correlations.extend_batch(steer)
-                        self._remember(steer)
-                        if self._needs_mind(steer):
-                            steered = self._annotate(steer)
-                            steer_frame = self._frame(steered, steering=True)
-                            context.append(steer_frame)
-                            frames.append((steer_frame, steered))
-                            self._batch.extend(steer)
-                    if not self._batch:
-                        break
-
-                    steps += 1
-                    t_llm = time.perf_counter()
-                    assistant = await self._think(context)
-                    spent = spent + assistant.usage
-                    if not is_idle:
-                        logger.info(f"llm step {steps} took {(time.perf_counter() - t_llm) * 1000:.0f}ms"
-                                    f"{' (tools: ' + ', '.join(c.name for c in assistant.tool_calls) + ')' if assistant.tool_calls else ' (final)'}")
-                    context.append(assistant_to_message(assistant))
-                    self._think_aloud(assistant.content)
-
-                    if assistant.is_final:
-                        break
-
-                    for call in assistant.tool_calls:
-                        obs = await self._dispatch(call)
-                        context.append(tool_result_message(call, obs))
-                    # she started a line and then did something else with the
-                    # turn: nobody is going to finish it
-                    await self._drop_unspoken()
-
-                    # she spoke or chose silence: the turn is over, and a new
-                    # message becomes its own next turn
-                    if assistant.tool_calls and all(
-                        c.name in self._TERMINAL_TOOLS for c in assistant.tool_calls
-                    ):
-                        break
-
-                # nobody heard her: either she only wrote plain text, which is
-                # private thinking, or every tool she reached for failed. Both
-                # end the same way and both get the same one rescue — the
-                # question is whether anything landed, never whether she tried
-                if self._needs_answer(batch) and not self._reached_someone():
-                    context.append({"role": "user", "content": self._NO_TOOL_NUDGE})
-                    steps += 1
-                    assistant = await self._think(context)
-                    spent = spent + assistant.usage
-                    context.append(assistant_to_message(assistant))
-                    self._think_aloud(assistant.content)
-                    if not assistant.is_final:
-                        for call in assistant.tool_calls:
-                            obs = await self._dispatch(call)
-                            context.append(tool_result_message(call, obs))
-                        await self._drop_unspoken()
-
-                if not is_idle:
-                    elapsed_ms = (time.perf_counter() - t_turn) * 1000
-                    logger.info(f"turn done: {steps} llm call(s), {spent.total} tokens, "
-                                f"in {elapsed_ms:.0f}ms")
-                    self._publish_cost(steps, spent, elapsed_ms)
-                    self._write_down(context, self._batch, steps, spent, elapsed_ms)
-                    self._record_window(frames)
-                    self._schedule_persist()
-                    self._profile_background(self._batch)
-                    self._schedule_handoff()
-                else:
-                    self._record_window(frames)
-                    self._schedule_persist()
-                    self._schedule_handoff()
+                await self._turn(batch)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -439,6 +340,105 @@ class Consciousness:
                 # whole correlation timeout
                 self.correlations.release()
                 await self._drop_unspoken()
+
+    async def _turn(self, batch: List[Perception]) -> None:
+        """One batch, one frame, one turn."""
+        is_idle = all(p.kind == PerceptionKind.IDLE for p in batch)
+        if not is_idle:
+            logger.info(f"batch of {len(batch)} perception(s): "
+                        f"{', '.join(p.surface for p in batch)}")
+
+        # a voice input barges in on an ongoing monologue; text is just queued
+        if self.expression.is_speaking and any(p.kind == PerceptionKind.VOICE for p in batch):
+            await self.expression.interrupt()
+
+        annotated = self._annotate(batch)
+        t_ctx = time.perf_counter()
+        system = self._system_message()
+        window_msgs = self.sliding_window.messages()
+        briefing = await self._build_briefing(batch, is_idle=is_idle)
+        if not is_idle:
+            logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
+        context: List[Dict[str, Any]] = [system, *window_msgs]
+        if briefing:
+            context.append(briefing)
+        frame = self._frame(annotated)
+        context.append(frame)
+        self._batch = list(batch)
+        frames = [(frame, annotated)]
+
+        t_turn = time.perf_counter()
+        steps = 0
+        spent = Usage()
+        self._thought, self._acted, self._said, self._sent = [], [], None, []
+        for _ in range(self.burst_steps):
+            steer = self._steering()
+            if steer:
+                self.correlations.extend_batch(steer)
+                self._remember(steer)
+                if self._needs_mind(steer):
+                    steered = self._annotate(steer)
+                    steer_frame = self._frame(steered, steering=True)
+                    context.append(steer_frame)
+                    frames.append((steer_frame, steered))
+                    self._batch.extend(steer)
+            if not self._batch:
+                break
+
+            steps += 1
+            assistant = await self._step(context, label="" if is_idle else f"step {steps}")
+            spent = spent + assistant.usage
+            if assistant.is_final:
+                break
+
+            # she spoke or chose silence: the turn is over, and a new
+            # message becomes its own next turn
+            if assistant.tool_calls and all(
+                c.name in self._TERMINAL_TOOLS for c in assistant.tool_calls
+            ):
+                break
+
+        # nobody heard her: either she only wrote plain text, which is
+        # private thinking, or every tool she reached for failed. Both
+        # end the same way and both get the same one rescue — the
+        # question is whether anything landed, never whether she tried
+        if self._needs_answer(batch) and not self._reached_someone():
+            context.append({"role": "user", "content": self._NO_TOOL_NUDGE})
+            steps += 1
+            assistant = await self._step(context)
+            spent = spent + assistant.usage
+
+        if not is_idle:
+            elapsed_ms = (time.perf_counter() - t_turn) * 1000
+            logger.info(f"turn done: {steps} llm call(s), {spent.total} tokens, "
+                        f"in {elapsed_ms:.0f}ms")
+            self._publish_cost(steps, spent, elapsed_ms)
+            self._write_down(context, self._batch, steps, spent, elapsed_ms)
+            self._profile_background(self._batch)
+        self._record_window(frames)
+        self._schedule_persist()
+        self._schedule_handoff()
+
+    async def _step(self, context: List[Dict[str, Any]], label: str = "") -> AssistantMessage:
+        """One model call, and every tool it asked for. `label` names it in the log."""
+        t_llm = time.perf_counter()
+        assistant = await self._think(context)
+        if label:
+            tools = (" (tools: " + ", ".join(c.name for c in assistant.tool_calls) + ")"
+                     if assistant.tool_calls else " (final)")
+            logger.info(f"llm {label} took {(time.perf_counter() - t_llm) * 1000:.0f}ms{tools}")
+        context.append(assistant_to_message(assistant))
+        self._think_aloud(assistant.content)
+        if assistant.is_final:
+            return assistant
+
+        for call in assistant.tool_calls:
+            obs = await self._dispatch(call)
+            context.append(tool_result_message(call, obs))
+        # she started a line and then did something else with the
+        # turn: nobody is going to finish it
+        await self._drop_unspoken()
+        return assistant
 
     # --- one model step -----------------------------------------------------
 
@@ -456,7 +456,7 @@ class Consciousness:
         `_speak` exactly as it was before.
         """
         if not self.stream_speech:
-            return await self.llm.complete(messages, tools=self._tool_schemas())
+            return await self.llm.complete(messages, tools=self.tools.schemas())
 
         # one reader per tool call, because a provider may write two of them at
         # once. Sharing one meant a second call's arguments were read as more of
@@ -488,7 +488,7 @@ class Consciousness:
 
         try:
             return await self.llm.stream_complete(
-                messages, tools=self._tool_schemas(), on_tool_delta=on_delta)
+                messages, tools=self.tools.schemas(), on_tool_delta=on_delta)
         finally:
             self._live = line
 
@@ -555,13 +555,12 @@ class Consciousness:
         Everything else — chat from anywhere, voice, events, idle, system —
         enters the one frame.
         """
-        return any(not (p.meta or {}).get("noise") for p in batch)
+        return any(not p.is_noise for p in batch)
 
     @staticmethod
     def _needs_answer(batch: List[Perception]) -> bool:
         """Could someone be waiting on words, as opposed to texture or time."""
-        return any(p.kind is not PerceptionKind.IDLE and not (p.meta or {}).get("noise")
-                   for p in batch)
+        return any(p.is_memorable for p in batch)
 
     def _reached_someone(self) -> bool:
         """Did anything she did this turn actually get somewhere.
@@ -795,7 +794,7 @@ class Consciousness:
         key = conversation_key(p)
         name = p.author.display_name if p.author else ""
         meta = p.meta or {}
-        if key == "stage":
+        if key == STAGE:
             if p.kind is PerceptionKind.VOICE:
                 return "via voice call"
             if p.surface == "chat:ui":
@@ -825,7 +824,7 @@ class Consciousness:
         seen: Dict[str, str] = {}
         for p, _ in annotated:
             key = conversation_key(p)
-            if key == "stage" or key in seen:
+            if key == STAGE or key in seen:
                 continue
             name = p.author.display_name if p.author else "someone"
             dm = " (DM)" if (p.meta or {}).get("is_dm") else ""
@@ -871,9 +870,6 @@ class Consciousness:
                 "Nobody heard the rest, so do not talk as if they did.")
 
     # --- tools --------------------------------------------------------------
-
-    def _tool_schemas(self):
-        return self.tools.schemas()
 
     async def _dispatch(self, call: ToolCall) -> str:
         """Runs one tool and says, on the record, how it went.
@@ -1126,7 +1122,7 @@ class Consciousness:
                                            addressee=self._addressee_for(key))
             if self._said and self._said.get("message"):
                 self.sliding_window.append("assistant", str(self._said["message"]),
-                                           key="stage")
+                                           key=STAGE)
         except Exception as e:
             logger.warning(f"Could not mirror the turn into the window: {e}")
 
@@ -1134,18 +1130,6 @@ class Consciousness:
     def _session_id(self) -> str:
         """The sitting this all belongs to, for the consolidation to read back."""
         return str(getattr(self.history, "session_id", "") or "")
-
-    @staticmethod
-    def _is_memorable(p: Perception) -> bool:
-        """Two things are not memories, and everything else is.
-
-        The idle tick is synthetic — "nothing is happening" is the loop talking
-        to itself. Texture a surface flagged as noise is a heartbeat it sends
-        several times a minute, already carried by the live state. Everything
-        else that reaches the bus happened, whether or not there is a person
-        behind it and whether or not she answered it.
-        """
-        return p.kind is not PerceptionKind.IDLE and not (p.meta or {}).get("noise")
 
     def _remember(self, batch: List[Perception]) -> None:
         """The stream, written down as it leaves the bus.
@@ -1158,7 +1142,7 @@ class Consciousness:
         session = self._session_id
         try:
             fresh = [p for p in batch
-                     if self._is_memorable(p) and p.id not in self._stream_ids]
+                     if p.is_memorable and p.id not in self._stream_ids]
             entries = []
             for p in fresh:
                 author = p.author
@@ -1344,13 +1328,7 @@ class Consciousness:
         def resize() -> None:
             cc = self.config.consciousness
             budget, hot = budget_from_config(cc)
-            self._handoff_enabled = bool(cc.get("context_handoff", True))
-            self._persist_after_turn = bool(cc.get("window_persist_after_turn", True))
-            self._dynamic_timeout = float(cc.get("dynamic_context_timeout", 5.0))
-            self.idle_after = cc.get("idle_after", 30.0)
-            self.burst_steps = cc.get("burst_steps", 6)
-            self.correlation_timeout = cc.get("correlation_timeout", 30.0)
-            self.stream_speech = bool(cc.get("stream_speech", True))
+            self._read_knobs(cc)
             self.sliding_window.hot_seconds = max(60.0, float(cc.get("hot_seconds", 1800.0)))
             if self.sliding_window.retarget(budget, hot):
                 logger.info(

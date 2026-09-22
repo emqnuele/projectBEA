@@ -56,6 +56,16 @@ class Perception:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     ts: float = field(default_factory=time.time)
 
+    @property
+    def is_noise(self) -> bool:
+        """a heartbeat already carried by the live state: it must not wake the mind."""
+        return bool((self.meta or {}).get("noise"))
+
+    @property
+    def is_memorable(self) -> bool:
+        """the idle tick is the loop talking to itself; everything else happened."""
+        return self.kind is not PerceptionKind.IDLE and not self.is_noise
+
     def render(self, now: Optional[float] = None) -> str:
         """How this perception appears inside a perception frame.
 

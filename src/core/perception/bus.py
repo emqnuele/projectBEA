@@ -135,7 +135,7 @@ class PerceptionBus:
                 return [self._idle()]
 
             items = await self.settle([first])
-            if all((p.meta or {}).get("noise") for p in items):
+            if all(p.is_noise for p in items):
                 continue
             return items
 
