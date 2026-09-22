@@ -1,39 +1,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, AsyncIterator, Optional, Sequence, Tuple, Union
 
-
-class LLMInterface(ABC):
-
-    @abstractmethod
-    async def chat(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
-        """
-        Sends user input to the LLM and returns (mood, message, metadata).
-        history: List of dictionaries [{"role": "user"|"assistant", "content": "..."}]
-        """
-        pass
-
-    @abstractmethod
-    async def chat_audio(self, audio_path: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Tuple[str, str, Dict]:
-        """
-        Sends audio input to the LLM and returns (mood, message, metadata).
-        """
-        pass
-
-    @abstractmethod
-    def reload_config(self, config) -> None:
-        """
-        Reloads configuration (e.g. API keys, models) without restarting.
-        """
-        pass
-
-    @abstractmethod
-    async def generate_json(self, user_input: str, system_prompt: Optional[str] = None, history: Optional[list] = None) -> Union[Dict, list]:
-        """
-        Generates a JSON response from the LLM.
-        Returns a dictionary parsed from the JSON output.
-        """
-        pass
 
 class TTSInterface(ABC):
     @abstractmethod

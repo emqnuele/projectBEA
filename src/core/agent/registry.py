@@ -136,9 +136,8 @@ class RotatingClient(LLMClient):
 class ModelRegistry:
     """Builds and caches one client (or pool) per role."""
 
-    def __init__(self, config, stt=None) -> None:
+    def __init__(self, config) -> None:
         self.config = config
-        self.stt = stt
         self._cache: Dict[str, LLMClient] = {}
 
     def get(self, role: str = MIND) -> LLMClient:
@@ -199,7 +198,7 @@ class ModelRegistry:
 
         from src.modules.llm.factory import LLMConfigError, build_client
         try:
-            return build_client(provider, model, self.config, stt=self.stt)
+            return build_client(provider, model, self.config)
         except LLMConfigError as e:
             logger.warning(f"Skipping {spec}: {e}")
             return None

@@ -11,9 +11,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from src.core.agent.types import AssistantMessage, ToolCall, Usage
-from src.interfaces.base_interfaces import STTInterface
 from src.modules.llm.base import AsyncLLMClient, ProviderError
-from src.modules.llm.reasoning import ReasoningStyle
 from src.utils.llm_utils import parse_llm_json
 from src.utils.logger import get_logger
 from src.utils.sanitize import clean_model_output
@@ -112,13 +110,6 @@ class ResponsesClient(AsyncLLMClient):
             reply = self.parse_message(await self._send(self.build_body(messages)))
         _, _, data = parse_llm_json(reply.content or "")
         return data
-
-    def __init__(self, base_url: str, model_name: str, api_key: Optional[str] = None,
-                 stt: Optional[STTInterface] = None,
-                 reasoning: Optional[ReasoningStyle] = None,
-                 key_field: str = "", model_field: str = "", url_field: str = ""):
-        super().__init__(base_url, model_name, api_key, stt, reasoning,
-                         key_field, model_field, url_field)
 
 
 def _to_items(messages: List[Dict[str, Any]]):
