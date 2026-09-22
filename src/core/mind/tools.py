@@ -40,6 +40,19 @@ class MindTools:
         self._react_to = react_to
         self._say_nothing = say_nothing
 
+    def platforms(self) -> List[str]:
+        """The platforms she can actually write on, right now.
+
+        A skill with a `platform` is not necessarily one that takes text —
+        donations have a platform and no channel to answer in, and minecraft
+        is typed into with `mc_chat`. Offering her a destination nothing can
+        deliver to is a message she sends into a failure.
+        """
+        return sorted({
+            s.platform for s in self.surfaces.active()
+            if getattr(s, "platform", "") and callable(getattr(s, "deliver", None))
+        })
+
     def registry(self) -> ToolRegistry:
         """Every tool armed right now, rebuilt from the live skills."""
         registry = ToolRegistry()
@@ -70,17 +83,19 @@ class MindTools:
             {"type": "object", "properties": {"reason": {"type": "string"}}, "required": []},
             self._stay_silent,
         )
-        if self._send_text is not None:
+        written = self.platforms()
+        if self._send_text is not None and written:
+            # the list is read off the live skills rather than written out:
+            # naming a platform she cannot reach is a destination she will try
+            where = ", ".join(written)
             registry.add(
                 "send_message",
-                "Write a text message where it arrived: telegram, discord text, "
-                "twitch chat, minecraft chat. The destination is explicit every "
-                "time — read it off the [via ...] tag on the line you answer. "
-                "Each LINE becomes its own message, with a typing pause in "
-                "between — write like you text.",
+                f"Write a text message where it arrived: {where}. The destination "
+                "is explicit every time — read it off the [via ...] tag on the "
+                "line you answer. Each LINE becomes its own message, with a "
+                "typing pause in between — write like you text.",
                 {"type": "object", "properties": {
-                    "platform": {"type": "string",
-                                 "description": "telegram, discord, twitch or minecraft"},
+                    "platform": {"type": "string", "enum": written},
                     "channel": {"type": "string",
                                 "description": "the channel id from the [via ...] tag"},
                     "text": {"type": "string"},

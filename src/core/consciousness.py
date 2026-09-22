@@ -985,32 +985,59 @@ class Consciousness:
     # --- unified text tools -------------------------------------------------
 
     def _skill_for_platform(self, platform: str):
+        """The active skill that can write on `platform`, if there is one."""
         for skill in self.surfaces.active():
-            if getattr(skill, "platform", None) == platform:
+            if (getattr(skill, "platform", None) == platform
+                    and callable(getattr(skill, "deliver", None))):
                 return skill
         return None
 
     async def _send_text(self, platform: str, channel: str, text: str,
                          reply_to: str = "") -> str:
-        """Writes where it arrived. The destination rides in the arguments."""
+        """Writes where it arrived. The destination rides in the arguments.
+
+        Handed to the platform and not waited on. Every line is sent with a
+        typing pause in front of it — up to four seconds each, on purpose, so
+        it reads like somebody writing — and waiting for that inside the tool
+        call held the whole mind for as long as the answer was long. A turn
+        answering three lines sat there for ten seconds while everything that
+        arrived in the meantime piled up behind it. Her voice has worked this
+        way since it existed; this is the written half catching up.
+        """
         skill = self._skill_for_platform(platform)
         if skill is None:
             return (f"FAILED: no active skill for platform '{platform}'. "
                     f"Use speak for voice/stage.")
-        try:
-            sent = await skill.deliver(str(channel), text,
-                                       reply_to=reply_to or None)
-        except Exception as e:
-            logger.warning(f"send_message to {platform}:{channel} failed: {e}")
-            return f"FAILED: {e}"
-        if not sent:
-            return "FAILED: nothing was sent."
+        messages = skill.message_count(text)
+        if not messages:
+            return "FAILED: there was nothing to send."
+
         key = f"{platform}:{channel}"
         self._sent.append({"platform": platform, "channel": str(channel), "text": text})
         if self.attention:
             self.attention.mark_spoke(key)
         self._log_outgoing(key, platform, str(channel), text)
-        return f"Sent ({len(sent)} message(s))."
+        self._in_background(self._deliver(skill, platform, str(channel), text,
+                                          reply_to or None))
+        return f"Sending ({messages} message(s))."
+
+    async def _deliver(self, skill, platform: str, channel: str, text: str,
+                       reply_to: Optional[str]) -> None:
+        """One written answer, out at a human pace, off the mind's clock."""
+        try:
+            sent = await skill.deliver(channel, text, reply_to=reply_to)
+        except Exception as e:
+            sent = []
+            logger.warning(f"send_message to {platform}:{channel} failed: {e}")
+        if sent:
+            return
+        # she has been told it went; the only honest thing left is to say so
+        # where somebody can see it
+        self.events.publish(
+            EventCategory.ERROR, "consciousness",
+            f"Nothing reached {platform}:{channel} — the message was lost.",
+            metadata={"platform": platform, "channel": channel, "text": text},
+        )
 
     async def _react_to(self, platform: str, channel: str, message_id: str,
                         emoji: str) -> str:
@@ -1158,6 +1185,18 @@ class Consciousness:
         task = asyncio.create_task(work())
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
+
+    def _in_background(self, coroutine) -> "asyncio.Task":
+        """Runs something the turn should not wait for, and keeps a reference.
+
+        Without the reference the task is only referred to by the event loop
+        and may be collected mid-flight, which is a message that silently
+        never goes out.
+        """
+        task = asyncio.create_task(coroutine)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+        return task
 
     def _schedule_persist(self) -> None:
         """Carries the ram window over to the disk, behind the turn.

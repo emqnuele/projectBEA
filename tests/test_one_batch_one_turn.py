@@ -189,6 +189,9 @@ class Written:
     async def stop(self):
         pass
 
+    def message_count(self, text):
+        return len([line for line in text.split("\n") if line.strip()])
+
     async def deliver(self, channel_id, text, reply_to=None):
         self.sent.append(text)
         return [text]
