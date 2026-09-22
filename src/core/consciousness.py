@@ -375,10 +375,13 @@ class Consciousness:
                     ):
                         break
 
-                # text-only answer to something real: plain text is private
-                # thinking, so nobody heard her — one rescue, not a loop
-                if self._needs_answer(batch) and not self._acted:
+                # nobody heard her: either she only wrote plain text, which is
+                # private thinking, or every tool she reached for failed. Both
+                # end the same way and both get the same one rescue — the
+                # question is whether anything landed, never whether she tried
+                if self._needs_answer(batch) and not self._reached_someone():
                     context.append({"role": "user", "content": self._NO_TOOL_NUDGE})
+                    steps += 1
                     assistant = await self._think(context)
                     spent = spent + assistant.usage
                     context.append(assistant_to_message(assistant))
@@ -509,6 +512,19 @@ class Consciousness:
         """Could someone be waiting on words, as opposed to texture or time."""
         return any(p.kind is not PerceptionKind.IDLE and not (p.meta or {}).get("noise")
                    for p in batch)
+
+    def _reached_someone(self) -> bool:
+        """Did anything she did this turn actually get somewhere.
+
+        Reaching for a tool is not the same as the tool working, and the
+        difference is the whole point: a call that came back
+        `ERROR: unknown tool` used to count as having acted, so the one rescue
+        was spent on a turn nobody heard and she simply went quiet.
+        """
+        if self._said or self._sent:
+            return True
+        return any(not str(call["result"]).startswith(("ERROR", "FAILED"))
+                   for call in self._acted)
 
     def _annotate(self, batch: List[Perception]) -> List["tuple[Perception, float]"]:
         """Priority per perception, highest first. Nothing is ever dropped."""
@@ -790,9 +806,23 @@ class Consciousness:
         return self.tools.schemas()
 
     async def _dispatch(self, call: ToolCall) -> str:
-        self.events.publish(EventCategory.TOOL, "consciousness", f"{call.name}({call.arguments})")
+        """Runs one tool and says, on the record, how it went.
+
+        The call and its outcome are one event, published once the outcome is
+        known. Published on the way in, a tool that came back
+        `ERROR: unknown tool` looked on the dashboard exactly like one that
+        worked, which is the worst possible thing for the log to be doing while
+        a capability is quietly missing.
+        """
         result = await self._run_tool(call)
         self._acted.append({"tool": call.name, "arguments": call.arguments, "result": result})
+        failed = result.startswith(("ERROR", "FAILED"))
+        self.events.publish(
+            EventCategory.ERROR if failed else EventCategory.TOOL, "consciousness",
+            f"{call.name}({call.arguments}) → {result}" if failed
+            else f"{call.name}({call.arguments})",
+            metadata={"tool": call.name, "arguments": call.arguments, "result": result},
+        )
         return result
 
     async def _run_tool(self, call: ToolCall) -> str:
