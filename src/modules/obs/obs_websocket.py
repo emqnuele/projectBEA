@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -8,6 +9,9 @@ from src.interfaces.base_interfaces import OBSInterface
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.obs")
+
+# the library dumps a full traceback when obs is simply closed; connect() says it in one line
+logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
 class OBSController(OBSInterface):
     def __init__(self, host: str, port: int, password: str, source_name: str) -> None:
