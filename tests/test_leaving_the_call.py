@@ -16,14 +16,16 @@ class Cfg:
 
 
 class Transport:
-    """A discord bot that reports who is in each voice channel."""
+    """A discord bot: it joins, it leaves, and it can list channels."""
 
     def __init__(self, members=()):
         self.members = list(members)
         self.joined = []
         self.left = 0
+        self.listed = 0
 
     async def list_voice_channels(self):
+        self.listed += 1
         return {"ok": True, "channels": [
             {"channelId": "vc1", "name": "general", "members": self.members},
         ]}
@@ -37,23 +39,33 @@ class Transport:
         return {"ok": True}
 
 
-def surface(transport, expression=None, **discord):
+def surface(transport, expression=None, *, listeners=None, **discord):
+    """A surface, optionally already sitting in a call.
+
+    Who is in the call is something the bot pushes over the socket; a surface
+    built without that link cannot answer it, so the tests that ask hand it one.
+    """
     from src.core.skills.voice.surface import VoiceSurface
 
     s = VoiceSurface(Cfg(**discord), bus=None, expression=expression)
     s.initialize()
     s.transport = transport
     s.active = True
+    if listeners is not None:
+        s.channel.attach(object())
+        s.channel.on_message({"type": "joined", "channel_id": "vc1",
+                              "listeners": listeners})
     return s
+
+
+def others_left(s):
+    """Everybody else walks out; the bot says so on the socket."""
+    s.channel.on_message({"type": "members", "listeners": 0})
 
 
 class Events:
     def publish(self, *a, **k):
         pass
-
-
-BEA = {"id": "bot", "name": "Bea"}
-EMA = {"id": "1", "name": "Ema"}
 
 
 # --- knowing where she is ----------------------------------------------------
@@ -102,57 +114,63 @@ async def test_a_failed_join_is_not_remembered():
 
 
 async def test_she_stays_while_someone_is_with_her():
-    transport = Transport(members=[BEA, EMA])
-    s = surface(transport, auto_leave_seconds=60)
-    await s._tool_join_voice("vc1")
+    transport = Transport()
+    s = surface(transport, listeners=1, auto_leave_seconds=60)
     await s.check_solitude(now=0.0)
     await s.check_solitude(now=999.0)
     assert transport.left == 0
 
 
 async def test_being_alone_briefly_is_not_enough_to_leave():
-    transport = Transport(members=[BEA])
-    s = surface(transport, auto_leave_seconds=60)
-    await s._tool_join_voice("vc1")
+    transport = Transport()
+    s = surface(transport, listeners=0, auto_leave_seconds=60)
     await s.check_solitude(now=0.0)
     await s.check_solitude(now=30.0)
     assert transport.left == 0
 
 
 async def test_she_leaves_a_call_everyone_walked_out_of():
-    transport = Transport(members=[BEA])
-    s = surface(transport, auto_leave_seconds=60)
-    await s._tool_join_voice("vc1")
+    transport = Transport()
+    s = surface(transport, listeners=1, auto_leave_seconds=60)
+    others_left(s)
     await s.check_solitude(now=0.0)
     await s.check_solitude(now=61.0)
     assert transport.left == 1
     assert s.voice_channel is None
 
 
+async def test_she_never_asks_the_bot_who_is_in_there():
+    """It pushes that on every voice state change, and this runs every two
+    seconds: asking was thirty http round trips a minute for a known answer."""
+    transport = Transport()
+    s = surface(transport, listeners=0, auto_leave_seconds=60)
+    for tick in range(0, 120, 2):
+        await s.check_solitude(now=float(tick))
+    assert transport.listed == 0
+
+
 async def test_someone_coming_back_resets_the_clock():
-    transport = Transport(members=[BEA])
-    s = surface(transport, auto_leave_seconds=60)
-    await s._tool_join_voice("vc1")
+    transport = Transport()
+    s = surface(transport, listeners=0, auto_leave_seconds=60)
     await s.check_solitude(now=0.0)
-    transport.members = [BEA, EMA]
+    s.channel.on_message({"type": "members", "listeners": 1})
     await s.check_solitude(now=50.0)
-    transport.members = [BEA]
+    others_left(s)
     await s.check_solitude(now=55.0)
     await s.check_solitude(now=100.0)
     assert transport.left == 0
 
 
 async def test_auto_leave_can_be_switched_off():
-    transport = Transport(members=[BEA])
-    s = surface(transport, auto_leave_seconds=0)
-    await s._tool_join_voice("vc1")
+    transport = Transport()
+    s = surface(transport, listeners=0, auto_leave_seconds=0)
     await s.check_solitude(now=0.0)
     await s.check_solitude(now=99999.0)
     assert transport.left == 0
 
 
 async def test_a_call_she_is_not_in_is_none_of_her_business():
-    transport = Transport(members=[BEA])
+    transport = Transport()
     s = surface(transport, auto_leave_seconds=60)
     await s.check_solitude(now=0.0)
     await s.check_solitude(now=999.0)
@@ -160,14 +178,24 @@ async def test_a_call_she_is_not_in_is_none_of_her_business():
 
 
 async def test_a_channel_that_vanished_is_forgotten_not_retried():
-    class Gone(Transport):
-        async def list_voice_channels(self):
-            return {"ok": True, "channels": []}
-
-    s = surface(Gone(), auto_leave_seconds=60)
-    await s._tool_join_voice("vc1")
+    s = surface(Transport(), listeners=1, auto_leave_seconds=60)
+    s.channel._ws = object()          # the bot is still there; the call is not
+    s.channel.channel_id = None
+    s.voice_channel = "vc1"
     await s.check_solitude(now=0.0)
     assert s.voice_channel is None
+
+
+async def test_a_bot_that_is_not_talking_to_her_does_not_empty_the_room():
+    """Without the socket she cannot tell an empty call from a quiet one, and
+    walking out of a call full of people is the worse mistake."""
+    transport = Transport()
+    s = surface(transport, auto_leave_seconds=60)   # no socket attached
+    await s._tool_join_voice("vc1")
+    await s.check_solitude(now=0.0)
+    await s.check_solitude(now=999.0)
+    assert transport.left == 0
+    assert s.voice_channel == "vc1"
 
 
 # --- the slow clock ----------------------------------------------------------
