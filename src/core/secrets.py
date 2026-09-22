@@ -12,11 +12,10 @@ rebuilt in this same process sees what the file says.
 """
 
 import os
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from src.core.config import SECRET_ENV_VARS
-from src.setup.env_file import merge_env
+from src.setup.env_file import update_env
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.secrets")
@@ -58,10 +57,8 @@ def persist(values: Dict[str, str]) -> List[str]:
     if not updates:
         return []
 
-    path = Path(ENV_FILE)
     try:
-        existing = path.read_text(encoding="utf-8") if path.exists() else ""
-        path.write_text(merge_env(existing, updates, empty_clears=True), encoding="utf-8")
+        update_env(ENV_FILE, updates, empty_clears=True)
     except OSError as e:
         # the caller has already applied the value in memory, so she keeps
         # working; what is lost is only the part that outlives the process

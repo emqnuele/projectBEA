@@ -192,7 +192,7 @@ def test_an_unwritable_env_file_is_raised_and_not_swallowed(env_file, monkeypatc
     def refuse(*args, **kwargs):
         raise OSError(13, "Permission denied")
 
-    monkeypatch.setattr("pathlib.Path.write_text", refuse)
+    monkeypatch.setattr("src.setup.env_file.atomic_write_text", refuse)
 
     with pytest.raises(OSError):
         secret_store.persist({"groq_key": "g"})
@@ -204,7 +204,7 @@ def test_a_failed_write_leaves_the_environment_alone(env_file, monkeypatch):
     def refuse(*args, **kwargs):
         raise OSError(13, "Permission denied")
 
-    monkeypatch.setattr("pathlib.Path.write_text", refuse)
+    monkeypatch.setattr("src.setup.env_file.atomic_write_text", refuse)
 
     with pytest.raises(OSError):
         secret_store.persist({"groq_key": "g"})

@@ -2,10 +2,12 @@ import copy
 import json
 import os
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.mind.moods import default_avatar_map, rename_legacy
 from src.core.persona import DEFAULT_NAME, DEFAULT_PRONOUNS
+from src.utils.files import atomic_write_text
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.config")
@@ -471,8 +473,8 @@ class BrainConfig:
                 )
 
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
+            # atomic: a torn config.json is read back as defaults on the next start
+            atomic_write_text(Path(CONFIG_FILE), json.dumps(data, indent=4))
             logger.info(f"Configuration saved to {CONFIG_FILE} (secrets excluded)")
         except Exception as e:
             logger.error(f"Error saving config.json: {e}")
