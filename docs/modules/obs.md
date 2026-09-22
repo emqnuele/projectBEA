@@ -109,20 +109,6 @@ the mood's image and log a warning. Full resolution order is in the
 
 ---
 
-## `clear_text()`
-
-A convenience method on `OBSController` that sets the text source to an empty string, preserving the given font size:
-
-```python
-obs.clear_text(source_name="AIText", font_size=75)
-```
-
-It is equivalent to `set_text("", source_name, font_size=font_size)`.
-`Expression` calls `set_text("", ...)` directly in most places; `clear_text()`
-is a helper and the two are interchangeable.
-
----
-
 ## Hot Reload
 
 `reload_config()` updates host/port/password. If any of those changed and a client was already connected, it disconnects and reconnects automatically.
