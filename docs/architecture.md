@@ -26,8 +26,8 @@ reactive chat path — the consciousness is the only mind.
 |---|---|---|
 | `PerceptionBus` | `src/core/perception/bus.py` | the one sensory channel: an asyncio.Queue that closes a batch on a quiet gap |
 | `SkillRegistry` | `src/core/skills/base.py` | the catalog of capabilities |
-| `SingleContext` | `src/core/mind/single_context.py` | the one sliding window: token-budgeted log that breathes 0 → 120k → ~50k |
-| `TokenBudget` | `src/core/mind/token_budget.py` | the counter: ceiling 150k, trigger 120k, hot/cold split (pure) |
+| `SingleContext` | `src/core/mind/single_context.py` | the one sliding window: token-budgeted log that breathes 0 → trigger → ~target |
+| `TokenBudget` | `src/core/mind/token_budget.py` | the counter: ceiling (default 150k, up to 500k), derived trigger/target/hot, hot/cold split (pure) |
 | `HandoffWorker` | `src/core/mind/handoff.py` | background handoff: cold past to prose, hot ongoing verbatim |
 | `SpontaneousPresence` | `src/core/mind/spontaneous.py` | occasionally opens a conversation herself |
 | `Expression` | `src/core/expression/voice.py` | the **only** voice/visual output sink |
@@ -221,7 +221,8 @@ answering on it.
    - if nothing she did reached anybody — only plain text, or every tool
      failed — she is told so once and given one more step (`_NO_TOOL_NUDGE`).
 7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **mirror** the turn into the sliding
-    window (`_record_window`) — retention is token-budgeted (150k ceiling),
+    window (`_record_window`) — retention is token-budgeted (ceiling 150k by
+    default, up to 500k),
     never message-count-trimmed. The turn only marks the window dirty; a flush
     behind it writes it in one transaction, and stopping the mind flushes it
     synchronously. A handoff is **scheduled** when the budget
@@ -248,8 +249,14 @@ Details that matter:
 
 One mind, one log. Every live turn lands in `SingleContext`
 (`src/core/mind/single_context.py`), a token-budgeted append-only log that
-replaces message-count trimming with a real ceiling: **150k max, handoff
-trigger at 120k, rest near ~50k**. The window lives in RAM while she talks —
+replaces message-count trimming with a real ceiling. The ceiling is the one
+number the owner sets — **150k by default, adjustable from 150k to 500k** —
+and the rest of the shape follows it: handoff trigger at four fifths,
+rest near a third, hot present at a fifth (so the default still breathes
+**150k max, trigger at 120k, rest near ~50k**). Each of the three can still be
+pinned individually (`0` means "follow the ceiling"); pinned values are
+clamped so the trigger never passes the ceiling. The window lives in RAM
+while she talks —
 appends never touch the disk — and a flush after each turn, plus a synchronous
 one at shutdown, carries it over in a single transaction.
 
@@ -280,10 +287,11 @@ concludes she has no telegram while answering on it), and one rescue retry
 when a text-only answer would otherwise leave a mute turn (`NO_TOOL_CALL`).
 
 `GET /context` exposes the budget live; the dashboard overview shows it as
-the Context tile. New knobs live under `consciousness` (`context_max_tokens`,
-`handoff_trigger_tokens`, `handoff_target_tokens`, `hot_tokens`,
-`hot_seconds`, `context_handoff`, `window_persist_after_turn`,
-`dynamic_context_timeout`) — see [Configuration](configuration.md#consciousness).
+the Context tile, and a ceiling changed in Settings → Mind reaches the live
+window on the next turn — no restart. New knobs live under `consciousness`
+(`context_max_tokens`, plus the advanced pins `handoff_trigger_tokens`,
+`handoff_target_tokens`, `hot_tokens`, and `hot_seconds`, `context_handoff`,
+`window_persist_after_turn`, `dynamic_context_timeout`) — see [Configuration](configuration.md#consciousness).
 
 ---
 

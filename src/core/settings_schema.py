@@ -12,6 +12,15 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 from src.core.config import MASK
+from src.core.mind.token_budget import (
+    HOT_RATIO,
+    TARGET_RATIO,
+    TRIGGER_RATIO,
+    WINDOW_MAX_TOKENS,
+    WINDOW_MIN_TOKENS,
+    WINDOW_STEP_TOKENS,
+    budget_for,
+)
 
 TYPES = ("bool", "int", "float", "string", "secret", "select", "list")
 
@@ -32,6 +41,21 @@ class Setting:
     maximum: Optional[float] = None
     # a value that only takes effect after a restart, so the ui can say so
     restart: bool = False
+    # how the dashboard should draw it when a plain field is the wrong shape:
+    # "slider" for a number whose range matters more than its digits
+    ui: str = ""
+    # granularity of that slider, in the setting's own unit
+    step: Optional[float] = None
+    # a knob most people should never touch: folded away behind a disclosure
+    # rather than hidden, because hiding it is how it stops being auditable
+    advanced: bool = False
+    # other numbers this one implies, as (key, label, fraction) triples. Each
+    # key is the setting that may pin that number instead, so the dashboard can
+    # show what is actually in force. The dashboard
+    # shows them beside the control so the owner sees the whole shape of what
+    # they are moving; they are carried from here rather than recomputed in the
+    # browser, so the ratios keep exactly one definition
+    derives: Sequence = ()
 
     @property
     def secret(self) -> bool:
@@ -43,6 +67,9 @@ class Setting:
             "help": self.help, "default": self.default,
             "options": list(self.options), "min": self.minimum,
             "max": self.maximum, "restart": self.restart,
+            "ui": self.ui, "step": self.step, "advanced": self.advanced,
+            "derives": [{"key": key, "label": label, "ratio": ratio}
+                        for key, label, ratio in self.derives],
         }
 
 
@@ -405,6 +432,17 @@ CONSCIOUSNESS = Section(
     key="consciousness", label="Mind", scope="root",
     blurb="The shape of one turn of thought.",
     settings=[
+        Setting("context_max_tokens", "Context window", "int",
+                "Her memory size, in tokens: how much conversation she "
+                "remembers. Drag it up and she keeps more of the evening — "
+                "but every reply costs more, and your model needs a context "
+                "window at least this big. Past your model's own limit there "
+                "is no degrading, only a refused call.",
+                WINDOW_MIN_TOKENS, minimum=WINDOW_MIN_TOKENS,
+                maximum=WINDOW_MAX_TOKENS, ui="slider", step=WINDOW_STEP_TOKENS,
+                derives=(("handoff_trigger_tokens", "recaps at", TRIGGER_RATIO),
+                         ("handoff_target_tokens", "settles near", TARGET_RATIO),
+                         ("hot_tokens", "keeps word-for-word", HOT_RATIO))),
         Setting("idle_after", "Idle after", "float",
                 "Seconds of silence before she notices there is silence.",
                 240.0, minimum=10, maximum=3600),
@@ -425,29 +463,35 @@ CONSCIOUSNESS = Section(
         Setting("burst_steps", "Steps per turn", "int",
                 "How many tool steps one live turn may take.",
                 6, minimum=1, maximum=20),
-        Setting("context_max_tokens", "Window ceiling", "int",
-                "Hard ceiling of the one sliding window, in tokens. Past this, "
-                "the cold past is trimmed at once, never the hot ongoing.",
-                150000, minimum=10000, maximum=1000000),
-        Setting("handoff_trigger_tokens", "Handoff starts at", "int",
-                "Window size that starts the background handoff to the next window.",
-                120000, minimum=5000, maximum=1000000),
-        Setting("handoff_target_tokens", "Window rests near", "int",
-                "Size the window breathes back down to after a handoff.",
-                50000, minimum=5000, maximum=500000),
-        Setting("hot_tokens", "Hot window", "int",
-                "Recent tokens kept verbatim across a handoff, never compressed.",
-                30000, minimum=5000, maximum=200000),
-        Setting("hot_seconds", "Hot age", "float",
-                "How old a turn may be and still count as happening right now. "
-                "Older than this, it becomes compressible past.",
-                1800.0, minimum=60.0, maximum=21600.0),
-        Setting("context_handoff", "Sliding handoff", "bool",
-                "Off, the window only grows until the ceiling trims it.", True),
-        Setting("window_persist_after_turn", "Persist after each turn", "bool",
-                "Off, the window only reaches disk on shutdown — a crash loses the evening.", True),
-        Setting("dynamic_context_timeout", "Recall waits at most", "float",
-                "Seconds a turn waits for retrieved context before answering without it.",
+        Setting("handoff_trigger_tokens", "Recap starts at", "int",
+                "Manual override: the memory size at which she pauses to "
+                "summarize the old past. Leave at 0 and it follows the "
+                "slider above. Must stay above 'settles near'.",
+                0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
+        Setting("handoff_target_tokens", "Settles near", "int",
+                "Manual override: how small the memory shrinks back to after "
+                "a recap. Leave at 0 and it follows the slider above. Must "
+                "stay below 'recap starts at'.",
+                0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
+        Setting("hot_tokens", "Kept word-for-word", "int",
+                "Manual override: how much of the latest chat survives a "
+                "recap exactly as written, never summarized. Leave at 0 and "
+                "it follows the slider above.",
+                0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
+        Setting("hot_seconds", "Still now for", "float",
+                "How far back still counts as 'happening right now'. Older "
+                "than this, a message may be summarized like any other past.",
+                1800.0, minimum=60.0, maximum=21600.0, advanced=True),
+        Setting("context_handoff", "Memory recap", "bool",
+                "On, she periodically summarizes the old past to make room "
+                "and keeps talking. Off, the memory only grows until the "
+                "size above cuts it.", True),
+        Setting("window_persist_after_turn", "Save memory each turn", "bool",
+                "On, the memory reaches disk after every turn. Off, it only "
+                "saves on shutdown — a crash loses the evening.", True),
+        Setting("dynamic_context_timeout", "Waits for memories", "float",
+                "Seconds a turn waits for retrieved memories before answering "
+                "without them.",
                 5.0, minimum=0.0, maximum=30.0),
     ],
 )
@@ -525,11 +569,53 @@ def plan_section(config, key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         except ValueError as e:
             errors[field_key] = str(e)
 
+    errors.update(_window_shape_errors(config, sec, staged, payload))
+
     if errors:
         detail = "; ".join(f"{k}: {v}" for k, v in sorted(errors.items()))
         raise ValidationError(detail)
 
     return staged
+
+
+_WINDOW_SHAPE_KEYS = ("context_max_tokens", "handoff_trigger_tokens", "handoff_target_tokens")
+
+
+def _window_shape_errors(config, sec: Section, staged: Dict[str, Any],
+                         payload: Dict[str, Any]) -> Dict[str, str]:
+    """The window must keep breathing room: trigger above target.
+
+    `TokenBudget` clamps a target past its trigger down to it rather than
+    crashing, which turns a pinned trigger below the resting size into a
+    window that hands off on every single turn. Refuse that state at the save
+    instead: the payload carries one or two of the three numbers, the rest is
+    what is already stored, and the effective shape is what both together
+    would mean.
+    """
+    if sec.key != "consciousness":
+        return {}
+    if not any(key in payload for key in _WINDOW_SHAPE_KEYS):
+        return {}
+    block = _block(config, sec)
+
+    def effective(key: str, default: Any) -> Any:
+        return staged.get(key, block.get(key, default))
+
+    budget, _ = budget_for(
+        effective("context_max_tokens", WINDOW_MIN_TOKENS),
+        trigger=effective("handoff_trigger_tokens", 0),
+        target=effective("handoff_target_tokens", 0),
+    )
+    if budget.trigger_tokens > budget.target_tokens:
+        return {}
+    return {
+        "handoff_trigger_tokens":
+            f"must stay above settles near ({budget.target_tokens:,}): "
+            "at this size they meet and every turn recaps",
+        "handoff_target_tokens":
+            f"must stay below recap starts at ({budget.trigger_tokens:,}): "
+            "at this size they meet and every turn recaps",
+    }
 
 
 def write_section(config, key: str, staged: Dict[str, Any]) -> None:

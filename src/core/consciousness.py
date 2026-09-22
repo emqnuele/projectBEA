@@ -18,7 +18,7 @@ from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.core.mind.operating import unarmed
 from src.core.mind.routing import STAGE, channel_of, conversation_key, platform_of
 from src.core.mind.single_context import SingleContext
-from src.core.mind.token_budget import TokenBudget
+from src.core.mind.token_budget import budget_from_config
 from src.core.mind.tools import MindTools
 from src.core.mind.turnlog import TurnLog, turn_record
 from src.core.perception.types import Perception, PerceptionKind
@@ -105,13 +105,14 @@ class Consciousness:
         cc = config.consciousness
         # the one sliding window: every turn is mirrored here for the budget,
         # and the handoff prose it produces comes back as continuity
-        self.sliding_window = SingleContext(TokenBudget(
-            max_tokens=int(cc.get("context_max_tokens", 150_000)),
-            trigger_tokens=int(cc.get("handoff_trigger_tokens", 120_000)),
-            target_tokens=int(cc.get("handoff_target_tokens", 50_000)),
-        ), hot_tokens=int(cc.get("hot_tokens", 30_000)),
+        budget, hot = budget_from_config(cc)
+        self.sliding_window = SingleContext(
+            budget, hot_tokens=hot,
             hot_seconds=float(cc.get("hot_seconds", 1800.0)),
             store=memory.window)
+        # the loop the window belongs to: a resize posted from a dashboard
+        # thread has to land on it, never run beside it
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._handoff = HandoffWorker(language=getattr(config, "language", ""))
         self._handoff_task: Optional[asyncio.Task] = None
         # every persist in flight, not just the latest: a fast pair of turns
@@ -177,6 +178,7 @@ class Consciousness:
 
     async def start(self):
         self.alive = True
+        self._loop = asyncio.get_running_loop()
         # before the first turn, not after: the follow-up gate and the
         # cooldowns read the window, and a restart used to leave them blind to
         # a conversation that was two minutes old
@@ -1322,6 +1324,50 @@ class Consciousness:
         self._save_bridge()
         self.sliding_window.clear(bridge)
         logger.info("Window cleared by the consolidation.")
+
+    def apply_budget(self) -> None:
+        """Re-reads the live knobs from the config and resizes the window.
+
+        Called on every reload, so a ceiling changed in the dashboard takes
+        effect on the next turn rather than at the next restart. Everything
+        runs inside `resize` on the loop thread: the resize may evict, and an
+        eviction racing an append would lose the running total — but
+        `POST /config` is a synchronous route and reaches here from FastAPI's
+        thread pool. So it is posted to the loop rather than run where it was
+        called, and only run inline when there is no loop to post it to
+        (start-up, tests, or the async settings route, which already runs on
+        the loop).
+        """
+        def resize() -> None:
+            cc = self.config.consciousness
+            budget, hot = budget_from_config(cc)
+            self._handoff_enabled = bool(cc.get("context_handoff", True))
+            self._persist_after_turn = bool(cc.get("window_persist_after_turn", True))
+            self._dynamic_timeout = float(cc.get("dynamic_context_timeout", 5.0))
+            self.idle_after = cc.get("idle_after", 30.0)
+            self.burst_steps = cc.get("burst_steps", 6)
+            self.correlation_timeout = cc.get("correlation_timeout", 30.0)
+            self.stream_speech = bool(cc.get("stream_speech", True))
+            self.sliding_window.hot_seconds = max(60.0, float(cc.get("hot_seconds", 1800.0)))
+            if self.sliding_window.retarget(budget, hot):
+                logger.info(
+                    f"Window resized: ceiling {budget.max_tokens:,}, handoff at "
+                    f"{budget.trigger_tokens:,}, rests near {budget.target_tokens:,}, "
+                    f"hot {self.sliding_window.hot_tokens:,}."
+                )
+                # a ceiling raised past the trigger can leave a window that is
+                # already due for one: ask now instead of waiting for a turn
+                self._schedule_handoff()
+
+        loop = self._loop
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if loop is None or loop.is_closed() or running is loop:
+            resize()
+            return
+        loop.call_soon_threadsafe(resize)
 
     def window_status(self) -> Dict[str, Any]:
         """Budget state for the dashboard."""

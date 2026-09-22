@@ -6,6 +6,8 @@ import { Glass } from '../../components/glass/Glass';
 import { Button, Switch } from '../../components/ui/controls';
 import { CheckRow, Field, SecretInput, Select, Slider, TextInput } from '../../components/ui/fields';
 import { Skeleton } from '../../components/ui/feedback';
+import { shapeWarning, windowShape } from '../../lib/budget';
+import { compact } from '../../lib/format';
 import { useToast } from '../../state/ToastProvider';
 import { Group } from './parts';
 
@@ -76,6 +78,19 @@ function Control({ setting, value, onChange, error }) {
                 />
             );
         case 'int':
+            if (setting.ui === 'slider') {
+                return (
+                    <Slider
+                        label={setting.label}
+                        value={Number(value ?? setting.default ?? 0)}
+                        min={setting.min ?? 0}
+                        max={setting.max ?? 100}
+                        step={setting.step ?? 1}
+                        onChange={(v) => onChange(Math.round(v))}
+                        format={compact}
+                    />
+                );
+            }
             return (
                 <TextInput
                     {...common}
@@ -222,7 +237,56 @@ export function createSchemaSection(sectionKey) {
 
         const toggle = schema.toggleable ? schema.settings.find((s) => s.key === 'enabled') : null;
         const fields = schema.settings.filter((s) => s !== toggle);
+        const plain = fields.filter((s) => !s.advanced);
+        const advanced = fields.filter((s) => s.advanced);
+        // an error inside the folded section is invisible while it stays
+        // folded, so a refused save would point at nothing: open it instead
+        const advancedHasError = advanced.some((s) => errors[s.key]);
         const needsRestart = fields.some((s) => s.restart && errors[s.key] === undefined);
+
+        // a control that carries its own label is not wrapped in a Field, or
+        // the label is drawn twice
+        const selfLabelled = (s) => s.type === 'bool' || s.type === 'float' || s.ui === 'slider';
+
+        const renderField = (setting) => (
+            selfLabelled(setting) ? (
+                <div key={setting.key} className="space-y-1.5">
+                    <Control
+                        setting={setting}
+                        value={values[setting.key]}
+                        onChange={(v) => set(setting.key, v)}
+                        error={errors[setting.key]}
+                    />
+                    {setting.derives?.length > 0 && (
+                        <DerivedShape
+                            setting={setting}
+                            ceiling={values[setting.key]}
+                            values={values}
+                        />
+                    )}
+                    {setting.type !== 'bool' && (
+                        <p className="text-[11px] leading-snug text-faint">{setting.help}</p>
+                    )}
+                    {errors[setting.key] && <FieldError text={errors[setting.key]} />}
+                </div>
+            ) : (
+                <Field
+                    key={setting.key}
+                    label={setting.label}
+                    htmlFor={setting.key}
+                    help={setting.help}
+                    error={errors[setting.key]}
+                    action={setting.restart ? <RestartTag /> : null}
+                >
+                    <Control
+                        setting={setting}
+                        value={values[setting.key]}
+                        onChange={(v) => set(setting.key, v)}
+                        error={errors[setting.key]}
+                    />
+                </Field>
+            )
+        );
 
         return (
             <>
@@ -236,39 +300,24 @@ export function createSchemaSection(sectionKey) {
                 )}
 
                 <Group title="Settings" description={schema.blurb}>
-                    {fields.map((setting) => (
-                        setting.type === 'bool' || setting.type === 'float' ? (
-                            <div key={setting.key} className="space-y-1.5">
-                                <Control
-                                    setting={setting}
-                                    value={values[setting.key]}
-                                    onChange={(v) => set(setting.key, v)}
-                                    error={errors[setting.key]}
-                                />
-                                {setting.type === 'float' && (
-                                    <p className="text-[11px] leading-snug text-faint">{setting.help}</p>
-                                )}
-                                {errors[setting.key] && <FieldError text={errors[setting.key]} />}
-                            </div>
-                        ) : (
-                            <Field
-                                key={setting.key}
-                                label={setting.label}
-                                htmlFor={setting.key}
-                                help={setting.help}
-                                error={errors[setting.key]}
-                                action={setting.restart ? <RestartTag /> : null}
-                            >
-                                <Control
-                                    setting={setting}
-                                    value={values[setting.key]}
-                                    onChange={(v) => set(setting.key, v)}
-                                    error={errors[setting.key]}
-                                />
-                            </Field>
-                        )
-                    ))}
+                    {plain.map(renderField)}
                 </Group>
+
+                {advanced.length > 0 && (
+                    <details className="group mt-2.5" open={advancedHasError ? true : undefined}>
+                        <summary className="cursor-pointer list-none px-1 text-[11px] font-semibold uppercase tracking-wider text-faint transition-colors hover:text-dim">
+                            Advanced — {advanced.length} more
+                        </summary>
+                        <div className="mt-2.5">
+                            <Group
+                                title="Advanced"
+                                description="Manual overrides for the slider above. Leave everything at 0 and the slider decides."
+                            >
+                                {advanced.map(renderField)}
+                            </Group>
+                        </div>
+                    </details>
+                )}
 
                 {needsRestart && (
                     <p className="px-1 text-[11px] leading-snug text-faint">
@@ -304,6 +353,45 @@ export function createSchemaSection(sectionKey) {
 
     SchemaSection.displayName = `SchemaSection(${sectionKey})`;
     return SchemaSection;
+}
+
+/**
+ * What the number above it works out to everywhere else.
+ *
+ * Without this the slider is a single opaque figure: the one that decides how
+ * much she actually keeps is the handoff trigger, and it moves with the
+ * ceiling rather than being the ceiling. A value pinned in Advanced says so
+ * here, so a slider that is only moving part of the window cannot look like
+ * it is moving all of it.
+ */
+function DerivedShape({ setting, ceiling, values }) {
+    const shape = windowShape(Number(ceiling ?? setting.default ?? 0), setting.derives, values);
+    const warning = shapeWarning(Number(ceiling ?? setting.default ?? 0), setting.derives, values);
+    const labelOf = (key, fallback) => {
+        const found = shape.find((d) => d.key === key)?.label ?? fallback;
+        return found.charAt(0).toUpperCase() + found.slice(1);
+    };
+    return (
+        <div className="space-y-1 px-0.5">
+            <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[11px] text-faint">
+                {shape.map(({ key, label, tokens, pinned }) => (
+                    <span key={key}>
+                        {label}{' '}
+                        <span className="tnum font-mono text-dim">{compact(tokens)}</span>
+                        {pinned && <span className="ml-1 uppercase tracking-wider">pinned</span>}
+                    </span>
+                ))}
+            </p>
+            {warning && (
+                <p className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--flux-err)' }}>
+                    <AlertTriangle size={11} className="shrink-0" />
+                    {labelOf('handoff_trigger_tokens', 'recap')} {compact(warning.trigger)} meets{' '}
+                    {labelOf('handoff_target_tokens', 'rest').toLowerCase()} {compact(warning.target)} —
+                    every turn would recap. Raise the first or lower the second.
+                </p>
+            )}
+        </div>
+    );
 }
 
 function FieldError({ text }) {

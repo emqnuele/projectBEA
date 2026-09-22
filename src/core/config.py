@@ -288,12 +288,16 @@ class BrainConfig:
         "burst_steps": 6,          # max reasoning steps per perception batch
         "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
         # ongoing present: what counts as "happening right now" across a handoff
-        "hot_tokens": 30_000,         # max size of the ongoing present window
         "hot_seconds": 1800,          # max age of an ongoing present message
-        # the one sliding window: ceiling, handoff trigger, resting size
+        # the one sliding window. The ceiling is the only number anyone needs:
+        # the trigger, the resting size and the ongoing present follow it, so
+        # raising it raises how much she actually keeps rather than just how
+        # much the emergency valve tolerates. 0 means "follow the ceiling";
+        # pin one to take it out of the owner's hands and into your own.
         "context_max_tokens": 150_000,
-        "handoff_trigger_tokens": 120_000,
-        "handoff_target_tokens": 50_000,
+        "handoff_trigger_tokens": 0,
+        "handoff_target_tokens": 0,
+        "hot_tokens": 0,
         "context_handoff": True,      # off: the window only grows until the ceiling trims it
         "window_persist_after_turn": True,  # off: the window only reaches disk on shutdown
         "dynamic_context_timeout": 5.0,     # seconds a turn waits for recall before answering without it
@@ -396,6 +400,19 @@ class BrainConfig:
                         "english, set it in Settings -> Language, which writes the "
                         "choice down as one."
                     )
+
+                # migration: the window used to be three independent numbers,
+                # and every install carries the three defaults written out. Now
+                # they follow the ceiling, so leaving them pinned would make
+                # the ceiling a placebo — moved to 0 unless somebody chose
+                # something of their own, which stays chosen.
+                consciousness = data.get("consciousness")
+                if isinstance(consciousness, dict):
+                    for key, legacy in (("handoff_trigger_tokens", 120_000),
+                                        ("handoff_target_tokens", 50_000),
+                                        ("hot_tokens", 30_000)):
+                        if consciousness.get(key) == legacy:
+                            consciousness[key] = 0
 
                 # migration: image to avatar source
                 if "obs_image_source" in data and "obs_avatar_source" not in data:
