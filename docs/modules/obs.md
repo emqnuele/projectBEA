@@ -84,8 +84,7 @@ source at the size the text was actually typed at — a long line shrinks to fit
 and clearing at the configured size resizes the box on screen.
 
 The typing task and the playback task run in parallel — both are asyncio tasks,
-and `Expression.interrupt()` cancels them together on barge-in, keeping what was
-left unsaid in the resume buffer.
+and `Expression.interrupt()` cancels them together on barge-in.
 
 ---
 

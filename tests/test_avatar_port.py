@@ -64,8 +64,6 @@ class SilentTTS:
     async def generate_audio(self, text, prosody=None):
         return np.zeros(240, dtype=np.float32), 24000
 
-    async def speak(self, text, output_device_id):
-        pass
 
     def reload_config(self, config):
         pass
@@ -283,19 +281,6 @@ async def test_expression_drives_the_ports_and_never_a_file_path():
     assert caption.said == ["ma dai"]
     assert not hasattr(e, "png_map")
     assert not hasattr(e, "obs")
-
-
-async def test_a_resumed_line_keeps_the_mood_it_was_cut_off_in():
-    """Resume used to hardcode `normal`: an angry sentence finished neutral."""
-    avatar, caption = FakeAvatar(), FakeCaption()
-    e = Expression(Config(), SilentTTS(), avatar, caption, Events())
-
-    await e.speak("angry", "stavo dicendo")
-    e.resume_buffer = np.zeros(24000, dtype=np.float32)
-    await e.resume()
-
-    assert ("neutral", "talking") not in avatar.shown
-    assert avatar.shown[-2:] == [("angry", "talking"), ("angry", "idle")]
 
 
 def test_a_state_change_does_not_reset_the_face_she_was_wearing():

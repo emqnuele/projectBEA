@@ -5,13 +5,6 @@ from typing import Any, AsyncIterator, Optional, Sequence, Tuple, Union
 
 class TTSInterface(ABC):
     @abstractmethod
-    async def speak(self, text: str, output_device_id: int) -> None:
-        """
-        Generates audio from text and plays it to the specified device.
-        """
-        pass
-
-    @abstractmethod
     async def generate_audio(self, text: str, prosody=None) -> Tuple[Any, int]:
         """
         Generates audio from text.

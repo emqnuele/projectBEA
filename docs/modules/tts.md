@@ -34,14 +34,14 @@ factory all ask it, so they cannot drift. See [Languages](../languages.md).
 
 ```python
 class TTSInterface(ABC):
-    async def generate_audio(text: str) -> (np.ndarray, sample_rate: int)
-    async def speak(text: str, output_device_id: int) -> None
+    async def generate_audio(text: str, prosody=None) -> (np.ndarray, sample_rate: int)
+    async def generate_stream(text: str, prosody=None)  # optional, yields (audio, rate)
     def reload_config(config: BrainConfig) -> None
 ```
 
 `Expression` always calls `generate_audio()` and plays the array itself, which
-is what makes interruption and resume possible — the buffer is tracked at the
-Expression level, not inside the engine.
+is what makes interruption possible — playback is owned by Expression, not by
+the engine.
 
 Two routes go through the same code:
 

@@ -58,8 +58,6 @@ class ScriptedTTS(TTSInterface):
         # a real buffer so playback is awaited rather than skipped
         return np.zeros(240, dtype=np.float32), 24000
 
-    async def speak(self, text, output_device_id):
-        pass
 
     def reload_config(self, config):
         pass
