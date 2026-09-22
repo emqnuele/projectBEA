@@ -107,6 +107,7 @@ class PresenceSkill(Skill):
                                      "description": "optional: discord, telegram…"}},
                      "required": ["who", "text"]},
                     self._tool_message,
+                    reaches=True,
                 ),
             ])
         return tools

@@ -28,6 +28,11 @@ class Tool:
     # which surface owns it, so the result of a long-running action comes back
     # attributed to the right place instead of a hardcoded guess
     surface: str = ""
+    # whether this tool puts something in front of an audience (speak, a chat
+    # message, a react). The mind reads it when deciding whether a turn
+    # reached anybody: a tool that only *does* something - a plan objective, a
+    # body action - must never stand in for the answer she has not given yet.
+    reaches: bool = False
 
     def schema(self) -> Dict[str, Any]:
         return {
@@ -59,8 +64,10 @@ class ToolRegistry:
         handler: ToolHandler,
         long_running: bool = False,
         surface: str = "",
+        reaches: bool = False,
     ) -> None:
-        self.register(Tool(name, description, parameters, handler, long_running, surface))
+        self.register(Tool(name, description, parameters, handler,
+                           long_running, surface, reaches))
 
     def get(self, name: str) -> Optional[Tool]:
         return self._tools.get(name)

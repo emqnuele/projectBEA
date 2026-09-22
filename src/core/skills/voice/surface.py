@@ -393,6 +393,7 @@ class VoiceSurface(PlatformSkill):
                     "channel_id": {"type": "string"}, "text": {"type": "string"}},
                  "required": ["channel_id", "text"]},
                 self._tool_send_message,
+                reaches=True,
             ),
             Tool(
                 "discord_reply",
@@ -403,6 +404,7 @@ class VoiceSurface(PlatformSkill):
                     "text": {"type": "string"}},
                  "required": ["channel_id", "message_id", "text"]},
                 self._tool_reply,
+                reaches=True,
             ),
             Tool(
                 "discord_react",
@@ -412,6 +414,7 @@ class VoiceSurface(PlatformSkill):
                     "emoji": {"type": "string"}},
                  "required": ["channel_id", "message_id", "emoji"]},
                 self._tool_react,
+                reaches=True,
             ),
             Tool(
                 "discord_send_dm",
@@ -420,6 +423,7 @@ class VoiceSurface(PlatformSkill):
                     "user_id": {"type": "string"}, "text": {"type": "string"}},
                  "required": ["user_id", "text"]},
                 self._tool_send_dm,
+                reaches=True,
             ),
             Tool(
                 "discord_summon",

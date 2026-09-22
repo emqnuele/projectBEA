@@ -53,6 +53,11 @@ def _block(what: str, produce) -> str:
         return ""
 
 
+def _tool_failed(call: Dict[str, Any]) -> bool:
+    """A tool observation that says the call did not land."""
+    return str(call.get("result", "")).startswith(("ERROR", "FAILED"))
+
+
 class Consciousness:
     """The single, always-on mind.
 
@@ -144,6 +149,11 @@ class Consciousness:
         self._acted: List[Dict[str, Any]] = []
         self._said: Optional[Dict[str, Any]] = None
         self._sent: List[Dict[str, Any]] = []
+        # words she wrote that no tool has carried anywhere yet: the rescue
+        # at the end of the turn is owed to them, and the log must be able
+        # to say a turn ended mute and why
+        self._unheard_words = False
+        self._rescued = False
         self._bg_tasks: set = set()
         # the written answers still going out: shutdown waits for these, so a
         # conversation does not end halfway through her own sentence
@@ -371,6 +381,8 @@ class Consciousness:
         steps = 0
         spent = Usage()
         self._thought, self._acted, self._said, self._sent = [], [], None, []
+        self._unheard_words = False
+        self._rescued = False
         for _ in range(self.burst_steps):
             steer = self._steering()
             if steer:
@@ -403,17 +415,32 @@ class Consciousness:
         # end the same way and both get the same one rescue — the
         # question is whether anything landed, never whether she tried
         if self._needs_answer(batch) and not self._reached_someone():
+            # said out loud on the way in: a turn that ends mute must read as
+            # a failure in the log, never as her choice to stay quiet
+            self._rescued = True
+            logger.warning(
+                f"A turn reached nobody ({self._silence_reason()}) - asking once more.")
             context.append({"role": "user", "content": self._NO_TOOL_NUDGE})
             steps += 1
             assistant = await self._step(context)
             spent = spent + assistant.usage
+            if not self._reached_someone():
+                logger.error(
+                    "Still unheard after the rescue: this turn ends with nobody there.")
+                self.events.publish(
+                    EventCategory.ERROR, "consciousness",
+                    "A turn ended with words nobody heard, even after the one rescue.",
+                    metadata={"thought": (self._thought or [""])[-1][:300],
+                              "tools": [c["tool"] for c in self._acted]},
+                )
 
         if not is_idle:
             elapsed_ms = (time.perf_counter() - t_turn) * 1000
             logger.info(f"turn done: {steps} llm call(s), {spent.total} tokens, "
                         f"in {elapsed_ms:.0f}ms")
             self._publish_cost(steps, spent, elapsed_ms)
-            self._write_down(context, self._batch, steps, spent, elapsed_ms)
+            self._write_down(context, self._batch, steps, spent, elapsed_ms,
+                             rescued=self._rescued)
             self._profile_background(self._batch)
         self._record_window(frames)
         self._schedule_persist()
@@ -429,6 +456,12 @@ class Consciousness:
             logger.info(f"llm {label} took {(time.perf_counter() - t_llm) * 1000:.0f}ms{tools}")
         context.append(assistant_to_message(assistant))
         self._think_aloud(assistant.content)
+        # a final answer written as plain text is words nobody heard: the
+        # think-aloud before a tool call is thinking, not an answer, so only
+        # the final message counts - otherwise every action turn with a lively
+        # inner monologue would earn a rescue it does not need
+        if assistant.is_final and assistant.content and str(assistant.content).strip():
+            self._unheard_words = True
         if assistant.is_final:
             return assistant
 
@@ -562,18 +595,35 @@ class Consciousness:
         """Could someone be waiting on words, as opposed to texture or time."""
         return any(p.is_memorable for p in batch)
 
-    def _reached_someone(self) -> bool:
-        """Did anything she did this turn actually get somewhere.
+    def _silence_reason(self) -> str:
+        """What went wrong with the turn, in the words the log should carry."""
+        tools = ", ".join(str(c["tool"]) for c in self._acted) or "no tool"
+        if self._unheard_words:
+            return f"plain text nobody heard (tools: {tools})"
+        if self._acted and all(_tool_failed(c) for c in self._acted):
+            return f"every tool failed ({tools})"
+        return f"nothing landed (tools: {tools})"
 
-        Reaching for a tool is not the same as the tool working, and the
-        difference is the whole point: a call that came back
-        `ERROR: unknown tool` used to count as having acted, so the one rescue
-        was spent on a turn nobody heard and she simply went quiet.
+    def _reached_someone(self) -> bool:
+        """Did anything she did this turn actually get to somebody.
+
+        Landing means output: she said or wrote it, or a tool that declares it
+        reaches an audience (a react, `mc_chat`, `discord_send_message`) did.
+        Everything else she can reach for - a plan objective, a body action,
+        a recall - is something she *did*, and must never stand in for the
+        answer she has not given yet.
         """
         if self._said or self._sent:
             return True
-        return any(not str(call["result"]).startswith(("ERROR", "FAILED"))
-                   for call in self._acted)
+        if any(bool(c.get("reaches")) and not _tool_failed(c) for c in self._acted):
+            return True
+        if self._unheard_words:
+            return False
+        if any(bool(c.get("reaches")) and _tool_failed(c) for c in self._acted):
+            return False
+        # side effects only: she acted and kept quiet, which is her right -
+        # nothing of hers is waiting to be delivered, so there is no rescue
+        return any(not _tool_failed(c) for c in self._acted)
 
     def _annotate(self, batch: List[Perception]) -> List["tuple[Perception, float]"]:
         """Priority per perception, highest first. Nothing is ever dropped."""
@@ -619,7 +669,8 @@ class Consciousness:
         self.events.publish(EventCategory.THOUGHT, "consciousness", content)
 
     def _write_down(self, context: List[Dict[str, Any]], batch: List[Perception],
-                    steps: int, spent: Usage, elapsed_ms: float) -> None:
+                    steps: int, spent: Usage, elapsed_ms: float,
+                    rescued: bool = False) -> None:
         """Files the turn away, for the questions that only come up afterwards."""
         if self.turns is None or not self.turns.enabled:
             return
@@ -634,6 +685,7 @@ class Consciousness:
                 steps=steps,
                 ms=elapsed_ms,
                 model=getattr(self.llm, "model_name", "") or "",
+                rescued=rescued,
             ))
         except Exception as e:
             # writing down is for later, and must never cost the turn it describes
@@ -884,7 +936,13 @@ class Consciousness:
         a capability is quietly missing.
         """
         result = await self._run_tool(call)
-        self._acted.append({"tool": call.name, "arguments": call.arguments, "result": result})
+        tool = self.tools.registry().get(call.name)
+        self._acted.append({"tool": call.name, "arguments": call.arguments,
+                            "result": result,
+                            # whether this could stand in for an answer: a tool
+                            # that talks to an audience declares it, a tool that
+                            # merely does something does not
+                            "reaches": bool(getattr(tool, "reaches", False))})
         failed = result.startswith(("ERROR", "FAILED"))
         self.events.publish(
             EventCategory.ERROR if failed else EventCategory.TOOL, "consciousness",

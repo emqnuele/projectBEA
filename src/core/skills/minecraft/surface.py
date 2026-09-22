@@ -542,6 +542,7 @@ class MinecraftSurface(Skill):
                 {"type": "object", "properties": {"message": {"type": "string"}},
                  "required": ["message"]},
                 self._tool_chat,
+                reaches=True,
             ),
             Tool(
                 "mc_stop",
