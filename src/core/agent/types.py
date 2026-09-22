@@ -20,11 +20,18 @@ class Usage:
     is the only way to tell whether the prompt is still shaped the way caching
     wants it: a change that quietly puts something volatile near the top drives
     it to zero, and nothing else about the turn looks any different.
+
+    `reasoning_tokens` is the part of the answer the model thought rather than
+    said. It is counted inside `completion_tokens` and is reported separately
+    because it is otherwise invisible: a model that ignores the hint to stop
+    reasoning looks exactly like a model writing a long answer, and the
+    difference is several seconds before she opens her mouth.
     """
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
+    reasoning_tokens: int = 0
 
     @property
     def total(self) -> int:
@@ -35,10 +42,16 @@ class Usage:
         """How much of the prompt came out of the cache, 0 to 1."""
         return self.cached_tokens / self.prompt_tokens if self.prompt_tokens else 0.0
 
+    @property
+    def spoken_tokens(self) -> int:
+        """What the answer itself cost, once the thinking is taken out."""
+        return max(0, self.completion_tokens - self.reasoning_tokens)
+
     def __add__(self, other: "Usage") -> "Usage":
         return Usage(self.prompt_tokens + other.prompt_tokens,
                      self.completion_tokens + other.completion_tokens,
-                     self.cached_tokens + other.cached_tokens)
+                     self.cached_tokens + other.cached_tokens,
+                     self.reasoning_tokens + other.reasoning_tokens)
 
 
 @dataclass

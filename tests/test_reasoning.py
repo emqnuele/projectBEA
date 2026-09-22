@@ -16,8 +16,10 @@ from src.modules.llm.reasoning import ReasoningStyle, style_for
 
 
 def test_openrouter_is_told_to_switch_reasoning_off():
+    """`effort` is an openai-family scale a deepseek routed through openrouter
+    simply ignores; the switch is the thing that works on every family."""
     style = style_for("openrouter", "off")
-    assert style.extra_body == {"reasoning": {"effort": "minimal"}}
+    assert style.extra_body == {"reasoning": {"enabled": False}}
     assert style.optional_keys == ("reasoning",)
 
 
@@ -26,9 +28,10 @@ def test_openrouter_low_asks_for_the_cheapest_reasoning():
     assert style.extra_body == {"reasoning": {"effort": "low"}}
 
 
-def test_groq_hides_behind_the_same_effort_object():
+def test_groq_asks_for_the_least_its_models_will_take():
+    """gpt-oss accepts low, medium and high and 400s on anything below."""
     style = style_for("groq", "off")
-    assert style.extra_body == {"reasoning": {"effort": "minimal"}}
+    assert style.extra_body == {"reasoning": {"effort": "low"}}
 
 
 def test_groq_low_keeps_the_effort_minimal():
@@ -38,6 +41,14 @@ def test_groq_low_keeps_the_effort_minimal():
 
 def test_openai_direct_uses_the_responses_shape():
     assert style_for("openai", "low").extra_body == {"reasoning": {"effort": "low"}}
+
+
+def test_openai_has_a_floor_rather_than_an_off():
+    """gpt-5 has no off; minimal is as close as it gets, and it stays
+    negotiable because newer models do accept none."""
+    style = style_for("openai", "off")
+    assert style.extra_body == {"reasoning": {"effort": "minimal"}}
+    assert style.negotiable
 
 
 def test_chat_shaped_providers_keep_their_own_field():
@@ -152,7 +163,7 @@ def client(monkeypatch, style: ReasoningStyle, fail_times: int = 0) -> AsyncLLMC
 async def test_the_reasoning_fields_travel_with_every_call(monkeypatch):
     c = client(monkeypatch, style_for("openrouter", "off"))
     await c.complete([{"role": "user", "content": "ciao"}])
-    assert FakeSession.posts[0]["reasoning"] == {"effort": "minimal"}
+    assert FakeSession.posts[0]["reasoning"] == {"enabled": False}
 
 
 async def test_a_model_that_refuses_them_is_retried_without(monkeypatch):
@@ -215,7 +226,7 @@ def test_a_built_client_carries_the_configured_style():
     from src.modules.llm.factory import build_client
 
     c = build_client("openrouter", "a/model", Config(reasoning="off"))
-    assert c.reasoning.extra_body == {"reasoning": {"effort": "minimal"}}
+    assert c.reasoning.extra_body == {"reasoning": {"enabled": False}}
 
 
 def test_auto_builds_a_client_that_asks_for_nothing():
@@ -278,3 +289,102 @@ def test_a_list_setting_is_replaced_not_merged(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module, "CONFIG_FILE", "config.json")
 
     assert config_module.BrainConfig().attention["trigger_words"] == ["bea"]
+
+
+# --- the same negotiation while streaming -------------------------------------
+
+
+def _stream(*blocks):
+    """A responses SSE stream, as lines on the wire."""
+    import json as _json
+
+    lines = []
+    for block in blocks:
+        lines.append(f"data: {_json.dumps(block)}")
+        lines.append("")
+    lines.append("data: [DONE]")
+    return lines
+
+
+def streaming(monkeypatch, style: ReasoningStyle, *, refusals: int = 0):
+    from src.modules.llm.responses import ResponsesClient
+
+    refused = FakeResponse(status=400, payload={"error": {"message": "reasoning refused"}})
+    # the same response serves both paths: streamed when asked to stream,
+    # and an ordinary reply when the fallback gives up on streaming
+    ok = FakeResponse(payload=_reply("ciao"))
+    ok.content = FakeContent(_stream(
+        {"type": "response.output_text.delta", "delta": "ciao"},
+        {"type": "response.completed",
+         "response": {"usage": {"input_tokens": 10, "output_tokens": 4}}},
+    ))
+    serve(monkeypatch, *([refused] * refusals), ok)
+    return ResponsesClient(base_url="https://x/v1", model_name="a/model", reasoning=style)
+
+
+async def test_a_refused_stream_is_retried_without_the_hint(monkeypatch):
+    """It used to give up on streaming for two minutes over a parameter, which
+    is her speaking-early gone for the next forty turns."""
+    c = streaming(monkeypatch, style_for("openrouter", "off"), refusals=1)
+    reply = await c.stream_complete([{"role": "user", "content": "ciao"}],
+                                    on_tool_delta=lambda *a: None)
+    assert len(FakeSession.posts) == 2
+    assert "reasoning" not in FakeSession.posts[1]
+    assert FakeSession.posts[1]["stream"] is True
+    assert reply.content == "ciao"
+
+
+async def test_streaming_is_only_given_up_on_once_the_hint_is_gone(monkeypatch):
+    c = streaming(monkeypatch, style_for("openrouter", "off"), refusals=2)
+    await c.stream_complete([{"role": "user", "content": "ciao"}],
+                            on_tool_delta=lambda *a: None)
+    # streamed, streamed without the hint, then the ordinary call
+    assert len(FakeSession.posts) == 3
+    assert FakeSession.posts[2].get("stream") is None
+    assert c._stream_blocked()
+
+
+async def test_a_stream_that_works_is_not_retried(monkeypatch):
+    c = streaming(monkeypatch, style_for("openrouter", "off"))
+    await c.stream_complete([{"role": "user", "content": "ciao"}],
+                            on_tool_delta=lambda *a: None)
+    assert len(FakeSession.posts) == 1
+    assert not c._stream_blocked()
+
+
+# --- and what the thinking cost ----------------------------------------------
+
+
+def test_the_responses_transport_counts_what_was_thought():
+    from src.modules.llm.responses import _usage
+
+    usage = _usage({"input_tokens": 1000, "output_tokens": 500,
+                    "input_tokens_details": {"cached_tokens": 800},
+                    "output_tokens_details": {"reasoning_tokens": 460}})
+    assert usage.reasoning_tokens == 460
+    assert usage.spoken_tokens == 40
+
+
+def test_the_chat_transport_counts_what_was_thought():
+    from src.modules.llm.chat import _usage
+
+    usage = _usage({"prompt_tokens": 100, "completion_tokens": 80,
+                    "completion_tokens_details": {"reasoning_tokens": 70}})
+    assert usage.reasoning_tokens == 70
+    assert usage.spoken_tokens == 10
+
+
+def test_a_provider_that_reports_nothing_says_nothing():
+    from src.modules.llm.chat import _usage
+
+    usage = _usage({"prompt_tokens": 100, "completion_tokens": 80})
+    assert usage.reasoning_tokens == 0
+    assert usage.spoken_tokens == 80
+
+
+def test_the_thinking_adds_up_across_the_steps_of_a_turn():
+    from src.core.agent.types import Usage
+
+    turn = Usage(10, 20, 0, 15) + Usage(10, 30, 0, 25)
+    assert turn.reasoning_tokens == 40
+    assert turn.spoken_tokens == 10

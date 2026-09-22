@@ -157,4 +157,5 @@ def turn_record(*, context: List[Dict[str, Any]], perceptions: List[str],
         "prompt_tokens": usage.prompt_tokens,
         "completion_tokens": usage.completion_tokens,
         "cached_tokens": usage.cached_tokens,
+        "reasoning_tokens": usage.reasoning_tokens,
     }

@@ -566,14 +566,18 @@ class Consciousness:
         self.total_tokens += spent.total
         self.total_calls += steps
         cached = f", {round(spent.cache_hit * 100)}% cached" if spent.cached_tokens else ""
+        # what she thought rather than said, when the provider reports it: it is
+        # the difference between a long answer and a long silence before one
+        thought = f", {spent.reasoning_tokens} reasoning" if spent.reasoning_tokens else ""
         self.events.publish(
             EventCategory.SYSTEM, "cost",
-            f"turn: {steps} call(s), {spent.total} tokens, {elapsed_ms:.0f}ms{cached}",
+            f"turn: {steps} call(s), {spent.total} tokens, {elapsed_ms:.0f}ms{cached}{thought}",
             metadata={
                 "steps": steps,
                 "prompt_tokens": spent.prompt_tokens,
                 "completion_tokens": spent.completion_tokens,
                 "cached_tokens": spent.cached_tokens,
+                "reasoning_tokens": spent.reasoning_tokens,
                 "tokens": spent.total,
                 "ms": round(elapsed_ms),
                 "session_tokens": self.total_tokens,

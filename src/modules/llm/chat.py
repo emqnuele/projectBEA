@@ -107,10 +107,12 @@ class ChatCompletionsClient(AsyncLLMClient):
 
 def _usage(data: Optional[Dict[str, Any]]) -> Usage:
     data = data or {}
-    details = data.get("prompt_tokens_details") or {}
-    cached = details.get("cached_tokens", data.get("cached_tokens", 0))
+    prompt = data.get("prompt_tokens_details") or {}
+    answer = data.get("completion_tokens_details") or {}
+    cached = prompt.get("cached_tokens", data.get("cached_tokens", 0))
     return Usage(
         prompt_tokens=int(data.get("prompt_tokens", 0) or 0),
         completion_tokens=int(data.get("completion_tokens", 0) or 0),
         cached_tokens=int(cached or 0),
+        reasoning_tokens=int(answer.get("reasoning_tokens", 0) or 0),
     )

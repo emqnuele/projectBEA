@@ -169,9 +169,11 @@ def _flat_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
 
 def _usage(data: Optional[Dict[str, Any]]) -> Usage:
     data = data or {}
-    details = data.get("input_tokens_details") or {}
+    prompt = data.get("input_tokens_details") or {}
+    answer = data.get("output_tokens_details") or {}
     return Usage(
         prompt_tokens=int(data.get("input_tokens", 0) or 0),
         completion_tokens=int(data.get("output_tokens", 0) or 0),
-        cached_tokens=int(details.get("cached_tokens", 0) or 0),
+        cached_tokens=int(prompt.get("cached_tokens", 0) or 0),
+        reasoning_tokens=int(answer.get("reasoning_tokens", 0) or 0),
     )
