@@ -308,3 +308,22 @@ async def test_a_reaction_telegram_refuses_is_reported_as_failed(bus):
 
 async def test_reacting_without_a_connection_fails_quietly(bus):
     assert await skill(bus).react("2", "10", "🔥") is False
+
+
+async def test_the_react_tool_respects_the_switch(bus):
+    """The toggle was read by nothing: switched off, she reacted anyway."""
+    from src.core.consciousness import Consciousness
+
+    s = skill(bus, reactions=False)
+    s.app = FakeApp()
+
+    class Mind:
+        attention = None
+
+        def _skill_for_platform(self, platform):
+            return s
+
+    answer = await Consciousness._react_to(Mind(), "telegram", "2", "10", "🔥")
+
+    assert answer.startswith("FAILED")
+    assert s.app.bot.reactions == []

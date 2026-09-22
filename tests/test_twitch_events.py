@@ -213,3 +213,19 @@ def test_the_say_rate_limit_is_configurable(bus):
 
 def test_the_default_stays_under_what_twitch_punishes(bus):
     assert skill(bus).limiter.limit <= 20
+
+
+# --- an ordinary line pulls as hard as the setting says ----------------------
+
+CHAT = "@display-name=Marco;user-id=4711 :marco!marco@marco.tmi.twitch.tv PRIVMSG #ema :ciao"
+
+
+async def test_an_ordinary_line_keeps_its_default_pull(bus):
+    await skill(bus)._on_message(parse_line(CHAT))
+    assert drain(bus)[0].salience == 0.4
+
+
+async def test_the_chat_pull_setting_is_read(bus):
+    """It was on the settings screen and read by nothing."""
+    await skill(bus, chatter_salience=0.7)._on_message(parse_line(CHAT))
+    assert drain(bus)[0].salience == 0.7

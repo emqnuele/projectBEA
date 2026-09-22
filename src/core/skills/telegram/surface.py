@@ -145,6 +145,16 @@ class TelegramSkill(PlatformSkill):
             if message is None:
                 return
 
+            # who and where first: a voice note from a chat she may not read is
+            # not worth transcribing
+            chat_id = message.chat.id
+            if not self._allowed(chat_id):
+                return
+
+            user = getattr(message, "from_user", None)
+            if user is None or getattr(user, "is_bot", False):
+                return
+
             kind = media_kind(message)
             if kind and not self._read_media:
                 return
@@ -152,14 +162,6 @@ class TelegramSkill(PlatformSkill):
             if kind == "voice":
                 text = await self._transcribed(message) or text
             if not text:
-                return
-
-            chat_id = message.chat.id
-            if not self._allowed(chat_id):
-                return
-
-            user = getattr(message, "from_user", None)
-            if user is None or getattr(user, "is_bot", False):
                 return
 
             reply = getattr(message, "reply_to_message", None)

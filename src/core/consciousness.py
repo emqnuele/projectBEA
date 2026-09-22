@@ -1081,6 +1081,8 @@ class Consciousness:
         skill = self._skill_for_platform(platform)
         if skill is None:
             return f"FAILED: no active skill for platform '{platform}'."
+        if not skill.supports_reactions:
+            return f"FAILED: reactions are switched off on {platform}; write instead."
         try:
             ok = await skill.react(str(channel), str(message_id), emoji)
         except Exception as e:
