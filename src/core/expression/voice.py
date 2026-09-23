@@ -470,7 +470,9 @@ class Expression:
 
         if line.route == "call":
             state = line.state
-            if line.abandoned or self.call is None:
+            # a cancelled line was ended, or stopped, by whoever cancelled it: an
+            # end frame now would let what is queued play out after the stop
+            if line.abandoned or line.cancelled or self.call is None:
                 return self.call.utterances.get(state["id"]) if self.call else None
             await self.call.end(state["id"])
             task = asyncio.create_task(self._visual_only(
@@ -500,7 +502,9 @@ class Expression:
         more of a line that is never coming.
         """
         call = self.call
-        if line.route != "call" or call is None or not line.state.get("seq"):
+        # the utterance, not the sequence number: the channel tracks it from the
+        # first frame on, before the socket has even taken that frame
+        if line.route != "call" or call is None or not line.state.get("id"):
             return
         current = call.current
         # already over, or another line has the call now: leave it alone

@@ -463,3 +463,79 @@ async def test_being_talked_over_stops_her_rather_than_letting_the_line_finish()
     assert [unframe(f)[0]["seq"] for f in socket.binary] == [0], "an end frame went out"
     assert json.loads(socket.text[0])["type"] == "stop"
     assert e.interrupted is not None and not e.interrupted.complete
+
+
+async def test_being_talked_over_while_the_mind_waits_on_the_line_still_stops_her():
+    """The bot's /interrupt lands while the turn is still in `line.close()`:
+    that close used to wake first and send the end frame the stop exists to
+    avoid, so what was queued played out and the stop found a finished line."""
+    import asyncio
+    import json
+
+    class Held(OneShotTTS):
+        def __init__(self):
+            super().__init__()
+            self.never = asyncio.Event()
+
+        async def generate_audio(self, text, prosody=None):
+            self.rendered.append(text)
+            if len(self.rendered) > 1:
+                await self.never.wait()
+            return np.zeros(2400, dtype=np.float32), 24000
+
+    e = expression(Held())
+    channel, socket = live_channel()
+    e.set_call(channel)
+    line = e.open_line("neutral", route="call")
+    e._line = line
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
+    for _ in range(20):
+        await asyncio.sleep(0)
+    # the turn, waiting for the rest of what it is saying
+    closing = asyncio.create_task(line.close())
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    async def answer_the_stop():
+        while not socket.text:
+            await asyncio.sleep(0)
+        channel.on_message({"type": "playback", "utterance_id": line.state["id"],
+                            "played_ms": 20, "state": "stopped"})
+
+    asyncio.create_task(answer_the_stop())
+    await e.interrupt()
+    utterance = await closing
+
+    assert [unframe(f)[0]["seq"] for f in socket.binary] == [0], "an end frame went out"
+    assert json.loads(socket.text[0])["type"] == "stop"
+    assert e.interrupted is not None and not e.interrupted.complete
+    assert utterance is e.interrupted
+
+
+async def test_a_line_dropped_while_its_first_frame_is_on_the_wire_is_still_ended():
+    """The channel starts tracking an utterance before the socket has taken its
+    first frame. Dropped right there, the line had no sequence number yet and
+    was never ended: the brain went on believing she was speaking."""
+    import asyncio
+
+    e = expression(OneShotTTS())
+    channel, socket = live_channel()
+    e.set_call(channel)
+    wire = asyncio.Event()
+    sent = socket.send_bytes
+
+    async def slow_first(data):
+        if not socket.binary and not wire.is_set():
+            wire.set()
+            await asyncio.Event().wait()
+        await sent(data)
+
+    socket.send_bytes = slow_first
+    line = e.open_line("neutral", route="call")
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
+    await wire.wait()
+    assert channel.current is not None and line.state["seq"] == 0
+
+    await line.cancel()
+    headers = [unframe(f)[0] for f in socket.binary]
+    assert headers and headers[-1]["seq"] == -1 and headers[-1]["last"] is True
