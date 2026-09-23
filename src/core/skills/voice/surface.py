@@ -109,9 +109,20 @@ class VoiceSurface(PlatformSkill):
         """Connected to the bot and sitting in a channel: she can be heard."""
         return self.channel.live
 
-    async def stop(self) -> None:
+    def begin_shutdown(self) -> None:
+        """Stands the supervisor down and asks the bot to leave, right now.
+
+        Sync and non-blocking: this runs the moment shutdown begins (on the
+        signal), while the server is still draining its connections and long
+        before the skills stop. Without it the bot outlives the server by the
+        whole graceful wait, retrying a dead address the entire time.
+        """
         self._shutting_down = True
         self.active = False
+        self.transport.terminate()
+
+    async def stop(self) -> None:
+        self.begin_shutdown()
         self.channel.detach()
         pending = [t for t in (self._monitor, self._floor_task) if t is not None]
         # both are set in `initialize`, so there is nothing here `getattr` was

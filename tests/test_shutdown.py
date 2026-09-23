@@ -176,6 +176,9 @@ class DeadTransport:
     def stop(self) -> None:
         pass
 
+    def terminate(self) -> None:
+        pass
+
     async def close(self) -> None:
         pass
 
@@ -307,7 +310,144 @@ async def test_a_failing_skill_does_not_take_the_shutdown_with_it():
     await _mind()._stop_surface(Failing())
 
 
-# --- the brain goes down with the server, not after it ------------------------
+# --- the streams end when the server does, not on timeout ---------------------
+
+
+async def test_close_ends_the_event_streams_quietly():
+    """Force-closing the connections cancelled the streaming responses
+    mid-sentence: a CancelledError traceback on every shutdown."""
+    from src.core.events import EventManager
+
+    m = EventManager()
+    queue = m.subscribe(backlog=0)
+
+    m.close()
+
+    assert queue.get_nowait() == {"shutdown": True}
+    assert m.subscriber_count == 0
+    assert len(m.events) == 0  # the history is not the streams
+
+
+def test_close_hands_the_page_its_last_patch_first():
+    from src.core.stage import StageChannel
+
+    channel = StageChannel()
+    queue = channel.subscribe()
+
+    channel.close()
+
+    assert queue.get_nowait() == {"closed": True}
+
+
+# --- the shutdown starts on signal, before the graceful wait -----------------
+
+
+class RecordingTransport(DeadTransport):
+    def __init__(self):
+        super().__init__()
+        self.terminated = False
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+
+def test_begin_shutdown_stands_down_and_asks():
+    transport = RecordingTransport()
+    surface = _voice_surface(transport)
+
+    surface.begin_shutdown()
+
+    assert surface._shutting_down is True
+    assert surface.active is False
+    assert transport.terminated is True
+    # idempotent: a second signal changes nothing
+    surface.begin_shutdown()
+    assert transport.starts == 0
+
+
+def test_terminate_is_fire_and_forget():
+    """The signal handler cannot wait: the wait (and the kill fallback)
+    still happens later, on the skills' way down."""
+    transport = DiscordTransport(Cfg())
+    proc = FakeProcess()
+    transport.bot_process = proc
+
+    transport.terminate()
+
+    assert proc.terminated is True
+    assert proc.killed is False
+    assert transport.bot_process is proc
+
+
+def test_terminate_with_no_bot_is_nothing():
+    DiscordTransport(Cfg()).terminate()
+
+
+def test_terminate_survives_a_process_that_is_already_gone():
+    transport = DiscordTransport(Cfg())
+
+    class Gone:
+        def terminate(self):
+            raise OSError(3, "no such process")
+
+    transport.bot_process = Gone()
+    transport.terminate()
+
+    assert isinstance(transport.bot_process, Gone)  # reaped later, by stop()
+
+
+@pytest.mark.asyncio
+async def test_the_signal_starts_the_shutdown_before_the_wait(monkeypatch):
+    """Uvicorn drains its connections before it runs the lifespan shutdown,
+    so the bot kept retrying a dead address through the whole graceful wait.
+    The signal itself now stands the supervisor down, asks the bot to leave
+    and ends the streams — the wait finds nothing left to wait for."""
+    import signal as signal_module
+    import types
+
+    import uvicorn
+
+    from src.core.events import EventManager
+    from src.core.stage import StageChannel
+    from src.web import server as web_server
+    from src.web.app import app
+
+    transport = RecordingTransport()
+    surface = _voice_surface(transport)
+    events = EventManager()
+    event_queue = events.subscribe(backlog=0)
+    stage = StageChannel()
+    stage_queue = stage.subscribe()
+    brain = types.SimpleNamespace(
+        skill_registry=types.SimpleNamespace(get=lambda name: surface),
+        stage=stage, event_manager=events)
+
+    servers = []
+
+    class SignalledServer:
+        def __init__(self, config):
+            self.signals = []
+            self.handle_exit = self._original
+            servers.append(self)
+
+        def _original(self, sig, frame):
+            self.signals.append(sig)
+
+        async def serve(self):
+            async with app.router.lifespan_context(app):
+                pass
+
+    monkeypatch.setattr(uvicorn, "Server", SignalledServer)
+
+    await web_server.run_server(brain, on_shutdown=None)
+
+    servers[0].handle_exit(signal_module.SIGINT, None)
+
+    assert servers[0].signals == [signal_module.SIGINT]
+    assert transport.terminated is True
+    assert surface._shutting_down is True and surface.active is False
+    assert event_queue.get_nowait() == {"shutdown": True}
+    assert stage_queue.get_nowait() == {"closed": True}
 
 
 @pytest.mark.asyncio

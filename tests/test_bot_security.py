@@ -179,6 +179,9 @@ class FlakyTransport:
     def stop(self) -> None:
         pass
 
+    def terminate(self) -> None:
+        pass
+
     async def close(self) -> None:
         pass
 

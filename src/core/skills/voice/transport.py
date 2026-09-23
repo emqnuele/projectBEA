@@ -186,6 +186,21 @@ class DiscordTransport:
             self.bot_process = None
             return False
 
+    def terminate(self) -> None:
+        """Asks the bot to leave (SIGTERM), without waiting for it.
+
+        Non-blocking on purpose: this runs the moment shutdown begins, off
+        the loop, while the full stop (wait, kill what ignores the ask) still
+        happens later on the skills' way down.
+        """
+        proc = self.bot_process
+        if proc is None:
+            return
+        try:
+            proc.terminate()
+        except OSError as e:
+            logger.debug(f"Terminating the discord bot failed: {e}")
+
     def stop(self) -> None:
         if not self.bot_process:
             return
@@ -193,7 +208,7 @@ class DiscordTransport:
         try:
             # asked to leave first: the bot drops the voice call and the
             # gateway on SIGTERM, and only a bot that ignores it gets killed
-            self.bot_process.terminate()
+            self.terminate()
             try:
                 self.bot_process.wait(timeout=3)
             except subprocess.TimeoutExpired:

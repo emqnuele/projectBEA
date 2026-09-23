@@ -15,6 +15,37 @@ logger = get_logger("bea.web.server")
 GRACEFUL_TIMEOUT = 5.0
 
 
+def begin_shutdown(brain) -> None:
+    """Starts the shutdown the moment the signal arrives, off the loop.
+
+    Uvicorn drains its connections before it runs the lifespan shutdown, so
+    anything that only stops there outlives the server by the whole graceful
+    wait: the discord bot kept retrying a dead address, and the event streams
+    held their connections open until they were force-cancelled. This drops
+    all three up front — the supervisor stands down, the bot is asked to
+    leave, and every stream returns on its own — so the wait finds nothing
+    left to wait for. Sync and best-effort: it runs in the signal handler and
+    must never raise.
+    """
+    try:
+        registry = getattr(brain, "skill_registry", None)
+        voice = registry.get("voice:discord") if registry is not None else None
+        if voice is not None:
+            voice.begin_shutdown()
+    except Exception as e:
+        logger.debug(f"Early voice shutdown failed: {e}")
+    try:
+        brain.stage.close()
+    except Exception as e:
+        logger.debug(f"Early stage close failed: {e}")
+    try:
+        events = getattr(brain, "event_manager", None)
+        if events is not None:
+            events.close()
+    except Exception as e:
+        logger.debug(f"Early events close failed: {e}")
+
+
 async def run_server(brain, host: str = "127.0.0.1", port: int = 8000,
                      on_shutdown=None, graceful_timeout: float = GRACEFUL_TIMEOUT):
     """Serves the dashboard + brain API.
@@ -45,6 +76,15 @@ async def run_server(brain, host: str = "127.0.0.1", port: int = 8000,
         config = uvicorn.Config(app, host=host, port=port, log_level="info",
                                 timeout_graceful_shutdown=graceful_timeout)
         server = uvicorn.Server(config)
+        # uvicorn only runs the lifespan shutdown after it has drained its
+        # connections: hook the signal itself so the bot and the streams go
+        # down first and there is nothing left to drain
+        original = getattr(server, "handle_exit", None)
+        if original is not None:
+            def handle_exit(sig, frame, _original=original):
+                begin_shutdown(brain)
+                _original(sig, frame)
+            server.handle_exit = handle_exit
         await server.serve()
     finally:
         app.router.lifespan_context = previous
