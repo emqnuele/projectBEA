@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import time
 import uuid
 from collections import deque
@@ -7,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from src.core.fanout import Fanout
+from src.core.fanout import Fanout, offer
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.events")
@@ -97,8 +96,7 @@ class EventManager:
         its connection cleanly instead.
         """
         for queue in self._fanout.queues():
-            with contextlib.suppress(asyncio.QueueFull):
-                queue.put_nowait({"shutdown": True})
+            offer(queue, {"shutdown": True})
             self._fanout.unsubscribe(queue)
 
     @property

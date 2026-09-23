@@ -225,10 +225,12 @@ class FakeProcess:
         self.pid = 4242
         self.terminated = False
         self.killed = False
+        self.terminate_calls = 0
         self._exit_on_terminate = exit_on_terminate
 
     def terminate(self):
         self.terminated = True
+        self.terminate_calls += 1
 
     def kill(self):
         self.killed = True
@@ -262,6 +264,33 @@ def test_stop_kills_what_ignores_the_ask():
 
     assert proc.terminated is True
     assert proc.killed is True
+    assert transport.bot_process is None
+
+
+def test_the_bot_is_only_asked_to_leave_once():
+    """The signal asks (`begin_shutdown`), then `stop` asks again on the way
+    down. The bot reads a second SIGTERM as "now, not cleanly", so a duplicate
+    would turn the clean exit the first ask started into a hard one."""
+    transport = DiscordTransport(Cfg())
+    proc = FakeProcess()
+    transport.bot_process = proc
+
+    transport.terminate()
+    transport.terminate()
+
+    assert proc.terminate_calls == 1
+
+
+def test_stop_after_the_early_ask_does_not_signal_twice():
+    transport = DiscordTransport(Cfg())
+    proc = FakeProcess()
+    transport.bot_process = proc
+
+    transport.terminate()  # what begin_shutdown does on the signal
+    transport.stop()       # what the skills do on the way down
+
+    assert proc.terminate_calls == 1
+    assert proc.killed is False
     assert transport.bot_process is None
 
 
@@ -450,6 +479,63 @@ async def test_the_signal_starts_the_shutdown_before_the_wait(monkeypatch):
     assert stage_queue.get_nowait() == {"closed": True}
 
 
+# --- the terminal loop must not hold the process open ------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_cli_input_thread_cannot_hold_the_exit(monkeypatch):
+    """`asyncio.to_thread(input)` runs on the default executor, and
+    `asyncio.run` joins that executor on its way out. A thread parked in
+    input() never returns, so ctrl+c ran the whole shutdown and then hung the
+    process on the join. The read now runs on a daemon thread the loop does not
+    own, so it is abandoned at exit instead."""
+    import threading
+
+    from src.core.brain import AIVtuberBrain
+
+    started = threading.Event()
+
+    def blocking_input(prompt=""):
+        started.set()
+        threading.Event().wait()  # the terminal, waiting for a line forever
+        return ""
+
+    monkeypatch.setattr("builtins.input", blocking_input)
+    brain = AIVtuberBrain.__new__(AIVtuberBrain)
+
+    task = asyncio.ensure_future(brain._read_line("You > "))
+    assert await asyncio.to_thread(started.wait, 2) is True
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert any(t.name == "cli-input" and t.daemon for t in threading.enumerate())
+
+
+@pytest.mark.asyncio
+async def test_a_typed_line_reaches_the_loop(monkeypatch):
+    from src.core.brain import AIVtuberBrain
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "hello")
+    brain = AIVtuberBrain.__new__(AIVtuberBrain)
+
+    assert await brain._read_line("> ") == "hello"
+
+
+@pytest.mark.asyncio
+async def test_a_closed_stdin_ends_the_loop(monkeypatch):
+    from src.core.brain import AIVtuberBrain
+
+    def eof(prompt=""):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    brain = AIVtuberBrain.__new__(AIVtuberBrain)
+
+    assert await brain._read_line("> ") == "exit"
+
+
 @pytest.mark.asyncio
 async def test_the_brain_shuts_down_with_the_server(monkeypatch):
     """ctrl+c used to park on 'Waiting for connections to close' (the
@@ -487,3 +573,131 @@ async def test_the_brain_shuts_down_with_the_server(monkeypatch):
     assert current_brain() is brain
     # the app object is shared with the tests: the lifespan must not leak out
     assert app.router.lifespan_context is before
+
+
+# --- every moving part is actually let go ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_running_dream_is_stopped_with_the_skill():
+    """A consolidation in progress writes memory and uses the background pool;
+    left running it races the final save `cli.shutdown` is about to make."""
+    from src.core.skills.dream.surface import DreamSkill
+
+    skill = DreamSkill.__new__(DreamSkill)
+    skill.active = True
+    skill._night_task = None
+    skill._dreaming = False
+
+    async def long_dream():
+        await asyncio.sleep(30)
+
+    skill._dream_task = asyncio.create_task(long_dream())
+    await asyncio.sleep(0)
+
+    await skill.stop()
+
+    assert skill._dream_task is None
+    assert skill.active is False
+
+
+@pytest.mark.asyncio
+async def test_stop_skills_waits_for_the_background_loops():
+    """Cancelled and left un-awaited, a warmup mid-call would still hold the
+    model pool shutdown closes, and a rhythm tick could speak into a stopping
+    surface."""
+    from src.core.brain import AIVtuberBrain
+
+    brain = AIVtuberBrain.__new__(AIVtuberBrain)
+    finished = []
+
+    async def loop(name):
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            finished.append(name)
+            raise
+
+    brain._warmup_task = asyncio.create_task(loop("warm"))
+    brain._rhythm_task = asyncio.create_task(loop("rhythm"))
+    brain.consciousness = None
+    await asyncio.sleep(0)
+
+    await brain.stop_skills()
+
+    assert sorted(finished) == ["rhythm", "warm"]
+
+
+@pytest.mark.asyncio
+async def test_closing_the_expression_stops_what_is_going_out():
+    from src.core.expression.voice import Expression
+    from tests.fakes import FakeAvatar, FakeCaption
+
+    caption = FakeCaption(delay=10.0)
+    avatar = FakeAvatar()
+    expression = Expression(object(), object(), avatar, caption, object())
+    expression.is_speaking = True
+    typing = asyncio.create_task(caption.say("a line being typed"))
+    speech = asyncio.create_task(asyncio.sleep(10))
+    expression.current_typing_task = typing
+    expression.current_speech_task = speech
+    await asyncio.sleep(0)
+
+    expression.close()
+
+    assert expression.current_typing_task is None
+    assert expression.current_speech_task is None
+    assert expression.is_speaking is False
+    assert caption.clears >= 1          # the words are taken off the screen
+    assert avatar.shown                 # and she is put back to her resting state
+
+    await asyncio.gather(typing, speech, return_exceptions=True)
+    assert caption.cancelled == 1
+
+
+def test_disconnecting_from_obs_drops_the_client():
+    """A caption still in flight after the disconnect must not call a socket
+    nobody is reading; with the client dropped it is a no-op instead."""
+    from src.modules.obs.obs_websocket import OBSController
+
+    class FakeWs:
+        closed = False
+
+        def close(self):
+            FakeWs.closed = True
+
+    class FakeBase:
+        ws = FakeWs()
+
+    class FakeClient:
+        base_client = FakeBase()
+
+    obs = OBSController(host="127.0.0.1", port=4455, password="", source_name="face")
+    obs.client = FakeClient()
+
+    obs.disconnect()
+
+    assert obs.client is None
+    assert FakeWs.closed is True
+    obs.set_text("late words", "face")  # no client: silent, not a crash
+
+
+@pytest.mark.asyncio
+async def test_ending_a_full_stream_still_delivers_the_sentinel():
+    """A full queue used to drop the sentinel, leaving the reader to wait out
+    its keep-alive timeout instead of returning at once."""
+    from src.core.events import EventManager
+
+    manager = EventManager()
+    queue = manager.subscribe(backlog=0)
+    for i in range(queue.maxsize):
+        queue.put_nowait({"i": i})
+    assert queue.full()
+
+    manager.close()
+
+    drained = []
+    while not queue.empty():
+        drained.append(queue.get_nowait())
+    assert {"shutdown": True} in drained
+    assert manager.subscriber_count == 0

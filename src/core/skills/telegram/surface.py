@@ -141,7 +141,7 @@ class TelegramSkill(PlatformSkill):
         except Exception as e:
             logger.error(f"Error stopping telegram: {e}")
         finally:
-            self.app: Optional[Any] = None
+            self.app = None
 
     # --- senses -------------------------------------------------------------
 

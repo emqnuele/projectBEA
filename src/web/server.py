@@ -11,8 +11,9 @@ logger = get_logger("bea.web.server")
 # how long uvicorn waits for open connections (the dashboard's event streams)
 # before it stops waiting and goes on with the shutdown. There used to be no
 # bound at all: ctrl+c with the dashboard open never got past "Waiting for
-# connections to close" until the tab was closed by hand.
-GRACEFUL_TIMEOUT = 5.0
+# connections to close" until the tab was closed by hand. Uvicorn takes this in
+# whole seconds, so it is an int, not a float.
+GRACEFUL_TIMEOUT = 5
 
 
 def begin_shutdown(brain) -> None:
@@ -47,7 +48,7 @@ def begin_shutdown(brain) -> None:
 
 
 async def run_server(brain, host: str = "127.0.0.1", port: int = 8000,
-                     on_shutdown=None, graceful_timeout: float = GRACEFUL_TIMEOUT):
+                     on_shutdown=None, graceful_timeout: int = GRACEFUL_TIMEOUT):
     """Serves the dashboard + brain API.
 
     Binds to loopback by default: no endpoint is authenticated, so exposing the
