@@ -133,31 +133,35 @@ that always transmits. "Gated" is Discord's own voice activity closing the
 stream (an assumed 300 ms release). End = time from the true end of speech
 until the turn is sent.
 
+The harness also plays the clean track 20, 25 and 30 dB quieter while she
+is talking: her own voice leaking back through a headset, or a television in
+somebody's room. Every duck or turn out of that is her being cut off by
+something nobody said to her.
+
 `Apple M5`, node 24, hangover 500 ms, open microphone unless noted.
 
 | | result |
 |---|---|
-| end p50 / p95, clean + mild noise | 467 / 504 ms |
-| end p50 / p95, heavy noise (5 dB) | 443 / 515 ms |
-| turns missed: clean + mild noise / heavy noise / quiet speaker / gated | 0/64 · 1/48 · 3/32 · 2/32 |
-| turns merged, clean + noise | 0/112 |
-| starts clipped | 0/176 |
+| end p50 / p95, clean + mild noise | 464 / 1140 ms |
+| end p50 / p95, heavy noise (5 dB) | 433 / 2300 ms |
 | noise interrupting her, noise only | 0 |
-| cpu per second of audio | 1.3 ms |
+| her voice leaking back at −20 / −25 / −30 dB: ducks | 6 / 0 / 0 |
+| turns missed, clean + mild noise (64) | 8 |
+| turns missed, quiet speaker (32) | 23 |
+| cpu per second of audio | 1.2 ms |
 
-`MIN_SPEECH_MS` comes from a second measurement. 48 real one-word answers
-("sì", "no", "ok", "yeah", six voices) at a normal level and 20 dB under it.
-Only vowels count as voice, so "sì" measures about 200 ms. At 200, all but 1 and
-4 of them are kept.
+### Known limits
 
-### Known limit
-
-Music with a strong beat under a voice still merges turns (9 merged sends
-across the two music scenarios, end p95 12 s). The level is measured over the full band, so a
-kick drum at 55 Hz counts as loudness. Rules strict enough to ignore the beat
-(resuming only over the start line, a longer proof, a higher exit ratio) all
-ended turns in heavy noise before the speaker had finished. Measuring in-band
-level would fix it, and would retune every threshold with it.
+- **One-word answers.** Only vowels count as voice (an s sits above the speech
+  band and looks like hiss), and the onset is not counted. A quick "sì" or
+  "yeah" can fall under `MIN_SPEECH_MS` and be dropped. Counting them sends
+  fillers ("hmm", "ehm") as turns of their own too, and she answers those.
+  That only works once a filler followed by more speech can be joined to it.
+- **Quiet speakers.** A voice 20 dB under the rest is kept out by
+  `ENTER_MARGIN`, the same margin that keeps her echo out. The two are the same
+  signal, and the echo is the one that breaks a call.
+- **Music with a strong beat** under a voice can merge two turns. The level
+  is measured over the full band, so a kick drum at 55 Hz counts as loudness.
 
 ---
 
