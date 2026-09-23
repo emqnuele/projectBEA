@@ -3,6 +3,7 @@ import os
 from typing import Optional
 
 import requests
+from urllib3.exceptions import NewConnectionError
 
 from src.core.config import BrainConfig
 from src.core.language import whisper_code
@@ -105,7 +106,7 @@ class OpenRouterSTT(STTInterface):
         try:
             return self._http.post(url, headers=headers, json=payload, timeout=30)
         except requests.ConnectionError as e:
-            if isinstance(e, requests.Timeout):
+            if not _stale(e):
                 raise
             logger.debug(f"the kept connection had gone ({e}); sending again")
             return self._http.post(url, headers=headers, json=payload, timeout=30)
@@ -126,3 +127,15 @@ class OpenRouterSTT(STTInterface):
         if new_key and new_key != self.key:
             self.key = new_key
             logger.info("OpenRouter API key reloaded.")
+
+
+def _stale(error: requests.ConnectionError) -> bool:
+    """A kept connection that had gone, rather than a host that cannot be reached.
+
+    A new connection that fails — refused, unresolvable, a bad certificate —
+    would only fail again, and a timeout would be waited out twice.
+    """
+    if isinstance(error, (requests.Timeout, requests.exceptions.SSLError)):
+        return False
+    reason = getattr(error.args[0], "reason", None) if error.args else None
+    return not isinstance(reason, NewConnectionError)

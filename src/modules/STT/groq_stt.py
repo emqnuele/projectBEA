@@ -19,8 +19,20 @@ logger = get_logger("bea.stt.groq")
 KEEPALIVE_SECONDS = 90.0
 
 
+class _KeptClient(DefaultHttpxClient):
+    # the sdk closes a client it made itself once it is dropped, and one handed
+    # in is left open: a new key would otherwise strand the old connections
+    def __del__(self) -> None:
+        if self.is_closed:
+            return
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
 def _client(key: str) -> Groq:
-    return Groq(api_key=key, http_client=DefaultHttpxClient(limits=httpx.Limits(
+    return Groq(api_key=key, http_client=_KeptClient(limits=httpx.Limits(
         max_connections=100, max_keepalive_connections=20,
         keepalive_expiry=KEEPALIVE_SECONDS)))
 
