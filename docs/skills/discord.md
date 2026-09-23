@@ -72,6 +72,12 @@ that port only after it has logged into discord, so a port already in use — a
 previous bot that outlived its brain, or a second copy of her — used to reach
 the owner as a node stack trace, three restarts and a line blaming the token.
 
+On shutdown the supervisor stands down first: a bot killed by the shutdown
+itself is not restarted. The bot runs in its own process group so Ctrl+C never
+reaches it directly; `stop()` asks with SIGTERM — the bot leaves every call,
+stops the brain link and destroys the gateway — and only kills what ignores
+the ask.
+
 ---
 
 ## Text and voice take different paths
