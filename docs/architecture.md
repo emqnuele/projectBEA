@@ -155,7 +155,9 @@ nothing about each other, is the worst failure mode here.
 Two things hold that rule up, and both live outside the model. The **batch
 boundary** is a quiet gap rather than a stopwatch: the bus keeps taking until
 nothing new has arrived for `text_window` (1.2s for typed text) or `window`
-(0.3s for a live sense), so three lines typed in a row are one batch. And a
+(0.3s for a live sense), so three lines typed in a row are one batch. The gap
+is counted from the last arrival, not from when the loop gets to it: what
+queued up while she was answering has already been quiet all along. And a
 perception that lands *during* a turn, in a conversation she has already
 answered in that turn, goes back on the bus instead of being read to her as
 fresh input — one answer per conversation per turn, always.
@@ -368,9 +370,11 @@ call.
   robust Voice Activity Detection (VAD) layer that accurately hears a sentence out
   to its end. It uses a two-stage barge-in: duck first, stop only if they
   keep going.
-- **Voice out** is pushed over the socket as 48 kHz stereo PCM, sentence by
-  sentence, so the room hears the first one while the next is still being
-  synthesised.
+- **Voice out** is pushed over the socket as 48 kHz stereo PCM as it is
+  synthesised — part by part within a sentence, when the engine streams — so
+  the room hears the start of a line while the rest is still being made. The
+  socket is uncompressed: raw PCM barely shrinks, and deflating it would cost
+  the brain's event loop in front of every sentence.
 - The bot **dies silently** when the token is missing or `node_modules` is
   absent; `VoiceSurface._watch_transport` then marks the skill inactive.
 

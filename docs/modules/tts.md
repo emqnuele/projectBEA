@@ -34,21 +34,31 @@ factory all ask it, so they cannot drift. See [Languages](../languages.md).
 
 ```python
 class TTSInterface(ABC):
+    pieces_in_flight: int = 1  # pieces of one line the engine may make at once
     async def generate_audio(text: str, prosody=None) -> (np.ndarray, sample_rate: int)
     async def generate_stream(text: str, prosody=None)  # optional, yields (audio, rate)
     def reload_config(config: BrainConfig) -> None
 ```
 
-`Expression` always calls `generate_audio()` and plays the array itself, which
-is what makes interruption possible — playback is owned by Expression, not by
-the engine.
+`Expression` plays what the engine makes itself, which is what makes
+interruption possible — playback is owned by Expression, not by the engine.
 
 Two routes go through the same code:
 
 | Route | What happens |
 |---|---|
-| `local` | played on the audio device, with the OBS avatar and text bubble animated alongside |
-| `remote` | rendered to WAV bytes and returned, for Discord to play in the call |
+| `local` | `generate_audio()` per piece, played on the audio device, with the OBS avatar and text bubble animated alongside |
+| `call` | `generate_stream()` per piece; every part is pushed into the Discord call the moment it exists, so the room hears the start of a sentence while the end of it is still being made |
+
+A line is cut into pieces as it is written (`expression/chunking.py`). An
+engine that sets `pieces_in_flight = 2` — the remote ones, where a request is
+mostly waiting — starts on the next piece as soon as its words exist, beside
+the one before it; the pieces still play in order. A local engine keeps one at
+a time, because a second synthesis takes the cores the first one needs.
+
+Parts of one piece are converted to the call's 48 kHz stereo by one
+`CallResampler` and lip-synced as one piece, so a streamed sentence sounds and
+moves exactly like one made whole.
 
 > `speak()` is also declared `@abstractmethod`, so a custom engine must define
 > it even though `Expression` never calls it. Omitting it raises `TypeError` at
@@ -64,7 +74,7 @@ Two routes go through the same code:
 **Cost:** Free (uses Microsoft Edge's TTS API)  
 **Config keys:** `tts_voice`, `tts_pitch`, `tts_rate`, `tts_volume`
 
-Generates audio to a temporary MP3 file, reads it back as a NumPy array via `soundfile`, then deletes the temp file. Each generation uses a unique UUID filename to avoid collisions during concurrent calls.
+Gathers the MP3 from the Edge websocket in memory and decodes it with `soundfile` on a worker thread, never on the event loop. `generate_stream()` hands the audio over as it arrives: an MP3 cut at any byte decodes to exactly the start of what the whole file decodes to, so each part is the next stretch of the same samples. Parts are decoded at 2 KB of MP3 and then at every doubling, so a sentence costs a handful of decodes. Every piece is its own websocket connection, which is why the wrapper sets `pieces_in_flight = 2`.
 
 **Voice format:** `"it-IT-IsabellaNeural"`, `"en-US-AvaNeural"`, etc.  
 Full voice list: `edge-tts --list-voices`
@@ -74,9 +84,7 @@ tts = EdgeTTSWrapper(voice="en-US-AvaNeural", pitch="+5Hz", rate="+10%", volume=
 audio, sr = await tts.generate_audio("Hello!")
 ```
 
-> The constructor's `output_file` argument is vestigial: `generate_audio()`
-> always writes to a fresh UUID filename so concurrent calls cannot collide.
-> Its class-level defaults (`en-US-JennyNeural`, `+0Hz`, `+0%`, `+0%`) also
+> The class-level defaults (`en-US-JennyNeural`, `+0Hz`, `+0%`, `+0%`)
 > differ from the `BrainConfig` ones — `src/cli.py` always passes the config
 > values explicitly, so the class defaults only matter if you instantiate the
 > wrapper by hand.
@@ -114,9 +122,9 @@ Calls a self-deployed Orpheus model on [Baseten](https://baseten.co). Produces h
 
 **Setup required:** You must deploy the Orpheus model to your own Baseten workspace before use. See [Setup Guide → Orpheus TTS Setup](../setup.md) for step-by-step instructions.
 
-The wrapper POSTs to your endpoint with `stream: true`, collects raw PCM bytes
-(24 kHz, 16-bit mono) and decodes them to a NumPy array for `Expression` to
-play.
+The wrapper POSTs to your endpoint with `stream: true` and reads raw PCM
+(24 kHz, 16-bit mono) straight off the response: `generate_stream()` yields it
+in ~150 ms blocks, which reach the call as they arrive.
 
 **Voice examples:** `zoe`, `tara`, `leo`, `leah`
 

@@ -51,6 +51,15 @@ All three transports are natively async over `aiohttp`: no thread pools, no
 sync SDKs. Every network error raises with the status and the provider's own
 body in the message, which is what the pool's failover reads.
 
+Every client on an event loop shares one connection pool
+(`base._session()`). An idle connection to a provider is kept for
+`KEEPALIVE_SECONDS` (90) and addresses are cached for five minutes, so a turn
+does not pay dns, tcp and tls before its first token. A kept connection the
+provider closed while it sat idle fails before any of the answer exists; that
+request is sent once more on a fresh connection. A host that cannot be reached
+is not retried — that is the pool's failover. Shutdown closes the pool with
+`close_sessions()`.
+
 Keys come from the environment first; `config.json` only fills a variable that
 is not set. `GET /config` never returns them.
 
