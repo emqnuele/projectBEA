@@ -75,6 +75,13 @@ class VoiceSurface(PlatformSkill):
             events=getattr(self.context, "event_manager", None),
         )
         self._floor_task: Optional[asyncio.Task] = None
+        # a batch from the call waits while somebody in it is still talking
+        if self.bus is not None and self.holds not in self.bus.holds:
+            self.bus.holds.append(self.holds)
+
+    def holds(self, items) -> bool:
+        """Whether this batch from the call has more of it on its way."""
+        return self.channel.busy() and any(p.surface == self.name for p in items)
 
     def _on_first_sound(self) -> None:
         """Sound actually reached the room: that, and not the send, ends the clock."""
@@ -284,6 +291,10 @@ class VoiceSurface(PlatformSkill):
     def _author(self, user: str, user_id: Optional[str]) -> Author:
         # native_id is the stable discord user id; display_name can change
         return self.build_author(user_id or user, user)
+
+    def transcribed(self, user_id: Optional[str]) -> None:
+        """A turn from the call is transcribed, perceived or not."""
+        self.channel.transcribed(user_id)
 
     def perceive(self, transcript: str, user: str, meta: Optional[Dict[str, Any]] = None,
                  user_id: Optional[str] = None, whitelisted: bool = True,

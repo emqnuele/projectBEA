@@ -399,10 +399,16 @@ class VoiceManager {
             // read her speaking state per chunk rather than once when the stream
             // opened: she can start or stop in the middle of somebody's sentence
             const now = Date.now();
-            this.act(guildId, userId, speaker.buffer.push(chunk, {
+            const opened = speaker.buffer.open;
+            const report = speaker.buffer.push(chunk, {
                 now,
                 beaSpeaking: this.audible(data, now),
-            }));
+            });
+            // told the moment it is believed, not when the turn is over: the
+            // turn reaches the brain seconds later, and by then she may already
+            // be answering the half of the sentence that came before it
+            if (!opened && speaker.buffer.open) this.hearing(userId, 'start');
+            this.act(guildId, userId, report);
         });
 
         opusStream.on('error', (err) => {
@@ -458,6 +464,11 @@ class VoiceManager {
         if (!speaker) return;
 
         const turn = speaker.buffer.take();
+        // before anything is awaited: the brain must know a turn is on its way
+        // before it can possibly have arrived
+        if (turn) this.hearing(userId, 'sent');
+        // a turn cut for length leaves them still talking
+        if (!speaker.buffer.open) this.hearing(userId, 'end');
         if (!turn) {
             console.log(`[VoiceManager] Nothing said by ${userId} — dropping the noise`);
             return;
@@ -477,6 +488,16 @@ class VoiceManager {
         } catch (error) {
             console.error(`[VoiceManager] ${route} failed:`, error.message);
         }
+    }
+
+    /**
+     * Somebody talking, as it happens: `start` when they are believed, `sent`
+     * when a turn of theirs leaves to be transcribed, `end` when they stop.
+     * Best effort over the push channel: a brain that misses one only waits
+     * less, and it times the state out on its own.
+     */
+    hearing(userId, state) {
+        this.link.send({ type: 'hearing', state, user_id: String(userId) });
     }
 
     // the brain is on the other end of a socket that can be down; a turn that

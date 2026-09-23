@@ -16,6 +16,11 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.expression")
 
+# how long a line she has not started saying waits for somebody to stop talking.
+# The longest turn the bot sends: past it they are not pausing, they are giving
+# a speech, and she may start while they go on.
+FLOOR_HOLD_MAX_S = 30.0
+
 
 class Expression:
     """The single output sink for everything Bea expresses.
@@ -169,6 +174,17 @@ class Expression:
     def call_is_live(self) -> bool:
         """Whether sound she makes right now would be heard in a room."""
         return bool(self.call is not None and self.call.live)
+
+    async def wait_for_floor(self) -> bool:
+        """Waits while somebody in the call is talking. False if they never stopped.
+
+        Only ever asked before the first sound of a line: once she is heard,
+        somebody starting to talk is a barge-in, and the barge-in deals with it.
+        """
+        call = self.call
+        if call is None or not call.live or not hasattr(call, "until_quiet"):
+            return True
+        return await call.until_quiet(FLOOR_HOLD_MAX_S)
 
     async def speak(self, mood: str, message: str, *, route: str = "local", feeling=None):
         """Renders a spoken turn. Returns the Utterance when route='call'."""
@@ -409,6 +425,12 @@ class Expression:
         if call is None:
             return
         state = line.state
+        if state["seq"] == 0:
+            # the first sound of the line: somebody who has started talking
+            # again gets to finish, or she answers half of what they meant
+            await self.wait_for_floor()
+            if line.abandoned or line.cancelled or self._call_moved_on(state["id"], state["seq"]):
+                return
         # one conversion across the whole piece, so its parts meet exactly
         # where they would have in one piece
         resampler = CallResampler()

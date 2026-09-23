@@ -175,6 +175,12 @@ class FakeExpression:
     def call_is_live(self) -> bool:
         return bool(self.call is not None and self.call.live)
 
+    async def wait_for_floor(self) -> bool:
+        wait = getattr(self.call, "until_quiet", None)
+        if not self.call_is_live or wait is None:
+            return True
+        return await wait(30.0)
+
     async def speak(self, mood, message, *, route="local", feeling=None):
         self.spoken.append((mood, message, route))
         self.felt.append(feeling)
