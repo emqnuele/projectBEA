@@ -13,7 +13,7 @@ ceiling".
 """
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # what the owner may choose as a ceiling. The floor is not cosmetic: below it
 # the handoff fires before the hot present is even full, and she lives in a
@@ -206,6 +206,8 @@ class BudgetEntry:
     ts: float = 0.0
     payload: Any = field(default=None)
     seq: int = 0
+    # the entry as the model reads it, rendered once: the window replays every turn
+    wire: Optional[List[Dict[str, Any]]] = field(default=None, compare=False, repr=False)
 
 
 def split_hot_cold(entries: List[BudgetEntry], *, hot_tokens: int = 30_000,

@@ -53,6 +53,8 @@ _MIGRATIONS: List[tuple] = [
     ("people", "profiled_count", "INTEGER NOT NULL DEFAULT 0"),
     ("people", "warmth", "REAL NOT NULL DEFAULT 0"),
     ("people", "warmth_at", "REAL NOT NULL DEFAULT 0"),
+    # her lines are replayed as the speak calls they were, and a call has a mood
+    ("context_window", "mood", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

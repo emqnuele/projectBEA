@@ -19,6 +19,10 @@ without a store behaves the same and simply forgets on exit.
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.core.agent.messages import assistant_to_message, tool_result_message
+from src.core.agent.types import AssistantMessage, ToolCall
+from src.core.mind.moods import DEFAULT_MOOD
+from src.core.mind.routing import STAGE, channel_of, platform_of
 from src.core.mind.token_budget import (
     MESSAGE_OVERHEAD_TOKENS,
     BudgetEntry,
@@ -34,6 +38,49 @@ logger = get_logger("bea.mind.window")
 # verbatim overlap carried across a swap so a sentence or decision is never
 # cut in half at the boundary
 SWAP_OVERLAP_TOKENS = 5_000
+
+# measured on deepseek-v4-flash: a line replayed as a call bills 68-71 more tokens
+REPLAYED_CALL_TOKENS = 70
+
+# what a replayed call answers: the line was spoken, or it was sent
+SPOKEN = "Spoken."
+SENT = "Sent."
+
+
+def entry_tokens(role: str, content: str) -> int:
+    """What one entry costs in the context, the way `replay` hands it over."""
+    tokens = estimate_tokens(content) + MESSAGE_OVERHEAD_TOKENS
+    if role == "assistant":
+        tokens += REPLAYED_CALL_TOKENS
+    return tokens
+
+
+def replayed(entry: BudgetEntry) -> List[Dict[str, Any]]:
+    """One entry as the model reads it back.
+
+    Her lines were never plain text: she said them through `speak` and wrote
+    them through `send_message`, and plain text is thinking nobody hears.
+    Replayed as plain assistant text, every one of them taught the opposite,
+    and the history outweighed the manual.
+    """
+    payload = entry.payload if isinstance(entry.payload, dict) else {}
+    role = payload.get("role", "user")
+    content = payload.get("content", "")
+    if role != "assistant":
+        return [{"role": role, "content": content}]
+
+    key = payload.get("key", STAGE)
+    if key == STAGE:
+        call = ToolCall(id=f"said_{entry.seq}", name="speak", arguments={
+            "mood": payload.get("mood") or DEFAULT_MOOD, "message": content})
+        result = SPOKEN
+    else:
+        call = ToolCall(id=f"said_{entry.seq}", name="send_message", arguments={
+            "platform": platform_of(key), "channel": channel_of(key) or "",
+            "text": content})
+        result = SENT
+    return [assistant_to_message(AssistantMessage(content="", tool_calls=[call])),
+            tool_result_message(call, result)]
 
 
 class SingleContext:
@@ -127,13 +174,18 @@ class SingleContext:
     # --- writing ----------------------------------------------------------
 
     def append(self, role: str, content: str, ts: Optional[float] = None, key: str = "stage",
-               author: str = "", addressee: str = "") -> BudgetEntry:
-        """Appends one message. Entries are atomic: never split by the trim."""
+               author: str = "", addressee: str = "", mood: str = "") -> BudgetEntry:
+        """Appends one message. Entries are atomic: never split by the trim.
+
+        `mood` is the face one of her spoken lines was said with, so the line
+        comes back as the `speak` call it was.
+        """
         content = truncate_to_budget(content, self.budget.max_tokens)
-        entry = BudgetEntry(tokens=estimate_tokens(content) + MESSAGE_OVERHEAD_TOKENS,
+        entry = BudgetEntry(tokens=entry_tokens(role, content),
                             ts=ts or time.time(),
                             payload={"role": role, "content": content, "key": key,
-                                     "author": author, "addressee": addressee},
+                                     "author": author, "addressee": addressee,
+                                     "mood": mood},
                             seq=self._next_seq)
         self._next_seq += 1
         self._entries.append(entry)
@@ -160,9 +212,10 @@ class SingleContext:
         shrunk = truncate_to_budget(str(payload.get("content", "")),
                                     self.budget.max_tokens)
         self._total -= only.tokens
-        only.tokens = estimate_tokens(shrunk) + MESSAGE_OVERHEAD_TOKENS
+        only.tokens = entry_tokens(str(payload.get("role", "user")), shrunk)
         if isinstance(only.payload, dict):
             only.payload["content"] = shrunk
+        only.wire = None
         self._total += only.tokens
         self._dirty = True
 
@@ -212,7 +265,8 @@ class SingleContext:
                 "content": payload.get("content", ""),
                 "key": payload.get("key", "stage"),
                 "author": payload.get("author", ""),
-                "addressee": payload.get("addressee", "")}
+                "addressee": payload.get("addressee", ""),
+                "mood": payload.get("mood", "")}
 
     def to_rows(self) -> List[Dict[str, Any]]:
         """The window as plain rows, oldest first."""
@@ -306,7 +360,8 @@ class SingleContext:
             BudgetEntry(tokens=int(r["tokens"]), ts=float(r["ts"]),
                         payload={"role": r["role"], "content": r["content"],
                                  "key": r["key"], "author": r["author"],
-                                 "addressee": r["addressee"]},
+                                 "addressee": r["addressee"],
+                                 "mood": r.get("mood", "")},
                         seq=int(r["seq"]))
             for r in rows
         ]
@@ -347,6 +402,20 @@ class SingleContext:
             # System and handoff messages (role system) belong everywhere.
             if key is None or msg.get("role") == "system" or msg_key == key:
                 out.append(msg)
+        return out
+
+    def replay(self) -> List[Dict[str, Any]]:
+        """The window as the model reads it, oldest first: her lines as calls.
+
+        `messages` is the log as it was written down; this is the same log
+        on the wire. Ids come from `seq`, so the same window always replays
+        the same way and the provider's prefix cache survives the turn.
+        """
+        out: List[Dict[str, Any]] = []
+        for e in self._entries:
+            if e.wire is None:
+                e.wire = replayed(e)
+            out.extend(dict(m) for m in e.wire)
         return out
 
     # --- what the follow-up gate reads ------------------------------------
@@ -508,14 +577,16 @@ class SingleContext:
                 continue
             content = truncate_to_budget(str(message.get("content", "")),
                                          self.budget.max_tokens)
+            role = str(message.get("role", "user"))
             entries.append(BudgetEntry(
-                tokens=estimate_tokens(content) + MESSAGE_OVERHEAD_TOKENS,
+                tokens=entry_tokens(role, content),
                 ts=time.time(),
-                payload={"role": str(message.get("role", "user")),
+                payload={"role": role,
                          "content": content,
                          "key": str(message.get("key", "stage")),
                          "author": str(message.get("author", "")),
-                         "addressee": str(message.get("addressee", ""))},
+                         "addressee": str(message.get("addressee", "")),
+                         "mood": str(message.get("mood", ""))},
                 seq=self._next_seq))
             self._next_seq += 1
         return self.swap_with_snapshot(handoff_text, hot, entries, now=now)

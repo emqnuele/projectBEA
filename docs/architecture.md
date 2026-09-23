@@ -268,6 +268,18 @@ while she talks —
 appends never touch the disk — and a flush after each turn, plus a synchronous
 one at shutdown, carries it over in a single transaction.
 
+The window is written down as plain entries (who, where, what) and read back
+by the model through `replay()`, which hands her own lines back as the calls
+they were: a spoken line becomes a `speak` call with the mood it was said
+with, a written one a `send_message` to the conversation it went to, each
+followed by the tool's answer. That is the one protocol the manual gives her —
+plain text is thinking nobody hears — and a history of bare assistant text
+would teach her the opposite with every line. Call ids come from the entry's
+`seq`, so the same window always replays identically and the provider's
+prefix cache holds. The budget counts what a replayed call costs on the wire,
+not just its words. `messages()` stays the log as written, for everything that
+reads the window rather than answers from it.
+
 Every write to the store carries a **write sequence**, taken when the snapshot
 is built rather than when it lands, and the store keeps only what is strictly
 newer than what it holds. That is what orders two writes: `version` moves only
