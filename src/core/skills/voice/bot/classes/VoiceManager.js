@@ -61,21 +61,13 @@ const STOP_RAMP_MS = 200;
 // connection still stuck in Disconnected after this is destroyed.
 const DISCONNECT_TIMEOUT_MS = 5000;
 
-// how long her voice can run dry in the middle of a line and still count as her
-// speaking. The player's own default is five frames, so every pause between two
-// sentences had her going quiet and starting again. Past this the player gives
-// up on the stream; the utterance still waits for the rest, because a line ends
-// when the brain sends its last frame and not when the audio runs out.
+// how long a pause mid-line still counts as her speaking; the utterance itself only ends on the brain's last frame
 const MAX_GAP_MS = 3000;
 
-// what her voice is cut into on its way to the player. A sentence arrives as one
-// buffer, and a stream takes a buffer whole: the gain stage then counted all of
-// it as heard at once, and a fade or a duck only reached the sentence after
+// a sentence written whole passes the gain whole, so no fade or duck could reach it
 const FRAME_BYTES = 20 * BYTES_PER_MS;
 
-// how long a change in volume takes to reach the room: the frames queued between
-// the gain and the player. Measured at 60 to 80ms; a stop waits this long past
-// its fade before cutting, or it cuts what is still on its way down
+// measured 60-80ms between the gain and the room; a stop waits it out or cuts the fade short
 const FADE_LAG_MS = 80;
 
 function playerOptions(gapMs = MAX_GAP_MS) {
@@ -180,7 +172,6 @@ class VoiceManager {
         }
     }
 
-    // what the player doing something means for her: speaking, done, waiting
     watchPlayer(guildId, player, connectionData) {
         player.on(AudioPlayerStatus.Playing, () => {
             connectionData.isSpeaking = true;
@@ -190,8 +181,7 @@ class VoiceManager {
             connectionData.isSpeaking = false;
             const speech = connectionData.speech;
             if (speech && !speech.ended) {
-                // she ran dry mid-line: the rest is on its way, and reporting the
-                // line as done is what made the brain drop it
+                // ran dry mid-line: reporting it done made the brain drop the rest
                 console.log('[VoiceManager] Bea: WAITING for the rest of her line');
                 return;
             }
@@ -543,12 +533,10 @@ class VoiceManager {
         if (header.last) this.endUtterance(guildId, data, speech);
     }
 
-    // nothing more is coming: what is queued plays out, and then it is done
     endUtterance(guildId, data, speech) {
         speech.ended = true;
         speech.source.end();
-        // it had run dry and nothing new came with the end: no player is going
-        // to go idle over it, so it is over now
+        // already ran dry: no player will go idle to report it
         if (data.player.state.status === AudioPlayerStatus.Idle) this.finishUtterance(guildId, 'done');
     }
 
@@ -562,11 +550,7 @@ class VoiceManager {
         return data.speech;
     }
 
-    /**
-     * The same utterance, on a fresh stream: the player drops a stream that ran
-     * dry for too long, and it cannot be played again. The count and the
-     * volume carry on from where the last one left them.
-     */
+    // a stream the player gave up on cannot be played again
     resumeUtterance(data, speech) {
         const before = speech.gain;
         speech.playedBefore = this.heardOf(speech);
@@ -577,10 +561,7 @@ class VoiceManager {
     startStream(data, speech) {
         const source = new PassThrough();
         const gain = new PcmGain(() => this.report(speech.id, this.heardOf(speech), 'playing'));
-        // the encoder is ours rather than the resource's, so what waits between
-        // the gain and the room is a frame or two and not a third of a second:
-        // that wait is how late a fade reaches anybody. Raw 48khz stereo s16le
-        // in, exactly what the brain sends
+        // our own encoder, so a third of a second is not queued between a fade and the room
         const encoder = new prism.opus.Encoder({
             rate: 48000, channels: 2, frameSize: 960,
             readableHighWaterMark: 1, writableHighWaterMark: FRAME_BYTES,
@@ -592,14 +573,11 @@ class VoiceManager {
         data.player.play(resource);
     }
 
-    // what the room has heard of it: what the player has taken off its streams,
-    // which is the one count that is not ahead of the room
+    // the player's count, the only one not ahead of the room
     heardOf(speech) {
         return speech.playedBefore + (speech.resource ? speech.resource.playbackDuration : 0);
     }
 
-    // whether what is written now will still be played by the current stream,
-    // rather than into one the player has already given up on
     canTakeMore(data, speech) {
         const { resource } = speech;
         return data.player.state.resource === resource && !resource.ended

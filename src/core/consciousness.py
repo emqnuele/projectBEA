@@ -1014,9 +1014,7 @@ class Consciousness:
             await line.cancel()
             line = None
         if line is not None and not line.tainted and line.written != message:
-            # not the words she settled on: a model that died mid-line was
-            # answered for by another, and the answer is said whole. A tainted
-            # line stopped taking words on purpose, and was heard
+            # a model that died mid-line was answered for by another; a tainted line is short on purpose
             logger.warning("The line on its way out is not the one she settled on; saying hers.")
             await line.cancel()
             line = None

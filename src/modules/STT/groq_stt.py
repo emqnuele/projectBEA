@@ -20,8 +20,7 @@ KEEPALIVE_SECONDS = 90.0
 
 
 class _KeptClient(DefaultHttpxClient):
-    # the sdk closes a client it made itself once it is dropped, and one handed
-    # in is left open: a new key would otherwise strand the old connections
+    # the sdk only closes clients it made itself, so a new key would strand the old sockets
     def __del__(self) -> None:
         if self.is_closed:
             return

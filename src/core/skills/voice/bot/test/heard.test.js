@@ -1,14 +1,4 @@
-// What the room has actually heard of her, and how fast a fade reaches it.
-//
-// The gain stage counted what passed through it, and applied the volume there.
-// A sentence arrives from the brain as one buffer, so all of it passed at once:
-// the count said the whole sentence had been heard the moment it arrived, and a
-// fade or a duck only touched audio that had not arrived yet — none of the
-// sentence already queued. A barge-in then reported a line she was cut off in
-// as finished, and turned her down a sentence too late.
-//
-// These run a real AudioPlayer with no connection, and read what it takes off
-// the stream by decoding the packets it plays.
+// what the room really heard of her, and how fast a fade reaches it, read off a real player
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -37,7 +27,6 @@ function peak(pcm) {
     return top;
 }
 
-/** A call, and everything the player takes off the stream, as it takes it. */
 function call() {
     const client = { user: { id: 'bot' }, channels: { cache: new Map() }, on() {} };
     const mgr = new VoiceManager(client);

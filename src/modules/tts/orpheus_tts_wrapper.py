@@ -13,7 +13,7 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.tts.orpheus")
 
-# downloads left to wind down on their own; held so they are not collected mid-way
+# held so an abandoned download is not garbage collected mid-way
 _abandoned: set = set()
 
 
@@ -141,7 +141,7 @@ class OrpheusTTSWrapper(TTSInterface):
                 for block in self._stream_pcm_sync(text, stop, opened):
                     loop.call_soon_threadsafe(queue.put_nowait, block)
             except Exception as e:
-                # a response closed under it is how an abandoned read ends
+                # closing the response under it is how an abandoned read ends
                 if not stop.is_set():
                     logger.error(f"stream failed: {e}")
             finally:
@@ -159,7 +159,7 @@ class OrpheusTTSWrapper(TTSInterface):
             if worker.done():
                 await worker
             else:
-                # nobody wants the rest: a barge-in must not wait for it to download
+                # a barge-in must not wait for audio nobody will hear
                 stop.set()
                 for resp in opened:
                     with contextlib.suppress(Exception):

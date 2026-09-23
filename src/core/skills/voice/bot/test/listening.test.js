@@ -629,8 +629,7 @@ function quietlySwept(ms, buf, clock) {
 
 test('the sweep between two packets does not wipe out being talked over', () => {
     const clock = { at: 0 };
-    // the production thresholds: the looser test ones would pass a count that
-    // never reaches four seconds
+    // production thresholds: the looser test ones pass a count that never reaches four seconds
     const buf = createSpeechBuffer({ duckMs: 400, interruptMs: 4000 });
 
     const seen = [];
@@ -673,10 +672,7 @@ test('the sweep between two packets does not end or hold up a turn', () => {
 
 // --- talked over by somebody who breathes -----------------------------------
 
-/**
- * Somebody talking over her the way people do: a burst, then a breath with no
- * packets in it at all, with the sweep looking every twenty milliseconds.
- */
+// talking over her in bursts, with breaths that carry no packets at all
 function talkOverInBursts(buf, clock, { bursts, burstMs, breathMs }) {
     const seen = [];
     for (let n = 0; n < bursts; n += 1) {

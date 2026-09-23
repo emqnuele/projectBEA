@@ -300,8 +300,7 @@ class LiveLine:
                 try:
                     await self._deliver(item)
                 except Exception as e:
-                    # the renderer waits on this queue: a player that died here
-                    # would hold the line, and the turn closing it, forever
+                    # the renderer waits on this queue, so a dead player would hang the line forever
                     logger.error(f"Could not deliver {item.beat.value!r}: {e}")
                     if item.job is not None:
                         item.job.cancel()

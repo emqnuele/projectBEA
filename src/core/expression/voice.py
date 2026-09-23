@@ -470,8 +470,7 @@ class Expression:
 
         if line.route == "call":
             state = line.state
-            # a cancelled line was ended, or stopped, by whoever cancelled it: an
-            # end frame now would let what is queued play out after the stop
+            # whoever cancelled it ended or stopped it; an end frame now would outlive the stop
             if line.abandoned or line.cancelled or self.call is None:
                 return self.call.utterances.get(state["id"]) if self.call else None
             await self.call.end(state["id"])
@@ -502,8 +501,7 @@ class Expression:
         more of a line that is never coming.
         """
         call = self.call
-        # the utterance, not the sequence number: the channel tracks it from the
-        # first frame on, before the socket has even taken that frame
+        # by id, not seq: the channel tracks it before the socket has taken the first frame
         if line.route != "call" or call is None or not line.state.get("id"):
             return
         current = call.current

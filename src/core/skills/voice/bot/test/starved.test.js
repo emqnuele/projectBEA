@@ -1,11 +1,4 @@
-// Her line runs dry in the middle: the next sentence is late off the engine, or
-// the model paused. The player gives up on a stream that stops delivering and
-// goes idle, and that used to end the utterance — the bot reported it done, the
-// brain took it as the room having moved on and dropped the rest of the line,
-// and whatever still arrived for it started over with a count from zero.
-//
-// These run a real AudioPlayer, with no connection to play into, on a gap of a
-// fifth of a second instead of three so they finish quickly.
+// a line that runs dry mid-way, on a real player with a fifth of a second of patience
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -31,7 +24,6 @@ function call() {
     mgr.link.send = (message) => { reports.push(message); return true; };
 
     const options = VoiceManager.playerOptions(GAP_MS);
-    // nobody is subscribed in a test: play anyway, as a call would
     const player = createAudioPlayer({ behaviors: { ...options.behaviors, noSubscriber: 'play' } });
     const data = {
         player, channelId: 'c', isSpeaking: false, speech: null,
@@ -49,7 +41,6 @@ test('a line that runs dry halfway is still one utterance', async (t) => {
     t.after(() => player.stop(true));
 
     mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(300));
-    // the audio, the gap the player allows, its padding, and then some
     await sleep(300 + GAP_MS + 500);
     assert.ok(!states(reports, 'u').some((r) => r.state === 'done'),
         'running dry ended the utterance');
@@ -86,7 +77,7 @@ test('a line stopped while it had run dry is reported stopped', async (t) => {
     mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(200));
     await sleep(200 + GAP_MS + 500);
     mgr.stopSpeaking(20);
-    // the fade, and the frames still on their way to the room behind it
+    // the fade plus the frames still on their way to the room
     await sleep(250);
 
     const seen = states(reports, 'u');
