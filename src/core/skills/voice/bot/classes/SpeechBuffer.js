@@ -230,8 +230,12 @@ function createSpeechBuffer(options = {}) {
          * longer than a packet takes, this is what ends a turn: it runs down
          * the hangover across the gaps discord leaves between one stream and
          * the next. Between two packets it has nothing to say.
+         *
+         * `beaSpeaking` is as real here as in `push`: a breath taken while
+         * talking over her is still talking over her, and reading it as her
+         * having gone quiet threw away how long they had been at it.
          */
-        gap(now) {
+        gap(now, { beaSpeaking = false } = {}) {
             if (lastAt === null) lastAt = now;
             const idle = now - lastAt;
             if (idle < GAP_MS) return NOTHING;
@@ -239,7 +243,7 @@ function createSpeechBuffer(options = {}) {
             // has passed since the sweep before
             const fresh = idle - counted;
             counted = idle;
-            return act(activity.silence(fresh), false);
+            return act(activity.silence(fresh), beaSpeaking);
         },
 
         /**

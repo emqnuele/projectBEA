@@ -336,7 +336,7 @@ class VoiceManager {
         if (!data) return;
         const now = Date.now();
         for (const [userId, speaker] of data.speakers) {
-            this.act(guildId, userId, speaker.buffer.gap(now));
+            this.act(guildId, userId, speaker.buffer.gap(now, { beaSpeaking: data.isSpeaking }));
         }
     }
 
