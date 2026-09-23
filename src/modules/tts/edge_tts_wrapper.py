@@ -69,7 +69,7 @@ class EdgeTTSWrapper(TTSInterface):
             mp3 = bytearray()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
-                    mp3 += chunk["data"]
+                    mp3 += chunk.get("data", b"")
             data, fs = await asyncio.to_thread(_decode, bytes(mp3))
             return data, fs
 
@@ -97,7 +97,7 @@ class EdgeTTSWrapper(TTSInterface):
             async for chunk in communicate.stream():
                 if chunk["type"] != "audio":
                     continue
-                mp3 += chunk["data"]
+                mp3 += chunk.get("data", b"")
                 if len(mp3) < due:
                     continue
                 due = len(mp3) * 2
