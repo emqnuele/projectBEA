@@ -276,6 +276,18 @@ async def main(args=None):
     # 3. Brain
     brain = AIVtuberBrain(config, registry, tts, stt, obs)
 
+    # shutdown runs on the server's way down (see run_server's lifespan) and
+    # again here as the fallback for the paths without one. The flag keeps the
+    # second run from saving the memories twice and stopping stopped skills.
+    shutdown_done = False
+
+    async def shutdown_once():
+        nonlocal shutdown_done
+        if shutdown_done:
+            return
+        shutdown_done = True
+        await shutdown(brain)
+
     try:
         brain.initialize()
         await brain.start_skills()
@@ -283,14 +295,15 @@ async def main(args=None):
         if args.web:
             from src.web.server import run_server
             logger.info(f"Starting Web Interface at http://{args.host}:{args.port}")
-            await run_server(brain, host=args.host, port=args.port)
+            await run_server(brain, host=args.host, port=args.port,
+                             on_shutdown=shutdown_once)
         else:
             await brain.run_loop()
 
     except KeyboardInterrupt:
         logger.info("Stopping...")
     finally:
-        await shutdown(brain)
+        await shutdown_once()
 
 
 def run():
