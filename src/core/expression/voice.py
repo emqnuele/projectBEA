@@ -338,13 +338,16 @@ class Expression:
         if line.caption:
             self.current_typing_task = asyncio.create_task(self.caption.say(line.caption))
 
-    async def render(self, line: LiveLine, text: str,
-                     prosody) -> Optional[List[Tuple[Any, int]]]:
+    async def render(self, line: LiveLine, text: str, prosody,
+                     into: Optional[Rendered] = None) -> Optional[List[Tuple[Any, int]]]:
         """What the engine makes of one piece, or None to abandon the line.
 
         Abandoning is not an error: it is the room having moved on while the
         rest of the line was still being made, and every piece not rendered
         after that is one nobody was going to hear anyway.
+
+        `into` receives each part as the engine hands it over, so the call can
+        start hearing a piece an engine streams before the end of it exists.
         """
         if line.route != "call":
             logger.info(f"Message: {text}")
@@ -354,14 +357,25 @@ class Expression:
         if self._call_moved_on(state["id"], state["seq"]):
             return None
 
-        parts: List[Tuple[Any, int]] = []
+        parts: List[Tuple[Any, int]] = into.parts if into is not None else []
         async for audio, rate in self.tts.generate_stream(text, prosody):
             # against what has actually been pushed, never against what is only
             # rendered: nothing is playing yet while the first piece is made
             if self._call_moved_on(state["id"], state["seq"]):
                 return None
-            parts.append((audio, rate))
+            if into is not None:
+                into.add((audio, rate))
+            else:
+                parts.append((audio, rate))
         return parts
+
+    def plays_as_made(self, line: LiveLine) -> bool:
+        """Whether a piece can be heard while it is still being made.
+
+        In a call playing is a push, so a part goes out the moment it exists.
+        On the local device a piece is timed, lip-synced and captioned whole.
+        """
+        return line.route == "call"
 
     async def play(self, line: LiveLine, item: Rendered) -> None:
         """One rendered piece, out loud, now."""
@@ -393,16 +407,30 @@ class Expression:
         if call is None:
             return
         state = line.state
-        for audio, rate in item.parts:
-            pcm = to_call_pcm(audio, rate)
-            if not pcm:
+        sent = 0
+        while True:
+            while sent < len(item.parts):
+                audio, rate = item.parts[sent]
+                sent += 1
+                pcm = to_call_pcm(audio, rate)
+                if not pcm:
+                    continue
+                await call.play(pcm, utterance_id=state["id"],
+                                     text=line.caption or line.written,
+                                     seq=state["seq"], last=False)
+                state["frames"].extend(envelope(audio, rate, self._lipsync_fps))
+                state["spoken_ms"] += duration_ms(pcm)
+                state["seq"] += 1
+            # a piece still being made: wait for more of it, or for its end
+            job = item.job
+            if job is None or job.done():
+                if sent >= len(item.parts):
+                    return
                 continue
-            await call.play(pcm, utterance_id=state["id"],
-                                 text=line.caption or line.written,
-                                 seq=state["seq"], last=False)
-            state["frames"].extend(envelope(audio, rate, self._lipsync_fps))
-            state["spoken_ms"] += duration_ms(pcm)
-            state["seq"] += 1
+            item.grew.clear()
+            if sent < len(item.parts) or job.done():
+                continue
+            await item.grew.wait()
 
     def wear(self, line: LiveLine, word: str) -> None:
         """Direction inside the line: her face changes from this word on."""

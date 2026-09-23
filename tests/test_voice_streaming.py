@@ -310,3 +310,39 @@ async def test_with_no_call_nothing_is_synthesised_for_one():
     e = expression(tts)
     assert await e.speak("neutral", "ciao a tutti quanti voi", route="call") is None
     assert tts.rendered == []
+
+
+async def test_the_room_hears_the_start_of_a_piece_before_the_engine_has_finished_it():
+    """Gathering every part of a sentence first threw away what a streaming
+    engine is for: the first block could have been playing all along."""
+    import asyncio
+
+    class Held(OneShotTTS):
+        def __init__(self):
+            super().__init__()
+            self.go_on = asyncio.Event()
+
+        async def generate_stream(self, text, prosody=None):
+            self.rendered.append(text)
+            yield np.zeros(800, dtype=np.float32), 24000
+            await self.go_on.wait()
+            yield np.zeros(800, dtype=np.float32), 24000
+
+    tts = Held()
+    e = expression(tts)
+    channel, socket = live_channel()
+    e.set_call(channel)
+
+    line = e.open_line("neutral", route="call")
+    line.say("Una frase sola ma abbastanza lunga da contare.")
+    line.close_input()
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    assert len(socket.binary) == 1, "nothing reached the call until the whole piece existed"
+
+    tts.go_on.set()
+    await line.close()
+    headers = [unframe(f)[0] for f in socket.binary]
+    assert [h["seq"] for h in headers] == [0, 1, -1]
+    assert line.spoken == "Una frase sola ma abbastanza lunga da contare."

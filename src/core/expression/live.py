@@ -53,6 +53,13 @@ class Rendered:
     parts: List[Tuple[Any, int]] = field(default_factory=list)
     # the synthesis still being made, for a piece queued before it finished
     job: Optional["asyncio.Task"] = None
+    # set whenever more of the piece exists, and once more when it is done
+    grew: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def add(self, part: Tuple[Any, int]) -> None:
+        """More of the piece, from an engine that hands it over as it goes."""
+        self.parts.append(part)
+        self.grew.set()
 
 
 class LiveLine:
@@ -215,11 +222,15 @@ class LiveLine:
                     await self._ready.put(Rendered(beat))
                     continue
                 await self._slots.acquire()
-                job = asyncio.create_task(self.sink.render(self, beat.value, self.prosody),
-                                          name="live-synth")
+                item = Rendered(beat)
+                job = asyncio.create_task(
+                    self.sink.render(self, beat.value, self.prosody, into=item),
+                    name="live-synth")
+                item.job = job
                 self._jobs.add(job)
                 job.add_done_callback(self._settled)
-                await self._ready.put(Rendered(beat, job=job))
+                job.add_done_callback(lambda _, item=item: item.grew.set())
+                await self._ready.put(item)
         except asyncio.CancelledError:
             # the player is being cancelled alongside this: it needs no sentinel
             raise
@@ -260,7 +271,8 @@ class LiveLine:
             for other in list(self._jobs):
                 other.cancel()
             return False
-        item.parts = parts
+        if parts is not item.parts:
+            item.parts = parts
         return bool(parts)
 
     async def _play(self) -> None:
@@ -276,6 +288,12 @@ class LiveLine:
                         item.job.cancel()
                     continue
                 if item.beat.kind is BeatKind.SAY:
+                    if item.job is not None and self.sink.plays_as_made(self):
+                        # the first of it goes out while the rest is being made
+                        await self.sink.play(self, item)
+                        if await self._made(item):
+                            self._spoken.append(item.beat.value)
+                        continue
                     if not await self._made(item):
                         continue
                     await self.sink.play(self, item)
