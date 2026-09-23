@@ -118,3 +118,28 @@ test('a new line still replaces one that ran dry', async (t) => {
     assert.equal(states(reports, 'a').at(-1).state, 'stopped');
     assert.equal(states(reports, 'b').at(-1).state, 'done');
 });
+
+test('dropping what has not started yet still ends a line that ran dry', async (t) => {
+    const { mgr, player, reports } = call();
+    t.after(() => player.stop(true));
+
+    mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(200));
+    await sleep(200 + GAP_MS + 500);
+    mgr.cancelPending();
+
+    const done = states(reports, 'u').filter((r) => r.state === 'done');
+    assert.equal(done.length, 1, 'the utterance was left open with nothing coming');
+});
+
+test('dropping what has not started yet lets what is playing finish, then ends it', async (t) => {
+    const { mgr, player, reports } = call();
+    t.after(() => player.stop(true));
+
+    mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(300));
+    await sleep(100);
+    mgr.cancelPending();
+    await sleep(300 + 500);
+
+    const done = states(reports, 'u').filter((r) => r.state === 'done');
+    assert.equal(done.length, 1, 'the utterance never ended');
+});

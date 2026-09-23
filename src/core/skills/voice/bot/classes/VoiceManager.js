@@ -540,13 +540,16 @@ class VoiceManager {
                 speech.source.write(pcm.subarray(at, at + FRAME_BYTES));
             }
         }
-        if (header.last) {
-            speech.ended = true;
-            speech.source.end();
-            // it had run dry and nothing new came with the end: no player is
-            // going to go idle over it, so it is over now
-            if (data.player.state.status === AudioPlayerStatus.Idle) this.finishUtterance(guildId, 'done');
-        }
+        if (header.last) this.endUtterance(guildId, data, speech);
+    }
+
+    // nothing more is coming: what is queued plays out, and then it is done
+    endUtterance(guildId, data, speech) {
+        speech.ended = true;
+        speech.source.end();
+        // it had run dry and nothing new came with the end: no player is going
+        // to go idle over it, so it is over now
+        if (data.player.state.status === AudioPlayerStatus.Idle) this.finishUtterance(guildId, 'done');
     }
 
     openUtterance(guildId, utteranceId) {
@@ -644,7 +647,7 @@ class VoiceManager {
     cancelPending() {
         const guildId = this.currentGuild();
         const data = guildId ? this.connections.get(guildId) : null;
-        if (data && data.speech) data.speech.source.end();
+        if (data && data.speech) this.endUtterance(guildId, data, data.speech);
     }
 
     report(utteranceId, playedMs, state) {
