@@ -193,6 +193,20 @@ you want her to type in chat. [Details →](skills/twitch.md)
 
 ---
 
+## 6c. Web search & reading (optional)
+
+Nothing to install and no key to create: the keyless search works out of the
+box. Toggle **Web** on from the dashboard's Abilities page and she can search
+and read pages.
+
+For reliability by contract rather than by goodwill, paste a key in
+Settings → Web — [Brave](https://brave.com/search/api/) or
+[Tavily](https://www.tavily.com/) — or point `searxng_url` at your own
+instance. It lands in `.env` as `BRAVE_API_KEY` / `TAVILY_API_KEY`, never in
+`config.json`, and applies to the next search. [Details →](skills/web.md)
+
+---
+
 ## 7. Kokoro TTS Setup (optional)
 
 Kokoro runs **entirely locally** — no API key required.

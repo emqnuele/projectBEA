@@ -175,6 +175,14 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         },
         "donations": {
             "enabled": false
+        },
+        "web": {
+            "enabled": false,
+            "search_provider": "auto",
+            "searxng_url": "",
+            "safesearch": "moderate",
+            "max_results": 5,
+            "max_chars": 6000
         }
     },
     "stt_provider": "groq",
@@ -515,6 +523,7 @@ the single source of truth** — Bea can never arm a capability herself.
 | `telegram` | `owner_id`, `allowed_chats`, `group_salience`, `token` | [telegram](skills/telegram.md) |
 | `twitch` | `channel`, `nick`, `oauth_token` | [twitch](skills/twitch.md) |
 | `donations` | `secret` | [donations](skills/donations.md) |
+| `web` | `search_provider`, `searxng_url`, `safesearch`, `max_results`, `max_chars` — the keys live in `.env`, never here | [web](skills/web.md) |
 
 Trigger words are **not** per-platform: they come from `attention.trigger_words`
 everywhere.
@@ -537,6 +546,8 @@ everywhere.
 | `TELEGRAM_TOKEN` | The Telegram bot |
 | `TWITCH_OAUTH_TOKEN` | Writing in Twitch chat. Reading needs nothing |
 | `DONATION_SECRET` | Shared secret on the donation webhook |
+| `BRAVE_API_KEY` | Optional. Brave Search, tried before the free search |
+| `TAVILY_API_KEY` | Optional. Tavily, tried before the free search |
 | `HF_TOKEN` | Optional, and no account is needed to run anything here — the whisper and embedding models are public. It buys a higher Hugging Face rate limit, which is what makes the first download crawl, or get refused, on a shared IP |
 | `BEA_ALLOWED_ORIGINS` | Extra CORS origins, comma-separated |
 | `LOG_LEVEL` | `DEBUG` for verbose output |

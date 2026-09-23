@@ -347,6 +347,7 @@ not been given invents the call.
 | `SocialMemory` | `social` | `social_memory` | roster tally + person cards; injects `[WHO YOU'RE TALKING TO]` |
 | `DreamSkill` | `dream` | `dream` | self-lore + hot facts always in context; morning pass; `go_to_sleep`; offline dreamer |
 | `StreamPlanSkill` | `plan` | — (core) | the owner's plan for the stream in `live_state`; `objective_started/done/dropped`. Contributes nothing while the plan is empty |
+| `WebSkill` | `web` | `web` | `web_search` down a provider chain with the keyless search last, `web_fetch` as markdown; off by default, every URL and DNS answer SSRF-checked |
 
 ---
 
