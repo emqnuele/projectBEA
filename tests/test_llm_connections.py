@@ -7,6 +7,8 @@ a connection the provider closed while it sat idle costs a resend rather than
 the turn.
 """
 
+import asyncio
+
 import aiohttp
 import pytest
 
@@ -152,6 +154,28 @@ async def test_closing_the_pool_closes_the_session_and_the_next_call_opens_one(m
 
     await llm.complete([{"role": "user", "content": "hi"}])
     assert len(made) == 2, "a closed session was reused"
+
+
+def test_a_pool_does_not_outlive_the_loop_that_made_it(monkeypatch):
+    """A session belongs to the loop that made it, and the doctor runs on its
+    own. A finished loop must not leave its pool remembered for good."""
+    wire(monkeypatch, Attempt(REPLY), Attempt(REPLY))
+    llm = client()
+    first, second = asyncio.new_event_loop(), asyncio.new_event_loop()
+    try:
+        first.run_until_complete(llm.complete([{"role": "user", "content": "hi"}]))
+        assert first in base._sessions
+
+        first.run_until_complete(base.close_sessions())
+        assert first not in base._sessions
+        first.close()
+
+        second.run_until_complete(llm.complete([{"role": "user", "content": "hi"}]))
+        # the closed loop's entry was pruned rather than kept forever
+        assert list(base._sessions) == [second]
+    finally:
+        second.run_until_complete(base.close_sessions())
+        second.close()
 
 
 class Lines:
