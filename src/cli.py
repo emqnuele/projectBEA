@@ -212,6 +212,9 @@ async def shutdown(brain: AIVtuberBrain) -> None:
         await run_to_completion("Saving pending memories",
                                 brain.memory_skill.save_all_pending(), SAVE_GRACE)
     await run_to_completion("Stopping the skills", brain.stop_skills(), STOP_GRACE)
+    # last of the awaited steps: saving the memories above still talks to a model
+    from src.modules.llm.base import close_sessions
+    await run_to_completion("Closing the model connections", close_sessions(), STOP_GRACE)
     brain.shutdown()
 
 

@@ -730,8 +730,18 @@ def run_doctor(config=None, console=None) -> int:
     console.rule(style="dim")
     console.print()
 
-    found = asyncio.run(diagnose(config, report=lambda t, f: _print(console, t, f)))
+    found = asyncio.run(_diagnose_alone(config, report=lambda t, f: _print(console, t, f)))
     return _verdict(console, found)
+
+
+async def _diagnose_alone(config: BrainConfig, report=None) -> List[Tuple[str, Finding]]:
+    """`diagnose` on a loop of its own, which takes its model connections with it."""
+    from src.modules.llm.base import close_sessions
+
+    try:
+        return await diagnose(config, report=report)
+    finally:
+        await close_sessions()
 
 
 def _print(console, title: str, finding: Finding) -> None:
