@@ -26,8 +26,17 @@
 const { createVoiceActivity, FRAME_MS, HANGOVER_MS } = require('./VoiceActivity');
 const { BYTES_PER_MS, createDownsampler } = require('./Pcm');
 
-// under this much actual voice a turn is a cough, a chair, a click: not words
-const MIN_SPEECH_MS = 250;
+/**
+ * Under this much actual voice a turn is a cough, a chair, a click: not words.
+ *
+ * Only a vowel counts as voice here — an s or an f sits above the speech band
+ * and looks exactly like hiss — so a one-word answer is shorter than it sounds.
+ * Measured on 48 real ones ("sì", "no", "ok", "yeah", six voices): 250 threw
+ * away 6 of them at a normal level and 14 from a quiet speaker; 200 keeps all
+ * but 1 and 4. Lower still would let more coughs through, and a cough reaches
+ * her as somebody saying something she could not make out.
+ */
+const MIN_SPEECH_MS = 200;
 
 /**
  * How much of the run-up to somebody talking is kept in front of their turn.
@@ -221,7 +230,9 @@ function createSpeechBuffer(options = {}) {
                 }
             }
 
-            voicedMs += frame.voicedMs;
+            // the onset counts toward what was said, not toward talking over
+            // her: the barge-in thresholds were set against the count without it
+            voicedMs += frame.voicedMs + frame.onsetVoicedMs;
             return act(frame, beaSpeaking);
         },
 
