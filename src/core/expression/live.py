@@ -297,18 +297,29 @@ class LiveLine:
                     if item.job is not None:
                         item.job.cancel()
                     continue
-                if item.beat.kind is BeatKind.SAY:
-                    if item.job is not None and self.sink.plays_as_made(self):
-                        # the first of it goes out while the rest is being made
-                        await self.sink.play(self, item)
-                        if await self._made(item):
-                            self._spoken.append(item.beat.value)
-                        continue
-                    if not await self._made(item):
-                        continue
-                    await self.sink.play(self, item)
+                try:
+                    await self._deliver(item)
+                except Exception as e:
+                    # the renderer waits on this queue: a player that died here
+                    # would hold the line, and the turn closing it, forever
+                    logger.error(f"Could not deliver {item.beat.value!r}: {e}")
+                    if item.job is not None:
+                        item.job.cancel()
+
+    async def _deliver(self, item: Rendered) -> None:
+        """One beat, out: a piece heard, a face worn, a thing done."""
+        if item.beat.kind is BeatKind.SAY:
+            if item.job is not None and self.sink.plays_as_made(self):
+                # the first of it goes out while the rest is being made
+                await self.sink.play(self, item)
+                if await self._made(item):
                     self._spoken.append(item.beat.value)
-                elif item.beat.kind is BeatKind.MOOD:
-                    self.sink.wear(self, item.beat.value)
-                elif item.beat.kind is BeatKind.DO:
-                    self.sink.behave(self, item.beat.value)
+                return
+            if not await self._made(item):
+                return
+            await self.sink.play(self, item)
+            self._spoken.append(item.beat.value)
+        elif item.beat.kind is BeatKind.MOOD:
+            self.sink.wear(self, item.beat.value)
+        elif item.beat.kind is BeatKind.DO:
+            self.sink.behave(self, item.beat.value)

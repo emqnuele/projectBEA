@@ -376,3 +376,30 @@ async def test_an_engine_on_this_machine_is_asked_one_piece_at_a_time():
         tts.gate(text).set()
     await line.close()
     assert script.of("play") == ["Ah, davvero?", "Non ci posso credere, raccontami tutto."]
+
+
+# --- a piece that cannot be played --------------------------------------------
+
+
+async def test_a_piece_that_fails_to_play_costs_that_piece_not_the_line():
+    """The player died on the first failure and the renderer then waited on a
+    full queue forever: closing the line never returned, and the turn with it."""
+    script = Script()
+    e = expression(script)
+    recording = e.play
+
+    async def breaks_once(line, item):
+        if item.beat.value.startswith("Ma tu"):
+            raise OSError("the sound card went away")
+        await recording(line, item)
+
+    e.play = breaks_once
+    line = e.open_line("neutral")
+    line.say("Ma tu guarda questa cosa. Non ci posso credere davvero. "
+             "Comunque va bene così, tanto lo sapevo.")
+
+    await asyncio.wait_for(line.close(), timeout=2)
+
+    assert script.of("play") == ["Non ci posso credere davvero.",
+                                 "Comunque va bene così, tanto lo sapevo."]
+    assert line.spoken == "Non ci posso credere davvero. Comunque va bene così, tanto lo sapevo."
