@@ -33,6 +33,8 @@ SECRET_ENV_VARS: Dict[str, str] = {
     "discord.token": "DISCORD_TOKEN",
     "telegram.token": "TELEGRAM_TOKEN",
     "twitch.oauth_token": "TWITCH_OAUTH_TOKEN",
+    "web.brave_api_key": "BRAVE_API_KEY",
+    "web.tavily_api_key": "TAVILY_API_KEY",
 }
 
 # derived, so a new secret is declared once: the ones nested inside the
@@ -248,6 +250,16 @@ class BrainConfig:
         # the shared secret is read from DONATION_SECRET
         "donations": {
             "enabled": False
+        },
+        # off by default: pages are written by strangers. The search keys are
+        # absent on purpose, read from BRAVE_API_KEY and TAVILY_API_KEY
+        "web": {
+            "enabled": False,
+            "search_provider": "auto",   # keyed providers first, keyless always last
+            "searxng_url": "",
+            "safesearch": "moderate",
+            "max_results": 5,
+            "max_chars": 6000
         },
         # the token is deliberately absent: it is read from TELEGRAM_TOKEN
         "telegram": {

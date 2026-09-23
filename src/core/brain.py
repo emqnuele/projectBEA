@@ -32,6 +32,7 @@ from src.core.skills.telegram.surface import TelegramSkill
 from src.core.skills.twitch.surface import TwitchSkill
 from src.core.skills.voice.latency import STT
 from src.core.skills.voice.surface import VoiceSurface
+from src.core.skills.web.surface import WebSkill
 from src.core.social.agenda import AgendaRunner
 from src.core.social.reach import Reach
 from src.core.social.rhythm import RhythmTick
@@ -59,7 +60,7 @@ def _settle_line(future: "asyncio.Future", value: str) -> None:
 SKILL_CLASSES = (
     ChatSurface, VoiceSurface, TelegramSkill, TwitchSkill, DonationSkill,
     IdleSurface, MinecraftSurface, MemorySkill, SocialMemory, DreamSkill,
-    StreamPlanSkill, PresenceSkill, ClockSkill,
+    StreamPlanSkill, PresenceSkill, ClockSkill, WebSkill,
 )
 
 
