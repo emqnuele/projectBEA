@@ -182,22 +182,35 @@ one downsampler per speaker.
 | `SPEECH_LOW_HZ` / `SPEECH_HIGH_HZ` | `200` / `3400` | two-pole band-pass; `MIN_FOCUS` is the surviving-energy ratio |
 | `MIN_FOCUS` | `0.32` | minimum in-band energy ratio to count as voice |
 | `ENTER_OVER_FLOOR` / `EXIT_OVER_FLOOR` | `2.2` / `1.35` | relative level vs. per-speaker noise floor (hysteresis) |
-| `ENTER_MARGIN` / `EXIT_MARGIN` | `200` / `100` | absolute level guards (digital-silence floor = 0) |
-| `ONSET_MS` | `60` | sustained voice before `started` |
+| `ENTER_MARGIN` / `EXIT_MARGIN` | `60` / `30` | absolute level guards over a digital-silence floor (≈ −55 / −61 dBFS) |
+| `ONSET_MS` | `60` | sustained voice before `started`; also what it takes to break a silence |
 | `HANGOVER_MS` | `500` | sustained silence before `ended` |
+| `FLOOR_WINDOW_MS` | `2000` | the floor is never below the quietest level of this much received audio |
 | `MAX_VOICE_MS` | `15000` | continuous run released as non-voice (music/noise); floor set to run minimum |
 
-Floor adaptation: learned from non-voiced frames only (`FLOOR_FALL = 0.25`
-down, `FLOOR_RISE = 0.02` up); while speaking, only unvoiced frames above the
-floor can raise it. `silence(ms)` (no packets received) advances the hangover
-only, without touching the floor.
+Floor adaptation: learned from non-voiced frames (`FLOOR_FALL = 0.25` down,
+`FLOOR_RISE = 0.02` up). A voiced frame too quiet to open the gate may lower
+it but never raise it. While speaking, unvoiced frames above the floor can
+raise it. On top of that, the floor never sits below the quietest frame of the
+last `FLOOR_WINDOW_MS` of received audio. Speech always dips there: measured
+on real speech, gated or not, every two seconds contain a frame under a tenth
+of its level. A song or a steady hiss does not, so it becomes the room within
+two seconds instead of holding the gate until `MAX_VOICE_MS`. `silence(ms)`
+(no packets received) advances the hangover and restarts that window, without
+touching the floor.
+
+Onset frames count toward the turn (`onsetVoicedMs`), not toward the barge-in
+overlap. Once a silence has started, a sound has to hold for `ONSET_MS` to
+cancel it, so a key press or a beat cannot keep a turn open. The turn does not
+end while that proof is pending, so a word coming back just inside the hangover
+is kept.
 
 **`SpeechBuffer.js`** — per-speaker turn accumulator.
 
 | Parameter | Default | Meaning |
 |---|---|---|
 | `PREROLL_MS` | `400` | pre-voice audio prepended at `started` |
-| `MIN_SPEECH_MS` | `250` | minimum voiced audio, else `take()` returns `null` |
+| `MIN_SPEECH_MS` | `200` | minimum voiced audio (onset included), else `take()` returns `null`. Only vowels count, so this is set from 48 real one-word answers |
 | `MAX_TURN_MS` | `30000` | turn cut and sent as-is |
 | `duckMs` / `interruptMs` | from `duck_threshold_ms` / `interrupt_threshold_ms` | barge-in thresholds (overlap, see below) |
 

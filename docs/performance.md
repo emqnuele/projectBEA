@@ -107,6 +107,60 @@ proposed as optimisation targets before they were measured.
 
 ---
 
+## Voice detector
+
+The Discord voice detector (`VoiceActivity` + `SpeechBuffer`, see
+[Discord](skills/discord.md#voice-input-turn-segmentation)) has its own
+harness. The voice path is Node, and what matters there is turns, not
+milliseconds per call.
+
+```bash
+uv run python tools/vad_bench/corpus.py   # 15 scenarios, ~95 s each, into data/vad_bench/
+node tools/vad_bench/bench.js             # --hangovers 500,400 --json out.json
+```
+
+**Corpus.** Sixteen turns from six edge-tts voices (Italian and English), from
+"Sì." to a 7-second story with pauses inside it, 1.6–3.2 s apart. The same
+timeline runs under every background: clean, fan, hiss, keyboard and tonal
+music with a beat, at 15 and 5 dB SNR; the same noise with nobody talking; and
+a speaker 20 dB quieter. Ground truth comes from the clean track (−40 dB from
+the peak). Six of the sixteen turns contain a pause of about a second, so any
+500 ms hangover splits them: six splits per scenario are the floor.
+
+**Path.** Each 20 ms frame goes through Opus at 64 kbps and back, then into the
+real `SpeechBuffer` with the sweep on the same clock. "Open" is a microphone
+that always transmits. "Gated" is Discord's own voice activity closing the
+stream (an assumed 300 ms release). End = time from the true end of speech
+until the turn is sent.
+
+`Apple M5`, node 24, hangover 500 ms, open microphone unless noted.
+
+| | result |
+|---|---|
+| end p50 / p95, clean + mild noise | 467 / 504 ms |
+| end p50 / p95, heavy noise (5 dB) | 443 / 515 ms |
+| turns missed: clean + mild noise / heavy noise / quiet speaker / gated | 0/64 · 1/48 · 3/32 · 2/32 |
+| turns merged, clean + noise | 0/112 |
+| starts clipped | 0/176 |
+| noise interrupting her, noise only | 0 |
+| cpu per second of audio | 1.3 ms |
+
+`MIN_SPEECH_MS` comes from a second measurement. 48 real one-word answers
+("sì", "no", "ok", "yeah", six voices) at a normal level and 20 dB under it.
+Only vowels count as voice, so "sì" measures about 200 ms. At 200, all but 1 and
+4 of them are kept.
+
+### Known limit
+
+Music with a strong beat under a voice still merges turns (9 merged sends
+across the two music scenarios, end p95 12 s). The level is measured over the full band, so a
+kick drum at 55 Hz counts as loudness. Rules strict enough to ignore the beat
+(resuming only over the start line, a longer proof, a higher exit ratio) all
+ended turns in heavy noise before the speaker had finished. Measuring in-band
+level would fix it, and would retune every threshold with it.
+
+---
+
 ## Rejected optimisations
 
 Kept here with their numbers so they are not proposed again.
