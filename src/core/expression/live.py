@@ -140,8 +140,13 @@ class LiveLine:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         return await self.sink.line_closed(self)
 
-    async def cancel(self) -> None:
-        """Somebody talked over her: stop, and stop paying for the rest."""
+    async def cancel(self, *, end: bool = True) -> None:
+        """Somebody talked over her: stop, and stop paying for the rest.
+
+        `end` tells the sink the line is over. A caller about to stop the sound
+        itself says no: an end frame would let what is queued play out, and
+        the stop would then find a line that finished rather than one cut off.
+        """
         self._cancelled = True
         self._closed = True
         tasks = [*self._tasks, *self._jobs]
@@ -149,7 +154,7 @@ class LiveLine:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         dropped = getattr(self.sink, "line_cancelled", None)
-        if dropped is not None:
+        if end and dropped is not None:
             await dropped(self)
 
     # --- what the sink reads ------------------------------------------------

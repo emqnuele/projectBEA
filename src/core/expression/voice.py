@@ -571,7 +571,7 @@ class Expression:
         # is still being synthesised is already words nobody will hear
         line, self._line = self._line, None
         if line is not None:
-            await line.cancel()
+            await line.cancel(end=False)
 
         call = self.call
         if call is not None and call.live:

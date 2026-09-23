@@ -423,3 +423,43 @@ async def test_a_streamed_piece_moves_her_mouth_exactly_like_a_whole_one():
 
     assert line.state["frames"] == envelope(speech, 24000, e._lipsync_fps)
     await line.close()
+
+
+async def test_being_talked_over_stops_her_rather_than_letting_the_line_finish():
+    """An end frame lets what is queued play out: the stop would then find a
+    line that finished, and she would never be told she was cut off."""
+    import asyncio
+    import json
+
+    class Held(OneShotTTS):
+        def __init__(self):
+            super().__init__()
+            self.never = asyncio.Event()
+
+        async def generate_audio(self, text, prosody=None):
+            self.rendered.append(text)
+            if len(self.rendered) > 1:
+                await self.never.wait()
+            return np.zeros(2400, dtype=np.float32), 24000
+
+    e = expression(Held())
+    channel, socket = live_channel()
+    e.set_call(channel)
+    line = e.open_line("neutral", route="call")
+    e._line = line
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    async def answer_the_stop():
+        while not socket.text:
+            await asyncio.sleep(0)
+        channel.on_message({"type": "playback", "utterance_id": line.state["id"],
+                            "played_ms": 20, "state": "stopped"})
+
+    asyncio.create_task(answer_the_stop())
+    await e.interrupt()
+
+    assert [unframe(f)[0]["seq"] for f in socket.binary] == [0], "an end frame went out"
+    assert json.loads(socket.text[0])["type"] == "stop"
+    assert e.interrupted is not None and not e.interrupted.complete
