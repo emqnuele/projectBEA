@@ -193,3 +193,47 @@ async def test_a_stream_on_a_connection_that_died_while_idle_is_sent_again(monke
     assert made[0].posts == 2
     assert reply.tool_calls and reply.tool_calls[0].arguments == {"message": "ciao"}
     assert "".join(heard) == json.dumps({"message": "ciao"})
+
+
+# --- against a real server ---------------------------------------------------
+
+
+async def test_a_real_provider_sees_one_connection_across_calls(monkeypatch):
+    """The pool, for real: three calls to a server over one tcp connection, held
+    open for as long as the settings promise rather than aiohttp's own 15s."""
+    from aiohttp import web
+
+    peers = []
+    asked = {}
+    connector = aiohttp.TCPConnector
+
+    def spy(*args, **kwargs):
+        asked.update(kwargs)
+        return connector(*args, **kwargs)
+
+    monkeypatch.setattr(aiohttp, "TCPConnector", spy)
+
+    async def completions(request):
+        peers.append(request.transport.get_extra_info("peername"))
+        return web.json_response(REPLY)
+
+    app = web.Application()
+    app.router.add_post("/v1/chat/completions", completions)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    try:
+        port = runner.addresses[0][1]
+        llm = ChatCompletionsClient(base_url=f"http://127.0.0.1:{port}/v1", model_name="m")
+        for _ in range(3):
+            reply = await llm.complete([{"role": "user", "content": "hi"}])
+            assert reply.content == "ciao"
+
+        assert len(peers) == 3
+        assert len(set(peers)) == 1, f"{len(set(peers))} connections for three calls"
+        assert asked["keepalive_timeout"] == base.KEEPALIVE_SECONDS == 90.0
+        assert asked["ttl_dns_cache"] == base.DNS_CACHE_SECONDS == 300
+    finally:
+        await base.close_sessions()
+        await runner.cleanup()
