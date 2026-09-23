@@ -1014,8 +1014,12 @@ class Consciousness:
             await line.cancel()
             line = None
         if line is not None and not line.tainted and line.written != message:
-            # a model that died mid-line was answered for by another; a tainted line is short on purpose
-            logger.warning("The line on its way out is not the one she settled on; saying hers.")
+            # a model that died mid-line was answered for by another; a tainted line is short on purpose.
+            # the two texts are logged because this path pays for the line twice, and a
+            # drift between what streamed and what settled is otherwise invisible
+            logger.warning(
+                "The line on its way out is not the one she settled on; saying hers "
+                f"(streamed {line.written[:60]!r}, settled {message[:60]!r}).")
             await line.cancel()
             line = None
 
