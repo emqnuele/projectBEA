@@ -53,7 +53,8 @@ Both directions are HTTP over localhost.
 │      POST /discord/audio       voice heard in the call   │
 │      POST /voice/transcript    overheard speech          │
 │      POST /interrupt           barge-in                  │
-│      WS   /voice/ws            her voice out, push       │
+│      WS   /voice/ws            her voice out, push;      │
+│                                playback and hearing back │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -246,6 +247,39 @@ going quiet after its own default of a tenth of a second. Past that it gives up
 on the stream, and the utterance waits: the next frame for it starts a fresh
 stream (`resumeUtterance`) that carries on the played count and the volume,
 and an end frame that arrives with nothing left to play reports it done.
+
+**Somebody who pauses mid-sentence.** A turn ends on `HANGOVER_MS` of silence,
+and people pause longer than that inside a sentence. So the bot also tells the
+brain about speech *as it happens*, over `/voice/ws`:
+
+```
+{"type": "hearing", "state": "start" | "sent" | "end", "user_id": "..."}
+```
+
+`start` is sent when a speaker's run is believed (≈60 ms in), `sent` when a
+turn of theirs leaves for transcription, and `end` when the run is over.
+`VoiceChannel.busy()` is true while somebody is talking or a turn of theirs has
+not been transcribed yet. Both routes call `VoiceSurface.transcribed()` after
+the perception is on the bus, and each state times out on its own
+(`TALKING_MAX_S`, `TRANSCRIPT_MAX_S`), so a lost message cannot silence her.
+Three things read it:
+
+- **The batch.** `PerceptionBus.settle` does not close a batch from the call
+  while the call is busy, up to `max_window`. The rest of the sentence joins
+  the same turn.
+- **Her first sound.** `Expression` holds the first piece of a call line while
+  the call is busy (`FLOOR_HOLD_MAX_S`), and `Consciousness._speak` waits
+  before the line is written to her history. Once she is audible, somebody
+  talking is a barge-in, below.
+- **Starting over.** A `sent` that arrives while a turn about the call is in
+  flight cancels the turn if nothing has been said, sent, run or heard yet
+  (`_can_start_over`). Its perceptions go back on the bus and come back with
+  the rest of the sentence as one turn. A `start` that ends without a `sent`
+  (a cough, a breath) only delays her line.
+
+When nobody talks, none of this waits. It covers a pause up to the hangover
+plus the transcription plus her own thinking time. Anyone who starts again
+after that finds her already talking.
 
 **Barge-in, in two stages.** After `duck_threshold_ms` of overlapping speech
 she ducks to 0.25 gain; after `interrupt_threshold_ms` she fades out over
