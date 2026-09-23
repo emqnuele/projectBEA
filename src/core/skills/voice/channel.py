@@ -177,6 +177,12 @@ class VoiceChannel:
             # to words the room never got
             logger.debug(f"no playback report for {utterance.id}; not assuming it played")
             utterance.state = "stopped"
+            # the bot not answering does not mean it still holds the floor: left
+            # set, `current` outlived the utterance and every later turn read her
+            # as still speaking — against a call nobody was hearing
+            utterance.done.set()
+            if self.current is utterance:
+                self.current = None
         return utterance
 
     async def duck(self, gain: float, ramp_ms: int = 250) -> bool:

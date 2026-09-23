@@ -428,6 +428,10 @@ async def test_a_stop_the_bot_never_answers_is_not_called_heard():
     assert not utterance.complete, "no report was read as the whole line being heard"
     assert utterance.played_ms < utterance.sent_ms
     assert utterance.sent_ms == 300
+    # a call nobody answers must not keep the floor: the utterance is no longer
+    # current, so the next turn is not read as speaking over a dead line
+    assert channel.current is None
+    assert utterance.done.is_set()
 
 
 async def test_a_streamed_piece_moves_her_mouth_exactly_like_a_whole_one():
