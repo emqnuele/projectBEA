@@ -477,7 +477,8 @@ class Consciousness:
             annotated = self._annotate(batch)
             t_ctx = time.perf_counter()
             system = self._system_message()
-            window_msgs = self.sliding_window.messages()
+            # replayed as plain text, her past lines taught her to answer in it
+            window_msgs = self.sliding_window.replay()
             briefing = await self._build_briefing(batch, is_idle=is_idle)
             if not is_idle:
                 logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
@@ -1347,7 +1348,7 @@ class Consciousness:
                                            addressee=self._addressee_for(key))
             if self._said and self._said.get("message"):
                 self.sliding_window.append("assistant", str(self._said["message"]),
-                                           key=STAGE)
+                                           key=STAGE, mood=str(self._said.get("mood", "")))
         except Exception as e:
             logger.warning(f"Could not mirror the turn into the window: {e}")
 
