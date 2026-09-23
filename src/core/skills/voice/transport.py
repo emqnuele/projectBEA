@@ -174,6 +174,10 @@ class DiscordTransport:
             self.bot_process = subprocess.Popen(
                 [node, "index.js"], cwd=str(self.bot_dir), env=self.subprocess_env(token),
                 stdout=sys.stdout, stderr=sys.stderr, shell=False,
+                # its own process group: ctrl+c on the terminal used to reach
+                # the bot as well, killing it mid-shutdown while the supervisor
+                # (still active until the skills stop) brought it back up
+                start_new_session=True,
             )
             logger.info(f"Discord bot started with PID {self.bot_process.pid}.")
             return True
@@ -187,12 +191,18 @@ class DiscordTransport:
             return
         logger.info("Stopping Discord bot...")
         try:
-            self.bot_process.kill()
-            if sys.platform.startswith("win"):
-                # windows leaves the child tree behind after a kill
-                subprocess.run(f"taskkill /F /T /PID {self.bot_process.pid}", shell=True,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.bot_process.wait(timeout=2)
+            # asked to leave first: the bot drops the voice call and the
+            # gateway on SIGTERM, and only a bot that ignores it gets killed
+            self.bot_process.terminate()
+            try:
+                self.bot_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.bot_process.kill()
+                if sys.platform.startswith("win"):
+                    # windows leaves the child tree behind after a kill
+                    subprocess.run(f"taskkill /F /T /PID {self.bot_process.pid}", shell=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.bot_process.wait(timeout=2)
         except Exception as e:
             logger.error(f"Error stopping Discord bot: {e}")
         finally:
