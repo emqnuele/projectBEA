@@ -76,6 +76,8 @@ moves exactly like one made whole.
 
 Gathers the MP3 from the Edge websocket in memory and decodes it with `soundfile` on a worker thread, never on the event loop. `generate_stream()` hands the audio over as it arrives: an MP3 cut at any byte decodes to exactly the start of what the whole file decodes to, so each part is the next stretch of the same samples. Parts are decoded at 2 KB of MP3 and then at every doubling, so a sentence costs a handful of decodes. Every piece is its own websocket connection, which is why the wrapper sets `pieces_in_flight = 2`.
 
+That prefix invariant is a property of the service, not of this code, so it is checked twice: each longer decode is compared against the shorter one it grew from (a break is logged rather than played as a repeat or a skip), and the nightly `edge-prefix` CI job runs `tools/edge_prefix_check.py` against the real service.
+
 **Voice format:** `"it-IT-IsabellaNeural"`, `"en-US-AvaNeural"`, etc.  
 Full voice list: `edge-tts --list-voices`
 

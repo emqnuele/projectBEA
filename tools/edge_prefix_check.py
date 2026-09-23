@@ -6,7 +6,8 @@ the same audio as decoding the finished file if every prefix of edge's mp3
 decodes to a prefix of the whole — true today, because edge sends plain frames
 with no gapless header, and something a new edge voice format or a libsndfile
 upgrade could quietly break. The tests run against a synthetic clip; this asks
-the real service.
+the real service, and CI asks it nightly (the `edge-prefix` job) — a service
+hiccup should not read as a broken branch on every push.
 
     uv run python tools/edge_prefix_check.py
     uv run python tools/edge_prefix_check.py --voice it-IT-ElsaNeural --text "Sì."
