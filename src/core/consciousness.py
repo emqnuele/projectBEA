@@ -76,6 +76,11 @@ class Consciousness:
     # how long shutdown waits for a message still being typed out
     _DELIVERY_GRACE = 10.0
 
+    # how long one skill may hold the shutdown. Sequential and unbounded meant
+    # a single hung connection (telegram polling, the game socket) ate the
+    # whole stop and starved every skill after it — including the discord bot.
+    _SURFACE_STOP_TIMEOUT = 5.0
+
     # one rescue, not a loop: plain text is private thinking, so a text-only
     # answer means nobody heard her. Rather than staying mute, she gets told once.
     _NO_TOOL_NUDGE = (
@@ -281,13 +286,21 @@ class Consciousness:
                 pass
             self._handoff_task = None
         await self._cancel_background()
-        for s in self.surfaces.all():
-            try:
-                await s.stop()
-            except Exception as e:
-                # said out loud: a skill that fails to stop may leave a process behind
-                logger.error(f"Surface '{s.name}' failed to stop: {e}")
+        await asyncio.gather(*(self._stop_surface(s) for s in self.surfaces.all()))
         logger.info("Consciousness stopped.")
+
+    async def _stop_surface(self, s) -> None:
+        """Stops one skill without letting it hold the shutdown hostage."""
+        try:
+            await asyncio.wait_for(s.stop(), timeout=self._SURFACE_STOP_TIMEOUT)
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.error(f"Surface '{s.name}' did not stop in "
+                         f"{self._SURFACE_STOP_TIMEOUT:.0f}s; carrying on.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # said out loud: a skill that fails to stop may leave a process behind
+            logger.error(f"Surface '{s.name}' failed to stop: {e}")
 
     async def _cancel_background(self) -> None:
         """Cancels a body action, a profile pass or a line still playing."""
