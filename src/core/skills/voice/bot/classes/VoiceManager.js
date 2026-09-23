@@ -13,13 +13,13 @@ const {
 const prism = require('prism-media');
 const axios = require('axios');
 const FormData = require('form-data');
-const { PassThrough } = require('stream');
+const { PassThrough, pipeline } = require('stream');
 const config = require('../config');
 const whitelist = require('../whitelist');
 const { BrainLink } = require('./BrainLink');
 const { PcmGain } = require('./PcmGain');
 const { createSpeechBuffer } = require('./SpeechBuffer');
-const { pcmToWav } = require('./Pcm');
+const { pcmToWav, BYTES_PER_MS } = require('./Pcm');
 
 // discord encrypts voice end to end now (dave): without it the bot joins the
 // channel but stays deaf and mute on channels that enforce it. @discordjs/voice
@@ -67,6 +67,16 @@ const DISCONNECT_TIMEOUT_MS = 5000;
 // up on the stream; the utterance still waits for the rest, because a line ends
 // when the brain sends its last frame and not when the audio runs out.
 const MAX_GAP_MS = 3000;
+
+// what her voice is cut into on its way to the player. A sentence arrives as one
+// buffer, and a stream takes a buffer whole: the gain stage then counted all of
+// it as heard at once, and a fade or a duck only reached the sentence after
+const FRAME_BYTES = 20 * BYTES_PER_MS;
+
+// how long a change in volume takes to reach the room: the frames queued between
+// the gain and the player. Measured at 60 to 80ms; a stop waits this long past
+// its fade before cutting, or it cuts what is still on its way down
+const FADE_LAG_MS = 80;
 
 function playerOptions(gapMs = MAX_GAP_MS) {
     return { behaviors: { maxMissedFrames: Math.ceil(gapMs / 20) } };
@@ -525,7 +535,11 @@ class VoiceManager {
         } else if (pcm && pcm.length && !speech.ended && !this.canTakeMore(data, speech)) {
             this.resumeUtterance(data, speech);
         }
-        if (pcm && pcm.length) speech.source.write(pcm);
+        if (pcm && pcm.length) {
+            for (let at = 0; at < pcm.length; at += FRAME_BYTES) {
+                speech.source.write(pcm.subarray(at, at + FRAME_BYTES));
+            }
+        }
         if (header.last) {
             speech.ended = true;
             speech.source.end();
@@ -552,21 +566,33 @@ class VoiceManager {
      */
     resumeUtterance(data, speech) {
         const before = speech.gain;
-        speech.playedBefore += before.playedMs;
+        speech.playedBefore = this.heardOf(speech);
         this.startStream(data, speech);
         speech.gain.continueFrom(before);
     }
 
     startStream(data, speech) {
         const source = new PassThrough();
-        const gain = new PcmGain((playedMs) => this.report(speech.id, speech.playedBefore + playedMs, 'playing'));
-        source.pipe(gain);
+        const gain = new PcmGain(() => this.report(speech.id, this.heardOf(speech), 'playing'));
+        // the encoder is ours rather than the resource's, so what waits between
+        // the gain and the room is a frame or two and not a third of a second:
+        // that wait is how late a fade reaches anybody. Raw 48khz stereo s16le
+        // in, exactly what the brain sends
+        const encoder = new prism.opus.Encoder({
+            rate: 48000, channels: 2, frameSize: 960,
+            readableHighWaterMark: 1, writableHighWaterMark: FRAME_BYTES,
+        });
+        pipeline(source, gain, encoder, () => { });
 
-        // raw is 48khz stereo s16le — exactly what the brain already sends, so
-        // nothing here has to decode, resample or guess a format
-        const resource = createAudioResource(gain, { inputType: StreamType.Raw });
+        const resource = createAudioResource(encoder, { inputType: StreamType.Opus });
         Object.assign(speech, { source, gain, resource });
         data.player.play(resource);
+    }
+
+    // what the room has heard of it: what the player has taken off its streams,
+    // which is the one count that is not ahead of the room
+    heardOf(speech) {
+        return speech.playedBefore + (speech.resource ? speech.resource.playbackDuration : 0);
     }
 
     // whether what is written now will still be played by the current stream,
@@ -580,10 +606,10 @@ class VoiceManager {
     finishUtterance(guildId, state) {
         const data = this.connections.get(guildId);
         if (!data || !data.speech) return;
-        const { id, source, gain, playedBefore } = data.speech;
+        const speech = data.speech;
         data.speech = null;
-        source.end();
-        this.report(id, playedBefore + gain.playedMs, state);
+        speech.source.end();
+        this.report(speech.id, this.heardOf(speech), state);
     }
 
     /** fades her out and stops. the ramp is the difference between trailing off
@@ -603,7 +629,7 @@ class VoiceManager {
             if (!still || still.speech !== speech) return;
             this.finishUtterance(guildId, 'stopped');
             still.player.stop();
-        }, rampMs);
+        }, rampMs + FADE_LAG_MS);
     }
 
     /** turns her down without stopping her: someone said "sì sì", not "no aspetta" */

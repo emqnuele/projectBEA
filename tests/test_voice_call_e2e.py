@@ -76,7 +76,9 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-async def test_a_sentence_later_than_the_player_waits_is_still_heard(monkeypatch):
+@pytest.fixture
+async def call(monkeypatch):
+    """A live call: the brain's socket served here, the bot's half in node."""
     import uvicorn
     from fastapi import FastAPI
 
@@ -101,21 +103,69 @@ async def test_a_sentence_later_than_the_player_waits_is_still_heard(monkeypatch
                 break
             await asyncio.sleep(0.05)
         assert channel.live, "the bot never joined the call"
-
-        e = Expression(Config(), LateSecondSentence(), FakeAvatar(), FakeCaption(), Events())
-        e.set_call(channel)
-        line = e.open_line("neutral", route="call")
-        line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
-        utterance = await asyncio.wait_for(line.close(), timeout=10)
-        await asyncio.wait_for(utterance.done.wait(), timeout=10)
-
-        assert not line.abandoned, "the rest of the line was dropped"
-        assert line.spoken == "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga."
-        assert utterance.state == "done"
-        assert utterance.sent_ms == 1000
-        assert utterance.played_ms == 1000, "the count started over halfway"
+        yield channel
     finally:
         bot.terminate()
         bot.wait(timeout=5)
         server.should_exit = True
         await serving
+
+
+async def test_a_sentence_later_than_the_player_waits_is_still_heard(call):
+    e = Expression(Config(), LateSecondSentence(), FakeAvatar(), FakeCaption(), Events())
+    e.set_call(call)
+    line = e.open_line("neutral", route="call")
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
+    utterance = await asyncio.wait_for(line.close(), timeout=10)
+    await asyncio.wait_for(utterance.done.wait(), timeout=10)
+
+    assert not line.abandoned, "the rest of the line was dropped"
+    assert line.spoken == "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga."
+    assert utterance.state == "done"
+    assert utterance.sent_ms == 1000
+    assert utterance.played_ms == 1000, "the count started over halfway"
+
+
+class SlowAfterTheFirst(TTSInterface):
+    """Two seconds of voice for the first piece; the rest never finish."""
+
+    def __init__(self):
+        self.made = 0
+
+    async def generate_audio(self, text, prosody=None):
+        self.made += 1
+        if self.made > 1:
+            await asyncio.Event().wait()
+        return (np.sin(np.arange(48000) / 7) * 0.2).astype(np.float32), 24000
+
+    def reload_config(self, config):
+        pass
+
+
+async def test_talked_over_while_the_turn_waits_on_the_line_she_is_cut_off(call):
+    """The bot's /interrupt lands while the mind is still closing the line: she
+    stops, and she knows how little of it the room heard."""
+    avatar = FakeAvatar()
+    e = Expression(Config(), SlowAfterTheFirst(), avatar, FakeCaption(), Events())
+    e.set_call(call)
+    line = e.open_line("neutral", route="call")
+    e._line = line
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga. "
+             "Terza frase, lunga come le altre due.")
+    closing = asyncio.create_task(line.close())
+    while call.current is None or call.current.state != "playing":
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.5)
+
+    await e.interrupt()
+    utterance = await asyncio.wait_for(closing, timeout=5)
+
+    assert utterance is e.interrupted
+    assert utterance.state == "stopped"
+    assert not utterance.complete, "the stop found a line that had finished"
+    assert utterance.played_ms < utterance.sent_ms
+    assert call.current is None
+    # the face stays put down: a cut line used to go on miming its whole length
+    await asyncio.sleep(0.05)
+    assert avatar.shown[-1][1] != "talking", "she went back to talking after being cut off"
+    assert not e._visual_tasks

@@ -86,7 +86,8 @@ test('a line stopped while it had run dry is reported stopped', async (t) => {
     mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(200));
     await sleep(200 + GAP_MS + 500);
     mgr.stopSpeaking(20);
-    await sleep(60);
+    // the fade, and the frames still on their way to the room behind it
+    await sleep(250);
 
     const seen = states(reports, 'u');
     assert.equal(seen.at(-1).state, 'stopped');

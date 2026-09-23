@@ -4,18 +4,18 @@ const { SAMPLE_RATE, BYTES_PER_FRAME, BYTES_PER_MS } = require('./Pcm');
 
 /**
  * volume, with a ramp, on the way to the player — plus a running count of what
- * actually got through.
+ * got through, and a tick every quarter second of it.
  *
- * both halves matter. the ramp is what turns "she stops mid-word" into "she
- * trails off", which is what people do; the count is how the brain learns how
- * much of a sentence the room really heard, instead of assuming all of it.
+ * the ramp is what turns "she stops mid-word" into "she trails off", which is
+ * what people do. what got through here is not what the room heard: a buffer
+ * handed over whole goes through whole, and the player is still behind it. the
+ * count the brain is told comes from the player (`VoiceManager.heardOf`); this
+ * one only paces the reports.
  */
 class PcmGain extends Transform {
     constructor(onProgress) {
-        // one 20ms frame of read-ahead. the player pulls this stream as it
-        // plays, so a small buffer is what keeps `playedMs` close to what the
-        // room really heard — a fat one would report a sentence as finished
-        // while a chunk of it is still sitting in memory
+        // one 20ms frame of read-ahead: the player pulls this stream as it
+        // plays, and every frame held here is a frame a fade reaches late
         super({ highWaterMark: BYTES_PER_FRAME * 960 });
         this.gain = 1;
         this.step = 0;

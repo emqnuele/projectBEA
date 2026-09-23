@@ -213,9 +213,16 @@ over her is still talking over her, and does not reset the barge-in count.
 per stream so packet boundaries do not introduce discontinuities.
 
 **Voice out:** the mind → TTS → 48 kHz stereo PCM → `play` frames on
-`WS /voice/ws` → `PassThrough` → `PcmGain` → `AudioPlayer`. Playback starts at
-the first chunk, and the gain stage reports how many milliseconds actually
-reached the room. A line ends when the brain sends its last frame (or a stop),
+`WS /voice/ws` → `PassThrough` → `PcmGain` → opus encoder → `AudioPlayer`.
+Playback starts at the first chunk. Each frame's PCM is written in 20 ms
+slices, and the encoder is the bot's own with a one-packet buffer, so a
+stream is pulled as it plays: a duck or a fade reaches the room within
+`FADE_LAG_MS` (80 ms, measured), and a stop waits that long past its ramp
+before cutting. Handed over whole, a sentence went through the gain at once —
+the fade and the duck never touched it, and it was counted as heard the moment
+it arrived. What is reported heard (`played_ms`) is the player's own count of
+what it has taken off the stream (`heardOf`), not what went through the gain.
+A line ends when the brain sends its last frame (or a stop),
 never because the audio ran out. The player rides out up to `MAX_GAP_MS` (3 s)
 of waiting for the next sentence as silence — her still speaking, rather than
 going quiet after its own default of a tenth of a second. Past that it gives up
@@ -225,7 +232,7 @@ and an end frame that arrives with nothing left to play reports it done.
 
 **Barge-in, in two stages.** After `duck_threshold_ms` of overlapping speech
 she ducks to 0.25 gain; after `interrupt_threshold_ms` she fades out over
-200 ms and the bot calls `POST /interrupt`.
+200 ms (plus the fade lag) and the bot calls `POST /interrupt`.
 
 Both thresholds measure **overlap**: voiced milliseconds where both sides are
 speaking, accumulated from `SpeechBuffer` `voicedMs` frames. The counter resets
