@@ -63,6 +63,10 @@ class Utterance:
     text: str = ""
     sent_ms: int = 0
     played_ms: int = 0
+    # how many times the bot had to resume this line on a fresh stream. Purely
+    # for the record: a resume is when the player ran dry and the count could
+    # have started over, so it is worth seeing in production
+    resumed: int = 0
     state: str = "pending"  # pending | playing | done | stopped
     done: asyncio.Event = field(default_factory=asyncio.Event)
     # monotonic: this is only ever used to ask "how long ago", and a wall clock
@@ -168,8 +172,11 @@ class VoiceChannel:
         try:
             await asyncio.wait_for(utterance.done.wait(), timeout=timeout)
         except asyncio.TimeoutError:
-            logger.debug(f"no playback report for {utterance.id}; assuming it all played")
-            utterance.played_ms = utterance.sent_ms
+            # no report is not proof she was heard. Claiming the whole line
+            # would make a cut-off look complete, and she would go on referring
+            # to words the room never got
+            logger.debug(f"no playback report for {utterance.id}; not assuming it played")
+            utterance.state = "stopped"
         return utterance
 
     async def duck(self, gain: float, ramp_ms: int = 250) -> bool:
@@ -224,6 +231,10 @@ class VoiceChannel:
             except Exception as e:
                 logger.debug(f"first-sound listener failed: {e}")
         utterance.played_ms = max(utterance.played_ms, int(message.get("played_ms") or 0))
+        resumed = int(message.get("resumed") or 0)
+        if resumed > utterance.resumed:
+            utterance.resumed = resumed
+            logger.info(f"utterance {utterance.id} resumed {resumed} time(s) after the player ran dry")
         state = str(message.get("state") or "playing")
         utterance.state = state
         if state in ("done", "stopped"):

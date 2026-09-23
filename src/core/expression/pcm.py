@@ -13,6 +13,10 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from src.utils.logger import get_logger
+
+logger = get_logger("bea.expression.pcm")
+
 # what discord's opus encoder expects, and the only thing it expects
 CALL_SAMPLE_RATE = 48000
 CALL_CHANNELS = 2
@@ -89,6 +93,8 @@ class CallResampler:
         mono = _float_mono(audio)
         if self._rate and sample_rate != self._rate:
             # never happens within a piece, but a new rate is a new stream
+            logger.warning(f"sample rate changed mid-piece ({self._rate} -> {sample_rate}); "
+                           "restarting the resampler")
             return self.flush() + self._restart().push(audio, sample_rate, last)
         self._rate = int(sample_rate)
         out = self._take(mono)

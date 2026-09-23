@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from src.core.expression.chunking import SpeechChunker, split_for_speech
-from src.core.expression.pcm import duration_ms
+from src.core.expression.pcm import CALL_BYTES_PER_MS, duration_ms
 from src.core.expression.voice import Expression
 from src.core.skills.voice.channel import VoiceChannel, unframe
 from src.interfaces.base_interfaces import TTSInterface
@@ -399,6 +399,35 @@ def test_a_piece_converted_in_parts_is_the_piece_converted_whole(rate):
         resampler = CallResampler()
         out = b"".join(resampler.push(part, rate) for part in parts) + resampler.flush()
         assert out == to_call_pcm(audio, rate), "a seam between two parts can be heard"
+
+
+def test_a_rate_change_mid_piece_is_said_out_loud(caplog):
+    """A new rate inside one piece is a new stream, not a rate the resampler
+    was built for. It restarts rather than silently mixing two timebases."""
+    from src.core.expression.pcm import CallResampler
+
+    resampler = CallResampler()
+    resampler.push(np.zeros(100, dtype=np.float32), 24000)
+    with caplog.at_level("WARNING", logger="bea.expression.pcm"):
+        resampler.push(np.zeros(100, dtype=np.float32), 48000)
+
+    assert "rate changed" in caplog.text, "the resampler restarted without a word"
+
+
+async def test_a_stop_the_bot_never_answers_is_not_called_heard():
+    """A dead bot is not proof the room heard the line. Assuming it did made a
+    cut-off look complete, and she went on referring to words nobody got."""
+    channel, _ = live_channel()
+    await channel.play(b"\x00" * (300 * CALL_BYTES_PER_MS),
+                       utterance_id="u", text="Una frase lunga abbastanza.", last=True)
+
+    utterance = await channel.stop(timeout=0.05)
+
+    assert utterance is not None
+    assert utterance.state == "stopped"
+    assert not utterance.complete, "no report was read as the whole line being heard"
+    assert utterance.played_ms < utterance.sent_ms
+    assert utterance.sent_ms == 300
 
 
 async def test_a_streamed_piece_moves_her_mouth_exactly_like_a_whole_one():
