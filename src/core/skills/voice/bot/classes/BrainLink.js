@@ -13,6 +13,13 @@ function unframe(data) {
     }
 }
 
+// no permessage-deflate: both ends offer it by default, and then the brain
+// zlibs every sentence of raw pcm on its event loop — ~27ms per three seconds
+// of her voice, in front of the first sound, to save a third of a loopback copy
+function linkOptions(token) {
+    return { headers: { Authorization: `Bearer ${token}` }, perMessageDeflate: false };
+}
+
 /**
  * the socket her voice comes down.
  *
@@ -38,7 +45,7 @@ class BrainLink {
 
     start() {
         if (this.closed) return;
-        const ws = new WebSocket(this.url, { headers: { Authorization: `Bearer ${config.API_TOKEN}` } });
+        const ws = new WebSocket(this.url, linkOptions(config.API_TOKEN));
         this.ws = ws;
 
         ws.on('open', () => {
@@ -98,4 +105,4 @@ class BrainLink {
     }
 }
 
-module.exports = { BrainLink, unframe };
+module.exports = { BrainLink, unframe, linkOptions };

@@ -7,7 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { PcmGain, BYTES_PER_MS } = require('../classes/PcmGain');
-const { unframe } = require('../classes/BrainLink');
+const { unframe, linkOptions } = require('../classes/BrainLink');
 
 // n milliseconds of full-scale 48khz stereo s16le
 function tone(ms) {
@@ -102,4 +102,12 @@ test('a pushed audio frame is read back as its header and its samples', () => {
 
 test('a frame that arrives short is refused rather than half-read', () => {
     assert.equal(unframe(Buffer.from([0, 0, 0, 10, 1, 2])), null);
+});
+
+test('her voice travels uncompressed, and still carries the token', () => {
+    // raw pcm barely shrinks, and the brain would pay for the attempt on its
+    // event loop in front of every sentence she says
+    const options = linkOptions('abc');
+    assert.equal(options.perMessageDeflate, false);
+    assert.equal(options.headers.Authorization, 'Bearer abc');
 });
