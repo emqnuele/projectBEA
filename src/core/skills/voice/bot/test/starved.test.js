@@ -134,3 +134,32 @@ test('dropping what has not started yet lets what is playing finish, then ends i
     const done = states(reports, 'u').filter((r) => r.state === 'done');
     assert.equal(done.length, 1, 'the utterance never ended');
 });
+
+test('a resumed line closes the stream it left behind', async (t) => {
+    const { mgr, player, data } = call();
+    t.after(() => player.stop(true));
+
+    mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(200));
+    const abandoned = data.speech.source;
+    await sleep(200 + GAP_MS + 500);
+
+    mgr.playPushed({ utterance_id: 'u', seq: 1, last: false }, tone(200));
+
+    assert.notEqual(data.speech.source, abandoned, 'the line did not resume on a fresh stream');
+    assert.ok(abandoned.writableEnded || abandoned.destroyed,
+        'the stream the player gave up on was left open');
+});
+
+test('a resume is counted and sent with the playback report', async (t) => {
+    const { mgr, player, reports } = call();
+    t.after(() => player.stop(true));
+
+    mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(200));
+    await sleep(200 + GAP_MS + 500);
+    mgr.playPushed({ utterance_id: 'u', seq: 1, last: false }, tone(200));
+    mgr.playPushed({ utterance_id: 'u', seq: -1, last: true }, Buffer.alloc(0));
+    await sleep(200 + 600);
+
+    const last = states(reports, 'u').filter((r) => r.state === 'done').at(-1);
+    assert.equal(last.resumed, 1, 'the report does not say the line was resumed');
+});

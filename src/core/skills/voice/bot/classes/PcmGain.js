@@ -26,6 +26,9 @@ class PcmGain extends Transform {
         this.step = previous.step;
         this.framesLeft = previous.framesLeft;
         this.target = previous.target;
+        // and the frame the old stream was part-way through, so the new one
+        // finishes it rather than starting a sample out of phase
+        this.rest = previous.rest;
     }
 
     // linear over `ms`: short enough to feel immediate, long enough not to click

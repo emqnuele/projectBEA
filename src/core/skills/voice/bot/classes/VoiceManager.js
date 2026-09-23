@@ -70,6 +70,12 @@ const FRAME_BYTES = 20 * BYTES_PER_MS;
 // measured 60-80ms between the gain and the room; a stop waits it out or cuts the fade short
 const FADE_LAG_MS = 80;
 
+// how much of a line the bot may hold ahead of the player before it is the
+// brain's pacing that is wrong rather than the bot's buffer. The bot cannot
+// pause a socket it does not own, so this is observed and said out loud
+// instead of being waited on
+const MAX_QUEUED_MS = 5000;
+
 function playerOptions(gapMs = MAX_GAP_MS) {
     return { behaviors: { maxMissedFrames: Math.ceil(gapMs / 20) } };
 }
@@ -526,9 +532,16 @@ class VoiceManager {
             this.resumeUtterance(data, speech);
         }
         if (pcm && pcm.length) {
+            speech.writtenMs += pcm.length / BYTES_PER_MS;
             for (let at = 0; at < pcm.length; at += FRAME_BYTES) {
-                speech.source.write(pcm.subarray(at, at + FRAME_BYTES));
+                // the return value is the player pushing back. Ignoring it is
+                // fine — the bytes are buffered, never lost — but a line held
+                // seconds ahead of the room is a pacing bug worth naming
+                if (!speech.source.write(pcm.subarray(at, at + FRAME_BYTES))) {
+                    speech.pushedBack = true;
+                }
             }
+            this.warnIfQueuedAhead(speech);
         }
         if (header.last) this.endUtterance(guildId, data, speech);
     }
@@ -544,7 +557,7 @@ class VoiceManager {
         const data = this.connections.get(guildId);
         this.finishUtterance(guildId, 'stopped');
 
-        data.speech = { id: utteranceId, ended: false, playedBefore: 0 };
+        data.speech = { id: utteranceId, ended: false, playedBefore: 0, writtenMs: 0, resumed: 0 };
         this.startStream(data, data.speech);
         this.report(utteranceId, 0, 'playing');
         return data.speech;
@@ -553,24 +566,60 @@ class VoiceManager {
     // a stream the player gave up on cannot be played again
     resumeUtterance(data, speech) {
         const before = speech.gain;
+        const abandoned = { source: speech.source, resource: speech.resource };
+        // marked before the player switches resources: the destroy that
+        // follows would otherwise reach the error log as a failure
+        if (abandoned.source) abandoned.source.superseded = true;
         speech.playedBefore = this.heardOf(speech);
+        speech.resumed += 1;
         this.startStream(data, speech);
         speech.gain.continueFrom(before);
+        this.dispose(abandoned);
+    }
+
+    // tears down the streams of a line the player has moved off of.
+    // `superseded` keeps the teardown out of the error log: a pipeline that
+    // closes because it was replaced is not a pipeline that failed
+    dispose(streams) {
+        if (!streams.source) return;
+        streams.source.superseded = true;
+        streams.source.destroy();
+        if (streams.resource) streams.resource.playStream.destroy();
     }
 
     startStream(data, speech) {
         const source = new PassThrough();
-        const gain = new PcmGain(() => this.report(speech.id, this.heardOf(speech), 'playing'));
+        const gain = new PcmGain(
+            () => this.report(speech.id, this.heardOf(speech), 'playing', speech.resumed));
         // our own encoder, so a third of a second is not queued between a fade and the room
         const encoder = new prism.opus.Encoder({
             rate: 48000, channels: 2, frameSize: 960,
             readableHighWaterMark: 1, writableHighWaterMark: FRAME_BYTES,
         });
-        pipeline(source, gain, encoder, () => { });
+        pipeline(source, gain, encoder, (error) => {
+            // the callback is the only place an encoder or stream error lands,
+            // and swallowing it hid a dead encoder behind a line that closed
+            // as if the room had heard it. The player destroys the encoder on
+            // purpose when it moves to another resource or stops, and that
+            // closes the pipeline as "premature"; anything else is a failure
+            if (!error || source.superseded) return;
+            if (error.code === 'ERR_STREAM_PREMATURE_CLOSE') return;
+            console.error(`[VoiceManager] audio pipeline failed: ${error.message}`);
+        });
 
         const resource = createAudioResource(encoder, { inputType: StreamType.Opus });
         Object.assign(speech, { source, gain, resource });
         data.player.play(resource);
+    }
+
+    // a line the bot is holding seconds ahead of the room: the brain pushes a
+    // piece at a time, so this means it is sending faster than playback
+    warnIfQueuedAhead(speech) {
+        if (!speech.pushedBack || speech.warnedAhead) return;
+        const ahead = Math.round(speech.writtenMs - this.heardOf(speech));
+        if (ahead <= MAX_QUEUED_MS) return;
+        speech.warnedAhead = true;
+        console.warn(`[VoiceManager] ${ahead}ms of ${speech.id} is queued ahead of the room`);
     }
 
     // the player's count, the only one not ahead of the room
@@ -590,7 +639,7 @@ class VoiceManager {
         const speech = data.speech;
         data.speech = null;
         speech.source.end();
-        this.report(speech.id, this.heardOf(speech), state);
+        this.report(speech.id, this.heardOf(speech), state, speech.resumed);
     }
 
     /** fades her out and stops. the ramp is the difference between trailing off
@@ -628,8 +677,10 @@ class VoiceManager {
         if (data && data.speech) this.endUtterance(guildId, data, data.speech);
     }
 
-    report(utteranceId, playedMs, state) {
-        this.link.send({ type: 'playback', utterance_id: utteranceId, played_ms: playedMs, state });
+    report(utteranceId, playedMs, state, resumed = 0) {
+        this.link.send({
+            type: 'playback', utterance_id: utteranceId, played_ms: playedMs, state, resumed,
+        });
     }
 }
 
