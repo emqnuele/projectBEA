@@ -115,6 +115,7 @@ class FakeLine:
         self.closed = False
         self.cancelled = False
         self.spoiled = False
+        self.tainted = False
 
     def say(self, text: str) -> None:
         self.said.append(text)

@@ -352,3 +352,52 @@ async def test_the_last_sentence_leaves_when_the_line_closes_not_when_the_answer
     line = mind.expression.lines[0]
     assert line.written == "Ma tu guarda questa cosa."
     assert line.closed and not line.cancelled
+
+
+# --- a model that dies halfway through the line ------------------------------
+
+
+async def test_a_line_from_a_model_that_died_gives_way_to_the_one_that_answered():
+    """A pool streams its first model and asks the next for a whole answer if
+    that one fails. What the dead one had already started saying is not what
+    the turn settled on: the line is dropped and the answer is said whole."""
+    from src.core.agent.registry import RotatingClient
+    from tests.fakes import FakeLLMClient
+
+    class DiesMidLine(StreamingLLMClient):
+        async def stream_complete(self, messages, tools=None, *, on_tool_delta=None):
+            self.calls.append(list(messages))
+            raw = json.dumps({"mood": "neutral",
+                              "message": "Ciao a tutti, oggi vi racconto una storia lunga."})
+            for start in range(0, 48, 6):
+                on_tool_delta(0, "speak", raw[start:start + 6])
+                await asyncio.sleep(0)
+            raise RuntimeError("the provider hung up")
+
+    pool = RotatingClient([DiesMidLine(), FakeLLMClient([speaks("Buongiorno a tutti quanti.")])])
+    mind, _ = build(pool)
+
+    await mind._turn([said_to(mind)])
+    await settle()
+
+    assert mind.expression.lines, "the first model never started a line"
+    assert mind.expression.lines[0].cancelled, "half a line from a dead model was kept"
+    assert mind.expression.spoken == [("neutral", "Buongiorno a tutti quanti.", "local")]
+    assert [m["content"] for m in mind.history.messages] == ["Buongiorno a tutti quanti."]
+
+
+async def test_a_heard_line_that_stopped_at_scaffolding_is_not_said_again():
+    """It took no more words once the model's scaffolding reached it, so it is
+    shorter than the message on purpose: saying the message whole would repeat
+    what the room already heard."""
+    mind, _ = build(StreamingLLMClient())
+    line = mind.expression.open_line("neutral")
+    line.say("Ma tu guarda questa cosa.")
+    line.tainted = True
+    mind._live = line
+
+    await mind._speak("neutral", "Ma tu guarda questa cosa. <think>e ora cosa dico</think>")
+    await settle()
+
+    assert line.closed and not line.cancelled
+    assert mind.expression.spoken == []

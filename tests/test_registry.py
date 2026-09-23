@@ -214,3 +214,41 @@ def test_reloading_rebuilds_the_roles():
     registry.reload_config(config)
     assert registry.get("mind") is not first
     assert registry.get("mind").model_name == "openai/gpt-oss-120b"
+
+
+# --- streaming through a pool ------------------------------------------------
+
+
+class StreamingStub(StubClient):
+    def __init__(self, name: str, error: Exception = None):
+        super().__init__(name, error)
+        self.streamed = 0
+
+    async def stream_complete(self, messages, tools=None, *, on_tool_delta=None):
+        self.streamed += 1
+        if self.error:
+            raise self.error
+        return AssistantMessage(content=f"{self.name} streamed")
+
+
+async def test_a_pool_streams_its_first_attempt():
+    """Speaking early rests on the first model streaming: a pool that asked
+    for a whole answer first never let her start before the turn was over."""
+    a, b = StreamingStub("a"), StreamingStub("b")
+    pool = RotatingClient([a, b])
+
+    reply = await pool.stream_complete([{"role": "user", "content": "hi"}], tools=[{}])
+
+    assert reply.content == "a streamed"
+    assert (a.streamed, a.calls) == (1, 0)
+
+
+async def test_whoever_picks_up_after_a_failed_stream_answers_whole():
+    # the first may already have put half a line in the room
+    a, b = StreamingStub("a", RuntimeError("boom")), StreamingStub("b")
+    pool = RotatingClient([a, b])
+
+    reply = await pool.stream_complete([{"role": "user", "content": "hi"}], tools=[{}])
+
+    assert reply.content == "b"
+    assert (b.streamed, b.calls) == (0, 1)
