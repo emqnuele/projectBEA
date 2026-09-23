@@ -26,6 +26,7 @@ from src.core.mind.single_context import (
     SingleContext,
     entry_tokens,
 )
+from src.core.mind.token_budget import TokenBudget
 from src.core.perception.bus import PerceptionBus
 from src.core.perception.types import Author, Perception, PerceptionKind
 from src.core.skills.base import SkillRegistry
@@ -147,6 +148,44 @@ def test_the_same_window_replays_the_same_way_every_turn():
     assert first == second
     ids = [m["tool_calls"][0]["id"] for m in first if m.get("tool_calls")]
     assert len(ids) == len(set(ids)) == 2
+
+
+def test_a_line_is_rendered_once_and_reused_every_turn():
+    """The window replays on every turn, on the way to the model: rendering
+    thousands of lines again each time is latency nobody needs."""
+    ctx = a_call()
+    ctx.replay()
+    hers = ctx._entries[-1]
+    rendered = hers.wire
+
+    ctx.append("user", "(VOICE) [ema] (voice): what?", key="stage")
+    ctx.replay()
+
+    assert hers.wire is rendered
+
+
+def test_changing_what_replay_handed_out_never_changes_the_next_turn():
+    ctx = a_call()
+    first = ctx.replay()
+    first[-2]["content"] = "scribbled on"
+    first[-1]["content"] = "scribbled on"
+
+    assert ctx.replay() == a_call().replay()
+
+
+def test_a_line_shrunk_in_place_replays_with_its_new_words():
+    """A ceiling lowered under a lone line shrinks it where it stands: the
+    rendering kept from before must not replay the words that were cut."""
+    ctx = SingleContext()
+    long_line = "word " * 3000
+    ctx.append("assistant", long_line, key="stage", mood="happy")
+    ctx.replay()
+
+    ctx.retarget(TokenBudget(max_tokens=1_000, trigger_tokens=800, target_tokens=400), 1_000)
+
+    message = calls_in(ctx.replay())[0][1]["message"]
+    assert message == ctx.messages()[0]["content"]
+    assert len(message) < len(long_line)
 
 
 def test_anthropic_reads_the_replay_as_tool_use_and_its_result():

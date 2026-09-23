@@ -215,6 +215,7 @@ class SingleContext:
         only.tokens = entry_tokens(str(payload.get("role", "user")), shrunk)
         if isinstance(only.payload, dict):
             only.payload["content"] = shrunk
+        only.wire = None
         self._total += only.tokens
         self._dirty = True
 
@@ -412,7 +413,9 @@ class SingleContext:
         """
         out: List[Dict[str, Any]] = []
         for e in self._entries:
-            out.extend(replayed(e))
+            if e.wire is None:
+                e.wire = replayed(e)
+            out.extend(dict(m) for m in e.wire)
         return out
 
     # --- what the follow-up gate reads ------------------------------------
