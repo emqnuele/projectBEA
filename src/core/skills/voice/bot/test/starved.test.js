@@ -16,14 +16,14 @@ function tone(ms) {
     return buffer;
 }
 
-function call() {
+function call(gapMs = GAP_MS) {
     const client = { user: { id: 'bot' }, channels: { cache: new Map() }, on() {} };
     const mgr = new VoiceManager(client);
     mgr.link.stop();
     const reports = [];
     mgr.link.send = (message) => { reports.push(message); return true; };
 
-    const options = VoiceManager.playerOptions(GAP_MS);
+    const options = VoiceManager.playerOptions(gapMs);
     const player = createAudioPlayer({ behaviors: { ...options.behaviors, noSubscriber: 'play' } });
     const data = {
         player, channelId: 'c', isSpeaking: false, speech: null,
@@ -148,6 +148,26 @@ test('a resumed line closes the stream it left behind', async (t) => {
     assert.notEqual(data.speech.source, abandoned, 'the line did not resume on a fresh stream');
     assert.ok(abandoned.writableEnded || abandoned.destroyed,
         'the stream the player gave up on was left open');
+});
+
+test('a line the player is padding with silence is not her speaking', async (t) => {
+    const { mgr, player, data } = call(1500);
+    t.after(() => player.stop(true));
+
+    mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(200));
+    await sleep(120);
+    assert.equal(mgr.audible(data, Date.now()), true, 'her own voice did not count as speaking');
+
+    // the line ran dry and the player is filling the hole with silence. The
+    // sweep asks once a frame in a call; do the same, and the room hearing
+    // nothing of her must stop counting as her speaking
+    let last = true;
+    for (let i = 0; i < 40; i += 1) {
+        await sleep(20);
+        last = mgr.audible(data, Date.now());
+    }
+    assert.equal(last, false,
+        'silence the player was padding with still counted as her voice');
 });
 
 test('a resume is counted and sent with the playback report', async (t) => {

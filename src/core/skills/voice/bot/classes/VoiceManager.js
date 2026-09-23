@@ -76,6 +76,13 @@ const FADE_LAG_MS = 80;
 // instead of being waited on
 const MAX_QUEUED_MS = 5000;
 
+// the player pads a line the brain has not fed for up to MAX_GAP_MS with
+// silence, and the room hears that silence. She is only speaking while a
+// packet has actually been played recently: a hole in her voice is not her
+// talking, and counting it as her made somebody speaking over the hole read
+// as talking over her
+const STARVED_MS = 150;
+
 function playerOptions(gapMs = MAX_GAP_MS) {
     return { behaviors: { maxMissedFrames: Math.ceil(gapMs / 20) } };
 }
@@ -131,6 +138,8 @@ class VoiceManager {
                 channelId,
                 isSpeaking: false, // true when bea is actively playing audio
                 speech: null,      // the utterance currently on the wire
+                heardMs: 0,        // the player's count, for noticing a starved line
+                playedAt: 0,       // when a packet last reached the room
                 subscriptions: new Map(), // userid -> opusstream
                 speakers: new Map(),      // userid -> the turn they are taking
                 tick: null,               // the sweep that notices one ending
@@ -181,6 +190,7 @@ class VoiceManager {
     watchPlayer(guildId, player, connectionData) {
         player.on(AudioPlayerStatus.Playing, () => {
             connectionData.isSpeaking = true;
+            connectionData.playedAt = Date.now();
             console.log('[VoiceManager] Bea: SPEAKING');
         });
         player.on(AudioPlayerStatus.Idle, () => {
@@ -351,9 +361,24 @@ class VoiceManager {
         const data = this.connections.get(guildId);
         if (!data) return;
         const now = Date.now();
+        const beaSpeaking = this.audible(data, now);
         for (const [userId, speaker] of data.speakers) {
-            this.act(guildId, userId, speaker.buffer.gap(now, { beaSpeaking: data.isSpeaking }));
+            this.act(guildId, userId, speaker.buffer.gap(now, { beaSpeaking }));
         }
+    }
+
+    // whether sound of hers is actually reaching the room. The player keeps a
+    // starved line in the Playing state while it pads it with silence, so the
+    // timestamp of the last packet it took is what tells a voice from a hole
+    audible(data, now) {
+        const speech = data.speech;
+        if (!data.isSpeaking || !speech) return false;
+        const heard = this.heardOf(speech);
+        if (heard > (data.heardMs || 0)) {
+            data.heardMs = heard;
+            data.playedAt = now;
+        }
+        return data.playedAt > 0 && now - data.playedAt <= STARVED_MS;
     }
 
     createStream(guildId, userId) {
@@ -373,9 +398,10 @@ class VoiceManager {
         pcmStream.on('data', (chunk) => {
             // read her speaking state per chunk rather than once when the stream
             // opened: she can start or stop in the middle of somebody's sentence
+            const now = Date.now();
             this.act(guildId, userId, speaker.buffer.push(chunk, {
-                now: Date.now(),
-                beaSpeaking: data.isSpeaking,
+                now,
+                beaSpeaking: this.audible(data, now),
             }));
         });
 
@@ -558,6 +584,9 @@ class VoiceManager {
         this.finishUtterance(guildId, 'stopped');
 
         data.speech = { id: utteranceId, ended: false, playedBefore: 0, writtenMs: 0, resumed: 0 };
+        // the player's count starts over for the new line, so the starved
+        // tracker must too or it would keep reading the old line's count
+        data.heardMs = 0;
         this.startStream(data, data.speech);
         this.report(utteranceId, 0, 'playing');
         return data.speech;

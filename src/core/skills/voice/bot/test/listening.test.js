@@ -712,7 +712,7 @@ test('a pause long enough to end their turn lets her back up', () => {
     assert.equal(seen.filter((s) => s.report.interrupt).length, 0);
 });
 
-test('the sweep tells each turn whether she is speaking', () => {
+function sweepAsked(isSpeaking, heardMs, playedAt, playbackDuration) {
     const VoiceManager = require('../classes/VoiceManager');
     const client = { user: { id: 'bot' }, channels: { cache: new Map() }, on() {} };
     const mgr = new VoiceManager(client);
@@ -721,8 +721,24 @@ test('the sweep tells each turn whether she is speaking', () => {
 
     const asked = [];
     const buffer = { gap: (now, opts) => { asked.push(opts); return { duck: false, interrupt: false, released: false, ended: false }; } };
-    mgr.connections.set('g', { isSpeaking: true, speakers: new Map([['u', { buffer }]]) });
+    mgr.connections.set('g', {
+        isSpeaking, heardMs, playedAt,
+        speech: { resource: { playbackDuration }, playedBefore: 0 },
+        speakers: new Map([['u', { buffer }]]),
+    });
 
     mgr.sweep('g');
+    return asked;
+}
+
+test('the sweep tells each turn whether she is speaking', () => {
+    const asked = sweepAsked(true, 0, Date.now(), 20);
     assert.deepEqual(asked, [{ beaSpeaking: true }]);
+});
+
+test('the sweep does not call a starved line speaking', () => {
+    // the player still says it is Playing, but nothing has reached the room
+    // for longer than a packet: someone talking now is not talking over her
+    const asked = sweepAsked(true, 20, Date.now() - 1000, 20);
+    assert.deepEqual(asked, [{ beaSpeaking: false }]);
 });
