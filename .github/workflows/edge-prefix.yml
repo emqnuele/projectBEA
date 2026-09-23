@@ -1,0 +1,36 @@
+name: Edge prefix
+
+on:
+  workflow_dispatch:
+  # edge can change under us, and the streaming relied on cannot be checked
+  # without the real service. It lives in its own workflow rather than in
+  # `ci.yml` so a provider hiccup fails here at night instead of showing up as
+  # a skipped check on every pull request.
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  edge-prefix:
+    # the invariant that lets a sentence be streamed a stretch at a time, asked
+    # of the real service. A new voice format or a libsndfile bump is exactly
+    # what this catches, and neither is visible from a synthetic clip
+    name: edge streaming still holds
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Check
+        run: uv run python tools/edge_prefix_check.py
