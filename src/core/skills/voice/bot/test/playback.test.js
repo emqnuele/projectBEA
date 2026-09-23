@@ -119,7 +119,6 @@ test('a sentence that arrives late is a pause in her line, not the end of it', (
     // five frames was the default: a tenth of a second between two sentences
     // ended the utterance and the brain dropped the rest of the line
     const player = createAudioPlayer(playerOptions());
-    assert.ok(player.behaviors.maxMissedFrames * 20 >= 2000,
-        `gives up after ${player.behaviors.maxMissedFrames * 20}ms of waiting`);
+    assert.equal(player.behaviors.maxMissedFrames * 20, 3000);
     player.stop(true);
 });

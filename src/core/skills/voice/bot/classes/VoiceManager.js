@@ -61,15 +61,15 @@ const STOP_RAMP_MS = 200;
 // connection still stuck in Disconnected after this is destroyed.
 const DISCONNECT_TIMEOUT_MS = 5000;
 
-// how long her voice can run dry in the middle of a line before the line is
-// over. The player's own default is five frames: a next sentence a tenth of a
-// second late ended the utterance, the brain read that as the room having moved
-// on, and dropped the rest of what she was saying. A line ends when the brain
-// sends its last frame; this only bounds one that never gets one.
+// how long her voice can run dry in the middle of a line and still count as her
+// speaking. The player's own default is five frames, so every pause between two
+// sentences had her going quiet and starting again. Past this the player gives
+// up on the stream; the utterance still waits for the rest, because a line ends
+// when the brain sends its last frame and not when the audio runs out.
 const MAX_GAP_MS = 3000;
 
-function playerOptions() {
-    return { behaviors: { maxMissedFrames: Math.ceil(MAX_GAP_MS / 20) } };
+function playerOptions(gapMs = MAX_GAP_MS) {
+    return { behaviors: { maxMissedFrames: Math.ceil(gapMs / 20) } };
 }
 
 class VoiceManager {
@@ -129,21 +129,7 @@ class VoiceManager {
             };
 
             this.connections.set(guildId, connectionData);
-
-            // handle player events for speaking state tracking
-            player.on(AudioPlayerStatus.Playing, () => {
-                connectionData.isSpeaking = true;
-                console.log('[VoiceManager] Bea: SPEAKING');
-            });
-            player.on(AudioPlayerStatus.Idle, () => {
-                connectionData.isSpeaking = false;
-                console.log('[VoiceManager] Bea: IDLE');
-                this.finishUtterance(guildId, 'done');
-            });
-            player.on(AudioPlayerStatus.Paused, () => {
-                connectionData.isSpeaking = false;
-                console.log('[VoiceManager] Bea: PAUSED');
-            });
+            this.watchPlayer(guildId, player, connectionData);
 
             // every state is logged, not just ready and disconnected: a handshake
             // that never completes looks exactly like a working call otherwise
@@ -182,6 +168,30 @@ class VoiceManager {
             console.error(`[VoiceManager] Error joining:`, error);
             return false;
         }
+    }
+
+    // what the player doing something means for her: speaking, done, waiting
+    watchPlayer(guildId, player, connectionData) {
+        player.on(AudioPlayerStatus.Playing, () => {
+            connectionData.isSpeaking = true;
+            console.log('[VoiceManager] Bea: SPEAKING');
+        });
+        player.on(AudioPlayerStatus.Idle, () => {
+            connectionData.isSpeaking = false;
+            const speech = connectionData.speech;
+            if (speech && !speech.ended) {
+                // she ran dry mid-line: the rest is on its way, and reporting the
+                // line as done is what made the brain drop it
+                console.log('[VoiceManager] Bea: WAITING for the rest of her line');
+                return;
+            }
+            console.log('[VoiceManager] Bea: IDLE');
+            this.finishUtterance(guildId, 'done');
+        });
+        player.on(AudioPlayerStatus.Paused, () => {
+            connectionData.isSpeaking = false;
+            console.log('[VoiceManager] Bea: PAUSED');
+        });
     }
 
     handleLeave(guildId) {
@@ -512,35 +522,68 @@ class VoiceManager {
         let speech = data.speech;
         if (!speech || speech.id !== header.utterance_id) {
             speech = this.openUtterance(guildId, header.utterance_id);
+        } else if (pcm && pcm.length && !speech.ended && !this.canTakeMore(data, speech)) {
+            this.resumeUtterance(data, speech);
         }
         if (pcm && pcm.length) speech.source.write(pcm);
-        if (header.last) speech.source.end();
+        if (header.last) {
+            speech.ended = true;
+            speech.source.end();
+            // it had run dry and nothing new came with the end: no player is
+            // going to go idle over it, so it is over now
+            if (data.player.state.status === AudioPlayerStatus.Idle) this.finishUtterance(guildId, 'done');
+        }
     }
 
     openUtterance(guildId, utteranceId) {
         const data = this.connections.get(guildId);
         this.finishUtterance(guildId, 'stopped');
 
+        data.speech = { id: utteranceId, ended: false, playedBefore: 0 };
+        this.startStream(data, data.speech);
+        this.report(utteranceId, 0, 'playing');
+        return data.speech;
+    }
+
+    /**
+     * The same utterance, on a fresh stream: the player drops a stream that ran
+     * dry for too long, and it cannot be played again. The count and the
+     * volume carry on from where the last one left them.
+     */
+    resumeUtterance(data, speech) {
+        const before = speech.gain;
+        speech.playedBefore += before.playedMs;
+        this.startStream(data, speech);
+        speech.gain.continueFrom(before);
+    }
+
+    startStream(data, speech) {
         const source = new PassThrough();
-        const gain = new PcmGain((playedMs) => this.report(utteranceId, playedMs, 'playing'));
+        const gain = new PcmGain((playedMs) => this.report(speech.id, speech.playedBefore + playedMs, 'playing'));
         source.pipe(gain);
 
         // raw is 48khz stereo s16le — exactly what the brain already sends, so
         // nothing here has to decode, resample or guess a format
         const resource = createAudioResource(gain, { inputType: StreamType.Raw });
-        data.speech = { id: utteranceId, source, gain };
+        Object.assign(speech, { source, gain, resource });
         data.player.play(resource);
-        this.report(utteranceId, 0, 'playing');
-        return data.speech;
+    }
+
+    // whether what is written now will still be played by the current stream,
+    // rather than into one the player has already given up on
+    canTakeMore(data, speech) {
+        const { resource } = speech;
+        return data.player.state.resource === resource && !resource.ended
+            && resource.silenceRemaining === -1;
     }
 
     finishUtterance(guildId, state) {
         const data = this.connections.get(guildId);
         if (!data || !data.speech) return;
-        const { id, source, gain } = data.speech;
+        const { id, source, gain, playedBefore } = data.speech;
         data.speech = null;
         source.end();
-        this.report(id, gain.playedMs, state);
+        this.report(id, playedBefore + gain.playedMs, state);
     }
 
     /** fades her out and stops. the ramp is the difference between trailing off

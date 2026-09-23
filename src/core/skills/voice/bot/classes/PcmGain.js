@@ -30,6 +30,14 @@ class PcmGain extends Transform {
         return Math.round(this.bytesOut / BYTES_PER_MS);
     }
 
+    // the level, and any ramp still running, of the stream this one takes over from
+    continueFrom(previous) {
+        this.gain = previous.gain;
+        this.step = previous.step;
+        this.framesLeft = previous.framesLeft;
+        this.target = previous.target;
+    }
+
     // linear over `ms`: short enough to feel immediate, long enough not to click
     rampTo(target, ms) {
         const clamped = Math.max(0, Math.min(1, target));

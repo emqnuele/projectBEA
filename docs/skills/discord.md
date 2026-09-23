@@ -202,7 +202,9 @@ A sweep looks at every speaker once a frame (`TICK_MS = 20`), so the end of a
 turn is noticed within twenty milliseconds of the hangover. Packets arrive a
 frame apart while somebody transmits, and a sweep landing between two of them
 is not a silence: `gap()` only counts one once nothing has arrived for
-`GAP_MS` (three frames), and then counts the whole of it, once.
+`GAP_MS` (three frames), and then counts the whole of it, once. The sweep
+passes whether she is speaking, as `push()` does: a breath taken while talking
+over her is still talking over her, and does not reset the barge-in count.
 
 **`Pcm.js`** — 48 kHz stereo → 16 kHz mono.
 
@@ -213,10 +215,13 @@ per stream so packet boundaries do not introduce discontinuities.
 **Voice out:** the mind → TTS → 48 kHz stereo PCM → `play` frames on
 `WS /voice/ws` → `PassThrough` → `PcmGain` → `AudioPlayer`. Playback starts at
 the first chunk, and the gain stage reports how many milliseconds actually
-reached the room. A line ends when the brain sends its last frame: the player
-rides out up to `MAX_GAP_MS` (3 s) of waiting for the next sentence as
-silence, rather than ending the utterance after its own default of a tenth of
-a second.
+reached the room. A line ends when the brain sends its last frame (or a stop),
+never because the audio ran out. The player rides out up to `MAX_GAP_MS` (3 s)
+of waiting for the next sentence as silence — her still speaking, rather than
+going quiet after its own default of a tenth of a second. Past that it gives up
+on the stream, and the utterance waits: the next frame for it starts a fresh
+stream (`resumeUtterance`) that carries on the played count and the volume,
+and an end frame that arrives with nothing left to play reports it done.
 
 **Barge-in, in two stages.** After `duck_threshold_ms` of overlapping speech
 she ducks to 0.25 gain; after `interrupt_threshold_ms` she fades out over
