@@ -123,12 +123,14 @@ class VoiceChannel:
         """Drops the socket. A stale socket must not silently swallow her voice."""
         if ws is not None and ws is not self._ws:
             return
+        had = self._ws is not None or self.channel_id is not None
         self._ws = None
         self.channel_id = None
         self.listeners = 0
         self._abandon_current("the bot went away")
         self._announce_call()
-        logger.info("voice push channel detached")
+        if had:
+            logger.info("voice push channel detached")
 
     # --- brain -> bot -------------------------------------------------------
 

@@ -118,6 +118,6 @@ class StageChannel:
 
     def close(self) -> None:
         for queue in self._fanout.queues():
-            self.unsubscribe(queue)
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait({"closed": True})
+            self.unsubscribe(queue)

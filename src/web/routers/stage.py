@@ -92,6 +92,8 @@ async def stage_stream(request: Request, brain: AIVtuberBrain = Depends(get_brai
                 except asyncio.TimeoutError:
                     yield ": keep-alive\n\n"
                     continue
+                if patch.get("closed"):
+                    break
                 yield f"data: {json.dumps({'type': 'patch', **patch})}\n\n"
         finally:
             brain.stage.unsubscribe(queue)

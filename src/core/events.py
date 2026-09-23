@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import time
 import uuid
 from collections import deque
@@ -86,6 +87,19 @@ class EventManager:
 
     def unsubscribe(self, queue) -> None:
         self._fanout.unsubscribe(queue)
+
+    def close(self) -> None:
+        """Ends every live stream: subscribers get one shutdown event, then nothing.
+
+        Force-closing the connections from the server side used to cancel the
+        streaming responses mid-sentence, which surfaced as a CancelledError
+        traceback on every shutdown. A stream that returns on its own closes
+        its connection cleanly instead.
+        """
+        for queue in self._fanout.queues():
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait({"shutdown": True})
+            self._fanout.unsubscribe(queue)
 
     @property
     def subscriber_count(self) -> int:
