@@ -358,17 +358,25 @@ class Consciousness:
             logger.info(f"batch of {len(batch)} perception(s): "
                         f"{', '.join(p.surface for p in batch)}")
 
-        # a voice input barges in on an ongoing monologue; text is just queued
+        # a voice input barges in on an ongoing monologue; text is just queued.
+        # The call answers how far she got only once its fade is over, and the
+        # frame is the one thing that needs the answer: the context is built
+        # while she fades rather than after
+        barge: Optional[asyncio.Task] = None
         if self.expression.is_speaking and any(p.kind == PerceptionKind.VOICE for p in batch):
-            await self.expression.interrupt()
+            barge = asyncio.create_task(self.expression.interrupt())
 
-        annotated = self._annotate(batch)
-        t_ctx = time.perf_counter()
-        system = self._system_message()
-        window_msgs = self.sliding_window.messages()
-        briefing = await self._build_briefing(batch, is_idle=is_idle)
-        if not is_idle:
-            logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
+        try:
+            annotated = self._annotate(batch)
+            t_ctx = time.perf_counter()
+            system = self._system_message()
+            window_msgs = self.sliding_window.messages()
+            briefing = await self._build_briefing(batch, is_idle=is_idle)
+            if not is_idle:
+                logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
+        finally:
+            if barge is not None:
+                await barge
         context: List[Dict[str, Any]] = [system, *window_msgs]
         if briefing:
             context.append(briefing)

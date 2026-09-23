@@ -72,3 +72,48 @@ async def test_a_missing_mood_falls_back_to_normal():
     c = mind()
     await speak(c, "", "eccomi")
     assert c.expression.spoken[0][0] == "neutral"
+
+
+async def test_her_context_is_built_while_she_fades_out_not_after():
+    """A barge-in waits for the call to say how far she got; nothing before the
+    frame needs that answer, so nothing before the frame waits for it."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from src.core.perception.types import Author, Perception, PerceptionKind
+    from tests.fakes import speaks
+
+    c = mind()
+    c.llm = FakeLLMClient([speaks("eccomi")])
+    order = []
+    fading = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    async def interrupt(ramp_ms=200):
+        order.append("fade started")
+        await fading.wait()
+        c.expression.interrupted = SimpleNamespace(
+            complete=False, text="stavo dicendo una cosa lunga", played_ms=500, sent_ms=2000)
+        order.append("fade over")
+
+    def dynamic(batch):
+        # on a worker thread: the fade is only let finish once this has run
+        order.append("context")
+        loop.call_soon_threadsafe(fading.set)
+        return []
+
+    c.expression.is_speaking = True
+    c.expression.interrupt = interrupt
+    c.surfaces.dynamic_context = dynamic
+    heard = Perception(PerceptionKind.VOICE, "voice:discord", "[marco] (voice): aspetta",
+                       salience=0.9, author=Author("discord", "1", "marco"))
+
+    # bounded: were the context built only after the fade, the two would wait on each other
+    await asyncio.wait_for(c._turn([heard]), timeout=5)
+
+    assert order.index("context") < order.index("fade over"), \
+        "the context waited for her to finish fading out"
+    assert "fade started" in order
+    # the frame still knows where she was cut off
+    frame = next(m for m in c.llm.calls[0] if m["role"] == "user")
+    assert "[YOU WERE CUT OFF]" in frame["content"]
