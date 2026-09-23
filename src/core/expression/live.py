@@ -44,7 +44,6 @@ logger = get_logger("bea.expression.live")
 LOOKAHEAD = 1
 
 
-
 @dataclass
 class Rendered:
     """A beat with whatever the engine made of it, waiting its turn."""
@@ -230,6 +229,10 @@ class LiveLine:
                     await self._ready.put(Rendered(beat))
                     continue
                 await self._slots.acquire()
+                if self.abandoned:
+                    # it went while this waited for a slot
+                    self._slots.release()
+                    continue
                 item = Rendered(beat)
                 job = asyncio.create_task(
                     self.sink.render(self, beat.value, self.prosody, into=item),
@@ -279,8 +282,7 @@ class LiveLine:
             for other in list(self._jobs):
                 other.cancel()
             return False
-        if parts is not item.parts:
-            item.parts = parts
+        item.parts = parts
         return bool(parts)
 
     async def _play(self) -> None:
