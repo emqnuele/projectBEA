@@ -13,6 +13,9 @@ Wire format, brain -> bot:
   binary  [uint32 header length][header json][pcm payload]
   text    {"type": "stop" | "duck" | "cancel", ...}
 
+bot -> brain:
+  text    {"type": "joined" | "left" | "members" | "playback" | "hearing", ...}
+
 The header travels with its payload in one frame on purpose: a reconnect in the
 middle of an utterance then loses that utterance, not the parser's mind.
 """
@@ -23,7 +26,7 @@ import struct
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.core.expression.pcm import duration_ms
 from src.utils.logger import get_logger
@@ -37,6 +40,13 @@ HISTORY = 8
 # longest turn the bot will ever send, so a line still counts as recent while
 # its own echo is still being gathered up and transcribed.
 RECENT_SECONDS = 25.0
+
+# how long somebody can be believed to be talking without the bot saying they
+# stopped. Past the longest turn the bot sends, so only a lost message hits it.
+TALKING_MAX_S = 35.0
+
+# how long a turn can be on its way to the transcriber before it is given up on
+TRANSCRIPT_MAX_S = 15.0
 
 
 def frame(header: Dict[str, Any], payload: bytes = b"") -> bytes:
@@ -101,6 +111,13 @@ class VoiceChannel:
         self.on_call_change: Optional[Callable[[Optional[str], int], None]] = None
         # the bot heard-it-first report: the only honest end of the latency clock
         self.on_first_sound: Optional[Callable[[], None]] = None
+        # who is talking right now, and since when
+        self.talking: Dict[str, float] = {}
+        # turns that left the bot and have not been transcribed yet, oldest first
+        self.awaiting: Dict[str, List[float]] = {}
+        # somebody started, sent a turn, or stopped: (user_id, state)
+        self.on_hearing: Optional[Callable[[str, str], None]] = None
+        self._hearing_changed = asyncio.Event()
 
     # --- the socket ---------------------------------------------------------
 
@@ -127,6 +144,7 @@ class VoiceChannel:
         self._ws = None
         self.channel_id = None
         self.listeners = 0
+        self._forget_hearing()
         self._abandon_current("the bot went away")
         self._announce_call()
         if had:
@@ -213,6 +231,7 @@ class VoiceChannel:
         elif kind == "left":
             self.channel_id = None
             self.listeners = 0
+            self._forget_hearing()
             self._abandon_current("she left the call")
             self._announce_call()
         elif kind == "members":
@@ -220,6 +239,74 @@ class VoiceChannel:
             self._announce_call()
         elif kind == "playback":
             self._on_playback(message)
+        elif kind == "hearing":
+            self._on_hearing(message)
+
+    # --- somebody talking -----------------------------------------------------
+
+    def busy(self) -> bool:
+        """Whether somebody is talking, or a turn of theirs is still being transcribed.
+
+        A turn only reaches the mind once it is over and transcribed, seconds
+        after the person started it. This is the part of it she can know sooner:
+        the rest of a sentence is on its way.
+        """
+        now = time.monotonic()
+        if any(now - since <= TALKING_MAX_S for since in self.talking.values()):
+            return True
+        return any(now - sent <= TRANSCRIPT_MAX_S
+                   for turns in self.awaiting.values() for sent in turns)
+
+    def transcribed(self, user_id: Optional[str]) -> None:
+        """A turn of theirs is transcribed, whatever came of it."""
+        turns = self.awaiting.get(str(user_id)) if user_id is not None else None
+        if not turns:
+            return
+        turns.pop(0)
+        if not turns:
+            del self.awaiting[str(user_id)]
+        self._hearing_changed.set()
+
+    async def until_quiet(self, timeout: float) -> bool:
+        """Waits until nobody is talking and nothing is on its way. False at the limit."""
+        deadline = time.monotonic() + timeout
+        while self.busy():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self._hearing_changed.clear()
+            # woken by a change, or often enough to notice a state timing out
+            try:
+                await asyncio.wait_for(self._hearing_changed.wait(), timeout=min(remaining, 0.25))
+            except asyncio.TimeoutError:
+                pass
+        return True
+
+    def _on_hearing(self, message: Dict[str, Any]) -> None:
+        user = str(message.get("user_id") or "")
+        state = str(message.get("state") or "")
+        if not user:
+            return
+        now = time.monotonic()
+        if state == "start":
+            self.talking[user] = now
+        elif state == "sent":
+            self.awaiting.setdefault(user, []).append(now)
+        elif state == "end":
+            self.talking.pop(user, None)
+        else:
+            return
+        self._hearing_changed.set()
+        if self.on_hearing is not None:
+            try:
+                self.on_hearing(user, state)
+            except Exception as e:  # a listener must never break the socket loop
+                logger.debug(f"hearing listener failed: {e}")
+
+    def _forget_hearing(self) -> None:
+        self.talking.clear()
+        self.awaiting.clear()
+        self._hearing_changed.set()
 
     def _announce_call(self) -> None:
         if self.on_call_change is None:

@@ -201,3 +201,8 @@ async def buffer_voice_transcript(
     except Exception as e:
         logger.error(f"Overheard transcript error: {e}")
         return {"status": "error", "transcript": "", "error": str(e)}
+    finally:
+        # after the perception is on the bus: the mind may be waiting for it
+        voice_surface: Any = brain.skill_registry.get("voice:discord") if brain.skill_registry else None
+        if voice_surface is not None and hasattr(voice_surface, "transcribed"):
+            voice_surface.transcribed(user_id)

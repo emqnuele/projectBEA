@@ -571,19 +571,25 @@ class AIVtuberBrain:
             latency.open(username)
 
         transcript = ""
-        if self.stt:
-            # blocking HTTP: on the loop it froze the whole brain for the length
-            # of every transcription, and worst exactly when several people talk
-            transcript = await asyncio.to_thread(self.stt.transcribe, audio_path)
-            logger.info(f"Transcript from {username}: '{transcript}'")
-        if latency is not None:
-            latency.mark(STT)
+        try:
+            if self.stt:
+                # blocking HTTP: on the loop it froze the whole brain for the length
+                # of every transcription, and worst exactly when several people talk
+                transcript = await asyncio.to_thread(self.stt.transcribe, audio_path)
+                logger.info(f"Transcript from {username}: '{transcript}'")
+            if latency is not None:
+                latency.mark(STT)
 
-        if not voice or not self.consciousness:
+            if not voice or not self.consciousness:
+                return transcript
+            voice.perceive(transcript or "[Unintelligible]", username, user_id=user_id,
+                           whitelisted=whitelisted, listeners=listeners)
             return transcript
-        voice.perceive(transcript or "[Unintelligible]", username, user_id=user_id,
-                       whitelisted=whitelisted, listeners=listeners)
-        return transcript
+        finally:
+            # after the perception is on the bus, never before: released first,
+            # the batch waiting for the rest of the sentence could close without it
+            if voice is not None:
+                voice.transcribed(user_id)
 
     @property
     def donation_skill(self) -> Optional[DonationSkill]:

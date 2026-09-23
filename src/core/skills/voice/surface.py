@@ -285,6 +285,10 @@ class VoiceSurface(PlatformSkill):
         # native_id is the stable discord user id; display_name can change
         return self.build_author(user_id or user, user)
 
+    def transcribed(self, user_id: Optional[str]) -> None:
+        """A turn from the call is transcribed, perceived or not."""
+        self.channel.transcribed(user_id)
+
     def perceive(self, transcript: str, user: str, meta: Optional[Dict[str, Any]] = None,
                  user_id: Optional[str] = None, whitelisted: bool = True,
                  listeners: Optional[int] = None) -> Optional[Perception]:
