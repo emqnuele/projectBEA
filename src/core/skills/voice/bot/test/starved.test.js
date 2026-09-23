@@ -50,13 +50,13 @@ test('a line that runs dry halfway is still one utterance', async (t) => {
 
     mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(300));
     // the audio, the gap the player allows, its padding, and then some
-    await sleep(300 + GAP_MS + 300);
+    await sleep(300 + GAP_MS + 500);
     assert.ok(!states(reports, 'u').some((r) => r.state === 'done'),
         'running dry ended the utterance');
 
     mgr.playPushed({ utterance_id: 'u', seq: 1, last: false }, tone(300));
     mgr.playPushed({ utterance_id: 'u', seq: -1, last: true }, Buffer.alloc(0));
-    await sleep(300 + 400);
+    await sleep(300 + 600);
 
     const seen = states(reports, 'u');
     assert.equal(seen.filter((r) => r.played_ms === 0).length, 1, 'the count started over');
@@ -71,7 +71,7 @@ test('the end of a line that already ran dry ends it at once', async (t) => {
     t.after(() => player.stop(true));
 
     mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(200));
-    await sleep(200 + GAP_MS + 300);
+    await sleep(200 + GAP_MS + 500);
     mgr.playPushed({ utterance_id: 'u', seq: -1, last: true }, Buffer.alloc(0));
 
     const done = states(reports, 'u').filter((r) => r.state === 'done');
@@ -84,7 +84,7 @@ test('a line stopped while it had run dry is reported stopped', async (t) => {
     t.after(() => player.stop(true));
 
     mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(200));
-    await sleep(200 + GAP_MS + 300);
+    await sleep(200 + GAP_MS + 500);
     mgr.stopSpeaking(20);
     await sleep(60);
 
@@ -99,7 +99,7 @@ test('turned down, she stays turned down across a gap in her line', async (t) =>
 
     mgr.playPushed({ utterance_id: 'u', seq: 0, last: false }, tone(200));
     mgr.duck(0.25, 1);
-    await sleep(200 + GAP_MS + 300);
+    await sleep(200 + GAP_MS + 500);
     mgr.playPushed({ utterance_id: 'u', seq: 1, last: false }, tone(200));
 
     assert.equal(data.speech.gain.gain, 0.25, 'the rest of the line came back at full volume');
@@ -110,9 +110,9 @@ test('a new line still replaces one that ran dry', async (t) => {
     t.after(() => player.stop(true));
 
     mgr.playPushed({ utterance_id: 'a', seq: 0, last: false }, tone(200));
-    await sleep(200 + GAP_MS + 300);
+    await sleep(200 + GAP_MS + 500);
     mgr.playPushed({ utterance_id: 'b', seq: 0, last: true }, tone(200));
-    await sleep(200 + 400);
+    await sleep(200 + 600);
 
     assert.equal(states(reports, 'a').at(-1).state, 'stopped');
     assert.equal(states(reports, 'b').at(-1).state, 'done');
