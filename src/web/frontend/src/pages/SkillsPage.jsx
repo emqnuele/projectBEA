@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-    Boxes, Coins, Gamepad2, HeartHandshake, MessageCircle, Moon, Radio, Send, Settings2, Terminal, Users,
+    Boxes, Coins, Gamepad2, Globe, HeartHandshake, MessageCircle, Moon, Radio, Send, Settings2, Terminal, Users,
 } from 'lucide-react';
 import { api } from '../api';
 import { cn, fluxOf } from '../lib/cn';
@@ -50,6 +50,11 @@ const CATALOGUE = {
         icon: Coins, title: 'Donations',
         blurb: 'Alerts reach her as perceptions, so she can react to them live.',
         settings: 'donations',
+    },
+    web: {
+        icon: Globe, title: 'Web',
+        blurb: 'She can search the web and read pages. Off until you allow it: pages are written by strangers.',
+        settings: 'web',
     },
     telegram: {
         icon: Send, title: 'Telegram',

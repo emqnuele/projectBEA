@@ -757,7 +757,7 @@ function WorldSection({ config, updateSkill }) {
 // Everything the engine declares renders itself; the rest is hand-built because
 // it does more than set a value (file pickers, provider trade-offs, live tests).
 const SCHEMA_DRIVEN = [
-    'models', 'attention', 'rhythm', 'discord', 'telegram', 'twitch', 'donations',
+    'models', 'attention', 'rhythm', 'discord', 'telegram', 'twitch', 'donations', 'web',
     'consciousness', 'memory', 'dream', 'affect',
 ];
 

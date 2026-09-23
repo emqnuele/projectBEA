@@ -31,6 +31,7 @@ export const SETTINGS_SECTIONS = [
     { id: 'stream', label: 'Stream', hint: 'OBS, the avatar and the text bubble' },
     { id: 'world', label: 'Minecraft', hint: 'Her body on the server' },
     { id: 'donations', label: 'Donations', hint: 'The webhook that tells her about money' },
+    { id: 'web', label: 'Web', hint: 'Search and pages she may read' },
     { id: 'appearance', label: 'Appearance', hint: 'Theme, glass and motion' },
 ];
 
