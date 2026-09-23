@@ -213,3 +213,35 @@ async def test_edge_streams_the_very_same_samples_it_would_render_whole(monkeypa
     assert len(parts) > 1, "nothing was handed over before the end"
     assert all(r == rate for _, r in parts)
     assert np.array_equal(np.concatenate([p for p, _ in parts]), whole)
+
+
+async def test_edge_says_so_when_a_prefix_stops_being_a_prefix(monkeypatch, caplog):
+    """The streaming rests on each longer stretch decoding to the start of the
+    whole. A format change that broke that would have the room hear a repeat or
+    a skip, and nothing downstream can see it, so the wrapper has to name it
+    rather than hand over audio that only sounds right until it doesn't."""
+    import numpy as np
+
+    from src.modules.tts import edge_tts_wrapper
+
+    class Communicate:
+        def __init__(self, text, voice, **kwargs):
+            pass
+
+        async def stream(self):
+            for _ in range(8):
+                yield {"type": "audio", "data": b"\x00" * 900}
+
+    def broken_decode(mp3):
+        # every longer stretch opens somewhere else, instead of extending
+        n = max(1, len(mp3))
+        return np.full(n, float(n), dtype="float32"), 24000
+
+    monkeypatch.setattr(edge_tts_wrapper.edge_tts, "Communicate", Communicate)
+    monkeypatch.setattr(edge_tts_wrapper, "_decode", broken_decode)
+
+    with caplog.at_level("ERROR", logger="bea.tts.edge"):
+        parts = [part async for part in EdgeTTSWrapper(voice="v").generate_stream("ciao")]
+
+    assert parts, "the broken stream stopped delivering audio entirely"
+    assert "prefixes" in caplog.text, "the broken prefix invariant went unnamed"

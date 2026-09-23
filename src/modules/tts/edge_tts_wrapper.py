@@ -94,6 +94,8 @@ class EdgeTTSWrapper(TTSInterface):
             mp3 = bytearray()
             sent = 0
             due = FIRST_PART_BYTES
+            previous = None
+            broken = False
             async for chunk in communicate.stream():
                 if chunk["type"] != "audio":
                     continue
@@ -101,15 +103,37 @@ class EdgeTTSWrapper(TTSInterface):
                 if len(mp3) < due:
                     continue
                 due = len(mp3) * 2
-                data, fs = await asyncio.to_thread(_decode, bytes(mp3))
+                try:
+                    data, fs = await asyncio.to_thread(_decode, bytes(mp3))
+                except Exception:
+                    # too short yet to hold a whole frame: the next stretch
+                    # decodes it, rather than the sentence costing a decode
+                    continue
+                if previous is not None and not _prefix_of(previous, data) and not broken:
+                    # the invariant the streaming rests on just broke: what was
+                    # already handed over is not the start of the whole, so the
+                    # room would hear a repeat or a skip. Nothing downstream can
+                    # see that, so it is said here, loudly, once
+                    broken = True
+                    logger.error("edge no longer streams as prefixes of the whole; "
+                                 "run tools/edge_prefix_check.py")
                 if len(data) > sent:
                     yield data[sent:], fs
                     sent = len(data)
+                previous = data
             data, fs = await asyncio.to_thread(_decode, bytes(mp3))
+            if previous is not None and not _prefix_of(previous, data) and not broken:
+                logger.error("edge no longer streams as prefixes of the whole; "
+                             "run tools/edge_prefix_check.py")
             if len(data) > sent:
                 yield data[sent:], fs
         except Exception as e:
             logger.error(f"generation error: {e}")
+
+
+def _prefix_of(previous: np.ndarray, whole: np.ndarray) -> bool:
+    """Whether what was already handed over is still the start of the whole."""
+    return len(previous) <= len(whole) and bool(np.array_equal(previous, whole[:len(previous)]))
 
 
 def _decode(mp3: bytes) -> tuple[np.ndarray, int]:
