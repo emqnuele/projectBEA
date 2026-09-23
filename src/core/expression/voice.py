@@ -478,6 +478,21 @@ class Expression:
             self.is_speaking = False
         return None
 
+    async def line_cancelled(self, line: LiveLine) -> None:
+        """A call line dropped halfway still has to be ended in the room.
+
+        Without its last frame the bot holds the utterance open, waiting for
+        more of a line that is never coming.
+        """
+        call = self.call
+        if line.route != "call" or call is None or not line.state.get("seq"):
+            return
+        current = call.current
+        # already over, or another line has the call now: leave it alone
+        if current is None or current.id != line.state["id"]:
+            return
+        await call.end(line.state["id"])
+
     def _call_moved_on(self, utterance_id: str, seq: int) -> bool:
         """Whether it is still worth synthesising the rest of this line.
 

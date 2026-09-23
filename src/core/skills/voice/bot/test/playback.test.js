@@ -111,3 +111,15 @@ test('her voice travels uncompressed, and still carries the token', () => {
     assert.equal(options.perMessageDeflate, false);
     assert.equal(options.headers.Authorization, 'Bearer abc');
 });
+
+test('a sentence that arrives late is a pause in her line, not the end of it', () => {
+    const { playerOptions } = require('../classes/VoiceManager');
+    const { createAudioPlayer } = require('@discordjs/voice');
+
+    // five frames was the default: a tenth of a second between two sentences
+    // ended the utterance and the brain dropped the rest of the line
+    const player = createAudioPlayer(playerOptions());
+    assert.ok(player.behaviors.maxMissedFrames * 20 >= 2000,
+        `gives up after ${player.behaviors.maxMissedFrames * 20}ms of waiting`);
+    player.stop(true);
+});

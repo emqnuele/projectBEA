@@ -346,3 +346,42 @@ async def test_the_room_hears_the_start_of_a_piece_before_the_engine_has_finishe
     headers = [unframe(f)[0] for f in socket.binary]
     assert [h["seq"] for h in headers] == [0, 1, -1]
     assert line.spoken == "Una frase sola ma abbastanza lunga da contare."
+
+
+async def test_a_line_dropped_halfway_is_still_ended_in_the_call():
+    import asyncio
+
+    class Held(OneShotTTS):
+        def __init__(self):
+            super().__init__()
+            self.never = asyncio.Event()
+
+        async def generate_audio(self, text, prosody=None):
+            self.rendered.append(text)
+            if len(self.rendered) > 1:
+                await self.never.wait()
+            return np.zeros(2400, dtype=np.float32), 24000
+
+    e = expression(Held())
+    channel, socket = live_channel()
+    e.set_call(channel)
+
+    line = e.open_line("neutral", route="call")
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert len(socket.binary) == 1
+
+    await line.cancel()
+    last = unframe(socket.binary[-1])[0]
+    assert last["seq"] == -1 and last["last"] is True, "the bot was left holding the utterance"
+
+
+async def test_a_line_dropped_before_a_sound_sends_nothing():
+    e = expression(OneShotTTS())
+    channel, socket = live_channel()
+    e.set_call(channel)
+
+    line = e.open_line("neutral", route="call")
+    await line.cancel()
+    assert socket.binary == []

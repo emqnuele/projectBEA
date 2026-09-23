@@ -61,6 +61,17 @@ const STOP_RAMP_MS = 200;
 // connection still stuck in Disconnected after this is destroyed.
 const DISCONNECT_TIMEOUT_MS = 5000;
 
+// how long her voice can run dry in the middle of a line before the line is
+// over. The player's own default is five frames: a next sentence a tenth of a
+// second late ended the utterance, the brain read that as the room having moved
+// on, and dropped the rest of what she was saying. A line ends when the brain
+// sends its last frame; this only bounds one that never gets one.
+const MAX_GAP_MS = 3000;
+
+function playerOptions() {
+    return { behaviors: { maxMissedFrames: Math.ceil(MAX_GAP_MS / 20) } };
+}
+
 class VoiceManager {
     constructor(client) {
         this.client = client;
@@ -103,7 +114,7 @@ class VoiceManager {
             const connection = joinVoiceChannel(
                 buildJoinOptions(guildId, channelId, adapterCreator));
 
-            const player = createAudioPlayer();
+            const player = createAudioPlayer(playerOptions());
             connection.subscribe(player);
 
             const connectionData = {
@@ -575,3 +586,4 @@ class VoiceManager {
 module.exports = VoiceManager;
 module.exports.buildJoinOptions = buildJoinOptions;
 module.exports.DISCONNECT_TIMEOUT_MS = DISCONNECT_TIMEOUT_MS;
+module.exports.playerOptions = playerOptions;

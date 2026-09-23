@@ -148,6 +148,9 @@ class LiveLine:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        dropped = getattr(self.sink, "line_cancelled", None)
+        if dropped is not None:
+            await dropped(self)
 
     # --- what the sink reads ------------------------------------------------
 
