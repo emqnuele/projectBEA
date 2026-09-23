@@ -149,3 +149,35 @@ def test_edge_moves_the_configured_voice_rather_than_replacing_it():
     pitch, rate, volume = edge._voice_for(Prosody(rate=1.12, pitch_hz=9.6, volume=1.08))
     assert (pitch, rate) == ("+15Hz", "+23%")
     assert volume == "+44%"
+
+
+async def test_edge_decodes_in_memory_and_leaves_no_file_behind(monkeypatch, tmp_path):
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    from src.modules.tts import edge_tts_wrapper
+
+    clip = io.BytesIO()
+    sf.write(clip, (np.sin(np.arange(24000) / 10) * 0.3).astype("float32"), 24000, format="MP3")
+    mp3 = clip.getvalue()
+
+    class Communicate:
+        def __init__(self, text, voice, **kwargs):
+            pass
+
+        async def stream(self):
+            yield {"type": "WordBoundary"}
+            for at in range(0, len(mp3), 700):
+                yield {"type": "audio", "data": mp3[at:at + 700]}
+
+    monkeypatch.setattr(edge_tts_wrapper.edge_tts, "Communicate", Communicate)
+    monkeypatch.chdir(tmp_path)
+
+    audio, rate = await EdgeTTSWrapper(voice="v").generate_audio("ciao")
+
+    expected, _ = sf.read(io.BytesIO(mp3), dtype="float32")
+    assert rate == 24000
+    assert np.array_equal(audio, expected)
+    assert list(tmp_path.iterdir()) == [], "a temporary file was written"

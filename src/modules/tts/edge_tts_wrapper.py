@@ -1,4 +1,5 @@
-import os
+import asyncio
+import io
 
 import edge_tts
 import numpy as np
@@ -47,29 +48,30 @@ class EdgeTTSWrapper(TTSInterface):
         )
 
     async def generate_audio(self, text: str, prosody=None) -> tuple[np.ndarray, int]:
-        """Generates audio and returns numpy array + sample rate."""
+        """Generates audio and returns numpy array + sample rate.
+
+        The mp3 is gathered in memory and decoded on a worker thread. It used to
+        go to a file and be read back and decoded on the event loop — every
+        sentence stalled everything else she was doing, the rest of her own
+        line included, for the length of a decode.
+        """
         if not text:
              return np.zeros(0, dtype=np.float32), 24000
 
-        import uuid
-        unique_filename = f"temp_tts_{uuid.uuid4().hex}.mp3"
-
         try:
-            # generate to file
             pitch, rate, volume = self._voice_for(prosody)
             communicate = edge_tts.Communicate(text, self.voice, pitch=pitch, rate=rate, volume=volume)
-            await communicate.save(unique_filename)
-
-            # read to numpy
-            data, fs = sf.read(unique_filename, dtype='float32')
+            mp3 = bytearray()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    mp3 += chunk["data"]
+            data, fs = await asyncio.to_thread(_decode, bytes(mp3))
             return data, fs
 
         except Exception as e:
             logger.error(f"generation error: {e}")
             return np.zeros(0, dtype=np.float32), 24000
-        finally:
-             if os.path.exists(unique_filename):
-                try:
-                    os.remove(unique_filename)
-                except OSError:
-                    pass
+
+
+def _decode(mp3: bytes) -> tuple[np.ndarray, int]:
+    return sf.read(io.BytesIO(mp3), dtype="float32")
