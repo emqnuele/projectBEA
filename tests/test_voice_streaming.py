@@ -539,3 +539,48 @@ async def test_a_line_dropped_while_its_first_frame_is_on_the_wire_is_still_ende
     await line.cancel()
     headers = [unframe(f)[0] for f in socket.binary]
     assert headers and headers[-1]["seq"] == -1 and headers[-1]["last"] is True
+
+
+@pytest.mark.parametrize("seed", range(12))
+async def test_a_piece_pushed_while_it_is_still_arriving_is_the_piece_converted_whole(seed):
+    """However the engine's parts and the socket's sends interleave, what the
+    call gets is exactly what the finished piece converts to: the tail is never
+    padded early, and nothing is sent twice."""
+    import asyncio
+
+    from src.core.expression.pcm import to_call_pcm
+
+    rng = np.random.default_rng(seed)
+    rate = int(rng.choice([16000, 22050, 24000, 48000]))
+    speech = (rng.standard_normal(int(rng.integers(2000, 20000))) * 0.3).astype(np.float32)
+    cuts = sorted(set(rng.integers(1, speech.size, size=int(rng.integers(1, 8))).tolist()))
+    parts = np.split(speech, cuts)
+
+    async def yields(n):
+        for _ in range(n):
+            await asyncio.sleep(0)
+
+    class Uneven(OneShotTTS):
+        async def generate_stream(self, text, prosody=None):
+            for part in parts:
+                await yields(int(rng.integers(0, 4)))
+                yield part, rate
+            await yields(int(rng.integers(0, 4)))
+
+    e = expression(Uneven())
+    channel, socket = live_channel()
+    sent = socket.send_bytes
+
+    async def uneven_send(data):
+        await yields(int(rng.integers(0, 4)))
+        await sent(data)
+
+    socket.send_bytes = uneven_send
+    e.set_call(channel)
+    line = e.open_line("neutral", route="call")
+    line.say("Una frase sola ma abbastanza lunga da contare.")
+    await line.close()
+
+    frames = [unframe(f) for f in socket.binary]
+    assert [h["seq"] for h, _ in frames] == [*range(len(frames) - 1), -1]
+    assert b"".join(pcm for _, pcm in frames) == to_call_pcm(speech, rate)
