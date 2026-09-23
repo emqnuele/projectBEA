@@ -60,6 +60,39 @@ def orpheus():
     return tts
 
 
+def test_the_wait_before_a_response_is_bounded():
+    """A barge-in cannot cancel a worker thread stuck inside `requests`, so the
+    wait before the response headers have to end on their own. Without a
+    timeout the thread and its socket outlive the sentence that was dropped."""
+    from src.modules.tts import orpheus_tts_wrapper
+
+    seen = {}
+
+    class NeverAnswers:
+        def post(self, *a, **k):
+            seen.update(k)
+            raise TimeoutError("no response")
+
+    tts = OrpheusTTSWrapper(api_key="k", endpoint_url="https://orpheus.invalid")
+    tts.client = NeverAnswers()
+
+    blocks = [audio for audio, _ in _collect(tts)]
+
+    assert blocks == []
+    assert seen["timeout"] == (orpheus_tts_wrapper.CONNECT_TIMEOUT_S,
+                               orpheus_tts_wrapper.READ_TIMEOUT_S)
+
+
+def _collect(tts):
+    """Blocks from a stream, synchronously, for the tests that need none."""
+    import asyncio
+
+    async def run():
+        return [audio async for audio, _ in tts.generate_stream("ciao")]
+
+    return asyncio.run(run())
+
+
 async def test_the_whole_sentence_still_arrives_when_it_is_all_wanted():
     tts = orpheus()
     blocks = [audio async for audio, rate in tts.generate_stream("ciao")]

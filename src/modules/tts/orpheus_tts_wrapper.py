@@ -16,6 +16,16 @@ logger = get_logger("bea.tts.orpheus")
 # held so an abandoned download is not garbage collected mid-way
 _abandoned: set = set()
 
+# a connect that never answers cannot be cancelled: the request runs on a
+# worker thread, and closing a response that does not exist yet is not a thing.
+# A timeout is what ends the wait, so a barge-in during the handshake does not
+# leave the thread and its socket behind until the endpoint gives up.
+CONNECT_TIMEOUT_S = 10.0
+# per read, not per sentence: a stream that keeps arriving never trips this
+READ_TIMEOUT_S = 60.0
+
+_TIMEOUT = (CONNECT_TIMEOUT_S, READ_TIMEOUT_S)
+
 
 class OrpheusTTSWrapper(TTSInterface):
     # the endpoint takes a voice and a prompt and nothing else, so `prosody` is
@@ -76,7 +86,8 @@ class OrpheusTTSWrapper(TTSInterface):
                 self.endpoint_url,
                 headers=headers,
                 json=payload,
-                stream=True
+                stream=True,
+                timeout=_TIMEOUT,
             ) as resp:
                 resp.raise_for_status()
 
@@ -108,7 +119,8 @@ class OrpheusTTSWrapper(TTSInterface):
         payload = {"voice": self.voice, "prompt": text, "max_tokens": 10000, "stream": True}
 
         pending = b""
-        with self.client.post(self.endpoint_url, headers=headers, json=payload, stream=True) as resp:
+        with self.client.post(self.endpoint_url, headers=headers, json=payload,
+                              stream=True, timeout=_TIMEOUT) as resp:
             if opened is not None:
                 opened.append(resp)
             resp.raise_for_status()
