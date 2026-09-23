@@ -258,6 +258,34 @@ async def test_the_batch_waits_while_the_rest_of_the_sentence_is_coming():
                                           "[ema] (voice): ieri il server è crashato"]
 
 
+async def test_the_rest_of_the_sentence_is_in_the_batch_the_moment_it_is_released():
+    """The hold is released by the very transcript it was waiting for: it is on
+    the queue before the release, and the batch must not close without it. The
+    loop's poll can time out on the same tick, so this does it on the same call."""
+    import time
+
+    from src.core.perception.bus import PerceptionBus
+
+    bus = PerceptionBus(window=0.05, max_window=2.0)
+    state = {"asked": 0}
+
+    def released_by_the_transcript(items):
+        state["asked"] += 1
+        if state["asked"] < 3:
+            return True
+        if state["asked"] == 3:
+            # what `transcribed()` does: the perception first, then the release
+            rest = voice_line("[ema] (voice): ieri il server è crashato")
+            bus._queue.put_nowait((time.monotonic(), rest))
+        return False
+
+    bus.holds.append(released_by_the_transcript)
+    bus.put(voice_line("[ema] (voice): allora ascolta"))
+    batch = await asyncio.wait_for(bus.drain(), timeout=1.0)
+    assert [p.content for p in batch] == ["[ema] (voice): allora ascolta",
+                                          "[ema] (voice): ieri il server è crashato"]
+
+
 async def test_the_batch_closes_as_soon_as_the_sound_turns_out_to_be_nothing():
     from src.core.perception.bus import PerceptionBus
 

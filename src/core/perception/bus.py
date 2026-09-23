@@ -115,12 +115,23 @@ class PerceptionBus:
             now = time.monotonic()
             until_ceiling = ceiling - now
             if until_ceiling <= 0:
+                self._take_waiting(items)
                 break
             remaining = min(last + gap - now, until_ceiling)
             if remaining <= 0:
                 # the gap is over, but the rest of what somebody is saying is not
                 if not self._held(items):
-                    break
+                    # what released the hold is usually the very thing it was
+                    # waiting for, already queued: a poll timing out on the same
+                    # tick closed the batch without it, and it became a turn of
+                    # its own — the half sentence answered on its own again
+                    newest = self._take_waiting(items)
+                    if newest is None:
+                        break
+                    last = max(last, newest)
+                    if window is None:
+                        gap = self._gap(items)
+                    continue
                 remaining = min(HOLD_POLL_S, until_ceiling)
             try:
                 arrived, perception = await asyncio.wait_for(self._queue.get(), timeout=remaining)
@@ -133,6 +144,14 @@ class PerceptionBus:
 
         items.sort(key=lambda p: p.ts)
         return items
+
+    def _take_waiting(self, items: List[Perception]) -> Optional[float]:
+        """Moves whatever is already queued into the batch; when the newest arrived."""
+        newest: Optional[float] = None
+        for arrived, perception in self._waiting():
+            items.append(perception)
+            newest = arrived if newest is None else max(newest, arrived)
+        return newest
 
     def _held(self, items: List[Perception]) -> bool:
         for hold in self.holds:
