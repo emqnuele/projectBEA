@@ -107,6 +107,64 @@ proposed as optimisation targets before they were measured.
 
 ---
 
+## Voice detector
+
+The Discord voice detector (`VoiceActivity` + `SpeechBuffer`, see
+[Discord](skills/discord.md#voice-input-turn-segmentation)) has its own
+harness. The voice path is Node, and what matters there is turns, not
+milliseconds per call.
+
+```bash
+uv run python tools/vad_bench/corpus.py   # 15 scenarios, ~95 s each, into data/vad_bench/
+node tools/vad_bench/bench.js             # --hangovers 500,400 --json out.json
+```
+
+**Corpus.** Sixteen turns from six edge-tts voices (Italian and English), from
+"Sì." to a 7-second story with pauses inside it, 1.6–3.2 s apart. The same
+timeline runs under every background: clean, fan, hiss, keyboard and tonal
+music with a beat, at 15 and 5 dB SNR; the same noise with nobody talking; and
+a speaker 20 dB quieter. Ground truth comes from the clean track (−40 dB from
+the peak). Six of the sixteen turns contain a pause of about a second, so any
+500 ms hangover splits them: six splits per scenario are the floor.
+
+**Path.** Each 20 ms frame goes through Opus at 64 kbps and back, then into the
+real `SpeechBuffer` with the sweep on the same clock. "Open" is a microphone
+that always transmits. "Gated" is Discord's own voice activity closing the
+stream (an assumed 300 ms release). End = time from the true end of speech
+until the turn is sent.
+
+The harness also plays the clean track 20, 25 and 30 dB quieter while she
+is talking: her own voice leaking back through a headset, or a television in
+somebody's room. Every duck or turn out of that is her being cut off by
+something nobody said to her.
+
+`Apple M5`, node 24, hangover 500 ms, open microphone unless noted.
+
+| | result |
+|---|---|
+| end p50 / p95, clean + mild noise | 464 / 1140 ms |
+| end p50 / p95, heavy noise (5 dB) | 433 / 2300 ms |
+| noise interrupting her, noise only | 0 |
+| her voice leaking back at −20 / −25 / −30 dB: ducks | 6 / 0 / 0 |
+| turns missed, clean + mild noise (64) | 8 |
+| turns missed, quiet speaker (32) | 23 |
+| cpu per second of audio | 1.2 ms |
+
+### Known limits
+
+- **One-word answers.** Only vowels count as voice (an s sits above the speech
+  band and looks like hiss), and the onset is not counted. A quick "sì" or
+  "yeah" can fall under `MIN_SPEECH_MS` and be dropped. Counting them sends
+  fillers ("hmm", "ehm") as turns of their own too, and she answers those.
+  That only works once a filler followed by more speech can be joined to it.
+- **Quiet speakers.** A voice 20 dB under the rest is kept out by
+  `ENTER_MARGIN`, the same margin that keeps her echo out. The two are the same
+  signal, and the echo is the one that breaks a call.
+- **Music with a strong beat** under a voice can merge two turns. The level
+  is measured over the full band, so a kick drum at 55 Hz counts as loudness.
+
+---
+
 ## Rejected optimisations
 
 Kept here with their numbers so they are not proposed again.

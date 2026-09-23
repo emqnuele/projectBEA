@@ -185,12 +185,23 @@ one downsampler per speaker.
 | `ENTER_MARGIN` / `EXIT_MARGIN` | `200` / `100` | absolute level guards (digital-silence floor = 0) |
 | `ONSET_MS` | `60` | sustained voice before `started` |
 | `HANGOVER_MS` | `500` | sustained silence before `ended` |
+| `FLOOR_WINDOW_MS` | `2000` | the floor is never below the quietest level of this much received audio |
 | `MAX_VOICE_MS` | `15000` | continuous run released as non-voice (music/noise); floor set to run minimum |
 
-Floor adaptation: learned from non-voiced frames only (`FLOOR_FALL = 0.25`
-down, `FLOOR_RISE = 0.02` up); while speaking, only unvoiced frames above the
-floor can raise it. `silence(ms)` (no packets received) advances the hangover
-only, without touching the floor.
+Floor adaptation: learned from non-voiced frames (`FLOOR_FALL = 0.25` down,
+`FLOOR_RISE = 0.02` up). While speaking, only unvoiced frames above the floor
+can raise it. On top of that, the floor never sits below the quietest frame of
+the last `FLOOR_WINDOW_MS` of received audio. Speech always dips there:
+measured on real speech, gated or not, every two seconds contain a frame under a
+tenth of its level. A song or a steady hiss does not, so it becomes the room
+within two seconds instead of holding the gate until `MAX_VOICE_MS`. This rule
+only ever raises the floor. `silence(ms)` (no packets received) advances the
+hangover and restarts that window, without touching the floor.
+
+`ENTER_MARGIN` is what keeps a quiet voice out, and that is deliberate. A voice
+25 dB under somebody talking to her is, as a signal, her own echo in their
+headset or a television in their room. Discord's automatic gain brings real
+speakers far above it.
 
 **`SpeechBuffer.js`** — per-speaker turn accumulator.
 

@@ -20,8 +20,9 @@
  *  - **A noise floor that moves.** How far over *this person's own* background
  *    a sound has to climb, rather than over a number picked once. It follows a
  *    room getting quieter at once and a room getting louder slowly, and it is
- *    only ever learned from frames with no voice in them — a voice must not
- *    raise the bar it is being measured against.
+ *    learned from frames with no voice in them, or from a sound that has not
+ *    dipped once in two seconds, which no voice does — a voice must not raise
+ *    the bar it is being measured against.
  *  - **A limit on how long a voice can be one voice.** Everything above is a
  *    question about a frame, and no question about a frame can tell a sentence
  *    from a record playing. The answer that can is how long it has gone on.
@@ -101,6 +102,20 @@ const MAX_VOICE_MS = 15000;
 const FLOOR_FALL = 0.25;
 const FLOOR_RISE = 0.02;
 
+/**
+ * How long a sound has to go without a single dip before it is the room.
+ *
+ * While somebody held the gate the floor only learned from frames with no voice
+ * in them, so a sound inside the speech band — music, a television, hiss that
+ * started on the first packet — could never be learned, and held the gate until
+ * MAX_VOICE_MS, interrupting her on the way. A voice stops for a consonant or a
+ * breath all the time: measured on real speech, gated or not, no two seconds of
+ * it go by without a frame under a tenth of its level. A record does not stop.
+ * So the floor is never below the quietest the last two seconds have been. It
+ * only ever raises the bar, never lowers it.
+ */
+const FLOOR_WINDOW_MS = 2000;
+
 /** A two-pole band-pass as a cascade of one-pole sections, sample by sample. */
 function bandPass(lowHz, highHz) {
     const dt = 1 / SAMPLE_RATE;
@@ -162,6 +177,10 @@ function createVoiceActivity(options = {}) {
     // sound itself, which is what makes it the right thing to call the floor
     // when a run has gone on too long to be anybody talking.
     let quietest = null;
+    // the levels of the last FLOOR_WINDOW_MS of frames received, gaps excluded
+    const recent = new Float64Array(FLOOR_WINDOW_MS / FRAME_MS);
+    let recentAt = 0;
+    let recentSeen = 0;
 
     /** One frame's loudness, and how much of it sits in the speech band. */
     function measure(block, offset) {
@@ -226,6 +245,15 @@ function createVoiceActivity(options = {}) {
             for (let at = 0; at < usable; at += FRAME_BYTES) {
                 last = measure(block, at);
                 clock += FRAME_MS;
+
+                recent[recentAt] = last.level;
+                recentAt = (recentAt + 1) % recent.length;
+                recentSeen += 1;
+                if (recentSeen >= recent.length) {
+                    let steady = recent[0];
+                    for (let i = 1; i < recent.length; i += 1) if (recent[i] < steady) steady = recent[i];
+                    if (steady > floor) floor = steady;
+                }
 
                 const enter = Math.max(floor * ENTER_OVER_FLOOR, floor + ENTER_MARGIN);
                 const exit = Math.max(floor * EXIT_OVER_FLOOR, floor + EXIT_MARGIN);
@@ -306,6 +334,9 @@ function createVoiceActivity(options = {}) {
         silence(ms) {
             if (!(ms > 0)) return report({});
             clock += ms;
+            // a client that stopped transmitting stopped making the sound: no
+            // record plays with gaps in it. The floor itself is left alone.
+            recentSeen = 0;
             if (!speaking) {
                 loudSince = null;
                 return report({});
@@ -327,6 +358,9 @@ function createVoiceActivity(options = {}) {
             quietSince = null;
             startedAt = null;
             quietest = null;
+            recent.fill(0);
+            recentAt = 0;
+            recentSeen = 0;
         },
     };
 }
@@ -338,6 +372,7 @@ module.exports = {
     ONSET_MS,
     HANGOVER_MS,
     MAX_VOICE_MS,
+    FLOOR_WINDOW_MS,
     MIN_FOCUS,
     SPEECH_LOW_HZ,
     SPEECH_HIGH_HZ,

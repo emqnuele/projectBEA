@@ -11,7 +11,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { createVoiceActivity, HANGOVER_MS, ONSET_MS, MAX_VOICE_MS } = require('../classes/VoiceActivity');
+const {
+    createVoiceActivity, HANGOVER_MS, ONSET_MS, MAX_VOICE_MS, FLOOR_WINDOW_MS,
+} = require('../classes/VoiceActivity');
 const { createSpeechBuffer } = require('../classes/SpeechBuffer');
 const { createDownsampler, downsampleMono16k, pcmToWav, BYTES_PER_MS } = require('../classes/Pcm');
 
@@ -29,8 +31,12 @@ function pcm(ms, wave) {
 }
 
 // a harmonic stack in the speech range: crude, and deliberately the worst case
-// of one — a real voice has formants that put even more of it inside the band
+// of one — a real voice has formants that put even more of it inside the band.
+// It stops for a consonant once a second, the one thing every real voice does
+// and a record does not: measured on real speech, no two seconds go by without
+// a dip under a tenth of its level.
 const speech = (f0 = 140, amp = 6000) => (t) => {
+    if (t % 1 >= 0.98) return 0;
     let value = 0;
     for (let h = 1; h <= 18; h += 1) value += (1 / h) * Math.sin(2 * Math.PI * f0 * h * t);
     return (amp * value) / 2;
@@ -149,6 +155,17 @@ test('a silence long enough does end it', () => {
     assert.equal(vad.speaking, false);
 });
 
+test('a word that comes back just inside the hangover still belongs to the turn', () => {
+    const vad = createVoiceActivity();
+    feed(vad, ROOM);
+    feed(vad, VOICE);
+
+    const pause = feed(vad, pcm(HANGOVER_MS - 40, silence()));
+    const back = feed(vad, pcm(300, speech()));
+    assert.ok(![...pause, ...back].some((f) => f.ended), 'the sentence was cut at its last breath');
+    assert.equal(vad.speaking, true);
+});
+
 test('a turn ends once, not on every tick after it', () => {
     const vad = createVoiceActivity();
     feed(vad, ROOM);
@@ -186,6 +203,18 @@ test('music in somebody\'s room does not hold the gate open for the whole call',
     assert.ok(seen.some((f) => f.ended), 'it never let go');
     assert.equal(vad.speaking, false, 'the room is still holding the floor');
     assert.ok(vad.floor > 0, 'it let go without ever learning what the room sounds like');
+});
+
+test('a steady sound in the speech band lets go within seconds, not at the limit', () => {
+    const vad = createVoiceActivity();
+    // no room learned first: the first packet is already the record playing
+    const seen = feed(vad, pcm(6000, music()));
+    const endedAt = seen.findIndex((f) => f.ended) * 20;
+
+    assert.ok(endedAt > 0, 'it never let go');
+    assert.ok(endedAt <= FLOOR_WINDOW_MS + HANGOVER_MS + 200, `it held the floor for ${endedAt}ms`);
+    assert.equal(seen.slice(endedAt / 20 + 1).filter((f) => f.started).length, 0,
+        'the same sound was heard as a new voice');
 });
 
 test('the sound that held the floor too long does not take it again next frame', () => {
@@ -338,6 +367,29 @@ test('a short "sì sì" turns her down and gives the floor straight back', () =>
 
     const after = quiet(HANGOVER_MS + 200, buf, clock);
     assert.ok(after.some((r) => r.released), 'she never came back up');
+});
+
+test('her own voice leaking back through somebody\'s microphone is not them talking', () => {
+    const clock = { at: 0 };
+    const buf = createSpeechBuffer({ duckMs: 400, interruptMs: 4000 });
+
+    // 25 db under somebody talking to her: the echo of her in their headset, a
+    // television across the room. As a signal it is exactly a quiet voice, and
+    // hearing quiet voices is what turned every line of hers into a duck and a
+    // turn of her own words sent back to her
+    const seen = say(pcm(6000, speech(140, 190)), buf, clock, true);
+    assert.ok(!seen.some((r) => r.duck), 'she turned herself down for an echo');
+    assert.ok(!seen.some((r) => r.ended), 'an echo became something somebody said');
+    assert.equal(buf.take(), null);
+});
+
+test('music in the room cannot interrupt her', () => {
+    const clock = { at: 0 };
+    // the thresholds she ships with
+    const buf = createSpeechBuffer({ duckMs: 400, interruptMs: 4000 });
+
+    const seen = say(pcm(8000, music()), buf, clock, true);
+    assert.ok(!seen.some((r) => r.interrupt), 'a song stopped her mid-sentence');
 });
 
 test('a fan cannot accumulate its way to an interruption', () => {
@@ -647,9 +699,11 @@ test('the sweep between two packets does not wipe out being talked over', () => 
     assert.equal(seen.filter((s) => s.report.duck).length, 1, 'she was never turned down');
     const stopped = seen.filter((s) => s.report.interrupt);
     assert.equal(stopped.length, 1, 'she was never stopped');
-    // four seconds of voice over her, after the onset that believes it is one
-    assert.ok(stopped[0].at >= ONSET_MS + 4000, `stopped after ${stopped[0].at}ms`);
-    assert.ok(stopped[0].at <= ONSET_MS + 4000 + 40, `stopped only after ${stopped[0].at}ms`);
+    // four seconds of voice over her, after the onset that believes it is one;
+    // the consonant each second before that point is not voice and is not counted
+    const closures = 4 * 20;
+    assert.ok(stopped[0].at >= ONSET_MS + 4000 + closures, `stopped after ${stopped[0].at}ms`);
+    assert.ok(stopped[0].at <= ONSET_MS + 4000 + closures + 40, `stopped only after ${stopped[0].at}ms`);
 });
 
 test('the sweep between two packets does not end or hold up a turn', () => {
