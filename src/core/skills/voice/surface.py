@@ -75,6 +75,13 @@ class VoiceSurface(PlatformSkill):
             events=getattr(self.context, "event_manager", None),
         )
         self._floor_task: Optional[asyncio.Task] = None
+        # a batch from the call waits while somebody in it is still talking
+        if self.bus is not None and self.holds not in self.bus.holds:
+            self.bus.holds.append(self.holds)
+
+    def holds(self, items) -> bool:
+        """Whether this batch from the call has more of it on its way."""
+        return self.channel.busy() and any(p.surface == self.name for p in items)
 
     def _on_first_sound(self) -> None:
         """Sound actually reached the room: that, and not the send, ends the clock."""

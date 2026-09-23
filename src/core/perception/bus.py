@@ -1,11 +1,14 @@
 import asyncio
 import time
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from src.core.perception.types import Perception, PerceptionKind
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.perception.bus")
+
+# how often a held batch looks again at whether it is still held
+HOLD_POLL_S = 0.05
 
 
 def _running_loop() -> Optional[asyncio.AbstractEventLoop]:
@@ -47,6 +50,10 @@ class PerceptionBus:
         self._queue: "asyncio.Queue[Tuple[float, Perception]]" = asyncio.Queue()
         # the loop that drains the queue, once it has started to
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        # a sense that knows more of this batch is on its way: somebody in the
+        # call has started talking again, and their words are seconds from
+        # being a perception. Asked with the batch; `max_window` still caps it.
+        self.holds: List[Callable[[List[Perception]], bool]] = []
 
     def put(self, perception: Perception) -> None:
         """Enqueues from the loop or from any other thread."""
@@ -106,13 +113,19 @@ class PerceptionBus:
         ceiling = time.monotonic() + self.max_window
         while True:
             now = time.monotonic()
-            remaining = min(last + gap - now, ceiling - now)
-            if remaining <= 0:
+            until_ceiling = ceiling - now
+            if until_ceiling <= 0:
                 break
+            remaining = min(last + gap - now, until_ceiling)
+            if remaining <= 0:
+                # the gap is over, but the rest of what somebody is saying is not
+                if not self._held(items):
+                    break
+                remaining = min(HOLD_POLL_S, until_ceiling)
             try:
                 arrived, perception = await asyncio.wait_for(self._queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
-                break
+                continue
             items.append(perception)
             last = max(last, arrived)
             if window is None:
@@ -120,6 +133,16 @@ class PerceptionBus:
 
         items.sort(key=lambda p: p.ts)
         return items
+
+    def _held(self, items: List[Perception]) -> bool:
+        for hold in self.holds:
+            try:
+                if hold(items):
+                    return True
+            except Exception as e:
+                # a broken hold must cost the wait, never the batch
+                logger.debug(f"a batch hold failed: {e}")
+        return False
 
     def _gap(self, items: List[Perception]) -> float:
         """How long this batch waits for one more thing to arrive."""
