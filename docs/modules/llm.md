@@ -102,6 +102,10 @@ than one, wraps them in a `RotatingClient`:
   success, which is what actually spreads it.
 - **fallback** — on failure it walks the rest of the pool before giving up.
   `ModelPoolError` is raised only when every model failed.
+- **streaming** — `stream_complete` streams on the first client only, so she
+  can start speaking before the answer is finished. Whoever picks up after a
+  failure answers whole (`complete`): the first one may already have started a
+  line, and the mind drops that line and says the answer that actually arrived.
 
 A single 429 from one provider therefore does not make Bea mute.
 
