@@ -584,3 +584,67 @@ async def test_a_piece_pushed_while_it_is_still_arriving_is_the_piece_converted_
     frames = [unframe(f) for f in socket.binary]
     assert [h["seq"] for h, _ in frames] == [*range(len(frames) - 1), -1]
     assert b"".join(pcm for _, pcm in frames) == to_call_pcm(speech, rate)
+
+
+# --- her face after a line she was cut off in ---------------------------------
+
+
+class HalfSecond(OneShotTTS):
+    async def generate_audio(self, text, prosody=None):
+        self.rendered.append(text)
+        return np.zeros(12000, dtype=np.float32), 24000
+
+
+async def test_a_line_cut_off_does_not_go_on_miming_itself():
+    """The visuals of a line the room was hearing ran their whole length after
+    a barge-in, and at the end put her face and caption away — whatever she was
+    doing by then."""
+    import asyncio
+
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), HalfSecond(), avatar, caption, Events())
+    channel, socket = live_channel()
+    e.set_call(channel)
+
+    utterance = await e.speak("neutral", "Una frase sola ma abbastanza lunga da contare.",
+                              route="call")
+    assert e._visual_tasks, "no visuals were started for the line"
+
+    async def answer_the_stop():
+        while not socket.text:
+            await asyncio.sleep(0)
+        channel.on_message({"type": "playback", "utterance_id": utterance.id,
+                            "played_ms": 100, "state": "stopped"})
+
+    asyncio.create_task(answer_the_stop())
+    await e.interrupt()
+    clears, shown = caption.clears, len(avatar.shown)
+    await asyncio.sleep(0.7)
+
+    assert not e._visual_tasks, "the cut line's visuals outlived the interruption"
+    assert caption.clears == clears and len(avatar.shown) == shown, \
+        "a line she was cut off in touched her face after the interruption"
+
+
+async def test_the_next_line_takes_the_stage_from_the_one_before():
+    """The call cuts the older line when a new one starts; its visuals must
+    follow, or they clear the new line's caption when their time runs out."""
+    import asyncio
+
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), HalfSecond(), avatar, caption, Events())
+    channel, _ = live_channel()
+    e.set_call(channel)
+
+    await e.speak("neutral", "Prima frase, abbastanza lunga da contare.", route="call")
+    await asyncio.sleep(0.2)
+    await e.speak("happy", "Seconda frase, abbastanza lunga da contare.", route="call")
+    clears = caption.clears
+    await asyncio.sleep(0.4)
+
+    # the first line's half second is over; the second's is not
+    assert caption.clears == clears, "the older line cleared the newer one's caption"
+    assert avatar.shown[-1] == ("happy", "talking")
+    assert e.is_speaking
+    await asyncio.sleep(0.3)
+    assert avatar.shown[-1][1] != "talking"

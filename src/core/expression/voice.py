@@ -474,6 +474,8 @@ class Expression:
             if line.abandoned or line.cancelled or self.call is None:
                 return self.call.utterances.get(state["id"]) if self.call else None
             await self.call.end(state["id"])
+            # the call cuts an older line when this one starts, so its visuals go too
+            self._stop_visuals()
             task = asyncio.create_task(self._visual_only(
                 line.mood, line.caption or line.spoken,
                 state["spoken_ms"] / 1000.0, state["frames"],
@@ -559,6 +561,11 @@ class Expression:
         finally:
             self.is_speaking = False
 
+    def _stop_visuals(self) -> None:
+        """Stops miming lines the call is no longer playing."""
+        for task in list(self._visual_tasks):
+            task.cancel()
+
     # --- barge-in -----------------------------------------------------------
 
     async def interrupt(self, ramp_ms: int = 200) -> str:
@@ -589,6 +596,7 @@ class Expression:
             self.current_speech_task.cancel()
         if self.current_typing_task and not self.current_typing_task.done():
             self.current_typing_task.cancel()
+        self._stop_visuals()
 
         self.caption.clear()
         self.avatar.show(self._mood, self._resting)
