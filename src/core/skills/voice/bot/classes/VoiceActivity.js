@@ -66,11 +66,9 @@ const ENTER_OVER_FLOOR = 2.2;
 const EXIT_OVER_FLOOR = 1.35;
 
 // ...and the same in absolute terms, because a client that transmits digital
-// silence has a floor of zero and every ratio against it is meaningless. About
-// -55 and -61 dbfs: at 200 (-44) somebody far from their microphone, at -47,
-// never got a word in, and over digital silence nothing else is down there
-const ENTER_MARGIN = 60;
-const EXIT_MARGIN = 30;
+// silence has a floor of zero and every ratio against it is meaningless
+const ENTER_MARGIN = 200;
+const EXIT_MARGIN = 100;
 
 // how long a sound has to hold before it is somebody starting to talk. Shorter
 // than the browser's, because discord's own client has already decided this is
@@ -107,12 +105,14 @@ const FLOOR_RISE = 0.02;
 /**
  * How long a sound has to go without a single dip before it is the room.
  *
- * The floor only learned from frames with no voice in them, so a sound inside
- * the speech band — music, a television — could never be learned while it held
- * the gate, and held it until MAX_VOICE_MS. A voice stops for a consonant or a
+ * While somebody held the gate the floor only learned from frames with no voice
+ * in them, so a sound inside the speech band — music, a television, hiss that
+ * started on the first packet — could never be learned, and held the gate until
+ * MAX_VOICE_MS, interrupting her on the way. A voice stops for a consonant or a
  * breath all the time: measured on real speech, gated or not, no two seconds of
  * it go by without a frame under a tenth of its level. A record does not stop.
- * So the floor is never below the quietest the last two seconds have been.
+ * So the floor is never below the quietest the last two seconds have been. It
+ * only ever raises the bar, never lowers it.
  */
 const FLOOR_WINDOW_MS = 2000;
 
@@ -171,9 +171,6 @@ function createVoiceActivity(options = {}) {
     let speaking = false;
     let loudSince = null;
     let quietSince = null;
-    // a sound that broke into a silence and has not yet held long enough to
-    // be them talking again
-    let resumeSince = null;
     let startedAt = null;
     // the quietest this run has ever been. For a person it is the gap between
     // two words, which is the room; for a sound that never stops it is the
@@ -210,7 +207,6 @@ function createVoiceActivity(options = {}) {
             // from the first sound of it and not from the moment it was believed
             speakingMs: speaking && startedAt !== null ? clock - startedAt : 0,
             voicedMs: 0,
-            onsetVoicedMs: 0,
             level: 0,
             focus: 0,
             floor,
@@ -244,7 +240,6 @@ function createVoiceActivity(options = {}) {
             let started = false;
             let ended = false;
             let voicedMs = 0;
-            let onsetVoicedMs = 0;
             let last = { level: 0, focus: 0 };
 
             for (let at = 0; at < usable; at += FRAME_BYTES) {
@@ -279,11 +274,7 @@ function createVoiceActivity(options = {}) {
                     // the floor is only what this person's room sounds like when
                     // they are not talking into it, so it learns from that alone
                     if (!loud) {
-                        // a murmur under the bar is still a voice, not the room:
-                        // it may show the room got quieter, never that it got louder
-                        if (!voiced || last.level < floor) {
-                            floor += (last.level - floor) * (last.level < floor ? FLOOR_FALL : FLOOR_RISE);
-                        }
+                        floor += (last.level - floor) * (last.level < floor ? FLOOR_FALL : FLOOR_RISE);
                         loudSince = null;
                     } else {
                         if (loudSince === null) loudSince = clock - FRAME_MS;
@@ -291,9 +282,6 @@ function createVoiceActivity(options = {}) {
                             speaking = true;
                             started = true;
                             startedAt = loudSince;
-                            // every frame of the onset was loud and voiced: it was
-                            // speech, only not believed yet
-                            onsetVoicedMs = clock - loudSince;
                             loudSince = null;
                             quietSince = null;
                             quietest = last.level;
@@ -311,7 +299,6 @@ function createVoiceActivity(options = {}) {
                     if (!voiced && last.level > floor) {
                         floor += (last.level - floor) * FLOOR_RISE;
                     }
-                    resumeSince = null;
                     if (quietSince === null) quietSince = clock - FRAME_MS;
                     if (clock - quietSince >= hangoverMs) {
                         speaking = false;
@@ -319,20 +306,8 @@ function createVoiceActivity(options = {}) {
                         quietSince = null;
                         startedAt = null;
                     }
-                } else if (quietSince !== null) {
-                    // one frame used to cancel a silence where it takes three to
-                    // start a voice, so a key every few hundred milliseconds held
-                    // a turn open for as long as somebody typed. Breaking a
-                    // silence now takes as long as starting one — and the turn
-                    // waits for that proof rather than ending under a word coming
-                    // back. Held against the exit line, not the start one: a soft
-                    // last word over a noisy room sits between the two, and
-                    // measured, the start line cut those turns before they ended.
-                    if (resumeSince === null) resumeSince = clock - FRAME_MS;
-                    if (clock - resumeSince >= onsetMs) {
-                        quietSince = null;
-                        resumeSince = null;
-                    }
+                } else {
+                    quietSince = null;
                 }
 
                 // longer than anybody speaks without pausing: it was never a
@@ -344,12 +319,11 @@ function createVoiceActivity(options = {}) {
                     speaking = false;
                     ended = true;
                     quietSince = null;
-                    resumeSince = null;
                     startedAt = null;
                 }
             }
 
-            return report({ started, ended, voicedMs, onsetVoicedMs, level: last.level, focus: last.focus });
+            return report({ started, ended, voicedMs, level: last.level, focus: last.focus });
         },
 
         /**
@@ -367,7 +341,6 @@ function createVoiceActivity(options = {}) {
                 loudSince = null;
                 return report({});
             }
-            resumeSince = null;
             if (quietSince === null) quietSince = clock - ms;
             if (clock - quietSince < hangoverMs) return report({});
             speaking = false;
@@ -383,7 +356,6 @@ function createVoiceActivity(options = {}) {
             speaking = false;
             loudSince = null;
             quietSince = null;
-            resumeSince = null;
             startedAt = null;
             quietest = null;
             recent.fill(0);
