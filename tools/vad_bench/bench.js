@@ -65,6 +65,17 @@ function throughOpus(pcm) {
     return frames;
 }
 
+// how far under a voice talking to her an echo of her, or a television, sits
+const LEAK_DB = [-20, -25, -30];
+
+/** The same audio `db` quieter, as a leak into somebody's microphone would be. */
+function quieter(pcm, db) {
+    const gain = Math.pow(10, db / 20);
+    const out = Buffer.alloc(pcm.length);
+    for (let i = 0; i + 1 < pcm.length; i += 2) out.writeInt16LE(Math.round(pcm.readInt16LE(i) * gain), i);
+    return out;
+}
+
 /** Whether discord's gate would be sending the frame that ends at `t` ms. */
 function gateOpen(turns, t) {
     const s = t / 1000;
@@ -167,6 +178,7 @@ function main() {
     }
 
     const rows = [];
+    const leaks = [];
     for (const scenario of scenarios) {
         const frames = throughOpus(fs.readFileSync(path.join(opts.corpus, `${scenario.name}.pcm`)));
         const modes = scenario.turns.length && scenario.background === 'none' ? [false, true] : [false];
@@ -191,8 +203,35 @@ function main() {
         }
     }
 
+    // a voice that is not talking to her, heard while she talks: every duck and
+    // every turn out of it is her being cut off by her own echo
+    const clean = scenarios.find((s) => s.name === 'clean');
+    if (clean) {
+        const pcm = fs.readFileSync(path.join(opts.corpus, 'clean.pcm'));
+        for (const db of LEAK_DB) {
+            const frames = throughOpus(quieter(pcm, db));
+            for (const engine of opts.engines) {
+                for (const hangoverMs of opts.hangovers) {
+                    const over = run(frames, [], { factory: factories[engine], hangoverMs, gated: false, beaSpeaking: true });
+                    leaks.push({ db, engine, hangoverMs, ducks: over.ducks, interrupts: over.interrupts,
+                        turns: over.emitted.filter((e) => e.kept).length });
+                }
+            }
+        }
+    }
+
     print(rows, opts);
-    if (opts.json) fs.writeFileSync(opts.json, JSON.stringify(rows, null, 1));
+    printLeaks(leaks);
+    if (opts.json) fs.writeFileSync(opts.json, JSON.stringify({ rows, leaks }, null, 1));
+}
+
+function printLeaks(leaks) {
+    if (!leaks.length) return;
+    console.log('\nher voice leaking back while she talks (clean speech, quieter): ducks / interrupts / turns sent');
+    for (const l of leaks) {
+        console.log(`${l.engine.padEnd(7)} ${String(l.hangoverMs).padStart(4)} | ${String(l.db).padStart(3)} dB | `
+            + `${l.ducks} / ${l.interrupts} / ${l.turns}`);
+    }
 }
 
 function print(rows, opts) {
