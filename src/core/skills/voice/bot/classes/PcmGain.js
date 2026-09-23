@@ -2,20 +2,10 @@ const { Transform } = require('stream');
 
 const { SAMPLE_RATE, BYTES_PER_FRAME, BYTES_PER_MS } = require('./Pcm');
 
-/**
- * volume, with a ramp, on the way to the player — plus a running count of what
- * actually got through.
- *
- * both halves matter. the ramp is what turns "she stops mid-word" into "she
- * trails off", which is what people do; the count is how the brain learns how
- * much of a sentence the room really heard, instead of assuming all of it.
- */
+// volume with a ramp; its byte count only paces reports, the player's count is what was heard
 class PcmGain extends Transform {
     constructor(onProgress) {
-        // one 20ms frame of read-ahead. the player pulls this stream as it
-        // plays, so a small buffer is what keeps `playedMs` close to what the
-        // room really heard — a fat one would report a sentence as finished
-        // while a chunk of it is still sitting in memory
+        // every frame held here is a frame a fade reaches the room late
         super({ highWaterMark: BYTES_PER_FRAME * 960 });
         this.gain = 1;
         this.step = 0;
@@ -28,6 +18,17 @@ class PcmGain extends Transform {
 
     get playedMs() {
         return Math.round(this.bytesOut / BYTES_PER_MS);
+    }
+
+    // a resumed stream keeps the volume, and any ramp, of the one it replaces
+    continueFrom(previous) {
+        this.gain = previous.gain;
+        this.step = previous.step;
+        this.framesLeft = previous.framesLeft;
+        this.target = previous.target;
+        // and the frame the old stream was part-way through, so the new one
+        // finishes it rather than starting a sample out of phase
+        this.rest = previous.rest;
     }
 
     // linear over `ms`: short enough to feel immediate, long enough not to click

@@ -120,3 +120,35 @@ jobs:
       - name: Tests
         working-directory: src/core/skills/voice/bot
         run: npm test
+
+  voice-e2e:
+    # the brain's half and the bot's half only meet here: the real socket, the
+    # real VoiceManager and a real AudioPlayer, with no discord. The python job
+    # has no node_modules and the bot job has no python, so this needs its own.
+    name: voice call end to end (ubuntu)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # the e2e test skips itself without the bot's node_modules, which is
+      # exactly what "it never ran in ci" used to look like
+      - name: Install the bot
+        working-directory: src/core/skills/voice/bot
+        run: npm ci --omit=dev
+
+      - name: Tests
+        run: uv run pytest -q tests/test_voice_call_e2e.py

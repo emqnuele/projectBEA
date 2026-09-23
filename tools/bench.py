@@ -473,6 +473,43 @@ def scenario_stt(**_) -> List[Result]:
                     iterations=5, warmup=1)]
 
 
+def scenario_voice(**_) -> List[Result]:
+    """The local half of a spoken turn: a sentence becoming call-format audio.
+
+    The streaming path exists to make the first sound leave before the sentence
+    is finished, so what it costs on the event loop is worth a row. Only the
+    local work is measured here — no engine, no network — because a benchmark
+    that needs a key is a benchmark nobody runs. The engine and first-sound
+    numbers live in the pull request that introduced this path.
+    """
+    import numpy as np
+
+    from src.core.expression.pcm import CallResampler, to_call_pcm
+
+    # three seconds of 24 kHz mono, the shape a remote engine hands back
+    speech = (np.sin(np.arange(72000) / 7) * 0.2).astype(np.float32)
+    part = 2400  # 100 ms
+
+    def whole():
+        to_call_pcm(speech, 24000)
+
+    def streamed():
+        resampler = CallResampler()
+        for at in range(0, speech.size, part):
+            resampler.push(speech[at:at + part], 24000)
+        resampler.flush()
+
+    def first_frame():
+        # what the room waits on before any of the sentence has been heard
+        CallResampler().push(speech[:part], 24000)
+
+    return [
+        measure("voice_convert", "3 s whole", speech.size, whole),
+        measure("voice_convert", "3 s streamed", speech.size, streamed),
+        measure("voice_first_frame", "100 ms part", part, first_frame),
+    ]
+
+
 SCENARIOS: Dict[str, Callable[..., List[Result]]] = {
     "recall": scenario_recall,
     "recall_nofilter": scenario_recall_nofilter,
@@ -483,12 +520,13 @@ SCENARIOS: Dict[str, Callable[..., List[Result]]] = {
     "embed": scenario_embed,
     "history": scenario_history,
     "turnlog": scenario_turnlog,
+    "voice": scenario_voice,
     "stt": scenario_stt,
 }
 
 # the ones that need neither a model nor a download, so they are the ones a
 # contributor can actually reproduce
-FAST = ("recall", "recall_nofilter", "remember", "forget", "history", "turnlog")
+FAST = ("recall", "recall_nofilter", "remember", "forget", "history", "turnlog", "voice")
 
 
 # --- reporting ----------------------------------------------------------------

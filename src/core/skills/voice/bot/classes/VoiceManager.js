@@ -13,13 +13,13 @@ const {
 const prism = require('prism-media');
 const axios = require('axios');
 const FormData = require('form-data');
-const { PassThrough } = require('stream');
+const { PassThrough, pipeline } = require('stream');
 const config = require('../config');
 const whitelist = require('../whitelist');
 const { BrainLink } = require('./BrainLink');
 const { PcmGain } = require('./PcmGain');
 const { createSpeechBuffer } = require('./SpeechBuffer');
-const { pcmToWav } = require('./Pcm');
+const { pcmToWav, BYTES_PER_MS } = require('./Pcm');
 
 // discord encrypts voice end to end now (dave): without it the bot joins the
 // channel but stays deaf and mute on channels that enforce it. @discordjs/voice
@@ -41,9 +41,11 @@ function buildJoinOptions(guildId, channelId, adapterCreator) {
 // in SpeechBuffer, so there is no reason to hold a subscription open waiting.
 const STREAM_END_MS = 200;
 
-// how often a turn that has gone quiet is checked for being over. The hangover
-// is half a second, so this costs at most a tenth of one on top of it.
-const TICK_MS = 100;
+// how often a turn that has gone quiet is checked for being over: once a frame,
+// so the end of a turn is noticed within twenty milliseconds of the hangover
+// rather than up to a hundred after it. A sweep is a loop over the people in
+// the call, and costs nothing at this rate.
+const TICK_MS = 20;
 
 // the fade-down while someone talks over her, the fade-back-up once they stop,
 // and what she stops at. 0.25 is audible but gone quickly, and 200ms is short
@@ -58,6 +60,32 @@ const STOP_RAMP_MS = 200;
 // moves the connection to Signalling/Connecting on its own, and only a
 // connection still stuck in Disconnected after this is destroyed.
 const DISCONNECT_TIMEOUT_MS = 5000;
+
+// how long a pause mid-line still counts as her speaking; the utterance itself only ends on the brain's last frame
+const MAX_GAP_MS = 3000;
+
+// a sentence written whole passes the gain whole, so no fade or duck could reach it
+const FRAME_BYTES = 20 * BYTES_PER_MS;
+
+// measured 60-80ms between the gain and the room; a stop waits it out or cuts the fade short
+const FADE_LAG_MS = 80;
+
+// how much of a line the bot may hold ahead of the player before it is the
+// brain's pacing that is wrong rather than the bot's buffer. The bot cannot
+// pause a socket it does not own, so this is observed and said out loud
+// instead of being waited on
+const MAX_QUEUED_MS = 5000;
+
+// the player pads a line the brain has not fed for up to MAX_GAP_MS with
+// silence, and the room hears that silence. She is only speaking while a
+// packet has actually been played recently: a hole in her voice is not her
+// talking, and counting it as her made somebody speaking over the hole read
+// as talking over her
+const STARVED_MS = 150;
+
+function playerOptions(gapMs = MAX_GAP_MS) {
+    return { behaviors: { maxMissedFrames: Math.ceil(gapMs / 20) } };
+}
 
 class VoiceManager {
     constructor(client) {
@@ -101,7 +129,7 @@ class VoiceManager {
             const connection = joinVoiceChannel(
                 buildJoinOptions(guildId, channelId, adapterCreator));
 
-            const player = createAudioPlayer();
+            const player = createAudioPlayer(playerOptions());
             connection.subscribe(player);
 
             const connectionData = {
@@ -110,27 +138,15 @@ class VoiceManager {
                 channelId,
                 isSpeaking: false, // true when bea is actively playing audio
                 speech: null,      // the utterance currently on the wire
+                heardMs: 0,        // the player's count, for noticing a starved line
+                playedAt: 0,       // when a packet last reached the room
                 subscriptions: new Map(), // userid -> opusstream
                 speakers: new Map(),      // userid -> the turn they are taking
                 tick: null,               // the sweep that notices one ending
             };
 
             this.connections.set(guildId, connectionData);
-
-            // handle player events for speaking state tracking
-            player.on(AudioPlayerStatus.Playing, () => {
-                connectionData.isSpeaking = true;
-                console.log('[VoiceManager] Bea: SPEAKING');
-            });
-            player.on(AudioPlayerStatus.Idle, () => {
-                connectionData.isSpeaking = false;
-                console.log('[VoiceManager] Bea: IDLE');
-                this.finishUtterance(guildId, 'done');
-            });
-            player.on(AudioPlayerStatus.Paused, () => {
-                connectionData.isSpeaking = false;
-                console.log('[VoiceManager] Bea: PAUSED');
-            });
+            this.watchPlayer(guildId, player, connectionData);
 
             // every state is logged, not just ready and disconnected: a handshake
             // that never completes looks exactly like a working call otherwise
@@ -169,6 +185,29 @@ class VoiceManager {
             console.error(`[VoiceManager] Error joining:`, error);
             return false;
         }
+    }
+
+    watchPlayer(guildId, player, connectionData) {
+        player.on(AudioPlayerStatus.Playing, () => {
+            connectionData.isSpeaking = true;
+            connectionData.playedAt = Date.now();
+            console.log('[VoiceManager] Bea: SPEAKING');
+        });
+        player.on(AudioPlayerStatus.Idle, () => {
+            connectionData.isSpeaking = false;
+            const speech = connectionData.speech;
+            if (speech && !speech.ended) {
+                // ran dry mid-line: reporting it done made the brain drop the rest
+                console.log('[VoiceManager] Bea: WAITING for the rest of her line');
+                return;
+            }
+            console.log('[VoiceManager] Bea: IDLE');
+            this.finishUtterance(guildId, 'done');
+        });
+        player.on(AudioPlayerStatus.Paused, () => {
+            connectionData.isSpeaking = false;
+            console.log('[VoiceManager] Bea: PAUSED');
+        });
     }
 
     handleLeave(guildId) {
@@ -322,9 +361,24 @@ class VoiceManager {
         const data = this.connections.get(guildId);
         if (!data) return;
         const now = Date.now();
+        const beaSpeaking = this.audible(data, now);
         for (const [userId, speaker] of data.speakers) {
-            this.act(guildId, userId, speaker.buffer.gap(now));
+            this.act(guildId, userId, speaker.buffer.gap(now, { beaSpeaking }));
         }
+    }
+
+    // whether sound of hers is actually reaching the room. The player keeps a
+    // starved line in the Playing state while it pads it with silence, so the
+    // timestamp of the last packet it took is what tells a voice from a hole
+    audible(data, now) {
+        const speech = data.speech;
+        if (!data.isSpeaking || !speech) return false;
+        const heard = this.heardOf(speech);
+        if (heard > (data.heardMs || 0)) {
+            data.heardMs = heard;
+            data.playedAt = now;
+        }
+        return data.playedAt > 0 && now - data.playedAt <= STARVED_MS;
     }
 
     createStream(guildId, userId) {
@@ -344,9 +398,10 @@ class VoiceManager {
         pcmStream.on('data', (chunk) => {
             // read her speaking state per chunk rather than once when the stream
             // opened: she can start or stop in the middle of somebody's sentence
+            const now = Date.now();
             this.act(guildId, userId, speaker.buffer.push(chunk, {
-                now: Date.now(),
-                beaSpeaking: data.isSpeaking,
+                now,
+                beaSpeaking: this.audible(data, now),
             }));
         });
 
@@ -499,35 +554,124 @@ class VoiceManager {
         let speech = data.speech;
         if (!speech || speech.id !== header.utterance_id) {
             speech = this.openUtterance(guildId, header.utterance_id);
+        } else if (pcm && pcm.length && !speech.ended && !this.canTakeMore(data, speech)) {
+            this.resumeUtterance(data, speech);
         }
-        if (pcm && pcm.length) speech.source.write(pcm);
-        if (header.last) speech.source.end();
+        if (pcm && pcm.length) {
+            speech.writtenMs += pcm.length / BYTES_PER_MS;
+            for (let at = 0; at < pcm.length; at += FRAME_BYTES) {
+                // the return value is the player pushing back. Ignoring it is
+                // fine — the bytes are buffered, never lost — but a line held
+                // seconds ahead of the room is a pacing bug worth naming
+                if (!speech.source.write(pcm.subarray(at, at + FRAME_BYTES))) {
+                    speech.pushedBack = true;
+                }
+            }
+            this.warnIfQueuedAhead(speech);
+        }
+        if (header.last) this.endUtterance(guildId, data, speech);
+    }
+
+    endUtterance(guildId, data, speech) {
+        speech.ended = true;
+        speech.source.end();
+        // already ran dry: no player will go idle to report it
+        if (data.player.state.status === AudioPlayerStatus.Idle) this.finishUtterance(guildId, 'done');
     }
 
     openUtterance(guildId, utteranceId) {
         const data = this.connections.get(guildId);
         this.finishUtterance(guildId, 'stopped');
 
-        const source = new PassThrough();
-        const gain = new PcmGain((playedMs) => this.report(utteranceId, playedMs, 'playing'));
-        source.pipe(gain);
-
-        // raw is 48khz stereo s16le — exactly what the brain already sends, so
-        // nothing here has to decode, resample or guess a format
-        const resource = createAudioResource(gain, { inputType: StreamType.Raw });
-        data.speech = { id: utteranceId, source, gain };
-        data.player.play(resource);
+        data.speech = { id: utteranceId, ended: false, playedBefore: 0, writtenMs: 0, resumed: 0 };
+        // the player's count starts over for the new line, so the starved
+        // tracker must too or it would keep reading the old line's count.
+        // playedAt too, or the new line reads as speaking before its first
+        // packet for up to STARVED_MS after the old line
+        data.heardMs = 0;
+        data.playedAt = 0;
+        this.startStream(data, data.speech);
         this.report(utteranceId, 0, 'playing');
         return data.speech;
+    }
+
+    // a stream the player gave up on cannot be played again
+    resumeUtterance(data, speech) {
+        const before = speech.gain;
+        const abandoned = { source: speech.source, resource: speech.resource };
+        // marked before the player switches resources: the destroy that
+        // follows would otherwise reach the error log as a failure
+        if (abandoned.source) abandoned.source.superseded = true;
+        speech.playedBefore = this.heardOf(speech);
+        speech.resumed += 1;
+        this.startStream(data, speech);
+        speech.gain.continueFrom(before);
+        this.dispose(abandoned);
+    }
+
+    // tears down the streams of a line the player has moved off of.
+    // `superseded` keeps the teardown out of the error log: a pipeline that
+    // closes because it was replaced is not a pipeline that failed
+    dispose(streams) {
+        if (!streams.source) return;
+        streams.source.superseded = true;
+        streams.source.destroy();
+        if (streams.resource) streams.resource.playStream.destroy();
+    }
+
+    startStream(data, speech) {
+        const source = new PassThrough();
+        const gain = new PcmGain(
+            () => this.report(speech.id, this.heardOf(speech), 'playing', speech.resumed));
+        // our own encoder, so a third of a second is not queued between a fade and the room
+        const encoder = new prism.opus.Encoder({
+            rate: 48000, channels: 2, frameSize: 960,
+            readableHighWaterMark: 1, writableHighWaterMark: FRAME_BYTES,
+        });
+        pipeline(source, gain, encoder, (error) => {
+            // the callback is the only place an encoder or stream error lands,
+            // and swallowing it hid a dead encoder behind a line that closed
+            // as if the room had heard it. The player destroys the encoder on
+            // purpose when it moves to another resource or stops, and that
+            // closes the pipeline as "premature"; anything else is a failure
+            if (!error || source.superseded) return;
+            if (error.code === 'ERR_STREAM_PREMATURE_CLOSE') return;
+            console.error(`[VoiceManager] audio pipeline failed: ${error.message}`);
+        });
+
+        const resource = createAudioResource(encoder, { inputType: StreamType.Opus });
+        Object.assign(speech, { source, gain, resource });
+        data.player.play(resource);
+    }
+
+    // a line the bot is holding seconds ahead of the room: the brain pushes a
+    // piece at a time, so this means it is sending faster than playback
+    warnIfQueuedAhead(speech) {
+        if (!speech.pushedBack || speech.warnedAhead) return;
+        const ahead = Math.round(speech.writtenMs - this.heardOf(speech));
+        if (ahead <= MAX_QUEUED_MS) return;
+        speech.warnedAhead = true;
+        console.warn(`[VoiceManager] ${ahead}ms of ${speech.id} is queued ahead of the room`);
+    }
+
+    // the player's count, the only one not ahead of the room
+    heardOf(speech) {
+        return speech.playedBefore + (speech.resource ? speech.resource.playbackDuration : 0);
+    }
+
+    canTakeMore(data, speech) {
+        const { resource } = speech;
+        return data.player.state.resource === resource && !resource.ended
+            && resource.silenceRemaining === -1;
     }
 
     finishUtterance(guildId, state) {
         const data = this.connections.get(guildId);
         if (!data || !data.speech) return;
-        const { id, source, gain } = data.speech;
+        const speech = data.speech;
         data.speech = null;
-        source.end();
-        this.report(id, gain.playedMs, state);
+        speech.source.end();
+        this.report(speech.id, this.heardOf(speech), state, speech.resumed);
     }
 
     /** fades her out and stops. the ramp is the difference between trailing off
@@ -547,7 +691,7 @@ class VoiceManager {
             if (!still || still.speech !== speech) return;
             this.finishUtterance(guildId, 'stopped');
             still.player.stop();
-        }, rampMs);
+        }, rampMs + FADE_LAG_MS);
     }
 
     /** turns her down without stopping her: someone said "sì sì", not "no aspetta" */
@@ -562,14 +706,17 @@ class VoiceManager {
     cancelPending() {
         const guildId = this.currentGuild();
         const data = guildId ? this.connections.get(guildId) : null;
-        if (data && data.speech) data.speech.source.end();
+        if (data && data.speech) this.endUtterance(guildId, data, data.speech);
     }
 
-    report(utteranceId, playedMs, state) {
-        this.link.send({ type: 'playback', utterance_id: utteranceId, played_ms: playedMs, state });
+    report(utteranceId, playedMs, state, resumed = 0) {
+        this.link.send({
+            type: 'playback', utterance_id: utteranceId, played_ms: playedMs, state, resumed,
+        });
     }
 }
 
 module.exports = VoiceManager;
 module.exports.buildJoinOptions = buildJoinOptions;
 module.exports.DISCONNECT_TIMEOUT_MS = DISCONNECT_TIMEOUT_MS;
+module.exports.playerOptions = playerOptions;

@@ -149,3 +149,99 @@ def test_edge_moves_the_configured_voice_rather_than_replacing_it():
     pitch, rate, volume = edge._voice_for(Prosody(rate=1.12, pitch_hz=9.6, volume=1.08))
     assert (pitch, rate) == ("+15Hz", "+23%")
     assert volume == "+44%"
+
+
+async def test_edge_decodes_in_memory_and_leaves_no_file_behind(monkeypatch, tmp_path):
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    from src.modules.tts import edge_tts_wrapper
+
+    clip = io.BytesIO()
+    sf.write(clip, (np.sin(np.arange(24000) / 10) * 0.3).astype("float32"), 24000, format="MP3")
+    mp3 = clip.getvalue()
+
+    class Communicate:
+        def __init__(self, text, voice, **kwargs):
+            pass
+
+        async def stream(self):
+            yield {"type": "WordBoundary"}
+            for at in range(0, len(mp3), 700):
+                yield {"type": "audio", "data": mp3[at:at + 700]}
+
+    monkeypatch.setattr(edge_tts_wrapper.edge_tts, "Communicate", Communicate)
+    monkeypatch.chdir(tmp_path)
+
+    audio, rate = await EdgeTTSWrapper(voice="v").generate_audio("ciao")
+
+    expected, _ = sf.read(io.BytesIO(mp3), dtype="float32")
+    assert rate == 24000
+    assert np.array_equal(audio, expected)
+    assert list(tmp_path.iterdir()) == [], "a temporary file was written"
+
+
+async def test_edge_streams_the_very_same_samples_it_would_render_whole(monkeypatch):
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    from src.modules.tts import edge_tts_wrapper
+
+    clip = io.BytesIO()
+    speech = (np.sin(np.arange(72000) / 7) * 0.3).astype("float32")
+    sf.write(clip, speech, 24000, format="MP3")
+    mp3 = clip.getvalue()
+
+    class Communicate:
+        def __init__(self, text, voice, **kwargs):
+            pass
+
+        async def stream(self):
+            for at in range(0, len(mp3), 720):
+                yield {"type": "audio", "data": mp3[at:at + 720]}
+
+    monkeypatch.setattr(edge_tts_wrapper.edge_tts, "Communicate", Communicate)
+    edge = EdgeTTSWrapper(voice="v")
+
+    parts = [part async for part in edge.generate_stream("ciao")]
+    whole, rate = await edge.generate_audio("ciao")
+
+    assert len(parts) > 1, "nothing was handed over before the end"
+    assert all(r == rate for _, r in parts)
+    assert np.array_equal(np.concatenate([p for p, _ in parts]), whole)
+
+
+async def test_edge_says_so_when_a_prefix_stops_being_a_prefix(monkeypatch, caplog):
+    """The streaming rests on each longer stretch decoding to the start of the
+    whole. A format change that broke that would have the room hear a repeat or
+    a skip, and nothing downstream can see it, so the wrapper has to name it
+    rather than hand over audio that only sounds right until it doesn't."""
+    import numpy as np
+
+    from src.modules.tts import edge_tts_wrapper
+
+    class Communicate:
+        def __init__(self, text, voice, **kwargs):
+            pass
+
+        async def stream(self):
+            for _ in range(8):
+                yield {"type": "audio", "data": b"\x00" * 900}
+
+    def broken_decode(mp3):
+        # every longer stretch opens somewhere else, instead of extending
+        n = max(1, len(mp3))
+        return np.full(n, float(n), dtype="float32"), 24000
+
+    monkeypatch.setattr(edge_tts_wrapper.edge_tts, "Communicate", Communicate)
+    monkeypatch.setattr(edge_tts_wrapper, "_decode", broken_decode)
+
+    with caplog.at_level("ERROR", logger="bea.tts.edge"):
+        parts = [part async for part in EdgeTTSWrapper(voice="v").generate_stream("ciao")]
+
+    assert parts, "the broken stream stopped delivering audio entirely"
+    assert "prefixes" in caplog.text, "the broken prefix invariant went unnamed"

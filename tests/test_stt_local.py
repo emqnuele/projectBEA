@@ -512,3 +512,40 @@ def test_the_progress_of_the_download_is_reported_as_it_lands(monkeypatch, tmp_p
             time.sleep(0.01)
 
     assert any("%" in line for line in said), said
+
+
+def test_the_bots_wav_is_read_as_exactly_what_ffmpeg_would_make_of_it(tmp_path):
+    import wave
+
+    import numpy as np
+    from faster_whisper.audio import decode_audio
+
+    from src.modules.STT.faster_whisper_stt import _plain_wav
+
+    path = tmp_path / "turn.wav"
+    samples = (np.random.default_rng(3).standard_normal(16000) * 4000).astype("<i2")
+    with wave.open(str(path), "wb") as clip:
+        clip.setnchannels(1)
+        clip.setsampwidth(2)
+        clip.setframerate(16000)
+        clip.writeframes(samples.tobytes())
+
+    assert np.array_equal(_plain_wav(str(path)), decode_audio(str(path), sampling_rate=16000))
+
+
+def test_any_other_audio_is_left_to_ffmpeg(tmp_path):
+    import wave
+
+    from src.modules.STT.faster_whisper_stt import _plain_wav
+
+    stereo = tmp_path / "stereo.wav"
+    with wave.open(str(stereo), "wb") as clip:
+        clip.setnchannels(2)
+        clip.setsampwidth(2)
+        clip.setframerate(48000)
+        clip.writeframes(b"\0\0\0\0" * 480)
+    assert _plain_wav(str(stereo)) is None
+
+    not_a_wav = tmp_path / "clip.mp3"
+    not_a_wav.write_bytes(b"ID3 not really")
+    assert _plain_wav(str(not_a_wav)) is None

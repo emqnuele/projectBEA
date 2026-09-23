@@ -7,6 +7,7 @@ assembly, and each transport only maps its own wire format onto normalized
 events.
 """
 
+import asyncio
 import json
 import time
 from typing import Any, AsyncIterator, Dict, Iterator, List, Optional, Tuple, Union
@@ -29,6 +30,55 @@ REQUEST_TIMEOUT = 120.0
 # permanent blacklist over one bad request would lose speaking-early for the
 # whole session; this forgets a transient refusal in a couple of minutes.
 NO_STREAM_COOLDOWN = 120.0
+
+# how long an idle connection to a provider waits for the next call. A new one
+# is dns, tcp and tls before the first token — 110 to 190ms a call, measured —
+# and people pause for longer than aiohttp's own fifteen seconds all the time.
+KEEPALIVE_SECONDS = 90.0
+
+# a provider's address does not move between two turns
+DNS_CACHE_SECONDS = 300
+
+# one pool of connections per event loop, shared by every client on it. A
+# session belongs to the loop that made it, and the doctor runs on its own.
+_sessions: Dict[asyncio.AbstractEventLoop, aiohttp.ClientSession] = {}
+
+
+def _session() -> aiohttp.ClientSession:
+    """This loop's connection pool, made the first time it is asked for."""
+    loop = asyncio.get_running_loop()
+    session = _sessions.get(loop)
+    if session is not None and not getattr(session, "closed", False):
+        return session
+    for gone in [other for other in _sessions if other.is_closed()]:
+        del _sessions[gone]
+    session = aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
+        connector=aiohttp.TCPConnector(keepalive_timeout=KEEPALIVE_SECONDS,
+                                       ttl_dns_cache=DNS_CACHE_SECONDS),
+    )
+    _sessions[loop] = session
+    return session
+
+
+async def close_sessions() -> None:
+    """Closes this loop's connections. Shutdown calls it once the mind is quiet."""
+    session = _sessions.pop(asyncio.get_running_loop(), None)
+    close = getattr(session, "close", None)
+    if close is not None:
+        await close()
+
+
+def _stale(error: BaseException) -> bool:
+    """A pooled connection the provider closed while it sat idle.
+
+    It fails before a byte of the answer exists, so sending the request again
+    on a fresh connection is the same request, not a second one. A host that
+    cannot be reached at all is not this, and is left to the pool's failover.
+    """
+    if isinstance(error, aiohttp.ClientConnectorError):
+        return False
+    return isinstance(error, (aiohttp.ServerDisconnectedError, aiohttp.ClientOSError))
 
 
 class _StreamRefused(RuntimeError):
@@ -98,18 +148,26 @@ class AsyncLLMClient(LLMClient):
     async def _post(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}{self.query_path}"
         headers = {"Content-Type": "application/json", **self.auth_headers()}
-        timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, json=payload) as response:
-                body = await response.text()
-                if response.status >= 400:
-                    raise ProviderError(
-                        f"{self.model_name}: HTTP {response.status}: {body[:500]}")
-                try:
-                    return json.loads(body)
-                except json.JSONDecodeError as e:
-                    raise ProviderError(
-                        f"{self.model_name}: not JSON: {body[:500]}") from e
+        retried = False
+        while True:
+            answered = False
+            try:
+                async with _session().post(url, headers=headers, json=payload) as response:
+                    answered = True
+                    body = await response.text()
+                    if response.status >= 400:
+                        raise ProviderError(
+                            f"{self.model_name}: HTTP {response.status}: {body[:500]}")
+                    try:
+                        return json.loads(body)
+                    except json.JSONDecodeError as e:
+                        raise ProviderError(
+                            f"{self.model_name}: not JSON: {body[:500]}") from e
+            except Exception as e:
+                if answered or retried or not _stale(e):
+                    raise
+                retried = True
+                logger.debug(f"{self.model_name}: an idle connection had gone ({e}); sending again")
 
     async def _send(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """One request, retried without the reasoning fields if refused.
@@ -139,30 +197,39 @@ class AsyncLLMClient(LLMClient):
         """
         url = f"{self.base_url}{self.query_path}"
         headers = {"Content-Type": "application/json", **self.auth_headers()}
-        timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status >= 400:
-                    body = await response.text()
-                    raise ProviderError(
-                        f"{self.model_name}: HTTP {response.status}: {body[:500]}")
-                event = ""
-                buffer = ""
-                async for raw in response.content:
-                    buffer += raw.decode("utf-8", errors="replace")
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        for item in _parse_line(line, event):
-                            if item[0] == "event":
-                                event = item[1]
-                            else:
+        retried = False
+        while True:
+            answered = False
+            try:
+                async with _session().post(url, headers=headers, json=payload) as response:
+                    answered = True
+                    if response.status >= 400:
+                        body = await response.text()
+                        raise ProviderError(
+                            f"{self.model_name}: HTTP {response.status}: {body[:500]}")
+                    event = ""
+                    buffer = ""
+                    async for raw in response.content:
+                        buffer += raw.decode("utf-8", errors="replace")
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            for item in _parse_line(line, event):
+                                if item[0] == "event":
+                                    event = item[1]
+                                else:
+                                    yield event, item[1]
+                                    event = ""
+                    # a truncated final chunk still carries a block worth yielding
+                    if buffer.strip():
+                        for item in _parse_line(buffer, event):
+                            if item[0] != "event":
                                 yield event, item[1]
-                                event = ""
-                # a truncated final chunk still carries a block worth yielding
-                if buffer.strip():
-                    for item in _parse_line(buffer, event):
-                        if item[0] != "event":
-                            yield event, item[1]
+                    return
+            except Exception as e:
+                if answered or retried or not _stale(e):
+                    raise
+                retried = True
+                logger.debug(f"{self.model_name}: an idle connection had gone ({e}); sending again")
 
     # --- payloads: each transport maps its own wire format ----------------
 

@@ -3,6 +3,7 @@ import os
 from typing import Optional
 
 import requests
+from urllib3.exceptions import NewConnectionError
 
 from src.core.config import BrainConfig
 from src.core.language import whisper_code
@@ -33,6 +34,9 @@ class OpenRouterSTT(STTInterface):
         # a turn too short to place borrows the last one that was not. Same
         # problem here as on the local engine: it is the audio, not the api
         self.heard = HeardLanguage()
+        # one connection kept between turns: a bare `requests.post` opened a new
+        # one for every transcription, handshake and all
+        self._http = requests.Session()
 
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         # resolved rather than passed through: the api rejects `jp` and `it-IT`,
@@ -74,7 +78,7 @@ class OpenRouterSTT(STTInterface):
             if pin:
                 payload["language"] = pin
 
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            response = self._post(url, headers, payload)
             if response.status_code == 200:
                 result = response.json()
                 text = result.get("text", "")
@@ -92,6 +96,21 @@ class OpenRouterSTT(STTInterface):
             logger.error(f"OpenRouter transcription failed: {e}")
             return ""
 
+    def _post(self, url: str, headers: dict, payload: dict):
+        """One request, sent again once if the kept connection had gone.
+
+        The far end closes an idle connection when it likes, and the request
+        that finds out fails before it was ever read — so it is the same
+        request, not a second one. A timeout is not that, and is not retried.
+        """
+        try:
+            return self._http.post(url, headers=headers, json=payload, timeout=30)
+        except requests.ConnectionError as e:
+            if not _stale(e):
+                raise
+            logger.debug(f"the kept connection had gone ({e}); sending again")
+            return self._http.post(url, headers=headers, json=payload, timeout=30)
+
     def reload_config(self, config) -> None:
         """Updates model and API key if they changed."""
         raw_model = config.stt_model or "openai/whisper-large-v3-turbo"
@@ -108,3 +127,15 @@ class OpenRouterSTT(STTInterface):
         if new_key and new_key != self.key:
             self.key = new_key
             logger.info("OpenRouter API key reloaded.")
+
+
+def _stale(error: requests.ConnectionError) -> bool:
+    """A kept connection that had gone, rather than a host that cannot be reached.
+
+    A new connection that fails — refused, unresolvable, a bad certificate —
+    would only fail again, and a timeout would be waited out twice.
+    """
+    if isinstance(error, (requests.Timeout, requests.exceptions.SSLError)):
+        return False
+    reason = getattr(error.args[0], "reason", None) if error.args else None
+    return not isinstance(reason, NewConnectionError)

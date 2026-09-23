@@ -138,6 +138,10 @@ Groq's Whisper endpoint. Fast enough for near-realtime.
 - **Config:** `stt_provider: "groq"`, `stt_model` (default `whisper-large-v3-turbo`)
 - **Key:** `GROQ_API_KEY` env → `config.json` → `None`
 
+The connection to Groq is kept for `KEEPALIVE_SECONDS` (90) between turns. The
+SDK's own default is five seconds, shorter than most pauses in a call, and a
+new connection is a handshake in front of every transcription.
+
 ---
 
 ## OpenRouter (`openrouter_stt.py`)
@@ -151,6 +155,11 @@ there and would rather not add a Groq account.
 Model ids are namespaced here, so a bare `whisper-large-v3-turbo` is rewritten
 to `openai/whisper-large-v3-turbo` on both load and hot reload — an id copied
 from the Groq config keeps working.
+
+Requests go through one `requests.Session`, so the connection is kept between
+turns. A request that finds the kept connection closed by the far end is sent
+once more; a timeout, a refused or unresolvable host and a bad certificate are
+not.
 
 ---
 

@@ -7,7 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { PcmGain, BYTES_PER_MS } = require('../classes/PcmGain');
-const { unframe } = require('../classes/BrainLink');
+const { unframe, linkOptions } = require('../classes/BrainLink');
 
 // n milliseconds of full-scale 48khz stereo s16le
 function tone(ms) {
@@ -73,6 +73,23 @@ test('a chunk that splits mid-frame does not lose a sample', async () => {
     assert.equal(out.length, input.length);
 });
 
+test('a resumed stream finishes the frame the old one was part-way through', () => {
+    // a frame split across the two streams must be completed by the one that
+    // resumes, or every later sample is read half a frame out of phase
+    const input = tone(10);
+    const first = new PcmGain();
+    first.write(input.subarray(0, 7)); // emits one frame, holds three bytes
+
+    const second = new PcmGain();
+    second.continueFrom(first);
+    const out = [];
+    second.on('data', (d) => out.push(d));
+    second.write(input.subarray(7, 10)); // three bytes, plus the three held
+
+    assert.equal(Buffer.concat(out).length, 4, 'the split frame was not completed');
+    assert.equal(second.rest.length, 2, 'the remainder was not kept for the next frame');
+});
+
 test('progress is reported while she is still talking', async () => {
     // the player pulls this stream in frames, which is what makes the count
     // track what was heard instead of what was queued
@@ -102,4 +119,23 @@ test('a pushed audio frame is read back as its header and its samples', () => {
 
 test('a frame that arrives short is refused rather than half-read', () => {
     assert.equal(unframe(Buffer.from([0, 0, 0, 10, 1, 2])), null);
+});
+
+test('her voice travels uncompressed, and still carries the token', () => {
+    // raw pcm barely shrinks, and the brain would pay for the attempt on its
+    // event loop in front of every sentence she says
+    const options = linkOptions('abc');
+    assert.equal(options.perMessageDeflate, false);
+    assert.equal(options.headers.Authorization, 'Bearer abc');
+});
+
+test('a sentence that arrives late is a pause in her line, not the end of it', () => {
+    const { playerOptions } = require('../classes/VoiceManager');
+    const { createAudioPlayer } = require('@discordjs/voice');
+
+    // five frames was the default: a tenth of a second between two sentences
+    // ended the utterance and the brain dropped the rest of the line
+    const player = createAudioPlayer(playerOptions());
+    assert.equal(player.behaviors.maxMissedFrames * 20, 3000);
+    player.stop(true);
 });

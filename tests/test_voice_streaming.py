@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from src.core.expression.chunking import SpeechChunker, split_for_speech
-from src.core.expression.pcm import duration_ms
+from src.core.expression.pcm import CALL_BYTES_PER_MS, duration_ms
 from src.core.expression.voice import Expression
 from src.core.skills.voice.channel import VoiceChannel, unframe
 from src.interfaces.base_interfaces import TTSInterface
@@ -310,3 +310,374 @@ async def test_with_no_call_nothing_is_synthesised_for_one():
     e = expression(tts)
     assert await e.speak("neutral", "ciao a tutti quanti voi", route="call") is None
     assert tts.rendered == []
+
+
+async def test_the_room_hears_the_start_of_a_piece_before_the_engine_has_finished_it():
+    """Gathering every part of a sentence first threw away what a streaming
+    engine is for: the first block could have been playing all along."""
+    import asyncio
+
+    class Held(OneShotTTS):
+        def __init__(self):
+            super().__init__()
+            self.go_on = asyncio.Event()
+
+        async def generate_stream(self, text, prosody=None):
+            self.rendered.append(text)
+            yield np.zeros(800, dtype=np.float32), 24000
+            await self.go_on.wait()
+            yield np.zeros(800, dtype=np.float32), 24000
+
+    tts = Held()
+    e = expression(tts)
+    channel, socket = live_channel()
+    e.set_call(channel)
+
+    line = e.open_line("neutral", route="call")
+    line.say("Una frase sola ma abbastanza lunga da contare.")
+    line.close_input()
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    assert len(socket.binary) == 1, "nothing reached the call until the whole piece existed"
+
+    tts.go_on.set()
+    await line.close()
+    headers = [unframe(f)[0] for f in socket.binary]
+    assert [h["seq"] for h in headers] == [0, 1, -1]
+    assert line.spoken == "Una frase sola ma abbastanza lunga da contare."
+
+
+async def test_a_line_dropped_halfway_is_still_ended_in_the_call():
+    import asyncio
+
+    class Held(OneShotTTS):
+        def __init__(self):
+            super().__init__()
+            self.never = asyncio.Event()
+
+        async def generate_audio(self, text, prosody=None):
+            self.rendered.append(text)
+            if len(self.rendered) > 1:
+                await self.never.wait()
+            return np.zeros(2400, dtype=np.float32), 24000
+
+    e = expression(Held())
+    channel, socket = live_channel()
+    e.set_call(channel)
+
+    line = e.open_line("neutral", route="call")
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert len(socket.binary) == 1
+
+    await line.cancel()
+    last = unframe(socket.binary[-1])[0]
+    assert last["seq"] == -1 and last["last"] is True, "the bot was left holding the utterance"
+
+
+async def test_a_line_dropped_before_a_sound_sends_nothing():
+    e = expression(OneShotTTS())
+    channel, socket = live_channel()
+    e.set_call(channel)
+
+    line = e.open_line("neutral", route="call")
+    await line.cancel()
+    assert socket.binary == []
+
+
+@pytest.mark.parametrize("rate", [16000, 22050, 24000, 44100, 48000])
+def test_a_piece_converted_in_parts_is_the_piece_converted_whole(rate):
+    from src.core.expression.pcm import CallResampler, to_call_pcm
+
+    rng = np.random.default_rng(rate)
+    for _ in range(40):
+        audio = (rng.standard_normal(int(rng.integers(1, 5000))) * 0.3).astype(np.float32)
+        cuts = sorted(set(rng.integers(0, audio.size, size=int(rng.integers(1, 6)))))
+        parts = np.split(audio, cuts)
+        resampler = CallResampler()
+        out = b"".join(resampler.push(part, rate) for part in parts) + resampler.flush()
+        assert out == to_call_pcm(audio, rate), "a seam between two parts can be heard"
+
+
+def test_a_rate_change_mid_piece_is_said_out_loud(caplog):
+    """A new rate inside one piece is a new stream, not a rate the resampler
+    was built for. It restarts rather than silently mixing two timebases."""
+    from src.core.expression.pcm import CallResampler
+
+    resampler = CallResampler()
+    resampler.push(np.zeros(100, dtype=np.float32), 24000)
+    with caplog.at_level("WARNING", logger="bea.expression.pcm"):
+        resampler.push(np.zeros(100, dtype=np.float32), 48000)
+
+    assert "rate changed" in caplog.text, "the resampler restarted without a word"
+
+
+async def test_a_stop_the_bot_never_answers_is_not_called_heard():
+    """A dead bot is not proof the room heard the line. Assuming it did made a
+    cut-off look complete, and she went on referring to words nobody got."""
+    channel, _ = live_channel()
+    await channel.play(b"\x00" * (300 * CALL_BYTES_PER_MS),
+                       utterance_id="u", text="Una frase lunga abbastanza.", last=True)
+
+    utterance = await channel.stop(timeout=0.05)
+
+    assert utterance is not None
+    assert utterance.state == "stopped"
+    assert not utterance.complete, "no report was read as the whole line being heard"
+    assert utterance.played_ms < utterance.sent_ms
+    assert utterance.sent_ms == 300
+    # a call nobody answers must not keep the floor: the utterance is no longer
+    # current, so the next turn is not read as speaking over a dead line
+    assert channel.current is None
+    assert utterance.done.is_set()
+
+
+async def test_a_streamed_piece_moves_her_mouth_exactly_like_a_whole_one():
+    from src.core.expression.pcm import envelope
+
+    rng = np.random.default_rng(7)
+    speech = (rng.standard_normal(24000) * np.linspace(0.05, 0.6, 24000)).astype(np.float32)
+
+    class Parts(OneShotTTS):
+        async def generate_stream(self, text, prosody=None):
+            for part in np.split(speech, [3000, 9000, 17000]):
+                yield part, 24000
+
+    e = expression(Parts())
+    channel, socket = live_channel()
+    e.set_call(channel)
+    line = e.open_line("neutral", route="call")
+    line.say("Una frase sola ma abbastanza lunga da contare.")
+    line.close_input()
+    for task in line._tasks:
+        await task
+
+    assert line.state["frames"] == envelope(speech, 24000, e._lipsync_fps)
+    await line.close()
+
+
+async def test_being_talked_over_stops_her_rather_than_letting_the_line_finish():
+    """An end frame lets what is queued play out: the stop would then find a
+    line that finished, and she would never be told she was cut off."""
+    import asyncio
+    import json
+
+    class Held(OneShotTTS):
+        def __init__(self):
+            super().__init__()
+            self.never = asyncio.Event()
+
+        async def generate_audio(self, text, prosody=None):
+            self.rendered.append(text)
+            if len(self.rendered) > 1:
+                await self.never.wait()
+            return np.zeros(2400, dtype=np.float32), 24000
+
+    e = expression(Held())
+    channel, socket = live_channel()
+    e.set_call(channel)
+    line = e.open_line("neutral", route="call")
+    e._line = line
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    async def answer_the_stop():
+        while not socket.text:
+            await asyncio.sleep(0)
+        channel.on_message({"type": "playback", "utterance_id": line.state["id"],
+                            "played_ms": 20, "state": "stopped"})
+
+    asyncio.create_task(answer_the_stop())
+    await e.interrupt()
+
+    assert [unframe(f)[0]["seq"] for f in socket.binary] == [0], "an end frame went out"
+    assert json.loads(socket.text[0])["type"] == "stop"
+    assert e.interrupted is not None and not e.interrupted.complete
+
+
+async def test_being_talked_over_while_the_mind_waits_on_the_line_still_stops_her():
+    """The bot's /interrupt lands while the turn is still in `line.close()`:
+    that close used to wake first and send the end frame the stop exists to
+    avoid, so what was queued played out and the stop found a finished line."""
+    import asyncio
+    import json
+
+    class Held(OneShotTTS):
+        def __init__(self):
+            super().__init__()
+            self.never = asyncio.Event()
+
+        async def generate_audio(self, text, prosody=None):
+            self.rendered.append(text)
+            if len(self.rendered) > 1:
+                await self.never.wait()
+            return np.zeros(2400, dtype=np.float32), 24000
+
+    e = expression(Held())
+    channel, socket = live_channel()
+    e.set_call(channel)
+    line = e.open_line("neutral", route="call")
+    e._line = line
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
+    for _ in range(20):
+        await asyncio.sleep(0)
+    # the turn, waiting for the rest of what it is saying
+    closing = asyncio.create_task(line.close())
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    async def answer_the_stop():
+        while not socket.text:
+            await asyncio.sleep(0)
+        channel.on_message({"type": "playback", "utterance_id": line.state["id"],
+                            "played_ms": 20, "state": "stopped"})
+
+    asyncio.create_task(answer_the_stop())
+    await e.interrupt()
+    utterance = await closing
+
+    assert [unframe(f)[0]["seq"] for f in socket.binary] == [0], "an end frame went out"
+    assert json.loads(socket.text[0])["type"] == "stop"
+    assert e.interrupted is not None and not e.interrupted.complete
+    assert utterance is e.interrupted
+
+
+async def test_a_line_dropped_while_its_first_frame_is_on_the_wire_is_still_ended():
+    """The channel starts tracking an utterance before the socket has taken its
+    first frame. Dropped right there, the line had no sequence number yet and
+    was never ended: the brain went on believing she was speaking."""
+    import asyncio
+
+    e = expression(OneShotTTS())
+    channel, socket = live_channel()
+    e.set_call(channel)
+    wire = asyncio.Event()
+    sent = socket.send_bytes
+
+    async def slow_first(data):
+        if not socket.binary and not wire.is_set():
+            wire.set()
+            await asyncio.Event().wait()
+        await sent(data)
+
+    socket.send_bytes = slow_first
+    line = e.open_line("neutral", route="call")
+    line.say("Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.")
+    await wire.wait()
+    assert channel.current is not None and line.state["seq"] == 0
+
+    await line.cancel()
+    headers = [unframe(f)[0] for f in socket.binary]
+    assert headers and headers[-1]["seq"] == -1 and headers[-1]["last"] is True
+
+
+@pytest.mark.parametrize("seed", range(12))
+async def test_a_piece_pushed_while_it_is_still_arriving_is_the_piece_converted_whole(seed):
+    """However the engine's parts and the socket's sends interleave, what the
+    call gets is exactly what the finished piece converts to: the tail is never
+    padded early, and nothing is sent twice."""
+    import asyncio
+
+    from src.core.expression.pcm import to_call_pcm
+
+    rng = np.random.default_rng(seed)
+    rate = int(rng.choice([16000, 22050, 24000, 48000]))
+    speech = (rng.standard_normal(int(rng.integers(2000, 20000))) * 0.3).astype(np.float32)
+    cuts = sorted(set(rng.integers(1, speech.size, size=int(rng.integers(1, 8))).tolist()))
+    parts = np.split(speech, cuts)
+
+    async def yields(n):
+        for _ in range(n):
+            await asyncio.sleep(0)
+
+    class Uneven(OneShotTTS):
+        async def generate_stream(self, text, prosody=None):
+            for part in parts:
+                await yields(int(rng.integers(0, 4)))
+                yield part, rate
+            await yields(int(rng.integers(0, 4)))
+
+    e = expression(Uneven())
+    channel, socket = live_channel()
+    sent = socket.send_bytes
+
+    async def uneven_send(data):
+        await yields(int(rng.integers(0, 4)))
+        await sent(data)
+
+    socket.send_bytes = uneven_send
+    e.set_call(channel)
+    line = e.open_line("neutral", route="call")
+    line.say("Una frase sola ma abbastanza lunga da contare.")
+    await line.close()
+
+    frames = [unframe(f) for f in socket.binary]
+    assert [h["seq"] for h, _ in frames] == [*range(len(frames) - 1), -1]
+    assert b"".join(pcm for _, pcm in frames) == to_call_pcm(speech, rate)
+
+
+# --- her face after a line she was cut off in ---------------------------------
+
+
+class HalfSecond(OneShotTTS):
+    async def generate_audio(self, text, prosody=None):
+        self.rendered.append(text)
+        return np.zeros(12000, dtype=np.float32), 24000
+
+
+async def test_a_line_cut_off_does_not_go_on_miming_itself():
+    """The visuals of a line the room was hearing ran their whole length after
+    a barge-in, and at the end put her face and caption away — whatever she was
+    doing by then."""
+    import asyncio
+
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), HalfSecond(), avatar, caption, Events())
+    channel, socket = live_channel()
+    e.set_call(channel)
+
+    utterance = await e.speak("neutral", "Una frase sola ma abbastanza lunga da contare.",
+                              route="call")
+    assert e._visual_tasks, "no visuals were started for the line"
+
+    async def answer_the_stop():
+        while not socket.text:
+            await asyncio.sleep(0)
+        channel.on_message({"type": "playback", "utterance_id": utterance.id,
+                            "played_ms": 100, "state": "stopped"})
+
+    asyncio.create_task(answer_the_stop())
+    await e.interrupt()
+    clears, shown = caption.clears, len(avatar.shown)
+    await asyncio.sleep(0.7)
+
+    assert not e._visual_tasks, "the cut line's visuals outlived the interruption"
+    assert caption.clears == clears and len(avatar.shown) == shown, \
+        "a line she was cut off in touched her face after the interruption"
+
+
+async def test_the_next_line_takes_the_stage_from_the_one_before():
+    """The call cuts the older line when a new one starts; its visuals must
+    follow, or they clear the new line's caption when their time runs out."""
+    import asyncio
+
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), HalfSecond(), avatar, caption, Events())
+    channel, _ = live_channel()
+    e.set_call(channel)
+
+    await e.speak("neutral", "Prima frase, abbastanza lunga da contare.", route="call")
+    await asyncio.sleep(0.2)
+    await e.speak("happy", "Seconda frase, abbastanza lunga da contare.", route="call")
+    clears = caption.clears
+    await asyncio.sleep(0.4)
+
+    # the first line's half second is over; the second's is not
+    assert caption.clears == clears, "the older line cleared the newer one's caption"
+    assert avatar.shown[-1] == ("happy", "talking")
+    assert e.is_speaking
+    await asyncio.sleep(0.3)
+    assert avatar.shown[-1][1] != "talking"

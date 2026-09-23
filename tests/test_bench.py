@@ -62,6 +62,14 @@ def test_p95_is_not_below_p50(bench):
     assert result.p95 >= result.p50
 
 
+def test_the_voice_scenario_measures_the_local_path(bench):
+    """The one part of a turn that runs on this machine, so it is the one part
+    a before-and-after is reproducible for."""
+    rows = bench.scenario_voice()
+    assert {r.name for r in rows} == {"voice_convert", "voice_first_frame"}
+    assert all(r.p50 > 0 for r in rows)
+
+
 def test_a_skipped_scenario_says_so_instead_of_reporting_zero(bench):
     result = bench.skipped("stt", "local whisper", "no model")
     assert "skipped" in result.row()

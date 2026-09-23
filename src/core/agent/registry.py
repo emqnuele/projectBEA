@@ -100,14 +100,12 @@ class RotatingClient(LLMClient):
 
     async def _attempt(self, call, *, tools_needed: bool, fallback=None):
         last: Optional[BaseException] = None
-        started_streaming = fallback is not None
         for client in self._order():
             label = _label(client)
             try:
                 # the first one is allowed to stream; anyone picking up after a
                 # failure must produce a whole, self-contained answer
-                task = call if not started_streaming else fallback
-                assert task is not None
+                task = call if last is None or fallback is None else fallback
                 result = await task(client)
                 self._last_client = client
                 return result
@@ -115,7 +113,6 @@ class RotatingClient(LLMClient):
                 raise
             except Exception as e:
                 last = e
-                started_streaming = False
                 if tools_needed and looks_like_missing_tool_support(e):
                     logger.error(
                         f"Model {label} does not support tool calling and cannot serve the "

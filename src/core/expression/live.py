@@ -17,6 +17,13 @@ in the queue so her face changes on the word she meant it to.
 the slow half — and every piece rendered ahead is one more thing paid for and
 thrown away when somebody talks over her.
 
+What is in flight is not quite the same thing. A request to a remote engine
+costs most of a second whatever it says, so two pieces made strictly one after
+the other left a short first sentence ("Ah, davvero?") to run out while the next
+one was still being asked for, and the room heard the seam as dead air. On an
+engine that says it can (`pieces_in_flight`), the next piece starts being made
+as soon as its words exist, beside the one before it, and still plays after it.
+
 The sink is whatever turns a piece into sound and puts a face on her; `Expression`
 is the only one, and it is passed in rather than imported so this file stays
 about ordering and nothing else.
@@ -43,6 +50,15 @@ class Rendered:
 
     beat: Beat
     parts: List[Tuple[Any, int]] = field(default_factory=list)
+    # the synthesis still being made, for a piece queued before it finished
+    job: Optional["asyncio.Task"] = None
+    # set whenever more of the piece exists, and once more when it is done
+    grew: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def add(self, part: Tuple[Any, int]) -> None:
+        """More of the piece, from an engine that hands it over as it goes."""
+        self.parts.append(part)
+        self.grew.set()
 
 
 class LiveLine:
@@ -79,6 +95,8 @@ class LiveLine:
         self._beats: "asyncio.Queue[Optional[Beat]]" = asyncio.Queue()
         self._ready: "asyncio.Queue[Optional[Rendered]]" = asyncio.Queue(maxsize=LOOKAHEAD)
         self._tasks: List[asyncio.Task] = []
+        self._jobs: set = set()
+        self._slots = asyncio.Semaphore(max(1, int(getattr(sink, "pieces_in_flight", 1))))
         self._written: List[str] = []
         self._spoken: List[str] = []
         self._closed = False
@@ -121,13 +139,22 @@ class LiveLine:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         return await self.sink.line_closed(self)
 
-    async def cancel(self) -> None:
-        """Somebody talked over her: stop, and stop paying for the rest."""
+    async def cancel(self, *, end: bool = True) -> None:
+        """Somebody talked over her: stop, and stop paying for the rest.
+
+        `end` tells the sink the line is over. A caller about to stop the sound
+        itself says no: an end frame would let what is queued play out, and
+        the stop would then find a line that finished rather than one cut off.
+        """
         self._cancelled = True
         self._closed = True
-        for task in self._tasks:
+        tasks = [*self._tasks, *self._jobs]
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        dropped = getattr(self.sink, "line_cancelled", None)
+        if end and dropped is not None:
+            await dropped(self)
 
     # --- what the sink reads ------------------------------------------------
 
@@ -186,12 +213,14 @@ class LiveLine:
             self._beats.put_nowait(beat)
 
     async def _render(self) -> None:
-        """Turns the next piece into sound while the current one is playing."""
+        """Starts making each piece as soon as it is written, in written order."""
         try:
             while True:
                 beat = await self._beats.get()
                 if beat is None:
                     break
+                if self.abandoned:
+                    continue
                 if beat.kind is not BeatKind.SAY:
                     if beat.kind is BeatKind.MOOD:
                         # she changed her mind mid-line: her voice follows her
@@ -199,17 +228,20 @@ class LiveLine:
                         self.prosody = self.sink.prosody_for(beat.value, self.feeling)
                     await self._ready.put(Rendered(beat))
                     continue
-                try:
-                    parts = await self.sink.render(self, beat.value, self.prosody)
-                except Exception as e:
-                    # one failed piece costs that piece, never the rest of the line
-                    logger.error(f"Could not synthesise {beat.value!r}: {e}")
+                await self._slots.acquire()
+                if self.abandoned:
+                    # it went while this waited for a slot
+                    self._slots.release()
                     continue
-                if parts is None:
-                    self.abandoned = True
-                    break
-                if parts:
-                    await self._ready.put(Rendered(beat, parts))
+                item = Rendered(beat)
+                job = asyncio.create_task(
+                    self.sink.render(self, beat.value, self.prosody, into=item),
+                    name="live-synth")
+                item.job = job
+                self._jobs.add(job)
+                job.add_done_callback(self._settled)
+                job.add_done_callback(lambda _, item=item: item.grew.set())
+                await self._ready.put(item)
         except asyncio.CancelledError:
             # the player is being cancelled alongside this: it needs no sentinel
             raise
@@ -218,6 +250,41 @@ class LiveLine:
         # whatever ended the loop, the player is waiting on this
         await self._ready.put(None)
 
+    def _settled(self, job: "asyncio.Task") -> None:
+        # a callback rather than a finally: a job cancelled before it ever ran
+        # never reaches its finally, and its slot would be gone for good
+        self._jobs.discard(job)
+        self._slots.release()
+        if not job.cancelled():
+            # read here so a piece nobody waited for is not reported as lost;
+            # the player still logs it when it gets there
+            job.exception()
+
+    async def _made(self, item: Rendered) -> bool:
+        """Waits for a piece to exist. False when there is nothing to play."""
+        job = item.job
+        if job is None:
+            return bool(item.parts)
+        # waited on, not awaited: awaiting a task cancels it along with the
+        # waiter, and a line being cancelled must not look like a piece failing
+        await asyncio.wait({job})
+        if job.cancelled():
+            return False
+        error = job.exception()
+        if error is not None:
+            # one failed piece costs that piece, never the rest of the line
+            logger.error(f"Could not synthesise {item.beat.value!r}: {error}")
+            return False
+        parts = job.result()
+        if parts is None:
+            # the room moved on: nothing after this is worth making or hearing
+            self.abandoned = True
+            for other in list(self._jobs):
+                other.cancel()
+            return False
+        item.parts = parts
+        return bool(parts)
+
     async def _play(self) -> None:
         """Plays what is ready, in the order it was written."""
         async with self.sink.playback_lock(self):
@@ -225,10 +292,33 @@ class LiveLine:
                 item = await self._ready.get()
                 if item is None:
                     return
-                if item.beat.kind is BeatKind.SAY:
-                    await self.sink.play(self, item)
+                if self.abandoned:
+                    # still read to the end, or the renderer waits on a full queue
+                    if item.job is not None:
+                        item.job.cancel()
+                    continue
+                try:
+                    await self._deliver(item)
+                except Exception as e:
+                    # the renderer waits on this queue, so a dead player would hang the line forever
+                    logger.error(f"Could not deliver {item.beat.value!r}: {e}")
+                    if item.job is not None:
+                        item.job.cancel()
+
+    async def _deliver(self, item: Rendered) -> None:
+        """One beat, out: a piece heard, a face worn, a thing done."""
+        if item.beat.kind is BeatKind.SAY:
+            if item.job is not None and self.sink.plays_as_made(self):
+                # the first of it goes out while the rest is being made
+                await self.sink.play(self, item)
+                if await self._made(item):
                     self._spoken.append(item.beat.value)
-                elif item.beat.kind is BeatKind.MOOD:
-                    self.sink.wear(self, item.beat.value)
-                elif item.beat.kind is BeatKind.DO:
-                    self.sink.behave(self, item.beat.value)
+                return
+            if not await self._made(item):
+                return
+            await self.sink.play(self, item)
+            self._spoken.append(item.beat.value)
+        elif item.beat.kind is BeatKind.MOOD:
+            self.sink.wear(self, item.beat.value)
+        elif item.beat.kind is BeatKind.DO:
+            self.sink.behave(self, item.beat.value)

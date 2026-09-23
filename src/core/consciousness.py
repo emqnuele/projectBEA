@@ -358,17 +358,25 @@ class Consciousness:
             logger.info(f"batch of {len(batch)} perception(s): "
                         f"{', '.join(p.surface for p in batch)}")
 
-        # a voice input barges in on an ongoing monologue; text is just queued
+        # a voice input barges in on an ongoing monologue; text is just queued.
+        # The call answers how far she got only once its fade is over, and the
+        # frame is the one thing that needs the answer: the context is built
+        # while she fades rather than after
+        barge: Optional[asyncio.Task] = None
         if self.expression.is_speaking and any(p.kind == PerceptionKind.VOICE for p in batch):
-            await self.expression.interrupt()
+            barge = asyncio.create_task(self.expression.interrupt())
 
-        annotated = self._annotate(batch)
-        t_ctx = time.perf_counter()
-        system = self._system_message()
-        window_msgs = self.sliding_window.messages()
-        briefing = await self._build_briefing(batch, is_idle=is_idle)
-        if not is_idle:
-            logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
+        try:
+            annotated = self._annotate(batch)
+            t_ctx = time.perf_counter()
+            system = self._system_message()
+            window_msgs = self.sliding_window.messages()
+            briefing = await self._build_briefing(batch, is_idle=is_idle)
+            if not is_idle:
+                logger.info(f"context built in {(time.perf_counter() - t_ctx) * 1000:.0f}ms")
+        finally:
+            if barge is not None:
+                await barge
         context: List[Dict[str, Any]] = [system, *window_msgs]
         if briefing:
             context.append(briefing)
@@ -509,15 +517,19 @@ class Consciousness:
                 return
 
             words = reader.push(delta)
-            if not words:
-                return
-            if line is None:
-                line = self._open_line(reader.mood)
+            if words:
                 if line is None:
-                    readers[index] = None
-                    return
-                spoken = index
-            line.say(words)
+                    line = self._open_line(reader.mood)
+                    if line is None:
+                        readers[index] = None
+                        return
+                    spoken = index
+                line.say(words)
+            # the closing quote is the end of the line. Waiting for the response
+            # to finish as well held her last sentence — on a one-sentence
+            # answer, all of it — behind the usage block and any tool after it
+            if line is not None and spoken == index and reader.finished:
+                line.close_input()
 
         try:
             return await self.llm.stream_complete(
@@ -996,17 +1008,44 @@ class Consciousness:
         # whatever of this line is already on its way out. Taken here rather than
         # in the loop so the two can never both own it.
         line, self._live = self._live, None
+        kept_heard: Optional[str] = None
         if line is not None and line.spoiled:
             # she met her own scaffolding before a word was heard: throw the
             # line away and say the finished message, which cleans whole
             await line.cancel()
             line = None
+        if line is not None and not line.tainted and line.written != message:
+            # a model that died mid-line was answered for by another; a tainted line is short on purpose.
+            # the two texts are logged because this path pays for the line twice, and a
+            # drift between what streamed and what settled is otherwise invisible
+            if line.spoken:
+                # something of the dead model's line is already in the room. Saying
+                # the settled answer whole now would have the room hear half of one
+                # sentence and then all of another; the line it heard stands, and the
+                # drift is an error because the mind will believe it said the other
+                logger.error(
+                    "The line on its way out is not the one she settled on, and it was "
+                    f"already heard; keeping what streamed (streamed {line.written[:60]!r}, "
+                    f"settled {message[:60]!r}).")
+                kept_heard = line.spoken or line.written
+            else:
+                logger.warning(
+                    "The line on its way out is not the one she settled on; saying hers "
+                    f"(streamed {line.written[:60]!r}, settled {message[:60]!r}).")
+                await line.cancel()
+                line = None
 
         # the model invents moods; an avatar that silently fails to change is
         # worse than landing on the nearest one she actually has
         mood = normalize_mood(mood)
         # redundant with the client-side clean: last gate before the audience
         message = clean_model_output(message)
+        if kept_heard:
+            # the room heard the streamed line, not the fallback's answer: the
+            # history, the window and the turn log must believe what was heard
+            heard = clean_model_output(kept_heard) or kept_heard.strip()
+            if heard:
+                message = heard
         if not message:
             logger.warning("speak() had nothing left after sanitizing; staying silent.")
             if line is not None:

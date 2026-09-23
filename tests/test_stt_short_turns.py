@@ -10,6 +10,8 @@ All three transcribers, because the problem is in the audio: it is no easier
 for a hosted whisper than for the one on this machine.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from src.core.config import BrainConfig
@@ -160,7 +162,7 @@ def test_groq_borrows_the_language_of_the_last_real_sentence(monkeypatch, clip):
     class FakeClient:
         audio = type("A", (), {"transcriptions": FakeTranscriptions()})()
 
-    monkeypatch.setattr("src.modules.STT.groq_stt.Groq", lambda api_key=None: FakeClient())
+    monkeypatch.setattr("src.modules.STT.groq_stt.Groq", lambda api_key=None, **_: FakeClient())
 
     config = BrainConfig()
     config.language = "auto"
@@ -193,7 +195,8 @@ def test_openrouter_borrows_it_too(monkeypatch, clip):
         sent.append(json)
         return FakeResponse()
 
-    monkeypatch.setattr("src.modules.STT.openrouter_stt.requests.post", fake_post)
+    monkeypatch.setattr("src.modules.STT.openrouter_stt.requests.Session",
+                        lambda: SimpleNamespace(post=fake_post))
 
     config = BrainConfig()
     config.language = "auto"
@@ -219,9 +222,9 @@ def test_a_hosted_engine_that_never_says_what_it_heard_still_works(monkeypatch, 
         def json():
             return {"text": "ok"}
 
-    monkeypatch.setattr("src.modules.STT.openrouter_stt.requests.post",
-                        lambda url, headers=None, json=None, timeout=None:
-                        (sent.append(json), FakeResponse())[1])
+    monkeypatch.setattr("src.modules.STT.openrouter_stt.requests.Session",
+                        lambda: SimpleNamespace(post=lambda url, headers=None, json=None, timeout=None:
+                                                (sent.append(json), FakeResponse())[1]))
 
     config = BrainConfig()
     config.language = "auto"

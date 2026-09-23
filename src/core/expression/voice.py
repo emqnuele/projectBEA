@@ -3,10 +3,12 @@ import contextlib
 import uuid
 from typing import Any, List, Optional, Tuple
 
+import numpy as np
+
 from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
 from src.core.expression.live import LiveLine, Rendered
-from src.core.expression.pcm import ENVELOPE_FPS, duration_ms, envelope, to_call_pcm
+from src.core.expression.pcm import ENVELOPE_FPS, CallResampler, duration_ms, envelope
 from src.core.expression.prosody import for_mood
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.interfaces.base_interfaces import AvatarInterface, CaptionInterface, TTSInterface
@@ -157,6 +159,11 @@ class Expression:
         if self.affect is None or not self.affect.enabled:
             return None
         return for_mood(mood, self.affect.current if feeling is None else feeling)
+
+    @property
+    def pieces_in_flight(self) -> int:
+        """How many pieces of a line the engine may be making at once."""
+        return int(getattr(self.tts, "pieces_in_flight", 1) or 1)
 
     @property
     def call_is_live(self) -> bool:
@@ -333,13 +340,16 @@ class Expression:
         if line.caption:
             self.current_typing_task = asyncio.create_task(self.caption.say(line.caption))
 
-    async def render(self, line: LiveLine, text: str,
-                     prosody) -> Optional[List[Tuple[Any, int]]]:
+    async def render(self, line: LiveLine, text: str, prosody,
+                     into: Optional[Rendered] = None) -> Optional[List[Tuple[Any, int]]]:
         """What the engine makes of one piece, or None to abandon the line.
 
         Abandoning is not an error: it is the room having moved on while the
         rest of the line was still being made, and every piece not rendered
         after that is one nobody was going to hear anyway.
+
+        `into` receives each part as the engine hands it over, so the call can
+        start hearing a piece an engine streams before the end of it exists.
         """
         if line.route != "call":
             logger.info(f"Message: {text}")
@@ -349,14 +359,25 @@ class Expression:
         if self._call_moved_on(state["id"], state["seq"]):
             return None
 
-        parts: List[Tuple[Any, int]] = []
+        parts: List[Tuple[Any, int]] = into.parts if into is not None else []
         async for audio, rate in self.tts.generate_stream(text, prosody):
             # against what has actually been pushed, never against what is only
             # rendered: nothing is playing yet while the first piece is made
             if self._call_moved_on(state["id"], state["seq"]):
                 return None
-            parts.append((audio, rate))
+            if into is not None:
+                into.add((audio, rate))
+            else:
+                parts.append((audio, rate))
         return parts
+
+    def plays_as_made(self, line: LiveLine) -> bool:
+        """Whether a piece can be heard while it is still being made.
+
+        In a call playing is a push, so a part goes out the moment it exists.
+        On the local device a piece is timed, lip-synced and captioned whole.
+        """
+        return line.route == "call"
 
     async def play(self, line: LiveLine, item: Rendered) -> None:
         """One rendered piece, out loud, now."""
@@ -381,23 +402,56 @@ class Expression:
             await self.current_speech_task
 
     async def _push(self, line: LiveLine, item: Rendered) -> None:
-        """One rendered piece into the live call."""
+        """One rendered piece into the live call, part by part as it is made."""
         # taken once rather than read per piece: she can be pulled out of the
         # call between two sentences, and half a line should not raise
         call = self.call
         if call is None:
             return
         state = line.state
-        for audio, rate in item.parts:
-            pcm = to_call_pcm(audio, rate)
-            if not pcm:
+        # one conversion across the whole piece, so its parts meet exactly
+        # where they would have in one piece
+        resampler = CallResampler()
+        sent = 0
+        while True:
+            while sent < len(item.parts):
+                # the room moved on while this was being made: parts already
+                # rendered must not resurrect an utterance the call left behind
+                if line.abandoned or line.cancelled or self._call_moved_on(state["id"], state["seq"]):
+                    return
+                audio, rate = item.parts[sent]
+                sent += 1
+                last = sent == len(item.parts) and (item.job is None or item.job.done())
+                await self._send(call, line, resampler.push(audio, rate, last=last))
+            # a piece still being made: wait for more of it, or for its end
+            job = item.job
+            if job is None or job.done():
+                if sent >= len(item.parts):
+                    break
                 continue
-            await call.play(pcm, utterance_id=state["id"],
-                                 text=line.caption or line.written,
-                                 seq=state["seq"], last=False)
-            state["frames"].extend(envelope(audio, rate, self._lipsync_fps))
-            state["spoken_ms"] += duration_ms(pcm)
-            state["seq"] += 1
+            item.grew.clear()
+            if sent < len(item.parts) or job.done():
+                continue
+            await item.grew.wait()
+        if line.abandoned or line.cancelled or self._call_moved_on(state["id"], state["seq"]):
+            return
+        await self._send(call, line, resampler.flush())
+        # the mouth over the whole piece, the way a piece made in one go gets it:
+        # a part is normalised against its own loudest moment and loses the
+        # last fraction of a frame, and the mouth drifts ahead of the voice
+        pieces = [audio for audio, _ in item.parts if getattr(audio, "size", 0)]
+        if pieces:
+            whole = pieces[0] if len(pieces) == 1 else np.concatenate(pieces)
+            state["frames"].extend(envelope(whole, item.parts[0][1], self._lipsync_fps))
+
+    async def _send(self, call, line: LiveLine, pcm: bytes) -> None:
+        if not pcm:
+            return
+        state = line.state
+        await call.play(pcm, utterance_id=state["id"], text=line.caption or line.written,
+                        seq=state["seq"], last=False)
+        state["spoken_ms"] += duration_ms(pcm)
+        state["seq"] += 1
 
     def wear(self, line: LiveLine, word: str) -> None:
         """Direction inside the line: her face changes from this word on."""
@@ -422,9 +476,12 @@ class Expression:
 
         if line.route == "call":
             state = line.state
-            if line.abandoned or self.call is None:
+            # whoever cancelled it ended or stopped it; an end frame now would outlive the stop
+            if line.abandoned or line.cancelled or self.call is None:
                 return self.call.utterances.get(state["id"]) if self.call else None
             await self.call.end(state["id"])
+            # the call cuts an older line when this one starts, so its visuals go too
+            self._stop_visuals()
             task = asyncio.create_task(self._visual_only(
                 line.mood, line.caption or line.spoken,
                 state["spoken_ms"] / 1000.0, state["frames"],
@@ -444,6 +501,22 @@ class Expression:
             self.avatar.show(self._mood, self._resting)
             self.is_speaking = False
         return None
+
+    async def line_cancelled(self, line: LiveLine) -> None:
+        """A call line dropped halfway still has to be ended in the room.
+
+        Without its last frame the bot holds the utterance open, waiting for
+        more of a line that is never coming.
+        """
+        call = self.call
+        # by id, not seq: the channel tracks it before the socket has taken the first frame
+        if line.route != "call" or call is None or not line.state.get("id"):
+            return
+        current = call.current
+        # already over, or another line has the call now: leave it alone
+        if current is None or current.id != line.state["id"]:
+            return
+        await call.end(line.state["id"])
 
     def _call_moved_on(self, utterance_id: str, seq: int) -> bool:
         """Whether it is still worth synthesising the rest of this line.
@@ -494,6 +567,11 @@ class Expression:
         finally:
             self.is_speaking = False
 
+    def _stop_visuals(self) -> None:
+        """Stops miming lines the call is no longer playing."""
+        for task in list(self._visual_tasks):
+            task.cancel()
+
     # --- barge-in -----------------------------------------------------------
 
     async def interrupt(self, ramp_ms: int = 200) -> str:
@@ -508,7 +586,7 @@ class Expression:
         # is still being synthesised is already words nobody will hear
         line, self._line = self._line, None
         if line is not None:
-            await line.cancel()
+            await line.cancel(end=False)
 
         call = self.call
         if call is not None and call.live:
@@ -524,6 +602,7 @@ class Expression:
             self.current_speech_task.cancel()
         if self.current_typing_task and not self.current_typing_task.done():
             self.current_typing_task.cancel()
+        self._stop_visuals()
 
         self.caption.clear()
         self.avatar.show(self._mood, self._resting)

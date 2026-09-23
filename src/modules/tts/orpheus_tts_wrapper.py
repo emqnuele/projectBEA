@@ -1,5 +1,7 @@
 import asyncio
+import contextlib
 import os
+import threading
 from typing import Optional
 
 import numpy as np
@@ -11,6 +13,20 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.tts.orpheus")
 
+# held so an abandoned download is not garbage collected mid-way
+_abandoned: set = set()
+
+# a connect that never answers cannot be cancelled: the request runs on a
+# worker thread, and closing a response that does not exist yet is not a thing.
+# A timeout is what ends the wait, so a barge-in during the handshake does not
+# leave the thread and its socket behind until the endpoint gives up.
+CONNECT_TIMEOUT_S = 10.0
+# per read, not per sentence: a stream that keeps arriving never trips this
+READ_TIMEOUT_S = 60.0
+
+_TIMEOUT = (CONNECT_TIMEOUT_S, READ_TIMEOUT_S)
+
+
 class OrpheusTTSWrapper(TTSInterface):
     # the endpoint takes a voice and a prompt and nothing else, so `prosody` is
     # accepted and dropped: this engine cannot be told how to say something
@@ -19,6 +35,8 @@ class OrpheusTTSWrapper(TTSInterface):
     # ~150ms a block: small enough to start sounding fast, big enough not to
     # spend the win on per-block overhead
     STREAM_BLOCK_BYTES = 7200
+    # remote: the wait is on the endpoint, not on this machine
+    pieces_in_flight = 2
 
     def __init__(self,
                  api_key: Optional[str],
@@ -68,7 +86,8 @@ class OrpheusTTSWrapper(TTSInterface):
                 self.endpoint_url,
                 headers=headers,
                 json=payload,
-                stream=True
+                stream=True,
+                timeout=_TIMEOUT,
             ) as resp:
                 resp.raise_for_status()
 
@@ -81,12 +100,16 @@ class OrpheusTTSWrapper(TTSInterface):
             logger.error(f"API error: {e}")
             raise
 
-    def _stream_pcm_sync(self, text: str):
+    def _stream_pcm_sync(self, text: str, stop: Optional[threading.Event] = None,
+                         opened: Optional[list] = None):
         """Yields raw PCM blocks straight off the response, no file in between.
 
         The endpoint already answers in chunks of 24 kHz 16-bit mono; the old
         path wrote them to disk and read the whole file back, which threw away
         the one thing that makes a voice start sooner.
+
+        `stop` ends the download between two chunks, and `opened` hands the
+        response out so it can be closed under a read that is stalled.
         """
         if not self.api_key or not self.endpoint_url:
             logger.error("API key or endpoint URL is missing.")
@@ -96,9 +119,14 @@ class OrpheusTTSWrapper(TTSInterface):
         payload = {"voice": self.voice, "prompt": text, "max_tokens": 10000, "stream": True}
 
         pending = b""
-        with self.client.post(self.endpoint_url, headers=headers, json=payload, stream=True) as resp:
+        with self.client.post(self.endpoint_url, headers=headers, json=payload,
+                              stream=True, timeout=_TIMEOUT) as resp:
+            if opened is not None:
+                opened.append(resp)
             resp.raise_for_status()
             for chunk in resp.iter_content(chunk_size=4096):
+                if stop is not None and stop.is_set():
+                    return
                 if not chunk:
                     continue
                 pending += chunk
@@ -117,15 +145,20 @@ class OrpheusTTSWrapper(TTSInterface):
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
+        stop = threading.Event()
+        opened: list = []
 
         def pump():
             try:
-                for block in self._stream_pcm_sync(text):
+                for block in self._stream_pcm_sync(text, stop, opened):
                     loop.call_soon_threadsafe(queue.put_nowait, block)
             except Exception as e:
-                logger.error(f"stream failed: {e}")
+                # closing the response under it is how an abandoned read ends
+                if not stop.is_set():
+                    logger.error(f"stream failed: {e}")
             finally:
-                loop.call_soon_threadsafe(queue.put_nowait, None)
+                with contextlib.suppress(RuntimeError):
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
 
         worker = asyncio.create_task(asyncio.to_thread(pump))
         try:
@@ -135,7 +168,16 @@ class OrpheusTTSWrapper(TTSInterface):
                     break
                 yield np.frombuffer(block, dtype="<i2").astype(np.float32) / 32768.0, self.SAMPLE_RATE
         finally:
-            await worker
+            if worker.done():
+                await worker
+            else:
+                # a barge-in must not wait for audio nobody will hear
+                stop.set()
+                for resp in opened:
+                    with contextlib.suppress(Exception):
+                        resp.close()
+                _abandoned.add(worker)
+                worker.add_done_callback(_abandoned.discard)
 
     async def generate_audio(self, text: str, prosody=None) -> tuple[np.ndarray, int]:
         if not text:

@@ -264,6 +264,28 @@ def _build(stt: "FasterWhisperSTT"):
                         download_root=stt.download_root, **kwargs)
 
 
+def _plain_wav(path: str):
+    """The samples of a wav already in whisper's own format, or None.
+
+    What the discord bot sends is exactly that — 16 kHz, mono, 16-bit — and
+    reading it is a copy, where opening it through ffmpeg costs ~5ms of every
+    turn to produce the very same array. Anything else goes through ffmpeg.
+    """
+    import wave
+
+    import numpy as np
+
+    try:
+        with wave.open(path) as clip:
+            if (clip.getframerate(), clip.getnchannels(), clip.getsampwidth(),
+                    clip.getcomptype()) != (SAMPLE_RATE, 1, 2, "NONE"):
+                return None
+            frames = clip.readframes(clip.getnframes())
+    except Exception:
+        return None
+    return np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+
+
 class FasterWhisperSTT(STTInterface):
     def __init__(self, config: BrainConfig):
         self.config = config
@@ -427,10 +449,12 @@ class FasterWhisperSTT(STTInterface):
         # is decides whether its language is worth asking about, and that has to
         # be known before the question is put. The array goes on to the model,
         # so nothing is decoded twice.
-        decoded = decode_audio(audio_path, sampling_rate=SAMPLE_RATE)
-        # it only ever answers with a pair when asked to split stereo, which
-        # nothing here does
-        audio = decoded[0] if isinstance(decoded, tuple) else decoded
+        audio = _plain_wav(audio_path)
+        if audio is None:
+            decoded = decode_audio(audio_path, sampling_rate=SAMPLE_RATE)
+            # it only ever answers with a pair when asked to split stereo, which
+            # nothing here does
+            audio = decoded[0] if isinstance(decoded, tuple) else decoded
         seconds = len(audio) / SAMPLE_RATE
         pin = self.heard.pin_for(normalize_language(lang), seconds)
 

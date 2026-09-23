@@ -130,14 +130,17 @@ async def test_stopping_reports_how_much_the_room_actually_heard():
     assert '"type":"stop"' in socket.text[0]
 
 
-async def test_a_bot_that_never_answers_is_assumed_to_have_played_it_all():
-    """A missing report must not hang the turn that asked."""
+async def test_a_bot_that_never_answers_is_not_called_heard():
+    """A missing report must not hang the turn that asked, and must not be
+    read as proof of a whole line either: last time it was, and a cut-off went
+    down in the history as something the room heard in full."""
     channel = VoiceChannel()
     channel.attach(Socket())
     await channel.play(to_call_pcm(tone(0.5), 24000), utterance_id="u1")
 
     utterance = await channel.stop(ramp_ms=0, timeout=0.01)
-    assert utterance.complete
+    assert utterance.state == "stopped"
+    assert not utterance.complete
 
 
 async def test_the_first_sound_in_the_room_stops_the_latency_clock():

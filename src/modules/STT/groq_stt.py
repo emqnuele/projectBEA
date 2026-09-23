@@ -2,7 +2,8 @@
 import os
 from typing import Optional
 
-from groq import Groq, omit
+import httpx
+from groq import DefaultHttpxClient, Groq, omit
 
 from src.core.config import BrainConfig
 from src.core.language import whisper_code
@@ -11,6 +12,29 @@ from src.modules.STT.heard import HeardLanguage, clip_seconds
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.stt.groq")
+
+# how long the connection waits for the next turn. The sdk's own five seconds is
+# shorter than most pauses in a call, so nearly every turn paid a new handshake:
+# ~200ms in front of the transcription, measured with eight seconds between turns
+KEEPALIVE_SECONDS = 90.0
+
+
+class _KeptClient(DefaultHttpxClient):
+    # the sdk only closes clients it made itself, so a new key would strand the old sockets
+    def __del__(self) -> None:
+        if self.is_closed:
+            return
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def _client(key: str) -> Groq:
+    return Groq(api_key=key, http_client=_KeptClient(limits=httpx.Limits(
+        max_connections=100, max_keepalive_connections=20,
+        keepalive_expiry=KEEPALIVE_SECONDS)))
+
 
 class GroqSTT(STTInterface):
     def __init__(self, config: BrainConfig):
@@ -25,7 +49,7 @@ class GroqSTT(STTInterface):
             logger.error("No API Key found.")
             self.client = None
         else:
-            self.client = Groq(api_key=key)
+            self.client = _client(key)
 
         self.model = self.config.stt_model or "whisper-large-v3-turbo"
         # a turn too short to place borrows the last one that was not. Same
@@ -83,7 +107,7 @@ class GroqSTT(STTInterface):
         if new_key:
             current_key = getattr(self.client, 'api_key', None) if self.client else None
             if current_key != new_key:
-                self.client = Groq(api_key=new_key)
+                self.client = _client(new_key)
                 logger.info("API client re-initialized with updated key.")
         elif not self.client:
             logger.warning("No API key available for reload.")

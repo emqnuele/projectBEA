@@ -330,3 +330,109 @@ async def test_a_second_tool_call_does_not_end_up_inside_the_line():
     written = mind.expression.lines[0].written
     assert written == line_text, f"the line was corrupted: {written!r}"
     assert "{" not in written and "fact" not in written
+
+
+async def test_the_last_sentence_leaves_when_the_line_closes_not_when_the_answer_does():
+    # a one-sentence answer has no seam to cut at: all of it waited for the
+    # end of the response, including every tool call written after it
+    llm = StreamingLLMClient([speaks_and_remembers("Ma tu guarda questa cosa.")])
+    mind, bus = build(llm)
+
+    finished_while_writing = []
+    llm.after_delta = lambda: finished_while_writing.append(
+        bool(mind.expression.lines) and mind.expression.lines[0].input_closed
+        and not mind.expression.lines[0].closed
+    )
+
+    bus.put(said_to(mind))
+    await one_turn(mind, bus)
+
+    assert any(finished_while_writing), \
+        "the line was only finished once the whole response had arrived"
+    line = mind.expression.lines[0]
+    assert line.written == "Ma tu guarda questa cosa."
+    assert line.closed and not line.cancelled
+
+
+# --- a model that dies halfway through the line ------------------------------
+
+
+async def test_a_line_from_a_model_that_died_gives_way_to_the_one_that_answered():
+    """A pool streams its first model and asks the next for a whole answer if
+    that one fails. What the dead one had already started saying is not what
+    the turn settled on: the line is dropped and the answer is said whole."""
+    from src.core.agent.registry import RotatingClient
+    from tests.fakes import FakeLLMClient
+
+    class DiesMidLine(StreamingLLMClient):
+        async def stream_complete(self, messages, tools=None, *, on_tool_delta=None):
+            self.calls.append(list(messages))
+            raw = json.dumps({"mood": "neutral",
+                              "message": "Ciao a tutti, oggi vi racconto una storia lunga."})
+            for start in range(0, 48, 6):
+                on_tool_delta(0, "speak", raw[start:start + 6])
+                await asyncio.sleep(0)
+            raise RuntimeError("the provider hung up")
+
+    pool = RotatingClient([DiesMidLine(), FakeLLMClient([speaks("Buongiorno a tutti quanti.")])])
+    mind, _ = build(pool)
+
+    await mind._turn([said_to(mind)])
+    await settle()
+
+    assert mind.expression.lines, "the first model never started a line"
+    assert mind.expression.lines[0].cancelled, "half a line from a dead model was kept"
+    assert mind.expression.spoken == [("neutral", "Buongiorno a tutti quanti.", "local")]
+    assert [m["content"] for m in mind.history.messages] == ["Buongiorno a tutti quanti."]
+
+
+async def test_a_line_that_was_already_heard_is_not_said_again():
+    """The dead model's line reached the room before the fallback answered:
+    saying the settled answer whole over it would have the room hear half of
+    one sentence and then all of another."""
+    from src.core.agent.registry import RotatingClient
+    from tests.fakes import FakeLLMClient
+
+    held = {}
+
+    class DiesMidLineHeard(StreamingLLMClient):
+        async def stream_complete(self, messages, tools=None, *, on_tool_delta=None):
+            self.calls.append(list(messages))
+            raw = json.dumps({"mood": "neutral",
+                              "message": "Ciao a tutti, oggi vi racconto una storia lunga."})
+            for start in range(0, 48, 6):
+                on_tool_delta(0, "speak", raw[start:start + 6])
+                await asyncio.sleep(0)
+            # the room heard what had streamed before the provider died
+            for line in held["mind"].expression.lines:
+                line.spoken = line.written
+            raise RuntimeError("the provider hung up")
+
+    pool = RotatingClient([DiesMidLineHeard(),
+                           FakeLLMClient([speaks("Buongiorno a tutti quanti.")])])
+    mind, _ = build(pool)
+    held["mind"] = mind
+
+    await mind._turn([said_to(mind)])
+    await settle()
+
+    assert mind.expression.lines, "the first model never started a line"
+    assert not mind.expression.lines[0].cancelled, "a heard line was thrown away and said again"
+    assert mind.expression.spoken == [], "the settled answer was said over a line already heard"
+
+
+async def test_a_heard_line_that_stopped_at_scaffolding_is_not_said_again():
+    """It took no more words once the model's scaffolding reached it, so it is
+    shorter than the message on purpose: saying the message whole would repeat
+    what the room already heard."""
+    mind, _ = build(StreamingLLMClient())
+    line = mind.expression.open_line("neutral")
+    line.say("Ma tu guarda questa cosa.")
+    line.tainted = True
+    mind._live = line
+
+    await mind._speak("neutral", "Ma tu guarda questa cosa. <think>e ora cosa dico</think>")
+    await settle()
+
+    assert line.closed and not line.cancelled
+    assert mind.expression.spoken == []

@@ -51,6 +51,15 @@ All three transports are natively async over `aiohttp`: no thread pools, no
 sync SDKs. Every network error raises with the status and the provider's own
 body in the message, which is what the pool's failover reads.
 
+Every client on an event loop shares one connection pool
+(`base._session()`). An idle connection to a provider is kept for
+`KEEPALIVE_SECONDS` (90) and addresses are cached for five minutes, so a turn
+does not pay dns, tcp and tls before its first token. A kept connection the
+provider closed while it sat idle fails before any of the answer exists; that
+request is sent once more on a fresh connection. A host that cannot be reached
+is not retried — that is the pool's failover. Shutdown closes the pool with
+`close_sessions()`.
+
 Keys come from the environment first; `config.json` only fills a variable that
 is not set. `GET /config` never returns them.
 
@@ -93,6 +102,10 @@ than one, wraps them in a `RotatingClient`:
   success, which is what actually spreads it.
 - **fallback** — on failure it walks the rest of the pool before giving up.
   `ModelPoolError` is raised only when every model failed.
+- **streaming** — `stream_complete` streams on the first client only, so she
+  can start speaking before the answer is finished. Whoever picks up after a
+  failure answers whole (`complete`): the first one may already have started a
+  line, and the mind drops that line and says the answer that actually arrived.
 
 A single 429 from one provider therefore does not make Bea mute.
 
