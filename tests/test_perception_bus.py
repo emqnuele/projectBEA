@@ -39,3 +39,43 @@ async def test_a_perception_put_on_the_loop_is_queued_directly():
 
     batch = await asyncio.wait_for(bus.drain(), timeout=1.0)
     assert [p.content for p in batch] == ["on the loop"]
+
+
+async def test_what_queued_while_she_was_busy_does_not_wait_the_gap_again():
+    # she was mid-answer: the line has sat there, quiet, for longer than the gap
+    bus = PerceptionBus(window=0.3)
+    bus.put(_chat("arrived while she was talking"))
+    await asyncio.sleep(0.4)
+
+    started = time.monotonic()
+    batch = await asyncio.wait_for(bus.drain(), timeout=2.0)
+
+    assert [p.content for p in batch] == ["arrived while she was talking"]
+    assert time.monotonic() - started < 0.1, "a quiet gap was waited out twice"
+
+
+async def test_everything_that_queued_up_is_one_batch():
+    bus = PerceptionBus(window=0.3)
+    bus.put(_chat("hey"))
+    bus.put(_chat("come stai"))
+    await asyncio.sleep(0.4)
+
+    batch = await asyncio.wait_for(bus.drain(), timeout=2.0)
+    assert [p.content for p in batch] == ["hey", "come stai"]
+
+
+async def test_a_line_that_arrives_inside_the_gap_still_holds_the_batch_open():
+    bus = PerceptionBus(window=0.3)
+    bus.put(_chat("hey"))
+
+    async def later():
+        await asyncio.sleep(0.2)
+        bus.put(_chat("come stai"))
+
+    asyncio.create_task(later())
+    started = time.monotonic()
+    batch = await asyncio.wait_for(bus.drain(), timeout=2.0)
+
+    assert [p.content for p in batch] == ["hey", "come stai"]
+    # closed a gap after the second line, not after the first
+    assert time.monotonic() - started >= 0.45
