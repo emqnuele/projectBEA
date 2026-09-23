@@ -1017,11 +1017,21 @@ class Consciousness:
             # a model that died mid-line was answered for by another; a tainted line is short on purpose.
             # the two texts are logged because this path pays for the line twice, and a
             # drift between what streamed and what settled is otherwise invisible
-            logger.warning(
-                "The line on its way out is not the one she settled on; saying hers "
-                f"(streamed {line.written[:60]!r}, settled {message[:60]!r}).")
-            await line.cancel()
-            line = None
+            if line.spoken:
+                # something of the dead model's line is already in the room. Saying
+                # the settled answer whole now would have the room hear half of one
+                # sentence and then all of another; the line it heard stands, and the
+                # drift is an error because the mind will believe it said the other
+                logger.error(
+                    "The line on its way out is not the one she settled on, and it was "
+                    f"already heard; keeping what streamed (streamed {line.written[:60]!r}, "
+                    f"settled {message[:60]!r}).")
+            else:
+                logger.warning(
+                    "The line on its way out is not the one she settled on; saying hers "
+                    f"(streamed {line.written[:60]!r}, settled {message[:60]!r}).")
+                await line.cancel()
+                line = None
 
         # the model invents moods; an avatar that silently fails to change is
         # worse than landing on the nearest one she actually has

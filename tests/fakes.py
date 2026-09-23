@@ -116,6 +116,9 @@ class FakeLine:
         self.cancelled = False
         self.spoiled = False
         self.tainted = False
+        # what of the line actually reached the room, as the real `LiveLine`
+        # reports it: non-empty means an answer must not be said over it
+        self.spoken = ""
 
     def say(self, text: str) -> None:
         self.said.append(text)
