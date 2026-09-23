@@ -9,7 +9,7 @@ need a resampler, and the bot's job is to move bytes, not to do DSP.
 Pure functions on arrays: no engine, no socket, no config.
 """
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -64,6 +64,107 @@ def to_call_pcm(audio: np.ndarray, sample_rate: int) -> bytes:
     if mono.dtype == np.int16:
         mono = mono.astype(np.float32) / 32768.0
     mono = resample(mono.astype(np.float32), sample_rate, CALL_SAMPLE_RATE)
+    stereo = np.repeat(to_int16(mono)[:, None], CALL_CHANNELS, axis=1)
+    return stereo.astype("<i2").tobytes()
+
+
+class CallResampler:
+    """`to_call_pcm` for one piece that arrives in parts.
+
+    Each part converted on its own ends on a held sample instead of the one
+    interpolated towards the start of the next part. This carries the seam over
+    — the last source sample, and the one target sample it cannot settle yet —
+    so the parts add up to exactly what the whole piece converts to.
+    """
+
+    def __init__(self) -> None:
+        self._rate = 0
+        self._seen = 0      # source samples taken so far
+        self._made = 0      # target samples settled so far
+        self._last: Optional[np.ndarray] = None   # the source sample before this part
+        self._held: Optional[np.ndarray] = None   # a target sample not yet sent
+
+    def push(self, audio: np.ndarray, sample_rate: int, last: bool = False) -> bytes:
+        """The call-format bytes this part settles; with `last`, the rest too."""
+        mono = _float_mono(audio)
+        if self._rate and sample_rate != self._rate:
+            # never happens within a piece, but a new rate is a new stream
+            return self.flush() + self._restart().push(audio, sample_rate, last)
+        self._rate = int(sample_rate)
+        out = self._take(mono)
+        return out + self.flush() if last else out
+
+    def flush(self) -> bytes:
+        """Everything still held back: the piece is over."""
+        if not self._rate:
+            return b""
+        total = self._seen if self._rate == CALL_SAMPLE_RATE else \
+            int(round(self._seen / float(self._rate) * CALL_SAMPLE_RATE))
+        held, self._held = self._held, None
+        settled = self._made - (0 if held is None else held.size)
+        tail = [] if held is None or settled >= total else [held]
+        # past the last source sample the interpolation holds it, as np.interp does
+        missing = total - settled - len(tail)
+        if missing > 0 and self._last is not None:
+            tail.append(np.repeat(self._last, missing))
+        self._made = settled + sum(part.size for part in tail)
+        return _call_bytes(np.concatenate(tail)) if tail else b""
+
+    def _restart(self) -> "CallResampler":
+        self.__init__()
+        return self
+
+    def _take(self, mono: np.ndarray) -> bytes:
+        if mono.size == 0:
+            return b""
+        if self._rate == CALL_SAMPLE_RATE:
+            self._seen += mono.size
+            self._made += mono.size
+            self._last = mono[-1:]
+            return _call_bytes(mono)
+
+        start = self._seen
+        if self._last is not None:
+            source = np.concatenate([self._last, mono])
+            first = start - 1
+        else:
+            source = mono
+            first = start
+        self._seen += mono.size
+        self._last = source[-1:]
+
+        # the same float arithmetic `resample` does over the whole piece, so
+        # every target sample lands on exactly the value it would have there
+        source_t = np.arange(first, first + source.size, dtype=np.float64) / float(self._rate)
+        upto = int(np.floor(source_t[-1] * CALL_SAMPLE_RATE)) + 2
+        target_t = np.arange(self._made, max(self._made, upto), dtype=np.float64) \
+            / float(CALL_SAMPLE_RATE)
+        target_t = target_t[target_t <= source_t[-1]]
+        made = np.interp(target_t, source_t, source).astype(np.float32)
+
+        pending = [] if self._held is None else [self._held]
+        self._made += made.size
+        ready = np.concatenate(pending + [made]) if pending else made
+        if ready.size == 0:
+            return b""
+        # the newest one waits: whether it belongs to the piece at all is only
+        # known once the piece's length is
+        self._held = ready[-1:]
+        return _call_bytes(ready[:-1])
+
+
+def _float_mono(audio: np.ndarray) -> np.ndarray:
+    if audio is None or getattr(audio, "size", 0) == 0:
+        return np.zeros(0, dtype=np.float32)
+    mono = to_mono(np.asarray(audio))
+    if mono.dtype == np.int16:
+        mono = mono.astype(np.float32) / 32768.0
+    return mono.astype(np.float32)
+
+
+def _call_bytes(mono: np.ndarray) -> bytes:
+    if mono.size == 0:
+        return b""
     stereo = np.repeat(to_int16(mono)[:, None], CALL_CHANNELS, axis=1)
     return stereo.astype("<i2").tobytes()
 

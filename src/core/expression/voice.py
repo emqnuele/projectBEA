@@ -3,10 +3,12 @@ import contextlib
 import uuid
 from typing import Any, List, Optional, Tuple
 
+import numpy as np
+
 from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
 from src.core.expression.live import LiveLine, Rendered
-from src.core.expression.pcm import ENVELOPE_FPS, duration_ms, envelope, to_call_pcm
+from src.core.expression.pcm import ENVELOPE_FPS, CallResampler, duration_ms, envelope
 from src.core.expression.prosody import for_mood
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.interfaces.base_interfaces import AvatarInterface, CaptionInterface, TTSInterface
@@ -400,37 +402,50 @@ class Expression:
             await self.current_speech_task
 
     async def _push(self, line: LiveLine, item: Rendered) -> None:
-        """One rendered piece into the live call."""
+        """One rendered piece into the live call, part by part as it is made."""
         # taken once rather than read per piece: she can be pulled out of the
         # call between two sentences, and half a line should not raise
         call = self.call
         if call is None:
             return
         state = line.state
+        # one conversion across the whole piece, so its parts meet exactly
+        # where they would have in one piece
+        resampler = CallResampler()
         sent = 0
         while True:
             while sent < len(item.parts):
                 audio, rate = item.parts[sent]
                 sent += 1
-                pcm = to_call_pcm(audio, rate)
-                if not pcm:
-                    continue
-                await call.play(pcm, utterance_id=state["id"],
-                                     text=line.caption or line.written,
-                                     seq=state["seq"], last=False)
-                state["frames"].extend(envelope(audio, rate, self._lipsync_fps))
-                state["spoken_ms"] += duration_ms(pcm)
-                state["seq"] += 1
+                last = sent == len(item.parts) and (item.job is None or item.job.done())
+                await self._send(call, line, resampler.push(audio, rate, last=last))
             # a piece still being made: wait for more of it, or for its end
             job = item.job
             if job is None or job.done():
                 if sent >= len(item.parts):
-                    return
+                    break
                 continue
             item.grew.clear()
             if sent < len(item.parts) or job.done():
                 continue
             await item.grew.wait()
+        await self._send(call, line, resampler.flush())
+        # the mouth over the whole piece, the way a piece made in one go gets it:
+        # a part is normalised against its own loudest moment and loses the
+        # last fraction of a frame, and the mouth drifts ahead of the voice
+        pieces = [audio for audio, _ in item.parts if getattr(audio, "size", 0)]
+        if pieces:
+            whole = pieces[0] if len(pieces) == 1 else np.concatenate(pieces)
+            state["frames"].extend(envelope(whole, item.parts[0][1], self._lipsync_fps))
+
+    async def _send(self, call, line: LiveLine, pcm: bytes) -> None:
+        if not pcm:
+            return
+        state = line.state
+        await call.play(pcm, utterance_id=state["id"], text=line.caption or line.written,
+                        seq=state["seq"], last=False)
+        state["spoken_ms"] += duration_ms(pcm)
+        state["seq"] += 1
 
     def wear(self, line: LiveLine, word: str) -> None:
         """Direction inside the line: her face changes from this word on."""

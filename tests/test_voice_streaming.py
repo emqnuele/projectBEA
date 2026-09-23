@@ -385,3 +385,41 @@ async def test_a_line_dropped_before_a_sound_sends_nothing():
     line = e.open_line("neutral", route="call")
     await line.cancel()
     assert socket.binary == []
+
+
+@pytest.mark.parametrize("rate", [16000, 22050, 24000, 44100, 48000])
+def test_a_piece_converted_in_parts_is_the_piece_converted_whole(rate):
+    from src.core.expression.pcm import CallResampler, to_call_pcm
+
+    rng = np.random.default_rng(rate)
+    for _ in range(40):
+        audio = (rng.standard_normal(int(rng.integers(1, 5000))) * 0.3).astype(np.float32)
+        cuts = sorted(set(rng.integers(0, audio.size, size=int(rng.integers(1, 6)))))
+        parts = np.split(audio, cuts)
+        resampler = CallResampler()
+        out = b"".join(resampler.push(part, rate) for part in parts) + resampler.flush()
+        assert out == to_call_pcm(audio, rate), "a seam between two parts can be heard"
+
+
+async def test_a_streamed_piece_moves_her_mouth_exactly_like_a_whole_one():
+    from src.core.expression.pcm import envelope
+
+    rng = np.random.default_rng(7)
+    speech = (rng.standard_normal(24000) * np.linspace(0.05, 0.6, 24000)).astype(np.float32)
+
+    class Parts(OneShotTTS):
+        async def generate_stream(self, text, prosody=None):
+            for part in np.split(speech, [3000, 9000, 17000]):
+                yield part, 24000
+
+    e = expression(Parts())
+    channel, socket = live_channel()
+    e.set_call(channel)
+    line = e.open_line("neutral", route="call")
+    line.say("Una frase sola ma abbastanza lunga da contare.")
+    line.close_input()
+    for task in line._tasks:
+        await task
+
+    assert line.state["frames"] == envelope(speech, 24000, e._lipsync_fps)
+    await line.close()
