@@ -585,8 +585,11 @@ class VoiceManager {
 
         data.speech = { id: utteranceId, ended: false, playedBefore: 0, writtenMs: 0, resumed: 0 };
         // the player's count starts over for the new line, so the starved
-        // tracker must too or it would keep reading the old line's count
+        // tracker must too or it would keep reading the old line's count.
+        // playedAt too, or the new line reads as speaking before its first
+        // packet for up to STARVED_MS after the old line
         data.heardMs = 0;
+        data.playedAt = 0;
         this.startStream(data, data.speech);
         this.report(utteranceId, 0, 'playing');
         return data.speech;

@@ -1008,6 +1008,7 @@ class Consciousness:
         # whatever of this line is already on its way out. Taken here rather than
         # in the loop so the two can never both own it.
         line, self._live = self._live, None
+        kept_heard: Optional[str] = None
         if line is not None and line.spoiled:
             # she met her own scaffolding before a word was heard: throw the
             # line away and say the finished message, which cleans whole
@@ -1026,6 +1027,7 @@ class Consciousness:
                     "The line on its way out is not the one she settled on, and it was "
                     f"already heard; keeping what streamed (streamed {line.written[:60]!r}, "
                     f"settled {message[:60]!r}).")
+                kept_heard = line.spoken or line.written
             else:
                 logger.warning(
                     "The line on its way out is not the one she settled on; saying hers "
@@ -1038,6 +1040,12 @@ class Consciousness:
         mood = normalize_mood(mood)
         # redundant with the client-side clean: last gate before the audience
         message = clean_model_output(message)
+        if kept_heard:
+            # the room heard the streamed line, not the fallback's answer: the
+            # history, the window and the turn log must believe what was heard
+            heard = clean_model_output(kept_heard) or kept_heard.strip()
+            if heard:
+                message = heard
         if not message:
             logger.warning("speak() had nothing left after sanitizing; staying silent.")
             if line is not None:

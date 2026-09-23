@@ -415,6 +415,10 @@ class Expression:
         sent = 0
         while True:
             while sent < len(item.parts):
+                # the room moved on while this was being made: parts already
+                # rendered must not resurrect an utterance the call left behind
+                if line.abandoned or line.cancelled or self._call_moved_on(state["id"], state["seq"]):
+                    return
                 audio, rate = item.parts[sent]
                 sent += 1
                 last = sent == len(item.parts) and (item.job is None or item.job.done())
@@ -429,6 +433,8 @@ class Expression:
             if sent < len(item.parts) or job.done():
                 continue
             await item.grew.wait()
+        if line.abandoned or line.cancelled or self._call_moved_on(state["id"], state["seq"]):
+            return
         await self._send(call, line, resampler.flush())
         # the mouth over the whole piece, the way a piece made in one go gets it:
         # a part is normalised against its own loudest moment and loses the
