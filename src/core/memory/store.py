@@ -691,10 +691,10 @@ class WindowStore:
             cur.execute("DELETE FROM context_window")
             cur.executemany(
                 "INSERT INTO context_window (seq, ts, tokens, role, content, conv_key, "
-                "author, addressee) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "author, addressee, mood) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [(int(r["seq"]), float(r["ts"]), int(r["tokens"]), str(r["role"]),
                   str(r["content"]), str(r["key"]), str(r["author"]),
-                  str(r["addressee"])) for r in rows],
+                  str(r["addressee"]), str(r.get("mood", ""))) for r in rows],
             )
             cur.execute(
                 "INSERT INTO settings (key, value) VALUES (?, ?) "
@@ -711,12 +711,12 @@ class WindowStore:
 
     def load(self) -> List[Dict[str, Any]]:
         rows = self.db.query(
-            "SELECT seq, ts, tokens, role, content, conv_key, author, addressee "
+            "SELECT seq, ts, tokens, role, content, conv_key, author, addressee, mood "
             "FROM context_window ORDER BY seq"
         )
         return [{"seq": r["seq"], "ts": r["ts"], "tokens": r["tokens"], "role": r["role"],
                  "content": r["content"], "key": r["conv_key"], "author": r["author"],
-                 "addressee": r["addressee"]} for r in rows]
+                 "addressee": r["addressee"], "mood": r["mood"]} for r in rows]
 
     def version(self) -> int:
         return self._setting(self.VERSION_KEY)

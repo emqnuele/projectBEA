@@ -126,3 +126,41 @@ def test_the_drop_is_a_noop_on_the_second_open(tmp_path):
         assert second.scalar("SELECT COUNT(*) FROM messages") == 1
     finally:
         second.close()
+
+
+# `context_window` exactly as it was before her lines kept the face they were said with
+OLD_WINDOW = """
+CREATE TABLE context_window (
+    seq        INTEGER PRIMARY KEY,
+    ts         REAL    NOT NULL,
+    tokens     INTEGER NOT NULL DEFAULT 0,
+    role       TEXT    NOT NULL,
+    content    TEXT    NOT NULL,
+    conv_key   TEXT    NOT NULL DEFAULT 'stage',
+    author     TEXT    NOT NULL DEFAULT '',
+    addressee  TEXT    NOT NULL DEFAULT ''
+);
+"""
+
+
+def test_a_window_saved_before_moods_reopens_and_replays_as_calls(tmp_path):
+    from src.core.memory.store import WindowStore
+    from src.core.mind.single_context import SingleContext
+
+    path = tmp_path / "bea.db"
+    conn = sqlite3.connect(str(path))
+    conn.executescript(OLD_WINDOW)
+    conn.execute("INSERT INTO context_window (seq, ts, tokens, role, content) "
+                 "VALUES (1, 1.0, 12, 'assistant', 'Fantastic, obviously.')")
+    conn.commit()
+    conn.close()
+
+    db = Database(str(path)).init()
+    try:
+        window = SingleContext(store=WindowStore(db))
+        assert window.restore() == 1
+        call = window.replay()[0]["tool_calls"][0]["function"]
+        assert call["name"] == "speak"
+        assert '"mood": "neutral"' in call["arguments"]
+    finally:
+        db.close()

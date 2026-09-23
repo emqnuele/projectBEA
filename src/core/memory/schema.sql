@@ -108,6 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
 -- and emptied by exactly one event — the consolidation she does in her sleep.
 -- `seq` is the window's own ordering; the bridge line written by a handoff
 -- is seq 0 and sorts first.
+-- mood: her lines are read back as the speak calls they were, face included
 CREATE TABLE IF NOT EXISTS context_window (
     seq        INTEGER PRIMARY KEY,
     ts         REAL    NOT NULL,
@@ -116,7 +117,8 @@ CREATE TABLE IF NOT EXISTS context_window (
     content    TEXT    NOT NULL,
     conv_key   TEXT    NOT NULL DEFAULT 'stage',
     author     TEXT    NOT NULL DEFAULT '',
-    addressee  TEXT    NOT NULL DEFAULT ''
+    addressee  TEXT    NOT NULL DEFAULT '',
+    mood       TEXT    NOT NULL DEFAULT ''
 );
 
 -- --- long-term memory -------------------------------------------------------
