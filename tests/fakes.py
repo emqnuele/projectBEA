@@ -111,6 +111,7 @@ class FakeLine:
         self.route = route
         self.feeling = feeling
         self.said: List[str] = []
+        self.input_closed = False
         self.closed = False
         self.cancelled = False
         self.spoiled = False
@@ -118,7 +119,11 @@ class FakeLine:
     def say(self, text: str) -> None:
         self.said.append(text)
 
+    def close_input(self) -> None:
+        self.input_closed = True
+
     async def close(self):
+        self.input_closed = True
         self.closed = True
         return None
 

@@ -330,3 +330,25 @@ async def test_a_second_tool_call_does_not_end_up_inside_the_line():
     written = mind.expression.lines[0].written
     assert written == line_text, f"the line was corrupted: {written!r}"
     assert "{" not in written and "fact" not in written
+
+
+async def test_the_last_sentence_leaves_when_the_line_closes_not_when_the_answer_does():
+    # a one-sentence answer has no seam to cut at: all of it waited for the
+    # end of the response, including every tool call written after it
+    llm = StreamingLLMClient([speaks_and_remembers("Ma tu guarda questa cosa.")])
+    mind, bus = build(llm)
+
+    finished_while_writing = []
+    llm.after_delta = lambda: finished_while_writing.append(
+        bool(mind.expression.lines) and mind.expression.lines[0].input_closed
+        and not mind.expression.lines[0].closed
+    )
+
+    bus.put(said_to(mind))
+    await one_turn(mind, bus)
+
+    assert any(finished_while_writing), \
+        "the line was only finished once the whole response had arrived"
+    line = mind.expression.lines[0]
+    assert line.written == "Ma tu guarda questa cosa."
+    assert line.closed and not line.cancelled

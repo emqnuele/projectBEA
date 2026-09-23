@@ -509,15 +509,19 @@ class Consciousness:
                 return
 
             words = reader.push(delta)
-            if not words:
-                return
-            if line is None:
-                line = self._open_line(reader.mood)
+            if words:
                 if line is None:
-                    readers[index] = None
-                    return
-                spoken = index
-            line.say(words)
+                    line = self._open_line(reader.mood)
+                    if line is None:
+                        readers[index] = None
+                        return
+                    spoken = index
+                line.say(words)
+            # the closing quote is the end of the line. Waiting for the response
+            # to finish as well held her last sentence — on a one-sentence
+            # answer, all of it — behind the usage block and any tool after it
+            if line is not None and spoken == index and reader.finished:
+                line.close_input()
 
         try:
             return await self.llm.stream_complete(
