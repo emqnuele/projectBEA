@@ -19,6 +19,8 @@ class OrpheusTTSWrapper(TTSInterface):
     # ~150ms a block: small enough to start sounding fast, big enough not to
     # spend the win on per-block overhead
     STREAM_BLOCK_BYTES = 7200
+    # remote: the wait is on the endpoint, not on this machine
+    pieces_in_flight = 2
 
     def __init__(self,
                  api_key: Optional[str],

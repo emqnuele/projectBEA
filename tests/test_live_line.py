@@ -276,3 +276,103 @@ async def test_a_line_that_was_already_heard_is_not_spoiled_by_it():
 
     assert script.of("render") == ["Ma tu guarda questa cosa."]
     assert line.tainted and not line.spoiled
+
+
+# --- two pieces in flight -----------------------------------------------------
+
+
+class SlowTTS(ScriptedTTS):
+    """A remote engine that takes as long as the test says, piece by piece."""
+
+    pieces_in_flight = 2
+
+    def __init__(self, script: Script):
+        super().__init__(script)
+        self.gates = {}
+
+    def gate(self, text):
+        return self.gates.setdefault(text, asyncio.Event())
+
+    async def generate_audio(self, text, prosody=None):
+        self.script.add("asked", text)
+        await self.gate(text).wait()
+        return await super().generate_audio(text, prosody)
+
+
+async def test_the_next_piece_is_asked_for_before_the_one_before_it_is_back():
+    """A remote engine costs most of a second a request: made one after the
+    other, a short first sentence runs out before the second one exists."""
+    script = Script()
+    e = expression(script)
+    tts = SlowTTS(script)
+    e.tts = tts
+
+    line = e.open_line("neutral")
+    line.say("Ah, davvero? Non ci posso credere, raccontami tutto. E poi?")
+    for _ in range(8):
+        await asyncio.sleep(0)
+
+    assert script.of("asked")[:2] == ["Ah, davvero?", "Non ci posso credere, raccontami tutto."]
+    assert len(script.of("asked")) == 2, "more than two pieces were in flight"
+
+    for text in ("Ah, davvero?", "Non ci posso credere, raccontami tutto.", "E poi?"):
+        tts.gate(text).set()
+    await line.close()
+
+
+async def test_a_piece_that_comes_back_first_still_plays_second():
+    script = Script()
+    e = expression(script)
+    tts = SlowTTS(script)
+    e.tts = tts
+
+    line = e.open_line("neutral")
+    line.say("Ah, davvero? Non ci posso credere, raccontami tutto.")
+    for _ in range(8):
+        await asyncio.sleep(0)
+
+    tts.gate("Non ci posso credere, raccontami tutto.").set()
+    for _ in range(8):
+        await asyncio.sleep(0)
+    assert script.of("play") == [], "the second piece played before the first"
+
+    tts.gate("Ah, davvero?").set()
+    await line.close()
+    assert script.of("play") == ["Ah, davvero?", "Non ci posso credere, raccontami tutto."]
+
+
+async def test_cancelling_a_line_stops_every_piece_still_being_made():
+    script = Script()
+    e = expression(script)
+    tts = SlowTTS(script)
+    e.tts = tts
+
+    line = e.open_line("neutral")
+    line.say("Ah, davvero? Non ci posso credere, raccontami tutto.")
+    for _ in range(8):
+        await asyncio.sleep(0)
+
+    await line.cancel()
+    assert script.of("play") == []
+    assert not line._jobs, "a synthesis outlived the line it belonged to"
+
+
+async def test_an_engine_on_this_machine_is_asked_one_piece_at_a_time():
+    # two syntheses on the same cores make the first one late, and the first
+    # one is what the room is waiting for
+    script = Script()
+    e = expression(script)
+    tts = SlowTTS(script)
+    tts.pieces_in_flight = 1
+    e.tts = tts
+
+    line = e.open_line("neutral")
+    line.say("Ah, davvero? Non ci posso credere, raccontami tutto.")
+    for _ in range(8):
+        await asyncio.sleep(0)
+    assert script.of("asked") == ["Ah, davvero?"]
+
+    for text in ("Ah, davvero?", "Non ci posso credere, raccontami tutto."):
+        tts.gate(text).set()
+    await line.close()
+    assert script.of("play") == ["Ah, davvero?", "Non ci posso credere, raccontami tutto."]

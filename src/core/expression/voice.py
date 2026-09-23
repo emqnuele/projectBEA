@@ -159,6 +159,11 @@ class Expression:
         return for_mood(mood, self.affect.current if feeling is None else feeling)
 
     @property
+    def pieces_in_flight(self) -> int:
+        """How many pieces of a line the engine may be making at once."""
+        return int(getattr(self.tts, "pieces_in_flight", 1) or 1)
+
+    @property
     def call_is_live(self) -> bool:
         """Whether sound she makes right now would be heard in a room."""
         return bool(self.call is not None and self.call.live)

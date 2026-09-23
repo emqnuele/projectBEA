@@ -4,6 +4,11 @@ from typing import Any, AsyncIterator, Optional, Sequence, Tuple, Union
 
 
 class TTSInterface(ABC):
+    # how many pieces of one line this engine may be making at once. One for an
+    # engine on this machine, where a second synthesis takes the cores the first
+    # needs; a remote one spends most of a request waiting, and can overlap
+    pieces_in_flight: int = 1
+
     @abstractmethod
     async def generate_audio(self, text: str, prosody=None) -> Tuple[Any, int]:
         """

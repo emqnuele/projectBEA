@@ -11,6 +11,9 @@ from src.utils.logger import get_logger
 logger = get_logger("bea.tts.edge")
 
 class EdgeTTSWrapper(TTSInterface):
+    # every piece is a new connection and most of a second of waiting on it
+    pieces_in_flight = 2
+
     def __init__(self, voice: str = "en-US-JennyNeural", pitch: str = "+0Hz", rate: str = "+0%", volume: str = "+0%"):
         self.voice = voice
         self.pitch = pitch
