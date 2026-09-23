@@ -11,6 +11,11 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.tts.edge")
 
+# the first part of a streamed piece goes once this much mp3 has arrived, a third
+# of a second of speech at edge's 48 kbps; each part after it waits for twice as
+# much, so a sentence costs a handful of decodes rather than one per chunk
+FIRST_PART_BYTES = 2048
+
 class EdgeTTSWrapper(TTSInterface):
     # every piece is a new connection and most of a second of waiting on it
     pieces_in_flight = 2
@@ -71,6 +76,40 @@ class EdgeTTSWrapper(TTSInterface):
         except Exception as e:
             logger.error(f"generation error: {e}")
             return np.zeros(0, dtype=np.float32), 24000
+
+    async def generate_stream(self, text: str, prosody=None):
+        """The same samples as `generate_audio`, handed over as they arrive.
+
+        An mp3 cut at any byte decodes to exactly the start of what the whole
+        file decodes to — checked bit for bit on edge's own output — so each
+        part is the next stretch of the very same audio, only sooner: the room
+        can be hearing the start of a sentence while the end of it is still on
+        the wire.
+        """
+        if not text:
+            return
+        try:
+            pitch, rate, volume = self._voice_for(prosody)
+            communicate = edge_tts.Communicate(text, self.voice, pitch=pitch, rate=rate, volume=volume)
+            mp3 = bytearray()
+            sent = 0
+            due = FIRST_PART_BYTES
+            async for chunk in communicate.stream():
+                if chunk["type"] != "audio":
+                    continue
+                mp3 += chunk["data"]
+                if len(mp3) < due:
+                    continue
+                due = len(mp3) * 2
+                data, fs = await asyncio.to_thread(_decode, bytes(mp3))
+                if len(data) > sent:
+                    yield data[sent:], fs
+                    sent = len(data)
+            data, fs = await asyncio.to_thread(_decode, bytes(mp3))
+            if len(data) > sent:
+                yield data[sent:], fs
+        except Exception as e:
+            logger.error(f"generation error: {e}")
 
 
 def _decode(mp3: bytes) -> tuple[np.ndarray, int]:

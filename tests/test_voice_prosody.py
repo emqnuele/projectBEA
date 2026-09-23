@@ -181,3 +181,35 @@ async def test_edge_decodes_in_memory_and_leaves_no_file_behind(monkeypatch, tmp
     assert rate == 24000
     assert np.array_equal(audio, expected)
     assert list(tmp_path.iterdir()) == [], "a temporary file was written"
+
+
+async def test_edge_streams_the_very_same_samples_it_would_render_whole(monkeypatch):
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    from src.modules.tts import edge_tts_wrapper
+
+    clip = io.BytesIO()
+    speech = (np.sin(np.arange(72000) / 7) * 0.3).astype("float32")
+    sf.write(clip, speech, 24000, format="MP3")
+    mp3 = clip.getvalue()
+
+    class Communicate:
+        def __init__(self, text, voice, **kwargs):
+            pass
+
+        async def stream(self):
+            for at in range(0, len(mp3), 720):
+                yield {"type": "audio", "data": mp3[at:at + 720]}
+
+    monkeypatch.setattr(edge_tts_wrapper.edge_tts, "Communicate", Communicate)
+    edge = EdgeTTSWrapper(voice="v")
+
+    parts = [part async for part in edge.generate_stream("ciao")]
+    whole, rate = await edge.generate_audio("ciao")
+
+    assert len(parts) > 1, "nothing was handed over before the end"
+    assert all(r == rate for _, r in parts)
+    assert np.array_equal(np.concatenate([p for p, _ in parts]), whole)
