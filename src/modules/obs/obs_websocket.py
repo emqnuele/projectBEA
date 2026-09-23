@@ -59,8 +59,12 @@ class OBSController(OBSInterface):
             self.client = None
 
     def disconnect(self):
-        if self.client:
-            ws = getattr(self.client, "base_client", None)
+        # dropped here, not merely closed: a caption or an image still in flight
+        # after this would otherwise call a socket nobody is reading and raise
+        # on it, exactly when the shutdown wants best-effort silence
+        client, self.client = self.client, None
+        if client:
+            ws = getattr(client, "base_client", None)
             if ws and hasattr(ws, "ws"):
                 ws.ws.close()
             logger.info("Disconnected from OBS")

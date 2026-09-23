@@ -139,6 +139,9 @@ async def test_stopping_only_reaches_for_taskkill_on_windows(monkeypatch):
     class Proc:
         pid = 4711
 
+        def terminate(self):
+            pass
+
         def kill(self):
             pass
 
@@ -174,6 +177,9 @@ class FlakyTransport:
         return None
 
     def stop(self) -> None:
+        pass
+
+    def terminate(self) -> None:
         pass
 
     async def close(self) -> None:

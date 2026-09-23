@@ -133,6 +133,8 @@ async def stream_events(
                     # a comment keeps proxies from closing an idle connection
                     yield ": keep-alive\n\n"
                     continue
+                if event.get("shutdown"):
+                    break
                 yield f"data: {json.dumps(event)}\n\n"
         finally:
             brain.event_manager.unsubscribe(queue)

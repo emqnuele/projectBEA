@@ -57,6 +57,7 @@ client.once(Events.ClientReady, () => {
 messageHandler.register(client);
 
 // --- start: login, then expose the command API ---
+let apiServer = null;
 client.login(config.TOKEN).then(() => {
     const app = createServer({
         client,
@@ -64,7 +65,7 @@ client.login(config.TOKEN).then(() => {
         token: config.API_TOKEN,
     });
     // BIND_HOST is loopback: the API has no business being on the network
-    listen(app, {
+    apiServer = listen(app, {
         port: config.PORT,
         host: config.BIND_HOST,
         // a bot that is logged in but unreachable is worse than no bot: the
@@ -78,3 +79,27 @@ client.login(config.TOKEN).then(() => {
     console.error('Failed to login to Discord:', err);
     process.exit(1);
 });
+
+// the transport stops the bot with SIGTERM on shutdown: leave the call and
+// the gateway cleanly instead of vanishing mid-word. A second signal means
+// now rather than cleanly.
+let shuttingDown = false;
+function shutdown(signal) {
+    if (shuttingDown) {
+        process.exit(1);
+    }
+    shuttingDown = true;
+    console.log(`Received ${signal}; leaving voice and disconnecting.`);
+    try {
+        if (apiServer) apiServer.close();
+        client.voiceManager.link.stop();
+        client.voiceManager.leaveAll();
+    } catch (e) {
+        console.error('Error during shutdown:', e.message);
+    }
+    client.destroy().finally(() => process.exit(0));
+    // a gateway that never answers must not hold the exit hostage
+    setTimeout(() => process.exit(0), 3000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

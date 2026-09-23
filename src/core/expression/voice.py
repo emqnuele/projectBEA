@@ -609,3 +609,39 @@ class Expression:
 
         self.is_speaking = False
         return "Interrupted"
+
+    # --- shutdown -----------------------------------------------------------
+
+    def close(self) -> None:
+        """Stops everything she is putting out, right now.
+
+        Called on the way down: a line still being spoken locally, a caption
+        still being typed and the visuals of a call line are cancelled, the
+        sound card is released and the stage is put back. Best-effort and
+        synchronous — it runs at the very end, where there is no guarantee of
+        another turn of the loop to cancel for us.
+        """
+        for task in (self.current_speech_task, self.current_typing_task):
+            if task is not None and not task.done():
+                task.cancel()
+        self.current_speech_task = self.current_typing_task = None
+        self._stop_visuals()
+        # a line still open must stop being rendered: what it had queued would
+        # otherwise keep synthesising against a model pool this shutdown closes
+        line, self._line = self._line, None
+        if line is not None:
+            line.abandoned = True
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception as e:
+            logger.debug(f"Error stopping sounddevice: {e}")
+        try:
+            self.caption.clear()
+        except Exception as e:
+            logger.debug(f"Clearing the caption on shutdown failed: {e}")
+        try:
+            self.avatar.show(self._mood, self._resting)
+        except Exception as e:
+            logger.debug(f"Restoring the avatar on shutdown failed: {e}")
+        self.is_speaking = False

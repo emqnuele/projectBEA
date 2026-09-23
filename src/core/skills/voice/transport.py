@@ -92,6 +92,11 @@ class DiscordTransport:
         # minted per process and handed to the subprocess: never written to disk
         self.api_token = secrets.token_urlsafe(32)
         self._session: Optional[aiohttp.ClientSession] = None
+        # whether the bot has already been asked to leave. The signal path asks
+        # first (`begin_shutdown`) and `stop` asks again on its way down; the
+        # bot reads a second signal as "now, not cleanly", so it is only sent
+        # once. Reset on every fresh start.
+        self._asked_to_leave = False
 
     def _port(self) -> int:
         return self.config.skills.get("discord", {}).get("api_port", 3030)
@@ -174,7 +179,12 @@ class DiscordTransport:
             self.bot_process = subprocess.Popen(
                 [node, "index.js"], cwd=str(self.bot_dir), env=self.subprocess_env(token),
                 stdout=sys.stdout, stderr=sys.stderr, shell=False,
+                # its own process group: ctrl+c on the terminal used to reach
+                # the bot as well, killing it mid-shutdown while the supervisor
+                # (still active until the skills stop) brought it back up
+                start_new_session=True,
             )
+            self._asked_to_leave = False
             logger.info(f"Discord bot started with PID {self.bot_process.pid}.")
             return True
         except Exception as e:
@@ -182,17 +192,41 @@ class DiscordTransport:
             self.bot_process = None
             return False
 
+    def terminate(self) -> None:
+        """Asks the bot to leave (SIGTERM), once, without waiting for it.
+
+        Non-blocking on purpose: this runs the moment shutdown begins, off
+        the loop, while the full stop (wait, kill what ignores the ask) still
+        happens later on the skills' way down. Sent only once: the bot treats a
+        second SIGTERM as "leave now, not cleanly", and `stop` would otherwise
+        turn the clean exit the signal already started into a hard one.
+        """
+        proc = self.bot_process
+        if proc is None or self._asked_to_leave:
+            return
+        self._asked_to_leave = True
+        try:
+            proc.terminate()
+        except OSError as e:
+            logger.debug(f"Terminating the discord bot failed: {e}")
+
     def stop(self) -> None:
         if not self.bot_process:
             return
         logger.info("Stopping Discord bot...")
         try:
-            self.bot_process.kill()
-            if sys.platform.startswith("win"):
-                # windows leaves the child tree behind after a kill
-                subprocess.run(f"taskkill /F /T /PID {self.bot_process.pid}", shell=True,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.bot_process.wait(timeout=2)
+            # asked to leave first: the bot drops the voice call and the
+            # gateway on SIGTERM, and only a bot that ignores it gets killed
+            self.terminate()
+            try:
+                self.bot_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.bot_process.kill()
+                if sys.platform.startswith("win"):
+                    # windows leaves the child tree behind after a kill
+                    subprocess.run(f"taskkill /F /T /PID {self.bot_process.pid}", shell=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.bot_process.wait(timeout=2)
         except Exception as e:
             logger.error(f"Error stopping Discord bot: {e}")
         finally:

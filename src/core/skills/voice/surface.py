@@ -48,6 +48,9 @@ class VoiceSurface(PlatformSkill):
     # attributes, so a surface is supervisable before it has been initialized.
     _started_at: float = 0.0
     _failed_starts: int = 0
+    # set by stop(): whatever dies from here on stays down. Without it a bot
+    # killed by the shutdown itself is brought straight back up mid-shutdown.
+    _shutting_down: bool = False
 
     def initialize(self) -> None:
         super().initialize()
@@ -94,6 +97,7 @@ class VoiceSurface(PlatformSkill):
             return
         if self.transport.start():
             self.active = True
+            self._shutting_down = False
             self._started_at = time.time()
             self._failed_starts = 0
             self._monitor = asyncio.create_task(self._watch_transport())
@@ -105,17 +109,30 @@ class VoiceSurface(PlatformSkill):
         """Connected to the bot and sitting in a channel: she can be heard."""
         return self.channel.live
 
-    async def stop(self) -> None:
+    def begin_shutdown(self) -> None:
+        """Stands the supervisor down and asks the bot to leave, right now.
+
+        Sync and non-blocking: this runs the moment shutdown begins (on the
+        signal), while the server is still draining its connections and long
+        before the skills stop. Without it the bot outlives the server by the
+        whole graceful wait, retrying a dead address the entire time.
+        """
+        self._shutting_down = True
         self.active = False
+        self.transport.terminate()
+
+    async def stop(self) -> None:
+        self.begin_shutdown()
         self.channel.detach()
+        pending = [t for t in (self._monitor, self._floor_task) if t is not None]
         # both are set in `initialize`, so there is nothing here `getattr` was
         # protecting against — and reading them straight says what they are
-        if self._monitor is not None:
-            self._monitor.cancel()
-            self._monitor = None
-        if self._floor_task is not None:
-            self._floor_task.cancel()
-            self._floor_task = None
+        self._monitor = self._floor_task = None
+        for task in pending:
+            task.cancel()
+        # consumed, so a cancelled watch is never reported as never retrieved
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         self.transport.stop()
         await self.transport.close()
         logger.info("VoiceSurface stopped.")
@@ -127,6 +144,8 @@ class VoiceSurface(PlatformSkill):
         it. Going quietly inactive was the wrong answer — she simply vanished
         from discord until someone noticed.
         """
+        if self._shutting_down or not self.active:
+            return
         if self.transport.poll_exit() is None:
             return
 
@@ -143,6 +162,8 @@ class VoiceSurface(PlatformSkill):
         logger.warning(f"Discord bot died; restarting it "
                        f"({self._failed_starts}/{self.max_failed_starts}).")
         await asyncio.sleep(self.restart_backoff)
+        if self._shutting_down or not self.active:
+            return
         if self.transport.start():
             self._started_at = time.time()
             logger.info("Discord bot is back up.")

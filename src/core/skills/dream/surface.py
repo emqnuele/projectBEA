@@ -60,6 +60,18 @@ class DreamSkill(Skill):
         if self._night_task:
             self._night_task.cancel()
             self._night_task = None
+        # a consolidation in progress is writing memory and using the background
+        # model pool: left running it would race the final save in `cli.shutdown`
+        # and keep a model busy that same shutdown is about to close. Cancelled
+        # and consumed here rather than left to the loop's own cancel.
+        dream = self._dream_task
+        if dream is not None and not dream.done():
+            dream.cancel()
+            try:
+                await dream
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._dream_task = None
         await super().stop()
 
     async def _nightly(self) -> None:

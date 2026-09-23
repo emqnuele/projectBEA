@@ -8,11 +8,10 @@ connection gets one snapshot of how she looks *now*, and patches after that.
 """
 
 import asyncio
-import contextlib
 from pathlib import Path
 from typing import Any, Dict, List
 
-from src.core.fanout import Fanout
+from src.core.fanout import Fanout, offer
 from src.core.mind.moods import DEFAULT_MOOD
 
 # how many patches a stalled page may buffer before it is dropped
@@ -118,6 +117,5 @@ class StageChannel:
 
     def close(self) -> None:
         for queue in self._fanout.queues():
+            offer(queue, {"closed": True})
             self.unsubscribe(queue)
-            with contextlib.suppress(asyncio.QueueFull):
-                queue.put_nowait({"closed": True})

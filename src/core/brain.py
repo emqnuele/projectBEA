@@ -48,6 +48,12 @@ from src.utils.prompts import compose, load_text
 logger = get_logger("bea.brain")
 
 
+def _settle_line(future: "asyncio.Future", value: str) -> None:
+    """Hands one line of stdin back, unless the loop is already gone."""
+    if not future.done():
+        future.set_result(value)
+
+
 # every capability the brain wires up. PresenceSkill is core: without it she can
 # only ever answer where she was spoken to.
 SKILL_CLASSES = (
@@ -631,13 +637,40 @@ class AIVtuberBrain:
                 meta={"whitelisted": whitelisted},
             )
 
+    async def _read_line(self, prompt: str) -> str:
+        """One line of stdin, without parking a thread the loop has to join.
+
+        `asyncio.to_thread` runs on the default executor, and `asyncio.run`
+        joins that executor on its way out. A thread blocked in `input()` never
+        returns, so ctrl+c ran the whole shutdown and then hung the process on
+        that join: the engine stopped, but the program would not exit. A daemon
+        thread the loop does not own is abandoned at exit instead.
+        """
+        loop = asyncio.get_running_loop()
+        future: "asyncio.Future[str]" = loop.create_future()
+
+        def read() -> None:
+            try:
+                line = input(prompt)
+            except KeyboardInterrupt:
+                line = "exit"
+            except Exception:
+                # a closed stdin is a stop, not a crash
+                line = "exit"
+            try:
+                loop.call_soon_threadsafe(_settle_line, future, line)
+            except RuntimeError:
+                pass  # the loop is gone; the process is already on its way out
+
+        threading.Thread(target=read, daemon=True, name="cli-input").start()
+        return await future
+
     async def run_loop(self):
         logger.info("Starting interactive loop. Type 'exit' to quit.")
         logger.info("To send audio, type 'audio:path/to/file.wav'")
 
         while True:
-            user_text = await asyncio.to_thread(input, "You > ")
-            user_text = user_text.strip()
+            user_text = (await self._read_line("You > ")).strip()
 
             if user_text.lower() in ("exit", "quit"):
                 break
@@ -698,16 +731,26 @@ class AIVtuberBrain:
         logger.info("Warmup complete (LLM + memory primed).")
 
     async def stop_skills(self):
-        for task in (self._warmup_task, self._rhythm_task):
-            if task is not None:
-                task.cancel()
+        tasks = [t for t in (self._warmup_task, self._rhythm_task) if t is not None]
         self._warmup_task = self._rhythm_task = None
+        for task in tasks:
+            task.cancel()
+        # waited on rather than left to the loop's own cancel: a warmup call
+        # still in flight would otherwise hold the model pool shutdown is about
+        # to close, and a rhythm tick mid-message would speak into a stopping
+        # surface. `return_exceptions` keeps a failed one from stopping the rest.
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         if self.consciousness:
             await self.consciousness.stop()
 
     def shutdown(self):
         self.history_manager.flush()
+        # everything still going out is stopped before the ports it goes
+        # through are closed, not left to the loop's final cancellation
+        self.expression.close()
         self.stage.close()
+        self.event_manager.close()
         self.avatar.close()
         self.obs.disconnect()
         self.memory.close()

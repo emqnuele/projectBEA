@@ -1,12 +1,32 @@
 """one publisher, many bounded queues, safe to publish to from any thread."""
 
 import asyncio
+import contextlib
 import threading
 from typing import Any, Dict, List, Optional
 
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.fanout")
+
+
+def offer(queue: "asyncio.Queue[Any]", payload: Any) -> None:
+    """Puts `payload` on a queue that may be full, making room if it is.
+
+    Used to end a stream: a full queue would otherwise drop the sentinel and
+    leave the reader blocked until its keep-alive timeout instead of returning
+    at once. The oldest queued item is the right one to lose — the stream is
+    over anyway, and the sentinel is the only thing that still matters.
+    """
+    try:
+        queue.put_nowait(payload)
+        return
+    except asyncio.QueueFull:
+        pass
+    with contextlib.suppress(asyncio.QueueEmpty):
+        queue.get_nowait()
+    with contextlib.suppress(asyncio.QueueFull):
+        queue.put_nowait(payload)
 
 
 def _running_loop() -> Optional[asyncio.AbstractEventLoop]:
