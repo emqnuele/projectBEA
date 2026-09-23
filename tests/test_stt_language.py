@@ -6,6 +6,7 @@ an empty one was sent as an empty pin rather than as "detect it".
 """
 
 import os
+from types import SimpleNamespace
 
 import pytest
 from groq import omit
@@ -48,7 +49,7 @@ def groq_sent(monkeypatch):
     class FakeClient:
         audio = type("A", (), {"transcriptions": FakeTranscriptions()})()
 
-    monkeypatch.setattr("src.modules.STT.groq_stt.Groq", lambda api_key=None: FakeClient())
+    monkeypatch.setattr("src.modules.STT.groq_stt.Groq", lambda api_key=None, **_: FakeClient())
     return sent
 
 
@@ -92,7 +93,8 @@ def openrouter_sent(monkeypatch):
         sent.update(json or {})
         return FakeResponse()
 
-    monkeypatch.setattr("src.modules.STT.openrouter_stt.requests.post", post)
+    monkeypatch.setattr("src.modules.STT.openrouter_stt.requests.Session",
+                        lambda: SimpleNamespace(post=post))
     return sent
 
 
