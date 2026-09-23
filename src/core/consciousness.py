@@ -148,6 +148,12 @@ class Consciousness:
         # a line already on its way out while the tool call that asked for it is
         # still being written
         self._live: Optional[LiveLine] = None
+        # the turn in flight, so the call can call it off: somebody went on
+        # talking before she had said or done anything about the first half
+        self._turn_task: Optional[asyncio.Task] = None
+        self._start_over = False
+        # the tool running right now, if any: one half way through is never cut
+        self._dispatching: Optional[str] = None
 
         # what this turn has done so far, for the record written at the end of it
         self._thought: List[str] = []
@@ -209,6 +215,7 @@ class Consciousness:
                 await s.start()
             except Exception as e:
                 logger.error(f"Surface '{s.name}' failed to start: {e}")
+        self._listen_to_the_call()
         self._loop_task = asyncio.create_task(self.run())
         logger.info("Consciousness started.")
 
@@ -321,6 +328,7 @@ class Consciousness:
 
     async def run(self):
         while self.alive:
+            started_over = False
             try:
                 idle = self.surfaces.get("idle")
                 if idle and idle.active:
@@ -350,7 +358,7 @@ class Consciousness:
                 if not self._needs_mind(batch):
                     continue
 
-                await self._turn(batch)
+                started_over = await self._run_turn(batch)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -360,9 +368,95 @@ class Consciousness:
                 await asyncio.sleep(1)
             finally:
                 # a turn that raised must not leave its caller hanging for the
-                # whole correlation timeout
-                self.correlations.release()
+                # whole correlation timeout. One started over is still owed its
+                # answer: the same callers come back with the same batch.
+                if not started_over:
+                    self.correlations.release()
                 await self._drop_unspoken()
+
+    async def _run_turn(self, batch: List[Perception]) -> bool:
+        """One turn, in a task the call can call off. True when it was started over.
+
+        Waited on rather than awaited, so a turn called off from outside and the
+        loop itself being stopped stay two different things.
+        """
+        # what `_can_start_over` reads, true of this turn from its first moment
+        # rather than from wherever `_turn` gets round to resetting it
+        self._batch = list(batch)
+        self._thought, self._acted, self._said, self._sent = [], [], None, []
+        self._start_over = False
+        task = asyncio.create_task(self._turn(batch))
+        self._turn_task = task
+        try:
+            await asyncio.wait({task})
+        except asyncio.CancelledError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+        finally:
+            self._turn_task = None
+        if task.cancelled():
+            if not self._start_over:
+                raise asyncio.CancelledError()
+            # what they said so far goes back on the bus, where it waits for the
+            # rest of the sentence and comes back as one turn
+            for p in self._batch or batch:
+                self.bus.put(p)
+            return True
+        error = task.exception()
+        if error is not None:
+            raise error
+        return False
+
+    # --- somebody in the call went on talking --------------------------------
+
+    def _listen_to_the_call(self) -> None:
+        voice = self.surfaces.get("voice:discord")
+        channel = getattr(voice, "channel", None)
+        if channel is not None:
+            channel.on_hearing = self._on_hearing
+
+    def _on_hearing(self, user_id: str, state: str) -> None:
+        """The rest of somebody's sentence is on its way: start over, if nothing is lost.
+
+        Only `sent` counts. A cough or a breath also starts somebody talking,
+        and her line simply waits for it to be over; a turn on its way to the
+        transcriber is words, and answering what came before them is answering
+        half of what was meant.
+        """
+        if state != "sent" or not self._can_start_over():
+            return
+        logger.info("They kept talking before she said anything: "
+                    "starting the turn over with the rest of it.")
+        self._start_over = True
+        if self._turn_task is not None:
+            self._turn_task.cancel()
+
+    def _can_start_over(self) -> bool:
+        """Whether calling this turn off costs nothing but the thinking.
+
+        Nothing said, nothing sent, no tool run or half way through, nothing of
+        hers in the room — and the turn is about the call at all.
+        """
+        task = self._turn_task
+        if task is None or task.done():
+            return False
+        if not any(p.kind == PerceptionKind.VOICE for p in self._batch):
+            return False
+        if self._acted or self._said is not None or self._sent:
+            return False
+        if self._dispatching not in (None, "speak"):
+            return False
+        if self.expression.is_speaking:
+            return False
+        return not self._line_heard(self._live)
+
+    @staticmethod
+    def _line_heard(line: Optional[LiveLine]) -> bool:
+        """Whether any of this line has already left for the room."""
+        if line is None:
+            return False
+        return bool(line.spoken) or getattr(line, "state", {}).get("seq", 0) > 0
 
     async def _turn(self, batch: List[Perception]) -> None:
         """One batch, one frame, one turn."""
@@ -965,7 +1059,11 @@ class Consciousness:
         a capability is quietly missing.
         """
         registry = self.tools.registry()
-        result = await self._run_tool(call, registry)
+        self._dispatching = call.name
+        try:
+            result = await self._run_tool(call, registry)
+        finally:
+            self._dispatching = None
         tool = registry.get(call.name)
         self._acted.append({"tool": call.name, "arguments": call.arguments,
                             "result": result,
@@ -1047,6 +1145,18 @@ class Consciousness:
                     f"(streamed {line.written[:60]!r}, settled {message[:60]!r}).")
                 await line.cancel()
                 line = None
+
+        # nothing of it has reached the room yet: while somebody is still
+        # talking it waits, before it becomes something she said — so the turn
+        # can still be started over with the rest of their sentence, and there
+        # is nothing to take back from her history when it is
+        if not self._line_heard(line):
+            try:
+                await self.expression.wait_for_floor()
+            except asyncio.CancelledError:
+                if line is not None:
+                    await line.cancel()
+                raise
 
         # the model invents moods; an avatar that silently fails to change is
         # worse than landing on the nearest one she actually has

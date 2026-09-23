@@ -307,3 +307,268 @@ def test_the_call_only_holds_what_it_is_part_of():
     assert surface.holds([voice_line("[ema] (voice): allora")])
     # somebody talking in the call is no reason to keep a telegram message waiting
     assert not surface.holds([chat_line("[mario]: ciao")])
+
+
+# --- her line waits for them, and is called off if they carry on -------------
+
+
+class Socket:
+    def __init__(self, on_binary=None):
+        self.binary = []
+        self.text = []
+        self.on_binary = on_binary
+
+    async def send_bytes(self, data):
+        self.binary.append(data)
+        if self.on_binary:
+            self.on_binary()
+
+    async def send_text(self, data):
+        self.text.append(data)
+
+
+def live_call(socket=None):
+    ch = VoiceChannel()
+    socket = socket or Socket()
+    ch.attach(socket)
+    ch.on_message({"type": "joined", "channel_id": "c1", "listeners": 1})
+    return ch, socket
+
+
+def real_expression():
+    from tests.test_voice_streaming import OneShotTTS, expression
+
+    return expression(OneShotTTS())
+
+
+async def test_her_first_word_waits_while_somebody_is_talking():
+    e = real_expression()
+    ch, socket = live_call()
+    e.set_call(ch)
+    ch.on_message(hearing("start"))
+
+    speaking = asyncio.create_task(e.speak("neutral", "Allora, ti dico una cosa.", route="call"))
+    await asyncio.sleep(0.2)
+    assert socket.binary == [], "she talked over somebody who had started again"
+
+    ch.on_message(hearing("end"))
+    await asyncio.wait_for(speaking, timeout=2.0)
+    assert socket.binary, "she never said it once they stopped"
+
+
+async def test_once_she_is_talking_the_rest_of_her_line_is_not_held():
+    e = real_expression()
+    ch = VoiceChannel()
+    # somebody starts the moment her first sound leaves: that is a barge-in,
+    # and the barge-in rules deal with it, not a wait in the middle of a word
+    socket = Socket(on_binary=lambda: ch.on_message(hearing("start")))
+    ch.attach(socket)
+    ch.on_message({"type": "joined", "channel_id": "c1", "listeners": 1})
+    e.set_call(ch)
+
+    await asyncio.wait_for(
+        e.speak("neutral", "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga.",
+                route="call"),
+        timeout=2.0)
+    assert len(socket.binary) == 3, "the second sentence waited behind somebody talking"
+
+
+def mind_in_a_call(llm):
+    from src.core.attention.gate import Attention
+    from src.core.consciousness import Consciousness
+    from src.core.memory.store import MemoryStore
+    from src.core.perception.bus import PerceptionBus
+    from src.core.skills.base import SkillRegistry
+    from tests.fakes import FakeExpression, FakeHistory, RecordingEvents
+
+    class Config:
+        consciousness = {"enabled": True, "idle_after": 3600.0, "window": 0.02,
+                         "burst_steps": 3, "correlation_timeout": 5.0,
+                         "turn_log": False, "window_persist_after_turn": False}
+        attention = {"enabled": True, "trigger_words": ["bea"]}
+        skills: dict = {}
+        language = ""
+
+    ch, _ = live_call()
+    expression = FakeExpression()
+    expression.set_call(ch)
+    bus = PerceptionBus(window=0.02, max_window=3.0)
+    bus.holds.append(lambda items: ch.busy() and any(p.surface == "voice:discord" for p in items))
+    config = Config()
+    c = Consciousness(
+        config=config, llm=llm, bus=bus, expression=expression, surfaces=SkillRegistry(),
+        history_manager=FakeHistory(), event_manager=RecordingEvents(),
+        soul_getter=lambda: "soul", operating_getter=lambda: "rules",
+        memory=MemoryStore(":memory:"), profiler=None, attention=Attention(config),
+    )
+    ch.on_hearing = c._on_hearing
+    return c, ch
+
+
+class HeldLLM:
+    """A model whose first answer takes as long as the test says it does."""
+
+    def __new__(cls, script):
+        from tests.fakes import FakeLLMClient
+
+        class Held(FakeLLMClient):
+            async def complete(self, messages, tools=None, response_format=None):
+                first = not self.calls
+                message = await super().complete(messages, tools, response_format)
+                if first:
+                    await self.release.wait()
+                return message
+
+        llm = Held(script)
+        llm.release = asyncio.Event()
+        return llm
+
+
+async def running(c):
+    c.alive = True
+    return asyncio.create_task(c.run())
+
+
+async def stopped(c, loop):
+    c.alive = False
+    loop.cancel()
+    try:
+        await loop
+    except asyncio.CancelledError:
+        pass
+
+
+def said_in_the_call(c):
+    return [message for _, message, route in c.expression.spoken if route == "call"]
+
+
+async def until(condition, timeout=2.0):
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not condition():
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError("timed out waiting")
+        await asyncio.sleep(0.01)
+
+
+async def test_she_answers_the_whole_sentence_not_the_first_half():
+    from tests.fakes import speaks
+
+    llm = HeldLLM([speaks("rispondo a metà"), speaks("rispondo a tutto")])
+    c, ch = mind_in_a_call(llm)
+    loop = await running(c)
+
+    c.bus.put(voice_line("[ema] (voice): allora ascolta"))
+    await until(lambda: llm.call_count == 1)
+    # she is thinking about the first half; they carry on
+    ch.on_message(hearing("start"))
+    ch.on_message(hearing("sent"))
+    await asyncio.sleep(0.15)
+    assert llm.call_count == 1, "she started again before the rest of it was there"
+
+    c.bus.put(voice_line("[ema] (voice): ieri il server è crashato"))
+    ch.transcribed("u")
+    ch.on_message(hearing("end"))
+    await until(lambda: said_in_the_call(c))
+    await stopped(c, loop)
+
+    assert said_in_the_call(c) == ["rispondo a tutto"]
+    frame = llm.calls[-1][-1]["content"]
+    assert "allora ascolta" in frame and "ieri il server è crashato" in frame
+
+
+async def test_a_line_written_while_they_talk_waits_and_is_dropped_if_they_carry_on():
+    from tests.fakes import speaks
+
+    llm = HeldLLM([speaks("rispondo a metà"), speaks("rispondo a tutto")])
+    c, ch = mind_in_a_call(llm)
+    loop = await running(c)
+
+    c.bus.put(voice_line("[ema] (voice): allora ascolta"))
+    await until(lambda: llm.call_count == 1)
+    ch.on_message(hearing("start"))
+    llm.release.set()
+    await asyncio.sleep(0.15)
+    assert said_in_the_call(c) == [], "she said it over somebody who had started again"
+    assert not any("metà" in m["content"] for m in c.history.messages), "a line nobody heard went into her history"
+
+    ch.on_message(hearing("sent"))
+    c.bus.put(voice_line("[ema] (voice): ieri il server è crashato"))
+    ch.transcribed("u")
+    ch.on_message(hearing("end"))
+    await until(lambda: said_in_the_call(c))
+    await stopped(c, loop)
+
+    assert said_in_the_call(c) == ["rispondo a tutto"]
+    assert not any("metà" in m["content"] for m in c.history.messages)
+
+
+async def test_a_cough_only_delays_her_and_costs_nothing_else():
+    from tests.fakes import speaks
+
+    llm = HeldLLM([speaks("ciao ema")])
+    c, ch = mind_in_a_call(llm)
+    loop = await running(c)
+
+    c.bus.put(voice_line("[ema] (voice): bea ci sei?"))
+    await until(lambda: llm.call_count == 1)
+    ch.on_message(hearing("start"))
+    llm.release.set()
+    await asyncio.sleep(0.1)
+    assert said_in_the_call(c) == []
+
+    # it was never words: nothing on its way, and she says what she had
+    ch.on_message(hearing("end"))
+    await until(lambda: said_in_the_call(c))
+    await stopped(c, loop)
+    assert said_in_the_call(c) == ["ciao ema"]
+    assert llm.call_count == 1
+
+
+async def test_nobody_talking_means_nobody_waits():
+    c, ch = mind_in_a_call(HeldLLM([]))
+    await asyncio.wait_for(c._speak("neutral", "subito"), timeout=0.1)
+    assert said_in_the_call(c) == ["subito"]
+
+
+async def test_what_is_already_under_way_is_never_called_off():
+    c, _ = mind_in_a_call(HeldLLM([]))
+    c._turn_task = asyncio.create_task(asyncio.sleep(10))
+    c._batch = [voice_line("[ema] (voice): allora")]
+    try:
+        assert c._can_start_over()
+
+        c._acted = [{"tool": "play_minecraft"}]
+        assert not c._can_start_over(), "a tool that already ran would run twice"
+        c._acted = []
+
+        c._said = {"mood": "neutral", "message": "ciao"}
+        assert not c._can_start_over(), "something she already said would be taken back"
+        c._said = None
+
+        c.expression.is_speaking = True
+        assert not c._can_start_over(), "talking over her is the barge-in's business"
+        c.expression.is_speaking = False
+
+        c._dispatching = "play_minecraft"
+        assert not c._can_start_over(), "a tool half way through would be cut in two"
+        c._dispatching = None
+
+        c._batch = [chat_line("[mario]: ciao")]
+        assert not c._can_start_over(), "a telegram reply is not the call's to restart"
+    finally:
+        c._turn_task.cancel()
+
+
+async def test_the_mind_listens_to_the_call_it_is_in():
+    from types import SimpleNamespace
+
+    c, _ = mind_in_a_call(HeldLLM([]))
+    ch = VoiceChannel()
+
+    class Surfaces:
+        def get(self, name):
+            return SimpleNamespace(channel=ch) if name == "voice:discord" else None
+
+    c.surfaces = Surfaces()
+    c._listen_to_the_call()
+    assert ch.on_hearing == c._on_hearing
