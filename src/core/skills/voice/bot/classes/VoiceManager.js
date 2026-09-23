@@ -41,9 +41,11 @@ function buildJoinOptions(guildId, channelId, adapterCreator) {
 // in SpeechBuffer, so there is no reason to hold a subscription open waiting.
 const STREAM_END_MS = 200;
 
-// how often a turn that has gone quiet is checked for being over. The hangover
-// is half a second, so this costs at most a tenth of one on top of it.
-const TICK_MS = 100;
+// how often a turn that has gone quiet is checked for being over: once a frame,
+// so the end of a turn is noticed within twenty milliseconds of the hangover
+// rather than up to a hundred after it. A sweep is a loop over the people in
+// the call, and costs nothing at this rate.
+const TICK_MS = 20;
 
 // the fade-down while someone talks over her, the fade-back-up once they stop,
 // and what she stops at. 0.25 is audible but gone quickly, and 200ms is short

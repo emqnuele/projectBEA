@@ -23,7 +23,7 @@
  * hold a socket.
  */
 
-const { createVoiceActivity, HANGOVER_MS } = require('./VoiceActivity');
+const { createVoiceActivity, FRAME_MS, HANGOVER_MS } = require('./VoiceActivity');
 const { BYTES_PER_MS, createDownsampler } = require('./Pcm');
 
 // under this much actual voice a turn is a cough, a chair, a click: not words
@@ -50,6 +50,22 @@ const PREROLL_MS = 400;
  * with how long a person feels like talking should be unbounded in memory.
  */
 const MAX_TURN_MS = 30000;
+
+/**
+ * How long without a packet before it is a gap in what somebody sends, rather
+ * than the next packet still on its way.
+ *
+ * While somebody transmits, a packet lands every twenty milliseconds, and the
+ * sweep lands between two of them whenever it likes. Every one of those used
+ * to count as a silence heard with her not speaking: it zeroed the count of
+ * how long they had been talking over her — so she was never ducked and never
+ * stopped, however long they went on — reset a voice halfway through its
+ * onset, and ran the clock ahead of the audio.
+ */
+const GAP_MS = 3 * FRAME_MS;
+
+// what a sweep between two packets has to say about it: nothing
+const NOTHING = Object.freeze({ duck: false, interrupt: false, released: false, ended: false });
 
 function createSpeechBuffer(options = {}) {
     const {
@@ -91,6 +107,8 @@ function createSpeechBuffer(options = {}) {
     let overlapMs = 0;
 
     let lastAt = null;
+    // how much of the silence since the last packet the detector already has
+    let counted = 0;
 
     function clearTurn() {
         chunks = [];
@@ -176,6 +194,7 @@ function createSpeechBuffer(options = {}) {
         /** Decoded audio for this person, 48 khz stereo, straight off the wire. */
         push(pcm, { now = 0, beaSpeaking = false } = {}) {
             lastAt = now;
+            counted = 0;
             const frame = activity.push(pcm);
             // kept at 16 khz mono because that is the only form it ever leaves
             // in, and holding half a minute of 48 khz stereo per person in the
@@ -207,15 +226,20 @@ function createSpeechBuffer(options = {}) {
         },
 
         /**
-         * Nothing has arrived for this person since the last call. This is what
-         * ends a turn: it runs down the hangover across the gaps discord leaves
-         * between one stream and the next.
+         * The sweep, looking at this person. When nothing has arrived for
+         * longer than a packet takes, this is what ends a turn: it runs down
+         * the hangover across the gaps discord leaves between one stream and
+         * the next. Between two packets it has nothing to say.
          */
         gap(now) {
             if (lastAt === null) lastAt = now;
             const idle = now - lastAt;
-            lastAt = now;
-            return act(activity.silence(idle), false);
+            if (idle < GAP_MS) return NOTHING;
+            // the whole silence, once: from the last packet, and then only what
+            // has passed since the sweep before
+            const fresh = idle - counted;
+            counted = idle;
+            return act(activity.silence(fresh), false);
         },
 
         /**
@@ -240,8 +264,9 @@ function createSpeechBuffer(options = {}) {
             clearRun();
             activity.reset();
             lastAt = null;
+            counted = 0;
         },
     };
 }
 
-module.exports = { createSpeechBuffer, MIN_SPEECH_MS, MAX_TURN_MS, PREROLL_MS };
+module.exports = { createSpeechBuffer, MIN_SPEECH_MS, MAX_TURN_MS, PREROLL_MS, GAP_MS };

@@ -601,3 +601,58 @@ test('the wav header says what the file actually is', () => {
     assert.equal(wav.readUInt32LE(24), 16000);
     assert.equal(wav.readUInt32LE(40), samples.length, 'the declared data size is a lie');
 });
+
+// --- the sweep runs between packets, the way it does in a call -------------
+
+/** Packets every twenty milliseconds, with the sweep landing in between. */
+function sayWhileSwept(buffer, buf, clock, beaSpeaking = false) {
+    const step = Math.round(20 * BYTES_PER_MS);
+    const seen = [];
+    for (let at = 0; at + step <= buffer.length; at += step) {
+        clock.at += 10;
+        seen.push(buf.gap(clock.at));
+        clock.at += 10;
+        seen.push(buf.push(buffer.subarray(at, at + step), { now: clock.at, beaSpeaking }));
+    }
+    return seen;
+}
+
+/** No packets for `ms`, with the sweep looking every twenty. */
+function quietlySwept(ms, buf, clock) {
+    const seen = [];
+    for (let elapsed = 0; elapsed < ms; elapsed += 20) {
+        clock.at += 20;
+        seen.push({ at: clock.at, report: buf.gap(clock.at) });
+    }
+    return seen;
+}
+
+test('the sweep between two packets does not wipe out being talked over', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    const seen = sayWhileSwept(pcm(4000, speech()), buf, clock, true);
+
+    // every sweep used to count as a silence with her not speaking, which
+    // zeroed the overlap: in a real call she was never ducked, never stopped
+    assert.equal(seen.filter((r) => r.duck).length, 1, 'she was never turned down');
+    assert.equal(seen.filter((r) => r.interrupt).length, 1, 'she was never stopped');
+});
+
+test('the sweep between two packets does not end or hold up a turn', () => {
+    const clock = { at: 0 };
+    const buf = turn();
+
+    const during = sayWhileSwept(pcm(1200, speech()), buf, clock);
+    assert.ok(!during.some((r) => r.ended), 'a sweep between packets ended the turn');
+
+    const lastPacket = clock.at;
+    const after = quietlySwept(HANGOVER_MS + 200, buf, clock);
+    const ended = after.find((s) => s.report.ended);
+    assert.ok(ended, 'the turn never ended');
+    // noticed within a frame of the hangover, not within a hundred milliseconds
+    assert.ok(ended.at - lastPacket <= HANGOVER_MS + 20,
+        `ended ${ended.at - lastPacket}ms after the last packet`);
+    assert.ok(ended.at - lastPacket >= HANGOVER_MS - 20, 'the hangover was cut short');
+    assert.ok(buf.take().ms > 1100);
+});
