@@ -158,7 +158,8 @@ from the Groq config keeps working.
 
 Requests go through one `requests.Session`, so the connection is kept between
 turns. A request that finds the kept connection closed by the far end is sent
-once more; a timeout is not.
+once more; a timeout, a refused or unresolvable host and a bad certificate are
+not.
 
 ---
 

@@ -124,7 +124,10 @@ Calls a self-deployed Orpheus model on [Baseten](https://baseten.co). Produces h
 
 The wrapper POSTs to your endpoint with `stream: true` and reads raw PCM
 (24 kHz, 16-bit mono) straight off the response: `generate_stream()` yields it
-in ~150 ms blocks, which reach the call as they arrive.
+in ~150 ms blocks, which reach the call as they arrive. A stream dropped
+halfway — a barge-in cancelling the piece — stops reading and closes the
+response at once, rather than downloading the rest of a sentence nobody will
+hear while the interruption waits on it.
 
 **Voice examples:** `zoe`, `tara`, `leo`, `leah`
 
