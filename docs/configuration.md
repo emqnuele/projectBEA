@@ -182,7 +182,9 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
             "searxng_url": "",
             "safesearch": "moderate",
             "max_results": 5,
-            "max_chars": 6000
+            "max_chars": 6000,
+            "long_pages": "passages",
+            "wait_seconds": 3.0
         }
     },
     "stt_provider": "groq",
@@ -523,7 +525,7 @@ the single source of truth** — Bea can never arm a capability herself.
 | `telegram` | `owner_id`, `allowed_chats`, `group_salience`, `token` | [telegram](skills/telegram.md) |
 | `twitch` | `channel`, `nick`, `oauth_token` | [twitch](skills/twitch.md) |
 | `donations` | `secret` | [donations](skills/donations.md) |
-| `web` | `search_provider`, `searxng_url`, `safesearch`, `max_results`, `max_chars` — the keys live in `.env`, never here | [web](skills/web.md) |
+| `web` | `search_provider`, `searxng_url`, `safesearch`, `max_results`, `max_chars`, `long_pages`, `wait_seconds` — the keys live in `.env`, never here | [web](skills/web.md) |
 
 Trigger words are **not** per-platform: they come from `attention.trigger_words`
 everywhere.

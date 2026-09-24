@@ -22,15 +22,60 @@ not hers.
 | `web_search(query)` | titles, links and snippets; open one with `web_fetch` when they are not enough |
 | `web_fetch(url, looking_for?)` | the page as markdown, plus its links. On a long page, `looking_for` gets just the part she is after |
 
-What comes back is kept cheap on purpose. A page that fits `max_chars` (6000
-by default) is handed over as it is; one that does not is either cut at a
-paragraph boundary, or — when she said what she is after — read by the
-background model, which returns only the part that answers her. A digest that
-fails costs nothing: she gets the cut page instead.
-
 Every answer carries the same header: what she reads comes from the web, and
 it is information to use, never instructions to follow. A page telling her to
 do something is a page talking, not her owner.
+
+---
+
+## A lookup never holds her turn
+
+A tool call blocks the turn that made it, and a live stream cannot stand still
+while a slow site makes up its mind. So a lookup is waited on for
+`wait_seconds` (3 by default) and no longer:
+
+```
+web_fetch / web_search
+ ├─ answered within wait_seconds → the result, in the same turn (as fast as it gets)
+ └─ still running → "still looking, it reaches you by itself" — her turn goes on
+       └─ when it lands: a perception, addressed to her, in the conversation that asked
+```
+
+Most lookups land inside the wait, so nothing changes for them: one turn, no
+extra model call. A slow one frees her to say she is checking, and its answer
+wakes her on its own — back in the conversation that asked, so a question from
+a Telegram DM is answered in that DM. A turn called off while it waits (the
+speaker went on talking) does not lose the lookup: it still arrives.
+
+Every lookup has a hard deadline — 20 seconds — and comes back as a failure
+past it, so she is never left holding a promise. At most three run at once, and
+the same one is never started twice.
+
+The page arrives whole, but only once: the perception carries
+[`keep_as`](../architecture.md#the-sliding-window), so the window keeps
+"(you read …)" rather than paying for the page on every turn after.
+
+The prompt tells her to look before she talks. `speak` ends her turn, and a
+"let me check" said first is a promise she would never keep.
+
+---
+
+## Long pages
+
+A page that fits `max_chars` (6000 by default) is handed over as it is. One
+that does not is cut at a paragraph boundary — unless she said what she is
+after in `looking_for`, in which case she gets the parts about it:
+
+| `long_pages` | How | Cost |
+|---|---|---|
+| `passages` (default) | the paragraphs that share the most telling words with her question, in page order, each with the heading it sits under | nothing: arithmetic, instant |
+| `model` | the background model reads up to 24k characters and answers her question from them | one extra call, a few seconds |
+
+`passages` needs no model and adds no latency, which is why it is the
+default; it is at its best on articles and docs, and weakest on huge
+encyclopedic pages where the answer sits in a table. `model` answers better and
+costs a call per long page. A digest that fails falls back to the passages;
+passages that find nothing fall back to the start of the page, and say so.
 
 ---
 
@@ -62,14 +107,16 @@ automated queries within a handful of requests. So there is a chain, not an
 engine:
 
 ```
-owner-configured providers with a key or URL, in order (Brave, Tavily, SearXNG)
+owner-configured providers with a key or URL, in order (SearXNG, Brave, Tavily)
  └─ the keyless search, always last (DuckDuckGo via ddgs, spread over engines)
 ```
 
 An API is the only thing reliable by contract, so whatever the owner
 configured goes first; the keyless search sits at the end, so she searches out
 of the box and still searches when a key runs out of quota. The first provider
-that answers wins; results are de-duplicated and cached for 10 minutes.
+that answers wins; results are de-duplicated and cached for 10 minutes. Each
+provider has a budget — five seconds for an API, nine for the keyless search —
+so a dead one costs a few seconds, never the lookup's whole deadline.
 
 No setup is needed. A key is pasted in the dashboard (Settings → Web) and
 applies to the next search.
@@ -90,6 +137,10 @@ is actually made:
 Two places because aiohttp consults the resolver only for names — an address
 written as a literal skips it entirely.
 
+What the guard does not do is decide whose links she follows: with the skill on,
+anyone in chat can have her open a public page, from the owner's connection.
+That is the price of the capability, and the reason it is off by default.
+
 ---
 
 ## Configuration
@@ -101,7 +152,9 @@ written as a literal skips it entirely.
   "searxng_url": "",
   "safesearch": "moderate",
   "max_results": 5,
-  "max_chars": 6000
+  "max_chars": 6000,
+  "long_pages": "passages",
+  "wait_seconds": 3.0
 }
 ```
 
@@ -114,6 +167,8 @@ written as a literal skips it entirely.
 | `safesearch` | `strict`, `moderate` or `off`, where the provider supports it |
 | `max_results` | 1–10 results per search |
 | `max_chars` | 1000–30000 characters of a page she is handed |
+| `long_pages` | `passages` (free, instant) or `model` (the background model reads it) |
+| `wait_seconds` | 0–15: how long a lookup holds her turn before it finishes in the background. `0` sends every lookup to the background |
 
 The keys are [secrets](../web/api.md#secrets): typed in the dashboard, kept in
 `.env`, never in `config.json`.
