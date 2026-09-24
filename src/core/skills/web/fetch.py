@@ -46,8 +46,11 @@ MAX_LINKS = 25
 
 _ALTERNATE = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
 _ATTR = re.compile(r'([a-zA-Z-]+)\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)')
-_MD_LINK = re.compile(r"(!?)\[([^\]]*)\]\((\S+?)(?:\s+\"[^\"]*\")?\)")
+# a destination with parentheses in it is written between angle brackets
+_MD_LINK = re.compile(r"(!?)\[([^\]]*)\]\((<[^>\n]*>|\S+?)(?:\s+\"[^\"]*\")?\)")
 _CITATION = re.compile(r"<sup>.*?</sup>", re.DOTALL)
+# wikipedia-style references once converted: [\[12\]](https://…#cite_note-12)
+_REFERENCE = re.compile(r"\[\\\[[^\]]{0,20}?\\\]\]\([^)\s]*\)")
 
 
 class FetchError(Exception):
@@ -198,7 +201,9 @@ class Fetcher:
             try:
                 async with session.get(url, headers={"Accept": accept},
                                        allow_redirects=False) as resp:
-                    if resp.status in _REDIRECTS and "Location" in resp.headers:
+                    if resp.status in _REDIRECTS:
+                        if "Location" not in resp.headers:
+                            raise FetchError("the site redirects without saying where")
                         url = normalize(urljoin(url, resp.headers["Location"]))
                         continue
                     if resp.status >= 400:
@@ -317,7 +322,7 @@ def _html_page(url: str, raw: bytes) -> Page:
         # nothing that looks like an article: every visible word beats none
         body = trafilatura.html2txt(raw) or body
 
-    body = _CITATION.sub("", body)
+    body = _REFERENCE.sub("", _CITATION.sub("", body))
     body, links = _split_links(body, url)
 
     # the description often says what the page is better than its body does
@@ -339,7 +344,8 @@ def _split_links(text: str, page_url: str) -> Tuple[str, List[Tuple[str, str]]]:
     seen = set()
 
     def keep(match: "re.Match[str]") -> str:
-        image, label, href = match.group(1), match.group(2).strip(), match.group(3)
+        image, label = match.group(1), match.group(2).strip()
+        href = match.group(3).strip("<>")
         if image:
             return ""
         target = urljoin(page_url, href)
