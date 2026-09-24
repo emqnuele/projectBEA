@@ -244,13 +244,32 @@ on. It is deliberately not a refusal, so no retry without reasoning and no
 non-streaming fallback: each of those would wait on the same stalled provider
 all over again.
 
+Headers are not an answer, though. OpenRouter can send them early and then
+hold the stream open with `: OPENROUTER PROCESSING` comments, so the headers
+check alone let a stalled call run for the whole `REQUEST_TIMEOUT`. The mind
+loop runs one turn at a time, so she heard nothing for those two minutes. The
+stream is therefore watched on its data, and keep-alive comments do not count
+as data:
+
+- the first block of the answer must arrive within
+  `STREAM_FIRST_BLOCK_BASE` (15s) plus the time a cold prefill of this prompt
+  takes. The prefill part is the request size divided by
+  `PREFILL_CHARS_PER_SECOND`, about 10k tokens a second. That gives ~26s at
+  110k tokens and ~55s at 400k. For comparison, measured cold first tokens
+  were 7s and 27s. If the first block is late, the request is sent again
+  once, like a header stall.
+- after that, no two blocks may be more than `STREAM_IDLE_TIMEOUT` (30s)
+  apart. A stall at that point raises `ProviderStalled` and the request is
+  **not** sent again: the start of the line may already be in the room, and
+  a resend would say it twice.
+
 A model on this machine or network (`localhost`, a private address, `.local`)
-is exempt, since loading one can take longer than that. What still bounds every call
+is exempt from both checks, since loading one can take longer than that. What still bounds every call
 is `REQUEST_TIMEOUT`, 120 seconds for the whole request.
 
-With a single model in the `mind` pool, a stall still costs the turn, after up
-to a minute rather than two. A second model in the pool is what turns it into
-a failover.
+With a single model in the `mind` pool, a stall still costs the turn, but
+within about half a minute rather than two. A second model in the pool is
+what turns it into a failover.
 
 ---
 
