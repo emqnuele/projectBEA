@@ -65,6 +65,9 @@ def _results(rows: List[Dict[str, Any]], title: str, url: str, snippet: str) -> 
 
 class Provider:
     name = "provider"
+    # seconds this one gets before the next is tried: an api answers in one
+    # or not at all, and the chain has to fit in one lookup's deadline
+    budget = 5.0
 
     async def search(self, session: aiohttp.ClientSession, query: str, count: int,
                      safesearch: str) -> List[Result]:
@@ -75,8 +78,10 @@ class DuckDuckGo(Provider):
     """Keyless. `ddgs` spreads the query across engines and merges the answers."""
 
     name = "duckduckgo"
+    # several engines at once, the slowest of which sets the pace
+    budget = 9.0
 
-    def __init__(self, timeout: int = 10):
+    def __init__(self, timeout: int = 8):
         self.timeout = timeout
 
     async def search(self, session, query, count, safesearch):
@@ -178,7 +183,7 @@ class SearchSettings:
     safesearch: str = "moderate"
 
 
-def chain(settings: SearchSettings, timeout: int = 10) -> List[Provider]:
+def chain(settings: SearchSettings, timeout: int = 8) -> List[Provider]:
     """The providers to try, in order. The keyless one is always last."""
     configured: Dict[str, Provider] = {}
     if settings.searxng_url:
@@ -205,7 +210,7 @@ def chain(settings: SearchSettings, timeout: int = 10) -> List[Provider]:
 class Searcher:
     """Runs a query down the chain until one provider answers."""
 
-    def __init__(self, settings: Callable[[], SearchSettings], timeout: float = 10.0,
+    def __init__(self, settings: Callable[[], SearchSettings], timeout: float = 8.0,
                  cache_ttl: float = 600.0, cache_size: int = 64):
         # a getter, not a value: a key pasted in the dashboard applies to the next search
         self._settings = settings
@@ -246,7 +251,7 @@ class Searcher:
             try:
                 results = await asyncio.wait_for(
                     provider.search(self._client(), query, count, settings.safesearch),
-                    timeout=self.timeout + 2)
+                    timeout=provider.budget)
             except SearchError as e:
                 reason = str(e)
             except asyncio.TimeoutError:

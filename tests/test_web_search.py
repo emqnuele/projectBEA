@@ -28,6 +28,7 @@ class Stub:
     """A provider that answers from a script: results, or an error to raise."""
 
     name = "stub"
+    budget = 1.0
 
     def __init__(self, answer):
         self.answer = answer
@@ -150,6 +151,34 @@ def test_duplicate_links_are_answered_once():
         Result("b", "https://b.example", "z"),
     ])
     assert [r.url for r in results] == ["https://a.example/", "https://b.example"]
+
+
+async def test_a_provider_that_hangs_is_given_up_on_within_its_budget(monkeypatch):
+    import asyncio
+
+    class Hangs(Stub):
+        budget = 0.05
+
+        async def search(self, session, query, count, safesearch):
+            await asyncio.sleep(10)
+
+    hangs = Hangs(None)
+    free = Stub([Result("r", "https://r.example", "")])
+    monkeypatch.setattr(S, "chain", lambda settings, timeout=10: [hangs, free])
+    searcher = Searcher(lambda: SearchSettings(), timeout=5)
+    try:
+        name, results = await asyncio.wait_for(_run(searcher), timeout=2)
+    finally:
+        await searcher.close()
+    assert name == "stub"
+    assert [r.url for r in results] == ["https://r.example"]
+
+
+def test_every_provider_fits_inside_one_lookup():
+    from src.core.skills.web.surface import SEARCH_DEADLINE
+
+    providers = chain(SearchSettings(brave_key="k", tavily_key="t"))
+    assert sum(p.budget for p in providers) <= SEARCH_DEADLINE
 
 
 def test_keyed_providers_carry_their_credentials():
