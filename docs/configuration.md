@@ -189,6 +189,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     },
     "stt_provider": "groq",
     "stt_model": "whisper-large-v3-turbo",
+    "stt_language": "auto",
     "faster_whisper_device": "auto",
     "faster_whisper_compute_type": "auto",
     "faster_whisper_download_root": "data/models/whisper",
@@ -262,7 +263,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
 | Key | Default | Description |
 |---|---|---|
 | `config_version` | `1` | Config schema version (`src/core/config.py`). Bump only on meaning change. See [Languages](languages.md#config_version) |
-| `language` | `"auto"` | Pins the transcriber, and names the language she uses when she speaks first. What she *answers* in is the language of the message she is answering — see [Languages](languages.md) |
+| `language` | `"auto"` | The language she uses when she speaks first. What she *answers* in is the language of the message she is answering — see [Languages](languages.md) |
 | `soul_path` | `data/prompts/soul.md` | Who she is. Prepended to every context, never edited by the engine |
 | `operating_prompt_path` | `data/prompts/operating.md` | How she exists: the `speak` tool, the moods, what she notices |
 | `system_prompt_path` | `data/prompts/chat.md` | Deprecated. Only used if the operating manual is missing |
@@ -420,6 +421,7 @@ continues. [OBS module →](modules/obs.md)
 |---|---|---|
 | `stt_provider` | `"groq"` | `faster_whisper`, `groq` or `openrouter`. Anything else disables speech input |
 | `stt_model` | `"whisper-large-v3-turbo"` | Rewritten to `openai/whisper-large-v3-turbo` on OpenRouter, and to `large-v3-turbo` on `faster_whisper` |
+| `stt_language` | `"auto"` | The language the transcriber is pinned to, on every provider. `auto` detects per turn and misplaces short ones — see [Languages](languages.md#pin-or-detect) |
 
 `faster_whisper` runs Whisper on this machine and needs no key. Its four extra
 knobs are only read when it is the chosen provider:

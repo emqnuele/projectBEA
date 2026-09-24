@@ -95,7 +95,7 @@ def openrouter(monkeypatch, *outcomes):
     monkeypatch.setattr("src.modules.STT.openrouter_stt.requests.Session", build)
     config = BrainConfig()
     config.openrouter_key = "sk-or-test"
-    config.language = "it"
+    config.stt_language = "it"
     return OpenRouterSTT(config), sessions, queue
 
 
@@ -172,7 +172,7 @@ def test_openrouter_retry_is_real_against_a_connection_the_server_dropped(audio)
     try:
         config = BrainConfig()
         config.openrouter_key = "sk-or-test"
-        config.language = "it"
+        config.stt_language = "it"
         engine = OpenRouterSTT(config)
         engine_url = f"http://127.0.0.1:{server.server_address[1]}"
         post = engine._http.post

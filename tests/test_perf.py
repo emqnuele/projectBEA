@@ -76,3 +76,35 @@ async def test_the_perf_check_never_blocks_the_run(tmp_path):
     settings = _config(skills={"memory": {"db_path": str(tmp_path)}})
     found = await check_perf(settings)
     assert not found.ok and not found.stops
+
+
+def _record(relationship: int, size: int) -> bytes:
+    import struct
+
+    return struct.pack("<II", relationship, size) + bytes(size - 8)
+
+
+def test_windows_core_records_are_walked_by_their_own_size():
+    """Records vary in size; a fixed stride would count garbage as cores."""
+    raw = _record(0, 48) + _record(0, 80) + _record(2, 32) + _record(0, 48)
+    assert perf_module._core_records(raw) == 3
+
+
+def test_a_truncated_or_corrupt_windows_buffer_does_not_loop():
+    assert perf_module._core_records(b"") == 0
+    assert perf_module._core_records(_record(0, 48)[:20]) == 1
+    assert perf_module._core_records(b"\x00\x00\x00\x00\x00\x00\x00\x00") == 0
+
+
+def test_windows_asks_the_kernel_rather_than_counting_threads(monkeypatch):
+    monkeypatch.setattr(perf_module.sys, "platform", "win32")
+    monkeypatch.setattr(perf_module, "_windows_physical_cores", lambda: 6)
+    monkeypatch.setattr(perf_module.os, "cpu_count", lambda: 12)
+    assert perf_module.physical_cores() == 6
+
+
+def test_windows_falls_back_to_the_os_count_when_the_kernel_will_not_say(monkeypatch):
+    monkeypatch.setattr(perf_module.sys, "platform", "win32")
+    monkeypatch.setattr(perf_module, "_windows_physical_cores", lambda: 0)
+    monkeypatch.setattr(perf_module.os, "cpu_count", lambda: 12)
+    assert perf_module.physical_cores() == 12

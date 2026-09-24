@@ -32,14 +32,14 @@ The provider is chosen by `stt_provider` in config and instantiated in
 
 ```python
 class STTInterface(ABC):
-    def transcribe(audio_path: str, language: str = "en") -> str
+    def transcribe(audio_path: str, language: Optional[str] = None) -> str
     def reload_config(config: BrainConfig) -> None
 ```
 
 Returns the transcript, or an empty string on failure. Both methods are
 `@abstractmethod` — omitting either raises `TypeError` at instantiation.
 
-`language` falls back to `config.language`, resolved through
+`language` falls back to `config.stt_language` (Settings → Hearing → Language), resolved through
 [`src/core/language.py`](../languages.md) before it reaches any provider: `jp`,
 `it-IT` and `Italiano` all mean the same thing on all three, and `auto` becomes
 a missing field rather than a literal.
@@ -56,7 +56,10 @@ STT backend: faster_whisper, listening in whatever language it hears
 ```
 
 The default is `auto`. Turns shorter than `MIN_DETECT_SECONDS` reuse the last
-reliable detection — see [Languages](../languages.md#short-turns).
+reliable detection — see [Languages](../languages.md#short-turns). On a call in
+one known language other than English, pin it: detection misplaces a quarter
+of Italian turns even on `small` — see
+[Pin or detect](../languages.md#pin-or-detect).
 
 ---
 
@@ -85,6 +88,23 @@ The weights are downloaded on first use, not at install time:
 | `base` | ~145 MB | Usable on an old laptop |
 | `small` | ~480 MB | The default, and the balance most people want |
 | `large-v3-turbo` | ~1.6 GB | Best, and it wants a GPU |
+
+The same model costs very different amounts on different machines. Every
+turn pays for a full 30-second encoder window however short it is, so the
+floor is set by the CPU, not by the turn: on an Apple M5, `base` takes ~0.5s a
+turn and `small` ~1.1s, and an older x86 laptop is several times that. Turns
+that arrive together queue behind each other on the one model.
+
+`cpu_threads` is the number of physical cores (`src/core/perf.py`). More
+threads than cores is not free: on 10 cores, 20 threads made `small` 3x slower
+at the median and 4.5x at the worst turn.
+
+`tools/stt_bench.py` measures all of this on the machine it runs on — models,
+pinned against detected, noise, thread counts:
+
+```bash
+uv run python tools/stt_bench.py --models base,small --lang it --threads 4,8
+```
 
 Any faster-whisper model on Hugging Face works too — a repo id with a slash in
 it (`Systran/faster-distil-whisper-large-v3`) is passed through untouched.

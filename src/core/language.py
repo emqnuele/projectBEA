@@ -8,10 +8,11 @@ nothing else parses a language code by hand.
 
 Two things are deliberately kept apart, because they are not the same question:
 
-- **What she hears.** `whisper_code` is a pin for the transcriber, and `AUTO`
-  means "work it out yourself". Measured on real audio, detection beats a pin
-  in every case and a *wrong* pin is catastrophic — Italian speech pinned to
-  `ja` comes back as invented Japanese — so `AUTO` is the default.
+- **What she hears.** `whisper_code` turns `config.stt_language` into a pin
+  for the transcriber, and `AUTO` means "work it out yourself". A right pin
+  beats detection, which misplaces short turns; a *wrong* pin is catastrophic —
+  Italian speech pinned to `ja` comes back as invented Japanese — so `AUTO` is
+  the default and pinning is left to someone who knows the call's language.
 - **What she says.** She always answers in the language she was addressed in;
   that is `MIRROR`, and it is in every prompt. `config.language` only decides
   what she reaches for when she speaks *first* and there is no one to mirror:

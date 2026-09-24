@@ -14,15 +14,18 @@ when the line above it was English. One turn can answer several conversations at
 once, so this cannot be a single global setting — a batch carrying a Telegram DM
 in Italian and a Twitch line in English is answered correctly in each.
 
-**What she hears, and what she reaches for when nobody has written to her**, is
-`config.language`. It pins the transcriber, and it names the language she uses
-for the idle monologue, a spontaneous line, or narrating Minecraft to an empty
-room. `auto` — the default — lets the transcriber detect, and names no fallback.
+**What she reaches for when nobody has written to her** is `config.language`:
+the idle monologue, a spontaneous line, narrating Minecraft to an empty room.
+`auto` — the default — names no fallback.
+
+**What she hears** is `config.stt_language`, set under Settings → Hearing. It
+pins the transcriber on all three providers; `auto` — the default — lets it
+detect on every turn.
 
 ```
-config.language ──┬──► whisper_code() ──► the transcriber's language pin
-                  │
-                  ├──► directive()   ──► the ## LANGUAGE block in the system prompt
+config.stt_language ────► whisper_code() ──► the transcriber's language pin
+
+config.language ──┬──► directive()   ──► the ## LANGUAGE block in the system prompt
                   │
                   ├──► write_in()    ──► what the diary, dreamer, profiler and
                   │                      handoff write their output in
@@ -119,7 +122,7 @@ builder, a builder has no row, or a row names a config field that does not exist
 
 ## Transcribers
 
-All three resolve `config.language` through `whisper_code` before it reaches a
+All three resolve `config.stt_language` through `whisper_code` before it reaches a
 provider, so the same config.json behaves identically on each. The local one
 additionally checks the code against the languages its build of whisper has,
 falling back to detection with a warning.
@@ -127,9 +130,26 @@ falling back to detection with a warning.
 A code outside the table — `el`, `nl`, `ru` — resolves to detection rather than
 to itself, so it is no longer a pin. faster-whisper used to accept any code its
 build knew; now the table is the one list of languages this engine claims, and
-adding a row to `LANGUAGES` is what makes a pin available again. Detection is
-the default and measures better than a pin anyway, so what is lost is the
-ability to force one of those languages, not the ability to transcribe it.
+adding a row to `LANGUAGES` is what makes a pin available again.
+
+### Pin or detect
+
+A right pin beats detection; a wrong one is worse than none, because whisper
+transcribes *into* the language it was told. Measured with
+`tools/stt_bench.py` (synthesized Italian, clean, fan noise and a quiet far
+mic, CPU int8):
+
+| Model | Italian placed right, `auto` | CER `auto` | CER pinned `it` |
+|---|---|---|---|
+| `tiny` | 67–83% | 0.20–0.37 | 0.04–0.13 |
+| `base` | 75–83% | 0.16–0.20 | 0.02–0.07 |
+| `small` | 75–83% | 0.12–0.22 | 0.01–0.02 |
+
+Turns under 1.2s were placed right about one time in three. A wrong answer is
+not a nearby language: `Che hai detto?` came back as `キャイネット`. English
+detects correctly almost always, which is why this does not show up on an
+English call. Detection also costs time — a wrong-language decode trips
+whisper's temperature fallback — so pinned turns were 17–43% faster (more on the bigger models).
 
 ### Short turns
 
@@ -150,7 +170,7 @@ probability)`, `borrowed` property.
 
 | Condition | `language` sent to the provider |
 |---|---|
-| `config.language` set | the configured pin |
+| `config.stt_language` set | the configured pin |
 | `seconds >= MIN_DETECT_SECONDS` or `seconds <= 0` (unknown) | `None` (detect), result stored if confidence `>= CONFIDENT` |
 | short turn, valid entry in `borrowed` | the stored code |
 | short turn, no valid entry | `None` (detect) |
@@ -174,6 +194,11 @@ default).
   rewritten until the next save, which stamps `config_version: 1`.
 - Only `"en"` is migrated (it was the only historical default). An explicit
   `"en"` written after v1 is kept as a pin.
+
+`stt_language` is a new field, so it needs no version: a file without it that
+pins `language` to a real language has `stt_language` set to the same code on
+load, so an install that pinned its ears keeps them pinned. `auto`, anything
+unresolvable, and the unversioned `"en"` above are not copied.
 
 See [STT modules](modules/stt.md).
 
