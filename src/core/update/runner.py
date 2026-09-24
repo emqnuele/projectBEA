@@ -22,6 +22,7 @@ dashboard both draw their progress from it.
 import os
 import shutil
 import subprocess
+import sysconfig
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -77,6 +78,11 @@ WHITELIST_DATA_PATH = "data/discord_whitelist.json"
 # `npm install` on a slow link is measured in minutes, not seconds
 DEPENDENCY_TIMEOUT = 30 * 60
 
+# the launcher `uv run bea` starts, and so the one file `uv sync` cannot
+# delete on windows while the update it started is still running from it
+WINDOWS = os.name == "nt"
+LAUNCHER = "bea.exe"
+
 # the node projects contribute a step each, so adding one is a line in
 # `setup/node.py` rather than four scattered through here
 STEPS: List[tuple] = [
@@ -118,6 +124,7 @@ class Report:
     to_sha: str = ""
     backup: str = ""
     restart_required: bool = False
+    dependencies_on_restart: bool = False
 
     @property
     def ok(self) -> bool:
@@ -141,6 +148,7 @@ class Report:
             "to": self.to_sha[:8],
             "backup": self.backup,
             "restart_required": self.restart_required,
+            "dependencies_on_restart": self.dependencies_on_restart,
             "needs_review": len(self.reviews),
         }
 
@@ -304,7 +312,10 @@ def apply(root: Path = ROOT, source: str = "cli", progress: Progress = _noop,
 
     try:
         with lock.held(root, source):
-            return _run(root, repo, step, steps, rebuild)
+            # the dashboard is a running server holding its own native modules
+            # open, and windows will not let uv replace a file that is in use
+            return _run(root, repo, step, steps, rebuild,
+                        defer_sync=WINDOWS and source == "dashboard")
     except lock.UpdateBusy as e:
         return Report(status=BLOCKED, headline="An update is already running", detail=str(e), steps=steps)
     except GitError as e:
@@ -316,7 +327,8 @@ def apply(root: Path = ROOT, source: str = "cli", progress: Progress = _noop,
                       detail=f"{type(e).__name__}: {e}", steps=steps)
 
 
-def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Report:
+def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool,
+         defer_sync: bool = False) -> Report:
     # --- 1. preflight --------------------------------------------------------
     step("preflight", RUNNING)
 
@@ -430,8 +442,9 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
 
     # --- 6 & 7. dependencies and the dashboard -------------------------------
     changed = repo.changed_between(base_sha, target)
+    deferred = False
     if rebuild:
-        _sync_dependencies(root, changed, step)
+        deferred = _sync_dependencies(root, changed, step, defer=defer_sync)
         _rebuild_node(root, changed, step)
     else:
         step("dependencies", SKIPPED, "asked to skip")
@@ -450,6 +463,7 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
         to_sha=target,
         backup=snapshot.name,
         restart_required=True,
+        dependencies_on_restart=deferred,
     )
 
 
@@ -537,17 +551,76 @@ def _reconcile_all(root: Path, repo: Repo, ours: Dict[str, str], base_sha: str, 
 # --- the rebuild half --------------------------------------------------------
 
 
-def _sync_dependencies(root: Path, changed: List[str], step) -> None:
+def _sync_dependencies(root: Path, changed: List[str], step, defer: bool = False) -> bool:
+    """Returns True when the sync was left for the restart to do."""
     if not any(p in ("uv.lock", "pyproject.toml") for p in changed):
         step("dependencies", SKIPPED, "no dependency changes in this update")
-        return
+        return False
+    if defer:
+        # `uv run` syncs before it starts her, while nothing is in use yet
+        step("dependencies", SKIPPED, "installed when you restart her with `uv run bea --web`")
+        return True
     if not shutil.which("uv"):
         step("dependencies", FAILED, "uv is not on PATH — run `uv sync` yourself before starting her")
-        return
+        return False
 
     step("dependencies", RUNNING)
-    ok, detail = _command(root, ["uv", "sync"])
+    scripts = _scripts_dir() if WINDOWS else None
+    aside = _move_launcher_aside(scripts) if scripts else None
+    try:
+        ok, detail = _command(root, ["uv", "sync"])
+    finally:
+        if scripts and aside:
+            _restore_launcher(scripts, aside)
     step("dependencies", DONE if ok else FAILED, detail if not ok else "python dependencies are current")
+    return False
+
+
+def _scripts_dir() -> Optional[Path]:
+    path = sysconfig.get_path("scripts")
+    return Path(path) if path else None
+
+
+def _move_launcher_aside(scripts: Path) -> Optional[Path]:
+    """Frees the launcher's name so `uv sync` can write a new one there.
+
+    Windows refuses to delete an executable that is running, and this one is:
+    it is the process doing the update. It does allow renaming it, and the
+    process carries on from the new name. Without this, every update that
+    touches `pyproject.toml` fails with "Access is denied" on `bea.exe`.
+    """
+    for stale in scripts.glob(f"{LAUNCHER}.*.old"):
+        try:
+            stale.unlink()
+        except OSError:
+            pass  # still running from an earlier update; the next one gets it
+
+    launcher = scripts / LAUNCHER
+    if not launcher.is_file():
+        return None
+    aside = scripts / f"{LAUNCHER}.{os.getpid()}.old"
+    try:
+        os.replace(launcher, aside)
+    except OSError as exc:
+        logger.warning(f"could not move {launcher} aside before uv sync: {exc}")
+        return None
+    return aside
+
+
+def _restore_launcher(scripts: Path, aside: Path) -> None:
+    """Puts the old launcher back unless `uv sync` wrote a new one.
+
+    It does not always: a failed sync, or one that did not reinstall the
+    project itself, leaves the name empty, and without this `uv run bea` would
+    have nothing to start.
+    """
+    launcher = scripts / LAUNCHER
+    if launcher.exists():
+        return
+    try:
+        os.replace(aside, launcher)
+    except OSError as exc:
+        logger.error(f"could not put {launcher} back from {aside.name}: {exc}")
 
 
 def _rebuild_node(root: Path, changed: List[str], step) -> None:

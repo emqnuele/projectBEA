@@ -131,6 +131,19 @@ one, so the report says which steps ran and the exit code is non-zero.
 dashboard on screen** — that is why a missing `npm` is reported loudly rather
 than ignored.
 
+On Windows, `uv sync` reinstalling the project has to replace
+`.venv\Scripts\bea.exe` — the launcher the update itself is running from, which
+Windows will not let anyone delete. The `dependencies` step renames it to
+`bea.exe.<pid>.old` first (renaming a running executable is allowed), and puts
+it back if the sync failed or wrote no new one. Leftover `.old` copies are
+removed at the start of the next sync.
+
+An update started from the dashboard on Windows does not run `uv sync` at all:
+the server has its native modules (`.pyd`) open, and renaming the launcher
+does not free those. The step is reported as skipped, the report carries
+`dependencies_on_restart: true`, and the restart banner says to close her and
+start her with `uv run bea --web`, which syncs before anything is loaded.
+
 ### Refusals
 
 Local modifications to tracked files outside `data/prompts/` abort the run with
