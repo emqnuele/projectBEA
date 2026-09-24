@@ -131,6 +131,13 @@ one, so the report says which steps ran and the exit code is non-zero.
 dashboard on screen** — that is why a missing `npm` is reported loudly rather
 than ignored.
 
+On Windows, `uv sync` reinstalling the project has to replace
+`.venv\Scripts\bea.exe` — the launcher the update itself is running from, which
+Windows will not let anyone delete. The `dependencies` step renames it to
+`bea.exe.<pid>.old` first (renaming a running executable is allowed), and puts
+it back if the sync failed or wrote no new one. Leftover `.old` copies are
+removed at the start of the next sync.
+
 ### Refusals
 
 Local modifications to tracked files outside `data/prompts/` abort the run with

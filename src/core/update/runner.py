@@ -22,6 +22,7 @@ dashboard both draw their progress from it.
 import os
 import shutil
 import subprocess
+import sysconfig
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,6 +77,11 @@ WHITELIST_DATA_PATH = "data/discord_whitelist.json"
 # generous on purpose: a cold `uv sync` pulls a few hundred MB, and a first
 # `npm install` on a slow link is measured in minutes, not seconds
 DEPENDENCY_TIMEOUT = 30 * 60
+
+# the launcher `uv run bea` starts, and so the one file `uv sync` cannot
+# delete on windows while the update it started is still running from it
+WINDOWS = os.name == "nt"
+LAUNCHER = "bea.exe"
 
 # the node projects contribute a step each, so adding one is a line in
 # `setup/node.py` rather than four scattered through here
@@ -546,8 +552,61 @@ def _sync_dependencies(root: Path, changed: List[str], step) -> None:
         return
 
     step("dependencies", RUNNING)
-    ok, detail = _command(root, ["uv", "sync"])
+    scripts = _scripts_dir() if WINDOWS else None
+    aside = _move_launcher_aside(scripts) if scripts else None
+    try:
+        ok, detail = _command(root, ["uv", "sync"])
+    finally:
+        if scripts and aside:
+            _restore_launcher(scripts, aside)
     step("dependencies", DONE if ok else FAILED, detail if not ok else "python dependencies are current")
+
+
+def _scripts_dir() -> Optional[Path]:
+    path = sysconfig.get_path("scripts")
+    return Path(path) if path else None
+
+
+def _move_launcher_aside(scripts: Path) -> Optional[Path]:
+    """Frees the launcher's name so `uv sync` can write a new one there.
+
+    Windows refuses to delete an executable that is running, and this one is:
+    it is the process doing the update. It does allow renaming it, and the
+    process carries on from the new name. Without this, every update that
+    touches `pyproject.toml` fails with "Access is denied" on `bea.exe`.
+    """
+    for stale in scripts.glob(f"{LAUNCHER}.*.old"):
+        try:
+            stale.unlink()
+        except OSError:
+            pass  # still running from an earlier update; the next one gets it
+
+    launcher = scripts / LAUNCHER
+    if not launcher.is_file():
+        return None
+    aside = scripts / f"{LAUNCHER}.{os.getpid()}.old"
+    try:
+        os.replace(launcher, aside)
+    except OSError as exc:
+        logger.warning(f"could not move {launcher} aside before uv sync: {exc}")
+        return None
+    return aside
+
+
+def _restore_launcher(scripts: Path, aside: Path) -> None:
+    """Puts the old launcher back unless `uv sync` wrote a new one.
+
+    It does not always: a failed sync, or one that did not reinstall the
+    project itself, leaves the name empty, and without this `uv run bea` would
+    have nothing to start.
+    """
+    launcher = scripts / LAUNCHER
+    if launcher.exists():
+        return
+    try:
+        os.replace(aside, launcher)
+    except OSError as exc:
+        logger.error(f"could not put {launcher} back from {aside.name}: {exc}")
 
 
 def _rebuild_node(root: Path, changed: List[str], step) -> None:
