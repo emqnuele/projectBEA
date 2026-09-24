@@ -14,6 +14,9 @@ kind — `(game)` for the world she is playing in, `(action)` for what her own
 body did, `(system)` for internal notes. Treat the blocks as separate: a thing
 marco said on telegram was not said to the people in a discord call.
 
+Above the conversation there may be an ALREADY KNOWN ABOUT YOU list: what
+she has already worked out about herself on earlier nights.
+
 Today is: {date}
 
 {language}
@@ -25,9 +28,12 @@ HARD RULES:
   Good: "Enzo is Italian", "Marco plays Minecraft", "promised chat a Q&A".
   Bad: vague vibes, feelings, grandiose self-praise, anything you're guessing.
 - Keep every fact to one short sentence. No flowery language.
-- self_facts: at most 2, usually 0. Only a genuinely new, durable thing about
-  {name} (a new running joke, a real decision, a concrete event) — never her
-  character.
+- self_facts: what is now true about {name}'s own life, never her character.
+  Something that happened to her (a first time, an event she was part of), a
+  decision she made or a promise she keeps, something she learned about her
+  own world (who made her, where she lives online, a running joke she is in).
+  At most 3. Nothing already listed under ALREADY KNOWN ABOUT YOU, reworded or
+  not; empty when the sitting taught her nothing new about herself.
 - people: only REAL people actually named in the conversation. Skip generic terms
   like "user", "chat", "someone". Use the exact display name shown.
 - hot_facts: only time-sensitive things worth remembering for a few days.

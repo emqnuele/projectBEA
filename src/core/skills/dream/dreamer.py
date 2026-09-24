@@ -30,6 +30,10 @@ _SCHEMA_KEYS = {"title", "carry_over", "self_facts", "people", "conversations",
 # a model call every night forever
 MAX_DREAM_ATTEMPTS = 3
 
+# the newest self-facts shown to the pass as already known: a bound on the
+# prompt, which would otherwise grow with every night she has ever had
+MAX_KNOWN_SELF_FACTS = 100
+
 
 class Dreamer:
     """The consolidation pass: turns the stream into durable memory.
@@ -141,11 +145,23 @@ class Dreamer:
                   .replace("{date}", today)
                   .replace("{language}", write_in(self.language)))
         try:
-            res = await self.llm.complete_json(f"CONVERSATION:\n{convo}", system)
+            res = await self.llm.complete_json(f"{self._known_self()}CONVERSATION:\n{convo}",
+                                               system)
             return res if isinstance(res, dict) else None
         except Exception as e:
             logger.error(f"Dreamer: generation failed: {e}")
             return None
+
+    def _known_self(self) -> str:
+        """What she already worked out about herself, so a night does not repeat it.
+
+        Blind to it, the pass rediscovers the same thing about her every night
+        in new words, and the exact-text dedup lets each wording in.
+        """
+        facts = self.selflore.facts()[-MAX_KNOWN_SELF_FACTS:] if self.selflore is not None else []
+        if not facts:
+            return ""
+        return "ALREADY KNOWN ABOUT YOU:\n" + "\n".join(f"- {f}" for f in facts) + "\n\n"
 
     def _apply(self, sid: str, result: Dict, summary: Dict,
                rows: Optional[List[Dict]] = None) -> None:
@@ -164,7 +180,7 @@ class Dreamer:
         self.selflore.update_profile(result.get("profile") or {})
 
         for fact in result.get("self_facts", []) or []:
-            if self.selflore.append_fact(str(fact)):
+            if self.selflore.append_fact(_as_text(fact)):
                 summary["self_facts"] += 1
 
         speakers = _speakers(rows or [])
@@ -226,7 +242,7 @@ class Dreamer:
         name = str(person.get("name", "")).strip()
         if not name or name.lower() in _GENERIC_NAMES:
             return False
-        facts = [str(f) for f in (person.get("facts") or [])]
+        facts = [t for t in (_as_text(f) for f in (person.get("facts") or [])) if t]
         attitude = str(person.get("attitude", "")).strip()
 
         card, key = self._card_for(name, session_id, speakers or {})
@@ -260,6 +276,18 @@ class Dreamer:
         card = record_person(self.roster, self.people, name, session_id=session_id)
         entry = self.roster.find_by_name(name)
         return card, (entry.identity if entry else "")
+
+
+def _as_text(item: Any) -> str:
+    """One list entry as text: the model sometimes wraps a fact in an object,
+    and `str()` of that stored the braces and the key as the fact."""
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        for key in ("fact", "text"):
+            if isinstance(item.get(key), str):
+                return item[key].strip()
+    return ""
 
 
 def _usable(result: Any) -> bool:

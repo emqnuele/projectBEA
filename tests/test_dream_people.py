@@ -187,3 +187,34 @@ async def test_every_sitting_read_is_listed_for_the_diary(memory):
     summary = await dreamer(memory, ScriptedLLM({}, {"title": "ok"})).run()
 
     assert summary["sittings"] == ["s_a", "s_b"]
+
+
+# --- what the pass hands back, as it hands it back ------------------------------
+
+async def test_a_fact_wrapped_in_an_object_is_kept_as_its_text(memory):
+    account_card(memory)
+    said(memory)
+    reply = {"title": "una sera",
+             "self_facts": [{"fact": "she has a website"}, None, 3],
+             "people": [{"name": "marco", "facts": [{"text": "plays redstone"}, ""]}]}
+
+    await dreamer(memory, ScriptedLLM(reply)).run()
+
+    assert memory.selflore.facts() == ["she has a website"]
+    assert memory.people.get_by_identity("discord:7").facts[-1] == "plays redstone"
+
+
+async def test_the_pass_is_told_what_she_already_knows_about_herself(memory):
+    memory.selflore.append_fact("she has a website")
+    said(memory)
+    seen = []
+
+    class Recording(ScriptedLLM):
+        async def complete_json(self, user_input, system_prompt=None, history=None):
+            seen.append(user_input)
+            return {"title": "ok"}
+
+    await dreamer(memory, Recording()).run()
+
+    assert seen[0].startswith("ALREADY KNOWN ABOUT YOU:\n- she has a website\n")
+    assert "CONVERSATION:" in seen[0]
