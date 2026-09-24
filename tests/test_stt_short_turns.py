@@ -44,7 +44,7 @@ def stt(monkeypatch):
     monkeypatch.setattr(FasterWhisperSTT, "_probe", lambda self: None)
 
     config = BrainConfig()
-    config.language = "auto"
+    config.stt_language = "auto"
     engine = FasterWhisperSTT(config)
     engine.model = FakeModel()
     return engine
@@ -58,7 +58,7 @@ def _heard(engine, seconds, monkeypatch, path="clip.wav"):
                         raising=False)
     monkeypatch.setattr("faster_whisper.audio.decode_audio",
                         lambda *a, **k: np.zeros(int(seconds * RATE), dtype="float32"))
-    return engine._transcribe_file(path, engine.config.language)
+    return engine._transcribe_file(path, engine.config.stt_language)
 
 
 # --- the degenerate decode ---------------------------------------------------
@@ -117,7 +117,7 @@ def test_what_was_heard_goes_stale(stt, monkeypatch):
 
 
 def test_a_configured_language_is_still_the_pin_whatever_the_length(stt, monkeypatch):
-    stt.config.language = "ja"
+    stt.config.stt_language = "ja"
     _heard(stt, 0.4, monkeypatch)
     assert stt.model.calls[-1]["language"] == "ja"
 
@@ -165,7 +165,7 @@ def test_groq_borrows_the_language_of_the_last_real_sentence(monkeypatch, clip):
     monkeypatch.setattr("src.modules.STT.groq_stt.Groq", lambda api_key=None, **_: FakeClient())
 
     config = BrainConfig()
-    config.language = "auto"
+    config.stt_language = "auto"
     config.groq_key = "gsk-test"
     engine = GroqSTT(config)
 
@@ -199,7 +199,7 @@ def test_openrouter_borrows_it_too(monkeypatch, clip):
                         lambda: SimpleNamespace(post=fake_post))
 
     config = BrainConfig()
-    config.language = "auto"
+    config.stt_language = "auto"
     config.openrouter_key = "sk-or-test"
     engine = OpenRouterSTT(config)
 
@@ -227,7 +227,7 @@ def test_a_hosted_engine_that_never_says_what_it_heard_still_works(monkeypatch, 
                                                 (sent.append(json), FakeResponse())[1]))
 
     config = BrainConfig()
-    config.language = "auto"
+    config.stt_language = "auto"
     config.openrouter_key = "sk-or-test"
     engine = OpenRouterSTT(config)
 
@@ -248,13 +248,13 @@ def test_the_log_says_which_language_her_ears_are_pinned_to(caplog):
     config.stt_provider = "groq"
     config.groq_key = "gsk-test"
 
-    config.language = "it"
+    config.stt_language = "it"
     with caplog.at_level("INFO"):
         build_stt(config)
     assert "Italian" in caplog.text
 
     caplog.clear()
-    config.language = "auto"
+    config.stt_language = "auto"
     with caplog.at_level("INFO"):
         build_stt(config)
     assert "whatever language" in caplog.text

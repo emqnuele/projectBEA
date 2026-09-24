@@ -166,11 +166,11 @@ class CaptionInterface(ABC):
 
 class STTInterface(ABC):
     @abstractmethod
-    def transcribe(self, audio_path: str, language: str = "en") -> str:
+    def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         """
         Transcribes audio file to text.
         audio_path: Absolute path to the audio file.
-        language: Language code (default: "en").
+        language: a pin for this one call; None falls back to `config.stt_language`.
         Returns the transcribed text.
         """
         pass

@@ -413,7 +413,21 @@ def _round_trip(config: BrainConfig) -> str:
 
     stt = build_stt(config)
     audio, rate = asyncio.run(build_tts(config).generate_audio(test_line(config)))
-    return _transcribe(stt, audio, rate)
+    return _transcribe(stt, audio, rate, _heard_as(config))
+
+
+def _heard_as(config: BrainConfig) -> Optional[str]:
+    """The language to transcribe the test line in, when the pin would lie.
+
+    The line is in the language she speaks; hearing can be pinned to another.
+    Transcribing it under that pin fails a transcriber that works.
+    """
+    pinned = language.whisper_code(config.stt_language)
+    spoken = language.resolve(config.language)
+    if pinned is None or pinned == spoken:
+        return None
+    # an unpinned voice says the english line
+    return spoken if spoken != language.AUTO else "en"
 
 
 async def check_memory(config: BrainConfig) -> Finding:
@@ -851,7 +865,7 @@ def _reachable(host: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
-def _transcribe(stt, audio, rate) -> str:
+def _transcribe(stt, audio, rate, heard_as: Optional[str] = None) -> str:
     """Writes the synthesised line to a temp wav and hands it to the transcriber."""
     import tempfile
 
@@ -861,7 +875,7 @@ def _transcribe(stt, audio, rate) -> str:
         path = handle.name
     try:
         sf.write(path, audio, rate)
-        return stt.transcribe(path) or ""
+        return stt.transcribe(path, language=heard_as) or ""
     finally:
         Path(path).unlink(missing_ok=True)
 

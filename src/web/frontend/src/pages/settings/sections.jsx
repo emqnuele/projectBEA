@@ -27,9 +27,9 @@ function MindSection({ config, update, updateSkill }) {
         <>
             <Group
                 title="Language"
-                description="She always answers in the language she was written to. This is what she transcribes as, and what she reaches for when she speaks first."
+                description="She always answers in the language she was written to. This is the one she reaches for when she speaks first. What she hears is set under Hearing."
             >
-                <Field label="She speaks" htmlFor="language">
+                <Field label="Speaks first in" htmlFor="language">
                     <Select id="language" value={config.language || 'auto'} onChange={(e) => update('language', e.target.value)}>
                         {languages.map(({ code, label }) => (
                             <option key={code} value={code}>{label}</option>
@@ -333,6 +333,7 @@ const STT_PLACEHOLDERS = {
 function HearingSection({ config, update }) {
     const provider = config.stt_provider;
     const local = provider === 'faster_whisper';
+    const { languages } = useVoiceCatalogue();
 
     return (
         <>
@@ -359,6 +360,17 @@ function HearingSection({ config, update }) {
                         placeholder={STT_PLACEHOLDERS[provider] || ''}
                         className="font-mono"
                     />
+                </Field>
+                <Field
+                    label="Language"
+                    htmlFor="stt_language"
+                    help="Auto guesses on every turn and often gets short ones wrong. If everyone in the call speaks one language, pick it."
+                >
+                    <Select id="stt_language" value={config.stt_language || 'auto'} onChange={(e) => update('stt_language', e.target.value)}>
+                        {languages.map(({ code, label }) => (
+                            <option key={code} value={code}>{label}</option>
+                        ))}
+                    </Select>
                 </Field>
             </Group>
 

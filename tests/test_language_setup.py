@@ -156,7 +156,7 @@ def test_the_ears_check_says_the_line_it_is_going_to_listen_for(monkeypatch):
             said["line"] = line
             return b"", 16000
 
-    monkeypatch.setattr(doctor, "_transcribe", lambda stt, audio, rate: said["line"])
+    monkeypatch.setattr(doctor, "_transcribe", lambda stt, audio, rate, *_: said["line"])
     monkeypatch.setattr("src.modules.STT.factory.build_stt", lambda config: object())
     monkeypatch.setattr("src.modules.tts.factory.build_tts", lambda config: FakeTTS())
 
@@ -180,7 +180,7 @@ def test_a_language_written_without_spaces_is_not_reported_as_mishearing(monkeyp
             return b"", 16000
 
     monkeypatch.setattr(doctor, "_transcribe",
-                        lambda stt, audio, rate: "今日はいい天気ですね。")
+                        lambda stt, audio, rate, *_: "今日はいい天気ですね。")
     monkeypatch.setattr("src.modules.STT.factory.build_stt", lambda config: object())
     monkeypatch.setattr("src.modules.tts.factory.build_tts", lambda config: FakeTTS())
 

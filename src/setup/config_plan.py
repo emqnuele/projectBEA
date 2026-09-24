@@ -98,6 +98,8 @@ def apply_answers(config, answers: Dict[str, Any]):
     # answered in English no matter what was picked
     if answers.get("language"):
         config.language = answers["language"]
+        # someone who named the language they speak has answered what to hear too
+        config.stt_language = answers["language"]
 
     config.tts_provider = answers.get("tts_provider", "edge")
     if answers.get("tts_voice"):

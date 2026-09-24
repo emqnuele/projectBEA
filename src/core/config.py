@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.core import language as language_module
 from src.core.mind.moods import default_avatar_map, rename_legacy
 from src.core.persona import DEFAULT_NAME, DEFAULT_PRONOUNS
 from src.utils.files import atomic_write_text
@@ -78,10 +79,8 @@ class BrainConfig:
     # which meaning of this file to read it with. See CONFIG_VERSION.
     config_version: int = CONFIG_VERSION
 
-    # what she hears and, when she speaks first, what she reaches for. `auto`
-    # lets the transcriber detect and leaves her mirroring whoever is talking:
-    # measured on real audio, detection matched or beat a pin every time, and a
-    # wrong pin turns Italian speech into invented Japanese. See core/language.py
+    # what she reaches for when she speaks first. `auto` leaves her mirroring
+    # whoever is talking. What she hears is `stt_language`. See core/language.py
     language: str = "auto"
     soul_path: str = "data/prompts/soul.md"  # shared persona, prepended to every context
     system_prompt_path: str = "data/prompts/chat.md"  # deprecated: fallback when operating manual is absent
@@ -373,6 +372,11 @@ class BrainConfig:
     # STT
     stt_provider: str = "openrouter"
     stt_model: str = "whisper-large-v3-turbo"
+    # the language the transcriber is pinned to, on every provider. `auto`
+    # detects per turn, which is a coin toss on a turn under a second and a
+    # wrong answer transcribes *into* the wrong language: italian speech came
+    # back as japanese and korean. A call in one known language wants a pin
+    stt_language: str = "auto"
 
     # local whisper. Only read when stt_provider is "faster_whisper"; the model
     # id comes from stt_model like everywhere else, hosted spellings included
@@ -408,6 +412,14 @@ class BrainConfig:
                         "english, set it in Settings -> Language, which writes the "
                         "choice down as one."
                     )
+
+                # migration: `language` used to pin the transcriber too. A file
+                # from before `stt_language` existed and that pinned one keeps
+                # hearing in it, rather than silently going back to detection
+                if "stt_language" not in data and "language" in data:
+                    pinned = language_module.resolve(data.get("language"))
+                    if pinned != language_module.AUTO:
+                        data["stt_language"] = pinned
 
                 # migration: the window used to be three independent numbers,
                 # and every install carries the three defaults written out. Now

@@ -41,7 +41,7 @@ class OpenRouterSTT(STTInterface):
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         # resolved rather than passed through: the api rejects `jp` and `it-IT`,
         # and an unset language has to become "detect it" rather than the word
-        lang = whisper_code(language if language else self.config.language)
+        lang = whisper_code(language if language else self.config.stt_language)
 
         if not self.key:
             logger.error("OpenRouter API Key not configured.")

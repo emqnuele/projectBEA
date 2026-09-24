@@ -1,6 +1,6 @@
 """The language of the last turn that was long enough to have settled one.
 
-`config.language` answers "what is she pinned to", and `auto` — the default —
+`config.stt_language` answers "what is she pinned to", and `auto` — the default —
 answers "work it out from the audio". That second answer is a good one for a
 sentence and a terrible one for a word: measured on real italian speech cut to
 length, half a second of it came back as french at p=0.80, eight tenths as

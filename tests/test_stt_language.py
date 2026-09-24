@@ -1,4 +1,4 @@
-"""Every transcriber reads `config.language` the same way.
+"""Every transcriber reads `config.stt_language` the same way.
 
 Only the local one ever normalized it. `jp` — which the dashboard's own picker
 offers — went to Groq and OpenRouter verbatim, where it is not a language, and
@@ -54,23 +54,23 @@ def groq_sent(monkeypatch):
 
 
 def test_groq_is_given_the_resolved_code(groq_sent, audio):
-    GroqSTT(_config(language="jp")).transcribe(audio)
+    GroqSTT(_config(stt_language="jp")).transcribe(audio)
     assert groq_sent["language"] == "ja"
 
 
 def test_groq_is_given_the_language_behind_a_regional_tag(groq_sent, audio):
-    GroqSTT(_config(language="it-IT")).transcribe(audio)
+    GroqSTT(_config(stt_language="it-IT")).transcribe(audio)
     assert groq_sent["language"] == "it"
 
 
 def test_groq_is_told_to_detect_rather_than_sent_null(groq_sent, audio):
     """The sdk spells "no pin" as its own sentinel; null is not a value it takes."""
-    GroqSTT(_config(language="auto")).transcribe(audio)
+    GroqSTT(_config(stt_language="auto")).transcribe(audio)
     assert groq_sent["language"] is omit
 
 
 def test_groq_detects_rather_than_sending_a_language_nobody_has(groq_sent, audio):
-    GroqSTT(_config(language="klingon")).transcribe(audio)
+    GroqSTT(_config(stt_language="klingon")).transcribe(audio)
     assert groq_sent["language"] is omit
 
 
@@ -99,12 +99,12 @@ def openrouter_sent(monkeypatch):
 
 
 def test_openrouter_is_given_the_resolved_code(openrouter_sent, audio):
-    OpenRouterSTT(_config(language="jp")).transcribe(audio)
+    OpenRouterSTT(_config(stt_language="jp")).transcribe(audio)
     assert openrouter_sent["language"] == "ja"
 
 
 def test_openrouter_is_not_sent_a_language_when_detecting(openrouter_sent, audio):
-    OpenRouterSTT(_config(language="auto")).transcribe(audio)
+    OpenRouterSTT(_config(stt_language="auto")).transcribe(audio)
     assert "language" not in openrouter_sent
 
 

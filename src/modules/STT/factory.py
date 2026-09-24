@@ -52,7 +52,7 @@ def build_stt(config) -> Optional[STTInterface]:
     # said out loud because it is the setting that decides whether she hears
     # anything usable, and the only one nothing else would ever mention: a
     # transcriber pinned to the wrong language does not fail, it translates
-    pinned = language_module.named(getattr(config, "language", ""))
+    pinned = language_module.named(getattr(config, "stt_language", ""))
     logger.info(f"STT backend: {name}, listening in "
                 + (f"{pinned.english_name} ({pinned.code})" if pinned
                    else "whatever language it hears"))

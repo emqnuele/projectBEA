@@ -405,7 +405,7 @@ class FasterWhisperSTT(STTInterface):
                                  f"({cpu_error}); ears are off. {device_advice()}")
 
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
-        lang = language if language else self.config.language
+        lang = language if language else self.config.stt_language
 
         if not self.model:
             logger.error("Local whisper is not loaded.")
