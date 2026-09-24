@@ -5,6 +5,7 @@ from src.core.memory.store import PersonCard, RosterEntry
 from src.core.perception.types import PerceptionKind
 from src.core.skills.base import Skill
 from src.core.skills.social.people import (
+    merge_cards,
     promote_entry,
     promotion_reason,
     resolve_or_create_card,
@@ -193,10 +194,26 @@ class SocialMemory(Skill):
         if found is None:
             return "I can't tell who is speaking right now — say who you mean."
         identity, display = found
+        previous = self.people.get_by_identity(identity)
         self.roster.link(identity=identity, display_name=display,
                          platform=identity.split(":")[0] if ":" in identity else "",
                          person_id=card.person_id)
+        self._fold_if_orphaned(previous, card)
         return f"Noted: {display} is {card.primary_name}."
+
+    def _fold_if_orphaned(self, previous: Optional[PersonCard], card: PersonCard) -> None:
+        """The card the speaker was on, folded in once nothing points at it.
+
+        Left behind it keeps its facts and no identity: nothing reads it
+        again, the dashboard shows it forever, and the boot repair cannot
+        tell which name it belonged with.
+        """
+        if previous is None or previous.person_id == card.person_id:
+            return
+        left = self.people.get(previous.person_id)
+        if left is not None and not left.identities:
+            merge_cards(self.people, card, left)
+            logger.info(f"SocialMemory: folded {left.primary_name} into {card.primary_name}.")
 
     def _speaker_identity(self, speaking_as: str) -> Optional[Tuple[str, str]]:
         """The (identity, display name) talking right now, or None.
