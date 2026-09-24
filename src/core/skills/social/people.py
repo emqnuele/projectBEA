@@ -19,9 +19,13 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.social.people")
 
+# the identity synthesized for someone known only by a name
+NAMED_PREFIX = "named:"
+
 __all__ = [
     "should_promote", "promotion_reason", "record_person", "resolve_or_create_card",
-    "promote_entry", "repair_duplicate_cards",
+    "promote_entry", "repair_duplicate_cards", "card_for_identity", "is_placeholder",
+    "merge_cards", "NAMED_PREFIX",
     "PersonCard", "RosterEntry", "REGULAR_SESSION_THRESHOLD",
     "MAX_FACTS_STORED", "MAX_FACTS_SHOWN",
 ]
@@ -71,7 +75,7 @@ def record_person(roster, people, name: str, session_id: Optional[str] = None,
     entry = roster.find_by_name(name)
     if entry is None:
         entry = roster.record(
-            identity=f"named:{name.lower()}", display_name=name, platform="named",
+            identity=f"{NAMED_PREFIX}{name.lower()}", display_name=name, platform="named",
             session_id=session_id,
         )
     elif session_id:
@@ -104,10 +108,10 @@ def promote_entry(roster, people, entry: RosterEntry, *, reason: str = "",
     Three callers used to mint three ways — the dream by name, the live prompt
     and a strong reaction by identity — and minting by identity is how one
     human on two surfaces became two cards. So the name is checked first: an
-    exact case-insensitive match on a card this tally shared a session with
-    links the identity to that card instead of minting. Exact and shared,
-    never substring or guess: two different humans sharing a first name stay
-    two cards.
+    exact case-insensitive match on a card this tally shared a session with,
+    or on a card known only by that name, links the identity to that card
+    instead of minting. Exact, never substring or guess: two accounts sharing
+    a first name and never an evening stay two cards.
     """
     if entry.promoted:
         return people.get_by_identity(entry.identity)
@@ -115,7 +119,7 @@ def promote_entry(roster, people, entry: RosterEntry, *, reason: str = "",
     if twin is not None:
         roster.set_promoted(entry.identity, twin.person_id)
         logger.info(f"SocialMemory: linked {entry.identity} to {twin.primary_name}.")
-        return twin
+        return people.get(twin.person_id)
     card = people.create_from_entry(
         entry, reason=reason or promotion_reason(entry), seed_facts=seed_facts)
     roster.set_promoted(entry.identity, card.person_id)
@@ -123,25 +127,65 @@ def promote_entry(roster, people, entry: RosterEntry, *, reason: str = "",
     return card
 
 
+def card_for_identity(roster, people, entry: RosterEntry) -> Optional[PersonCard]:
+    """The card an account already belongs to, or the one it has just earned.
+
+    What the dream needs once it knows exactly who spoke: never a second
+    sighting (the live path already counted it), only the card. An account
+    that has not earned one yet still lands on a card known only by its
+    exact name, because that card is about this person and the facts the
+    dream is holding belong on it.
+    """
+    card = people.get_by_identity(entry.identity)
+    if card is not None:
+        return card
+    if should_promote(entry):
+        return promote_entry(roster, people, entry)
+    placeholder = _placeholder_named(people, entry.display_name)
+    if placeholder is None:
+        return None
+    roster.set_promoted(entry.identity, placeholder.person_id)
+    logger.info(f"SocialMemory: linked {entry.identity} to {placeholder.primary_name}.")
+    return people.get(placeholder.person_id)
+
+
+def is_placeholder(card: PersonCard) -> bool:
+    """A card known only by a name: no account on any platform behind it.
+
+    Minted by `remember_person` or the dream for someone she only heard
+    about, or left with no identity at all by a relink. It has no sessions
+    to prove who it is, so the first account wearing exactly its name is
+    taken to be that person.
+    """
+    return all(i.startswith(NAMED_PREFIX) for i in card.identities)
+
+
+def _placeholder_named(people, name: str) -> Optional[PersonCard]:
+    name = (name or "").strip()
+    if len(name) < 2:
+        return None
+    return next((c for c in people.named_exactly(name) if is_placeholder(c)), None)
+
+
 def _same_person(people, entry: RosterEntry) -> Optional[PersonCard]:
     """A card this tally already belongs to, or None.
 
-    Same display name spelled exactly the same, and at least one session in
-    common: the same human reaches her from two surfaces in one sitting far
-    more often than two homonyms share both a name and an evening.
+    Same display name spelled exactly the same, and either a session in
+    common — the same human reaches her from two surfaces in one sitting far
+    more often than two homonyms share both a name and an evening — or a
+    card with no account behind it, which has no sessions to share.
     """
     name = (entry.display_name or "").strip()
     if len(name) < 2:
         return None
-    card = people.find_exact_name(name)
-    if card is None:
-        return None
-    known = set(card.identities or [])
-    if entry.identity in known:
-        return card
-    if not _shared_session(people.db, entry.identity, known):
-        return None
-    return card
+    cards = people.named_exactly(name)
+    for card in cards:
+        if entry.identity in (card.identities or []):
+            return card
+    for card in cards:
+        if _shared_session(people.db, entry.identity, set(card.identities or [])):
+            return card
+    return next((c for c in cards if is_placeholder(c)), None)
 
 
 def _shared_session(db, identity: str, known: set) -> bool:
@@ -160,20 +204,21 @@ def _shared_session(db, identity: str, known: set) -> bool:
 
 
 def repair_duplicate_cards(roster, people) -> int:
-    """Merges cards sharing one exact name that shared a session.
+    """Merges cards sharing one exact name that are provably one person.
 
     Runs at every boot, not once: it is cheap (a GROUP BY over the cards) and
     idempotent, and a duplicate can still arrive from a restored backup or a
-    database written by an older version. The card with more facts survives;
-    facts move over (UNIQUE drops
-    the dupes), identities repoint at the survivor, an empty attitude fills
-    in, warmth and profile counters keep the max. Returns how many cards were
-    folded. Cards that never shared a session are left alone: without it they
-    may be two homonyms, and merging those is worse than a duplicate.
+    database written by an older version. Provably means a shared session,
+    or one of the two being known only by name (see `is_placeholder`). The
+    card with more facts survives; facts move over (UNIQUE drops the dupes),
+    identities repoint at the survivor, an empty attitude fills in, warmth
+    and profile counters keep the max. Returns how many cards were folded.
+    Two accounts that never shared a session are left alone: they may be two
+    homonyms, and merging those is worse than a duplicate.
     """
     merged = 0
     for low in _duplicate_names(people):
-        cards = _cards_named(people, low)
+        cards = people.named_exactly(low)
         if len(cards) < 2:
             continue
         cards.sort(key=lambda c: (-len(c.facts), c.created_at))
@@ -181,8 +226,7 @@ def repair_duplicate_cards(roster, people) -> int:
         for loser in cards[1:]:
             if loser.person_id == survivor.person_id:
                 continue
-            if not any(_shared_session(people.db, i, set(survivor.identities))
-                       for i in loser.identities):
+            if not _provably_one(people, survivor, loser):
                 continue
             _fold(people, survivor, loser)
             updated = people.get(survivor.person_id)
@@ -191,17 +235,26 @@ def repair_duplicate_cards(roster, people) -> int:
     return merged
 
 
+def _provably_one(people, survivor: PersonCard, loser: PersonCard) -> bool:
+    if is_placeholder(survivor) or is_placeholder(loser):
+        return True
+    return any(_shared_session(people.db, i, set(survivor.identities))
+               for i in loser.identities)
+
+
+def merge_cards(people, survivor: PersonCard, loser: PersonCard) -> Optional[PersonCard]:
+    """Folds `loser` into `survivor` and returns the survivor as it is now."""
+    if survivor.person_id == loser.person_id:
+        return survivor
+    _fold(people, survivor, loser)
+    return people.get(survivor.person_id)
+
+
 def _duplicate_names(people) -> List[str]:
     """Lowercased primary names held by more than one card."""
     return [r["low"] for r in people.db.query(
         "SELECT LOWER(primary_name) AS low FROM people "
         "GROUP BY low HAVING COUNT(*) > 1")]
-
-
-def _cards_named(people, low: str) -> List[PersonCard]:
-    """Every card with exactly this primary name, case-insensitive."""
-    return [people.card_from_row(r) for r in people.db.query(
-        "SELECT * FROM people WHERE LOWER(primary_name) = ?", (low,))]
 
 
 def _fold(people, survivor: PersonCard, loser: PersonCard) -> None:

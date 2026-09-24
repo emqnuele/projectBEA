@@ -182,7 +182,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     title      TEXT NOT NULL DEFAULT '',
     started_at REAL NOT NULL,
     ended_at   REAL,
-    dreamed    INTEGER NOT NULL DEFAULT 0
+    dreamed    INTEGER NOT NULL DEFAULT 0,
+    dream_attempts INTEGER NOT NULL DEFAULT 0
 );
 
 -- --- the stream plan --------------------------------------------------------

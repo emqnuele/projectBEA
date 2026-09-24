@@ -431,7 +431,7 @@ function SelfPanel({ self }) {
                     Written by the dream pass. Her soul file never moves; this does.
                 </p>
                 {self.facts.length === 0 ? (
-                    <p className="py-6 text-center text-[12px] text-faint">Nothing yet — she has not dreamt.</p>
+                    <p className="py-6 text-center text-[12px] text-faint">Nothing yet — a dream only keeps what is new and concrete about her.</p>
                 ) : (
                     <ul className="space-y-1.5">
                         {self.facts.map((fact, index) => (

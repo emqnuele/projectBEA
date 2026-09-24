@@ -179,28 +179,48 @@ class MemorySkill(Skill):
         self._pending.add_done_callback(self._writing.discard)
 
     async def _process_session_async(self, session_id: str,
-                                     transcript: Optional[str] = None) -> None:
+                                     transcript: Optional[str] = None) -> bool:
+        """Writes one sitting's page; True only when a new page was saved."""
         if not self.generator or self.rag is None:
             logger.error("MemorySkill: generator not initialized.")
-            return
+            return False
         if self.rag.exists("diary", session_id):
-            return
+            return False
         if transcript is None:
             transcript = self._transcript(session_id)
         if not transcript:
-            return
+            return False
         try:
             diary = await self.generator.generate_diary(transcript)
             if diary:
                 # embedding blocks for tens of ms: not on the loop
-                await asyncio.to_thread(self._save_diary, session_id, diary)
+                return await asyncio.to_thread(self._save_diary, session_id, diary)
         except Exception as e:
             logger.error(f"MemorySkill: error processing session: {e}")
+        return False
 
-    def _save_diary(self, session_id: str, diary: Dict) -> None:
+    async def write_pages(self, session_ids: List[str]) -> int:
+        """The dream's diary phase: one page per sitting it read, awaited.
+
+        Awaited in turn, not queued, so every page exists before she wakes.
+        Only a session rotation or a shutdown used to write one, and a boot
+        opens a new sitting without rotating: a run that did not reach its
+        shutdown save lost that evening's page for good.
+        """
+        if not self.active or self.rag is None:
+            return 0
+        written = 0
+        for sid in session_ids:
+            if await self._process_session_async(sid):
+                written += 1
+        if written:
+            logger.info(f"MemorySkill: the dream wrote {written} diary page(s).")
+        return written
+
+    def _save_diary(self, session_id: str, diary: Dict) -> bool:
         content = diary.get("diary_content", "")
         if not content or self.rag is None:
-            return
+            return False
         tags = diary.get("tags", []) or []
         self.rag.remember(
             scope="diary", scope_key=session_id, text=content,
@@ -209,6 +229,7 @@ class MemorySkill(Skill):
             tags=",".join(str(t) for t in tags), created_at=time.time(),
         )
         logger.info(f"MemorySkill: saved diary for {session_id}. Tags: {tags}")
+        return True
 
     # --- session lifecycle --------------------------------------------------
 

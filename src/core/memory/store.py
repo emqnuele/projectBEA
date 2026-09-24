@@ -254,31 +254,35 @@ class PeopleStore:
         return self.card_from_row(row) if row else None
 
     def find_by_name(self, name: str) -> Optional[PersonCard]:
+        # oldest first: two cards sharing a name must not answer in whatever
+        # order sqlite happens to return rows
         low = name.strip().lower()
         if not low:
             return None
         row = self.db.query_one(
-            "SELECT * FROM people WHERE LOWER(primary_name) = ?", (low,)
+            "SELECT * FROM people WHERE LOWER(primary_name) = ? "
+            "ORDER BY created_at LIMIT 1", (low,)
         ) or self.db.query_one(
             "SELECT p.* FROM people p JOIN identities i ON i.person_id = p.person_id "
-            "WHERE LOWER(i.display_name) = ? LIMIT 1", (low,)
+            "WHERE LOWER(i.display_name) = ? ORDER BY p.created_at LIMIT 1", (low,)
         ) or self.db.query_one(
-            "SELECT * FROM people WHERE LOWER(primary_name) LIKE ? LIMIT 1", (f"%{low}%",)
+            "SELECT * FROM people WHERE LOWER(primary_name) LIKE ? "
+            "ORDER BY created_at LIMIT 1", (f"%{low}%",)
         )
         return self.card_from_row(row) if row else None
 
-    def find_exact_name(self, name: str) -> Optional[PersonCard]:
-        """A card with exactly this primary name, case-insensitive.
+    def named_exactly(self, name: str) -> List[PersonCard]:
+        """Every card with exactly this primary name, case-insensitive, oldest first.
 
         No substring fallback: this decides identity merges, where a near
         match is a different human.
         """
         low = name.strip().lower()
         if not low:
-            return None
-        row = self.db.query_one(
-            "SELECT * FROM people WHERE LOWER(primary_name) = ?", (low,))
-        return self.card_from_row(row) if row else None
+            return []
+        return [self.card_from_row(r) for r in self.db.query(
+            "SELECT * FROM people WHERE LOWER(primary_name) = ? ORDER BY created_at",
+            (low,))]
 
     def create_from_entry(self, entry: RosterEntry, reason: str = "",
                           seed_facts: Optional[List[str]] = None,
@@ -764,6 +768,17 @@ class Sessions:
             "ON CONFLICT(session_id) DO UPDATE SET dreamed = 1",
             (session_id, time.time()),
         )
+
+    def dream_failed(self, session_id: str) -> int:
+        """Counts one unusable consolidation of this sitting; returns how many so far."""
+        with self.db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sessions (session_id, started_at, dream_attempts) VALUES (?, ?, 1) "
+                "ON CONFLICT(session_id) DO UPDATE SET dream_attempts = dream_attempts + 1",
+                (session_id, time.time()),
+            )
+        return int(self.db.scalar(
+            "SELECT dream_attempts FROM sessions WHERE session_id = ?", (session_id,)))
 
     def dreamed(self) -> set:
         return {r["session_id"] for r in

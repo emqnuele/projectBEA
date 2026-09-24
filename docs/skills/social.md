@@ -96,11 +96,22 @@ makes sense while she is texting.
 | the [dreamer](dream.md) | overnight, from the whole session |
 
 Every source mints through one function (`promote_entry` in `people.py`):
-an identity whose display name exactly matches a card it shared a session
-with links to that card instead of minting a second one. Near matches and
-names that never shared a session stay separate — two different humans with
-one first name must not become one card. Duplicates minted before this rule
-are folded at boot by `repair_duplicate_cards`, same condition.
+an identity whose display name exactly matches a card links to that card
+instead of minting a second one, when either
+
+- the identity shared a session with the card, or
+- the card is **known only by name** (`is_placeholder`): every identity on it is
+  a synthesized `named:<name>`, or it has none left. It has no sessions to
+  share, so the first account wearing exactly its name is taken to be that
+  person. Once it has an account behind it, it is no longer a placeholder.
+
+Near matches, and two accounts that never shared a session, stay separate —
+two different humans with one first name must not become one card.
+`repair_duplicate_cards` folds existing duplicates at boot on the same
+condition. `link_person` folds the card the speaker was on into the one they
+named, once no identity points at it any more.
+
+When two cards do share a name, name lookups answer with the oldest.
 
 Facts are capped per card (`MAX_FACTS_STORED`) and only the most recent are
 shown, so a card that keeps growing never eats the prompt.

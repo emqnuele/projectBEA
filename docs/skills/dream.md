@@ -64,10 +64,39 @@ while self.active:
 The **hour is checked** rather than a timer being set, so restarting the process
 neither skips a night nor doubles one.
 
+Two dates are kept in `settings`. `dream.last_night` is the nightly guard and is
+only written by the nightly job, so a nap after midnight does not stand in for
+the night. `dream.last_dream` is written by every successful pass, nightly or
+not; the dashboard shows the later of the two.
+
 For every un-dreamed session the dreamer asks the background model to extract a
 title, self-facts, per-person facts and hot facts, then writes them into the
 live stores. Processed sessions are marked (`sessions.dreamed`), so re-dreaming
 is a no-op.
+
+A reply that carries none of the expected keys — an error, an empty object, or
+some other JSON the parser found in the reply — is not a consolidation. The
+session stays un-dreamed and the next pass tries it again; after
+`MAX_DREAM_ATTEMPTS` (3) unusable replies (`sessions.dream_attempts`) it is
+marked done and logged as an error, so a session that always fails does not
+cost a call every night.
+
+**Self-facts** are what is now true about her own life — something that
+happened to her, a decision, something she learned about her own world — and
+never her character, which is the soul's. The pass is shown the self-facts she
+already has (the newest `MAX_KNOWN_SELF_FACTS`) above the transcript, so a night
+does not write the same thing again in new words.
+
+**People** are resolved against the stream, which records which account said
+each line. A name that exactly one account spoke under in that session resolves
+to that account's card (`card_for_identity`): the card the live prompt reads.
+A name nobody spoke under — someone talked about — goes through the name path
+(`record_person`), which only mints a card at the usual thresholds.
+
+**The diary** is a phase of the pass. Every session the dreamer read with
+something said in it gets its page from the [memory](memory.md) skill, awaited
+before she wakes (`MemorySkill.write_pages`). Pages that already exist are
+skipped.
 
 It runs on the **`background`** pool, never the mind's: a dream pass is dozens
 of calls in a row and must not take the mind's model — or its rate limit —

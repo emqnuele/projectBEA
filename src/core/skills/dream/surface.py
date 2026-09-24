@@ -8,6 +8,7 @@ from src.core.mind.handoff import HANDOFF_HEADER
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.dream.dreamer import DAY_SECONDS, Dreamer
+from src.core.skills.memory.memory import MemorySkill
 from src.core.timeline import now_in_timezone
 from src.utils.logger import get_logger
 
@@ -18,6 +19,10 @@ REGULAR_ABSENCE_DAYS = 10
 # the date of the last nightly pass, so a restart inside the dreaming hour
 # neither skips a night nor doubles one
 LAST_NIGHT_KEY = "dream.last_night"
+
+# the date of the last pass of any kind, nap or night: what the dashboard shows.
+# Kept apart from the nightly guard, which a nap at 00:30 must not satisfy
+LAST_DREAM_KEY = "dream.last_dream"
 
 
 
@@ -248,6 +253,9 @@ class DreamSkill(Skill):
         try:
             if self.dreamer:
                 summary = await self.dreamer.run()
+                summary["pages"] = await self._write_pages(summary.get("sittings") or [])
+                if summary.get("ok"):
+                    self._mark_dreamed()
             self._start_over(str(summary.get("carry_over") or ""))
             self.morning_pass()
         except Exception as e:
@@ -258,6 +266,22 @@ class DreamSkill(Skill):
             if consc:
                 consc.wake()
         return summary
+
+    async def _write_pages(self, session_ids: List[str]) -> int:
+        """The diary phase: a page for every sitting the pass read.
+
+        Before waking, so the rotation in `_start_over` finds the page of the
+        sitting she slept in already written and has nothing left to queue.
+        """
+        reg = getattr(self.context, "skill_registry", None)
+        memory = reg.get("memory") if reg else None
+        if not session_ids or not isinstance(memory, MemorySkill):
+            return 0
+        try:
+            return await memory.write_pages(session_ids)
+        except Exception as e:
+            logger.error(f"DreamSkill: the diary phase failed: {e}")
+            return 0
 
     def _start_over(self, carry_over: str = "") -> None:
         """A new session and an empty window: waking up is the one reset.
@@ -300,9 +324,20 @@ class DreamSkill(Skill):
             return
         memory.db.put_setting(LAST_NIGHT_KEY, today.isoformat())
 
+    def _mark_dreamed(self) -> None:
+        """Every pass, not only the nightly one: a nap is a dream too."""
+        memory = getattr(self.context, "memory", None)
+        if memory is None:
+            return
+        today = now_in_timezone(str(getattr(self.config, "timezone", "") or "")).date()
+        memory.db.put_setting(LAST_DREAM_KEY, today.isoformat())
+
     def last_night(self) -> str:
         """The date of the last consolidation pass, `""` when she never dreamt."""
-        return self._last_night()
+        memory = getattr(self.context, "memory", None)
+        dreamt = str(memory.db.get_setting(LAST_DREAM_KEY)) if memory is not None else ""
+        # both are ISO dates, so the later one is the larger string
+        return max(dreamt, self._last_night())
 
     def _last_night(self) -> str:
         memory = getattr(self.context, "memory", None)
