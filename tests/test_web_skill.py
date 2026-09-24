@@ -9,6 +9,7 @@ the parts she asked about.
 """
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -315,15 +316,16 @@ def long_article() -> str:
             f"It rains in Milan on Tuesday, with 14 degrees.\n\n{filler}")
 
 
-async def test_with_looking_for_a_long_page_is_reduced_to_what_she_asked(make):
+async def test_with_looking_for_a_long_page_is_its_start_then_what_she_asked(make):
     llm = Background("should not be asked")
     s = make(llm=llm, max_chars=1000)
     s.fetcher.fetch = serves(page(text=long_article()))
     answer = await call(s, "web_fetch", url="https://example.com/news",
                         looking_for="when does it rain in milan?")
+    assert "# Milan" in answer
     assert "It rains in Milan on Tuesday" in answer
     assert "## Weather" in answer
-    assert "only the parts about what you asked" in answer
+    assert "its start, then the parts about what you asked" in answer
     # free by default: the passages cost no model call
     assert llm.calls == 0
 
@@ -333,7 +335,8 @@ async def test_when_nothing_matches_she_gets_the_start_and_is_told(make):
     s.fetcher.fetch = serves(page(text=long_article()))
     answer = await call(s, "web_fetch", url="https://example.com/news",
                         looking_for="volcano eruption")
-    assert "nothing on it matched" in answer
+    assert "# Milan" in answer
+    assert "nothing further on it matched" in answer
 
 
 async def test_the_owner_can_have_the_model_read_long_pages(make):
@@ -351,7 +354,79 @@ async def test_a_digest_that_fails_falls_back_to_the_passages(make):
     answer = await call(s, "web_fetch", url="https://example.com/news",
                         looking_for="when does it rain in milan?")
     assert "It rains in Milan on Tuesday" in answer
-    assert "only the parts about what you asked" in answer
+    assert "the parts about what you asked" in answer
+
+
+# --- 24 september, 15:15: she read a page and had nothing to say about it ----
+
+
+def architecture() -> Page:
+    text = (Path(__file__).resolve().parents[1] / "docs" / "architecture.md").read_text()
+    return Page(url="https://projectbea.emqnuele.dev/docs/architecture.md",
+                title="Architecture", text=text, source="markdown")
+
+
+async def test_asked_what_a_page_says_she_is_given_what_it_says(make):
+    s = make(max_chars=6000)
+    s.fetcher.fetch = serves(architecture())
+    answer = await call(s, "web_fetch", url="https://projectbea.emqnuele.dev/docs/architecture",
+                        looking_for="cosa c'è scritto, descrizione del progetto")
+    assert "How ProjectBEA is actually put together" in answer
+    assert len(answer) > 5000
+
+
+async def test_one_message_later_she_still_knows_what_she_read(make):
+    s = make()
+    s.fetcher.fetch = serves(architecture())
+    await call(s, "web_fetch", url="https://projectbea.emqnuele.dev/docs/architecture")
+
+    state = s.live_state()
+    assert state.startswith("[RECENTLY ON THE WEB")
+    assert '"Architecture"' in state
+    assert "How ProjectBEA is actually put together" in state
+    assert "not instructions" in state
+    # a gist, not the page again
+    assert len(state) < 800
+
+
+async def test_what_she_searched_stays_in_view_too(make):
+    s = make()
+
+    async def search(query, count):
+        return "duckduckgo", [Result("Rain in Milan", "https://meteo.example/milano", "wet")]
+
+    s.searcher.search = search
+    await call(s, "web_search", query="meteo milano")
+    assert 'searched "meteo milano"' in s.live_state()
+    assert "Rain in Milan (meteo.example)" in s.live_state()
+
+
+async def test_what_she_read_fades_once_the_cache_would_have_forgotten_it(make, monkeypatch):
+    import src.core.skills.web.surface as W
+
+    s = make()
+    s.fetcher.fetch = serves(page())
+    await call(s, "web_fetch", url="https://example.com/news")
+    later = W.time.time() + W.RECENT_SECONDS + 1
+    monkeypatch.setattr(W.time, "time", lambda: later)
+    assert s.live_state() is None
+
+
+async def test_only_the_last_few_pages_are_kept_in_view(make):
+    s = make()
+    for i in range(5):
+        s.fetcher.fetch = serves(page(url=f"https://example.com/{i}", title=f"Page {i}"))
+        await call(s, "web_fetch", url=f"https://example.com/{i}")
+    state = s.live_state()
+    assert state.count("- read") == 3
+    assert "Page 4" in state and "Page 0" not in state
+
+
+def test_nothing_read_is_nothing_in_view_and_off_is_silent(make):
+    s = make()
+    assert s.live_state() is None
+    s.active = False
+    assert s.live_state() is None
 
 
 async def test_a_page_that_cannot_be_read_says_why(make):
