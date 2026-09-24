@@ -135,7 +135,7 @@ class WebSkill(Skill):
             safesearch=str(s.get("safesearch", "moderate") or "moderate"),
         )
 
-    def _number(self, key: str, default, low, high, cast=int):
+    def _number(self, key: str, default, low, high, cast: Callable[[Any], Any] = int):
         try:
             return max(low, min(high, cast(self.settings.get(key, default))))
         except (TypeError, ValueError):
