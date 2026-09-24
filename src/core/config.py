@@ -260,7 +260,9 @@ class BrainConfig:
             "searxng_url": "",
             "safesearch": "moderate",
             "max_results": 5,
-            "max_chars": 6000
+            "max_chars": 6000,
+            "long_pages": "passages",   # "model" has the background model read them
+            "wait_seconds": 3.0         # past this a lookup finishes in the background
         },
         # the token is deliberately absent: it is read from TELEGRAM_TOKEN
         "telegram": {
