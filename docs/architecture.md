@@ -210,9 +210,16 @@ answering on it.
 5. **Append the perception frame** as a `user` message.
 6. **Reasoning burst**, up to `burst_steps` (6) steps:
    - `_steering()` folds anything that arrived *during* reasoning in as a
-     **steering** frame with an explicit header — except what belongs to a
-     conversation she has already answered this turn, which goes back on the
-     bus and becomes the next batch;
+     **steering** frame with an explicit header. A written line from a
+     conversation she has already answered this turn gets its own header (the
+     next thing they said, to answer once) and goes in too, after the same
+     quiet gap that closes a batch (`text_window`, capped by `max_window`):
+     somebody still typing at a step boundary is waited for, so two lines
+     get one reply. Anything live ends that wait at once. If she is shown such
+     a line and ends the turn without answering it or choosing silence, the
+     one rescue step is hers. A turn carrying voice keeps the older rule:
+     nothing waits, and what belongs to an answered conversation goes back on
+     the bus and becomes the next batch;
    - `llm.complete(context, tools=…)`; the LLM **streams** its response back;
    - free assistant text is **inner monologue** (published as
      `EventCategory.THOUGHT`, kept in the Turn Log) and is never spoken;
