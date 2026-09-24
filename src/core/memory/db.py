@@ -55,6 +55,8 @@ _MIGRATIONS: List[tuple] = [
     ("people", "warmth_at", "REAL NOT NULL DEFAULT 0"),
     # her lines are replayed as the speak calls they were, and a call has a mood
     ("context_window", "mood", "TEXT NOT NULL DEFAULT ''"),
+    # a consolidation that came back unusable is tried again, a bounded number of times
+    ("sessions", "dream_attempts", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

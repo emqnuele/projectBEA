@@ -1,10 +1,11 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.language import write_in
 from src.core.memory.rag import SOURCE_PERSON
+from src.core.memory.store import PersonCard
 from src.core.memory.transcript import MIN_SPOKEN_LINES, render_stream, spoken_count
 from src.core.persona import Persona
-from src.core.skills.social.people import record_person
+from src.core.skills.social.people import card_for_identity, record_person
 from src.core.timeline import today_in_timezone
 from src.utils.logger import get_logger
 from src.utils.prompts import load_text
@@ -19,6 +20,15 @@ FALLBACK = "Summarize the conversation as JSON with title, self_facts, people, h
 
 # names the LLM tends to invent when nobody real is in the chat
 _GENERIC_NAMES = {"user", "chat", "chatter", "someone", "audience", "viewer", "fan", "anon"}
+
+# a reply carrying none of these is not a consolidation, whatever parsed out of it
+_SCHEMA_KEYS = {"title", "carry_over", "self_facts", "people", "conversations",
+                "hot_facts", "profile"}
+
+# unusable replies a sitting may cost before it is given up on: a provider
+# hiccup deserves another night, a sitting that always fails does not deserve
+# a model call every night forever
+MAX_DREAM_ATTEMPTS = 3
 
 
 class Dreamer:
@@ -77,26 +87,52 @@ class Dreamer:
                 if sid not in done]
 
     async def run(self) -> Dict[str, Any]:
-        """Consolidate every un-dreamed session, the one she is in included."""
+        """Consolidate every un-dreamed session, the one she is in included.
+
+        `sittings` lists every session with something said in it that this
+        pass read, consolidated or not: they are the pages the diary owes.
+        """
         if not self.llm:
             return {"ok": False, "error": "no llm"}
 
         summary: Dict[str, Any] = {"sessions": 0, "people": 0, "self_facts": 0,
-                                   "hot_facts": 0, "carry_over": ""}
+                                   "hot_facts": 0, "failed": 0, "carry_over": "",
+                                   "sittings": []}
 
         for sid in self._pending():
             rows = self.conversations.stream(sid)
             if spoken_count(rows) < MIN_SPOKEN_LINES:
                 self._mark_processed(sid)
                 continue
+            summary["sittings"].append(sid)
 
             result = await self._dream_session(rows)
-            if result:
-                self._apply(sid, result, summary)
+            if not _usable(result):
+                if self._give_up(sid):
+                    self._mark_processed(sid)
+                summary["failed"] += 1
+                continue
+
+            self._apply(sid, result, summary, rows)
             self._mark_processed(sid)
             summary["sessions"] += 1
 
         return {"ok": True, **summary}
+
+    def _give_up(self, sid: str) -> bool:
+        """Whether a sitting that came back unusable is left for good.
+
+        Marked done on the first failure, a provider that had a bad minute
+        cost that evening its cards, its recap and its facts for ever.
+        """
+        attempts = self.sessions.dream_failed(sid)
+        if attempts >= MAX_DREAM_ATTEMPTS:
+            logger.error(f"Dreamer: {sid} came back unusable {attempts} times; "
+                         f"leaving it unconsolidated.")
+            return True
+        logger.warning(f"Dreamer: {sid} came back unusable ({attempts}/"
+                       f"{MAX_DREAM_ATTEMPTS}); the next dream tries it again.")
+        return False
 
     async def _dream_session(self, rows: List[Dict]) -> Optional[Dict]:
         convo = render_stream(rows)
@@ -111,7 +147,8 @@ class Dreamer:
             logger.error(f"Dreamer: generation failed: {e}")
             return None
 
-    def _apply(self, sid: str, result: Dict, summary: Dict) -> None:
+    def _apply(self, sid: str, result: Dict, summary: Dict,
+               rows: Optional[List[Dict]] = None) -> None:
         # the last session consolidated is the freshest one: what it says to
         # carry is what opens the window she wakes up in
         carry = str(result.get("carry_over") or "").strip()
@@ -130,8 +167,9 @@ class Dreamer:
             if self.selflore.append_fact(str(fact)):
                 summary["self_facts"] += 1
 
+        speakers = _speakers(rows or [])
         for person in result.get("people", []) or []:
-            if self._apply_person(person, sid):
+            if self._apply_person(person, sid, speakers):
                 summary["people"] += 1
 
         for conversation in result.get("conversations", []) or []:
@@ -183,19 +221,16 @@ class Dreamer:
         except Exception as e:
             logger.warning(f"Dreamer: could not keep what it learned about them: {e}")
 
-    def _apply_person(self, person: Dict, session_id: str) -> bool:
+    def _apply_person(self, person: Dict, session_id: str,
+                      speakers: Optional[Dict[str, set]] = None) -> bool:
         name = str(person.get("name", "")).strip()
         if not name or name.lower() in _GENERIC_NAMES:
             return False
         facts = [str(f) for f in (person.get("facts") or [])]
         attitude = str(person.get("attitude", "")).strip()
 
-        # build the tally; only earns a card at the real thresholds (no force).
-        # first-timers stay as a cheap tally — a card is for regulars.
-        card = record_person(self.roster, self.people, name, session_id=session_id)
-        entry = self.roster.find_by_name(name)
-        self._remember_person(card.person_id if card else (entry.identity if entry else ""),
-                              name, facts, attitude)
+        card, key = self._card_for(name, session_id, speakers or {})
+        self._remember_person(card.person_id if card else key, name, facts, attitude)
         if not card:
             return False
 
@@ -204,3 +239,39 @@ class Dreamer:
         if attitude:
             self.people.set_attitude(card.person_id, attitude)
         return True
+
+    def _card_for(self, name: str, session_id: str,
+                  speakers: Dict[str, set]) -> Tuple[Optional[PersonCard], str]:
+        """The card a name from the pass belongs on, and the key to recall it by.
+
+        The sitting knows exactly which account said what, so a name that one
+        account spoke under resolves to that account's card: by name alone the
+        pass wrote to whichever card came back first for it, while the live
+        prompt read the account's own, and one person became two half-cards.
+        A name nobody in the stream spoke under (someone talked about, or a
+        speaker she never tallied) keeps the name path, which only earns a
+        card at the real thresholds.
+        """
+        identities = speakers.get(name.lower()) or set()
+        if len(identities) == 1:
+            entry = self.roster.get(next(iter(identities)))
+            if entry is not None:
+                return card_for_identity(self.roster, self.people, entry), entry.identity
+        card = record_person(self.roster, self.people, name, session_id=session_id)
+        entry = self.roster.find_by_name(name)
+        return card, (entry.identity if entry else "")
+
+
+def _usable(result: Any) -> bool:
+    return isinstance(result, dict) and bool(_SCHEMA_KEYS & result.keys())
+
+
+def _speakers(rows: List[Dict]) -> Dict[str, set]:
+    """Lowercased display name -> the accounts that spoke under it in this sitting."""
+    found: Dict[str, set] = {}
+    for row in rows:
+        identity = str(row.get("author_identity") or "")
+        name = str(row.get("display_name") or "").strip().lower()
+        if row.get("role") == "user" and identity and name:
+            found.setdefault(name, set()).add(identity)
+    return found

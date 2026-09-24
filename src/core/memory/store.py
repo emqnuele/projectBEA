@@ -769,6 +769,17 @@ class Sessions:
             (session_id, time.time()),
         )
 
+    def dream_failed(self, session_id: str) -> int:
+        """Counts one unusable consolidation of this sitting; returns how many so far."""
+        with self.db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sessions (session_id, started_at, dream_attempts) VALUES (?, ?, 1) "
+                "ON CONFLICT(session_id) DO UPDATE SET dream_attempts = dream_attempts + 1",
+                (session_id, time.time()),
+            )
+        return int(self.db.scalar(
+            "SELECT dream_attempts FROM sessions WHERE session_id = ?", (session_id,)))
+
     def dreamed(self) -> set:
         return {r["session_id"] for r in
                 self.db.query("SELECT session_id FROM sessions WHERE dreamed = 1")}
