@@ -211,3 +211,40 @@ async def test_the_session_stream_comes_back_in_order():
 
     stream = memory.conversations.stream(SESSION)
     assert [r["role"] for r in stream] == ["user", "bea"]
+
+
+# --- something bulky is read once, and kept as a line --------------------------
+
+
+def delivered_page() -> Perception:
+    return Perception(
+        PerceptionKind.ACTION, "web", "[web_fetch result] " + "a very long page " * 400,
+        salience=0.8, meta={"keep_as": '(you read "a very long page")'},
+    )
+
+
+async def test_a_delivered_page_is_written_down_as_its_one_line():
+    mind, bus, memory = build()
+    bus.put(delivered_page())
+    await one_turn(mind)
+
+    world = [r for r in rows(memory) if r["role"] == "world"]
+    assert [r["content"] for r in world] == ['(you read "a very long page")']
+
+
+async def test_a_delivered_page_is_read_whole_and_kept_as_one_line():
+    llm = FakeLLMClient([stays_silent()])
+    mind, bus, memory = build(llm=llm)
+    bus.put(delivered_page())
+    await one_turn(mind)
+
+    frame = llm.calls[0][-1]["content"]
+    assert frame.count("a very long page") == 400
+    kept = " ".join(str(m["content"]) for m in mind.sliding_window.replay())
+    assert '(you read "a very long page")' in kept
+    assert "a very long page a very long page" not in kept
+
+
+def test_without_keep_as_what_stays_is_what_arrived():
+    assert marco().kept == marco().content
+    assert delivered_page().render(kept=True) == '(you read "a very long page")'

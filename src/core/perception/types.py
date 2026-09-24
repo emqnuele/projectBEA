@@ -66,14 +66,26 @@ class Perception:
         """the idle tick is the loop talking to itself; everything else happened."""
         return self.kind is not PerceptionKind.IDLE and not self.is_noise
 
-    def render(self, now: Optional[float] = None) -> str:
+    @property
+    def kept(self) -> str:
+        """What stays of it once its turn is over.
+
+        Usually all of it. A sense that delivers something bulky — a whole web
+        page — says what to keep instead, so the window and the stream hold one
+        line rather than paying for the page on every turn after.
+        """
+        return str((self.meta or {}).get("keep_as") or self.content)
+
+    def render(self, now: Optional[float] = None, kept: bool = False) -> str:
         """How this perception appears inside a perception frame.
 
         With `now`, anything old enough to matter says so. A batch that spans a
         few seconds gets no stamps at all — they would be noise on every line.
+        `kept` renders what stays of it rather than what arrived.
         """
+        text = self.kept if kept else self.content
         if now is None:
-            return self.content
+            return text
         from src.core.timeline import stamp_for
 
-        return f"{stamp_for(now - self.ts)}{self.content}"
+        return f"{stamp_for(now - self.ts)}{text}"

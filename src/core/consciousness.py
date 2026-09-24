@@ -694,6 +694,15 @@ class Consciousness:
                 steer.append(p)
         return steer
 
+    @property
+    def turn_batch(self) -> List[Perception]:
+        """What the turn in progress is answering.
+
+        For a tool that finishes after its turn is over: its result has to come
+        back to the conversation that asked, not to wherever she is by then.
+        """
+        return list(self._batch)
+
     def _answered(self) -> set:
         """The conversations she has already replied in, this turn."""
         keys = {f"{sent['platform']}:{sent['channel']}" for sent in self._sent}
@@ -1344,7 +1353,8 @@ class Consciousness:
                         continue
                     key = conversation_key(p)
                     author = p.author.identity if p.author else ""
-                    content = f"({p.kind.value.upper()}) [{self._provenance(p)}] {p.render(now=now)}"
+                    content = (f"({p.kind.value.upper()}) [{self._provenance(p)}] "
+                               f"{p.render(now=now, kept=True)}")
                     self.sliding_window.append("user", content, key=key, author=author)
             for sent in self._sent:
                 key = f"{sent['platform']}:{sent['channel']}"
@@ -1379,7 +1389,7 @@ class Consciousness:
                 entries.append({
                     "conversation_key": conversation_key(p),
                     "role": "user" if author else "world",
-                    "kind": p.kind.value, "surface": p.surface, "content": p.content,
+                    "kind": p.kind.value, "surface": p.surface, "content": p.kept,
                     "platform": author.platform if author else "",
                     "channel_id": str((p.meta or {}).get("channel_id", "")),
                     "author_identity": author.identity if author else None,

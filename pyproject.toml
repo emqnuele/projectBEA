@@ -27,6 +27,8 @@ dependencies = [
     "fastembed>=0.3,<0.9",
     "sqlite-vec>=0.1.1",
     "python-telegram-bot[job-queue]>=21",
+    "trafilatura>=2.0",
+    "ddgs>=9.0",
 ]
 
 [project.scripts]

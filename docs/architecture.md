@@ -280,6 +280,13 @@ prefix cache holds. The budget counts what a replayed call costs on the wire,
 not just its words. `messages()` stays the log as written, for everything that
 reads the window rather than answers from it.
 
+A perception is written into the window, and into the stream, as it arrived —
+unless it says otherwise. A sense that delivers something bulky, like a web
+page that finished loading after its turn, sets `meta["keep_as"]`: she reads
+the whole page in the turn it lands, and what stays behind is that one line
+(`Perception.kept`). Without it every later turn would pay for a page she has
+already answered from.
+
 Every write to the store carries a **write sequence**, taken when the snapshot
 is built rather than when it lands, and the store keeps only what is strictly
 newer than what it holds. That is what orders two writes: `version` moves only
@@ -347,6 +354,7 @@ not been given invents the call.
 | `SocialMemory` | `social` | `social_memory` | roster tally + person cards; injects `[WHO YOU'RE TALKING TO]` |
 | `DreamSkill` | `dream` | `dream` | self-lore + hot facts always in context; morning pass; `go_to_sleep`; offline dreamer |
 | `StreamPlanSkill` | `plan` | — (core) | the owner's plan for the stream in `live_state`; `objective_started/done/dropped`. Contributes nothing while the plan is empty |
+| `WebSkill` | `web` | `web` | `web_search` down a provider chain with the keyless search last, `web_fetch` as markdown; off by default, every URL and DNS answer SSRF-checked |
 
 ---
 

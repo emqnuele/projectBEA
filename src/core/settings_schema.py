@@ -296,6 +296,43 @@ DONATIONS = Section(
     ],
 )
 
+WEB = Section(
+    key="web", label="Web", scope="skills", toggleable=True,
+    blurb="Looking things up, and reading what she finds.",
+    settings=[
+        Setting("enabled", "On", "bool",
+                "Whether she can search and read the web. Pages are written by strangers.", False),
+        Setting("search_provider", "Search with", "select",
+                "Auto uses whatever has a key or URL below, then the free search. The free "
+                "search needs no setup but can be rate limited.",
+                "auto", options=("auto", "duckduckgo", "brave", "tavily", "searxng")),
+        Setting("brave_api_key", "Brave Search key", "secret",
+                "Optional. Saved to `.env` as BRAVE_API_KEY, never to config.json."),
+        Setting("tavily_api_key", "Tavily key", "secret",
+                "Optional. Saved to `.env` as TAVILY_API_KEY, never to config.json."),
+        Setting("searxng_url", "SearXNG instance", "string",
+                "Optional. Your own instance, with the json format enabled."),
+        Setting("safesearch", "Safe search", "select",
+                "Filters adult results where the provider supports it.",
+                "moderate", options=("strict", "moderate", "off")),
+        Setting("max_results", "Results per search", "int",
+                "More results cost more of her context on every search.", 5, minimum=1, maximum=10),
+        Setting("max_chars", "Page budget", "int",
+                "Most characters of a page she is handed. Longer pages are cut, or reduced "
+                "to the parts about what she is after.",
+                6000, minimum=1000, maximum=30000, advanced=True),
+        Setting("long_pages", "Long pages", "select",
+                "When she says what she is after: `passages` picks the matching paragraphs, "
+                "free and instant. `model` has the background model read the page for her: "
+                "better answers, a few seconds and an extra call per page.",
+                "passages", options=("passages", "model"), advanced=True),
+        Setting("wait_seconds", "Wait in the turn", "float",
+                "How long a lookup holds her turn. Faster ones answer in the same turn; "
+                "slower ones finish in the background and reach her by themselves.",
+                3.0, minimum=0.0, maximum=15.0, advanced=True),
+    ],
+)
+
 MEMORY = Section(
     key="memory", label="Memory", scope="skills",
     blurb="What she keeps, and how easily she finds it again.",
@@ -498,7 +535,7 @@ CONSCIOUSNESS = Section(
 )
 
 SECTIONS: List[Section] = [
-    TELEGRAM, DISCORD, TWITCH, MINECRAFT, DONATIONS,
+    TELEGRAM, DISCORD, TWITCH, MINECRAFT, DONATIONS, WEB,
     ATTENTION, RHYTHM, AFFECT, MODELS, CONSCIOUSNESS, MEMORY, DREAM,
 ]
 

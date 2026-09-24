@@ -73,6 +73,7 @@ Everything is built in `AIVtuberBrain._build_consciousness()` and started by
 | `MemorySkill` | `memory` | `memory` | [long-term recall](memory.md) and the diary |
 | `SocialMemory` | `social` | `social_memory` | [who people are](social.md) |
 | `DreamSkill` | `dream` | `dream` | [sleep, self-lore, consolidation](dream.md) |
+| `WebSkill` | `web` | `web` | [searching, and reading pages](web.md) |
 
 ---
 
@@ -92,6 +93,7 @@ not to a skill. Everything else is armed by whichever skill is active:
 | `game:mc` | `play_minecraft`, `mc_chat`, `mc_stop`, `mc_goto_player`, `mc_follow_player`, `mc_look_at_player`, `mc_give_item` |
 | `social` | `remember_person`, `recall_person` |
 | `dream` | `go_to_sleep` |
+| `web` | `web_search`, `web_fetch` |
 | `memory` | none — recall is injected every turn via `context_for` |
 
 Some of those are armed by the skill's own state rather than by its toggle:

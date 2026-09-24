@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 from dataclasses import asdict, dataclass, field
@@ -33,6 +34,8 @@ SECRET_ENV_VARS: Dict[str, str] = {
     "discord.token": "DISCORD_TOKEN",
     "telegram.token": "TELEGRAM_TOKEN",
     "twitch.oauth_token": "TWITCH_OAUTH_TOKEN",
+    "web.brave_api_key": "BRAVE_API_KEY",
+    "web.tavily_api_key": "TAVILY_API_KEY",
 }
 
 # derived, so a new secret is declared once: the ones nested inside the
@@ -248,6 +251,18 @@ class BrainConfig:
         # the shared secret is read from DONATION_SECRET
         "donations": {
             "enabled": False
+        },
+        # off by default: pages are written by strangers. The search keys are
+        # absent on purpose, read from BRAVE_API_KEY and TAVILY_API_KEY
+        "web": {
+            "enabled": False,
+            "search_provider": "auto",   # keyed providers first, keyless always last
+            "searxng_url": "",
+            "safesearch": "moderate",
+            "max_results": 5,
+            "max_chars": 6000,
+            "long_pages": "passages",   # "model" has the background model read them
+            "wait_seconds": 3.0         # past this a lookup finishes in the background
         },
         # the token is deliberately absent: it is read from TELEGRAM_TOKEN
         "telegram": {
@@ -512,10 +527,18 @@ class BrainConfig:
         for secret in self.SECRET_KEYS:
             data.pop(secret, None)
 
-        skills = data.get("skills", {})
+        data["skills"] = self.public_skills()
+        return data
+
+    def public_skills(self) -> Dict[str, Dict[str, Any]]:
+        """Every skill block as the UI may see it, with its secrets masked.
+
+        A key typed into the dashboard lives in the block in memory until the
+        next start, so any endpoint handing a block out must go through here.
+        """
+        skills = copy.deepcopy(self.skills)
         for skill_key, field_name in SECRET_SKILL_FIELDS:
             block = skills.get(skill_key)
             if isinstance(block, dict) and field_name in block:
                 block[field_name] = MASK if block[field_name] else ""
-
-        return data
+        return skills

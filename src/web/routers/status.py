@@ -76,10 +76,12 @@ async def wake_bea(brain: AIVtuberBrain = Depends(get_brain)):
 
 @router.get("/skills")
 def list_skills(brain: AIVtuberBrain = Depends(get_brain)):
+    # masked: this is unauthenticated, and a key pasted in settings sits in the block
+    public = brain.config.public_skills()
     return {
         skill.skill_name: {
             "enabled": skill.enabled,
-            "config": brain.config.skills.get(skill.skill_name, {}),
+            "config": public.get(skill.skill_name, {}),
             "active": skill.active,
         }
         for skill in _toggleable(brain) if skill.skill_name
