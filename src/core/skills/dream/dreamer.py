@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeGuard
 
 from src.core.language import write_in
 from src.core.memory.rag import SOURCE_PERSON
@@ -290,7 +290,7 @@ def _as_text(item: Any) -> str:
     return ""
 
 
-def _usable(result: Any) -> bool:
+def _usable(result: Any) -> TypeGuard[Dict]:
     return isinstance(result, dict) and bool(_SCHEMA_KEYS & result.keys())
 
 

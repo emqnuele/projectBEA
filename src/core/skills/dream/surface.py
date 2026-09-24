@@ -8,6 +8,7 @@ from src.core.mind.handoff import HANDOFF_HEADER
 from src.core.persona import persona_of
 from src.core.skills.base import Skill
 from src.core.skills.dream.dreamer import DAY_SECONDS, Dreamer
+from src.core.skills.memory.memory import MemorySkill
 from src.core.timeline import now_in_timezone
 from src.utils.logger import get_logger
 
@@ -274,11 +275,10 @@ class DreamSkill(Skill):
         """
         reg = getattr(self.context, "skill_registry", None)
         memory = reg.get("memory") if reg else None
-        write = getattr(memory, "write_pages", None)
-        if not session_ids or not callable(write):
+        if not session_ids or not isinstance(memory, MemorySkill):
             return 0
         try:
-            return await write(session_ids)
+            return await memory.write_pages(session_ids)
         except Exception as e:
             logger.error(f"DreamSkill: the diary phase failed: {e}")
             return 0
