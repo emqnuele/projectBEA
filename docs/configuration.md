@@ -314,7 +314,7 @@ that could answer while it is off.
 |---|---|---|
 | `idle_after` | `240.0` | Seconds of silence before an IDLE perception. Only applies while the `monologue` skill is on |
 | `window` | `0.3` | The quiet gap a live sense waits for one more of its own: a voice line, a game event. The batch closes when nothing new has arrived for this long |
-| `text_window` | `1.2` | The same for written messages. Longer because the pause between two typed lines is somebody still typing — at `0` she answers each line of a paragraph separately |
+| `text_window` | `1.2` | The same for written messages. Longer because the pause between two typed lines is somebody still typing — at `0` she answers each line of a paragraph separately. It also holds between two steps of a turn, before a line that arrived mid-turn goes in |
 | `max_window` | `8.0` | Ceiling on one batch however busy it gets, so a chat that never stops cannot hold a turn open forever |
 | `burst_steps` | `6` | Max reasoning steps in one turn |
 | `correlation_timeout` | `90.0` | How long an HTTP caller waits for her reply before giving up |
