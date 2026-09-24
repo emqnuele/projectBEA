@@ -309,10 +309,7 @@ the window, the slide at the end, is synchronous:
   cut in half at the boundary. Everything older is **cold**;
 - the cold part goes to the worker, which writes a short prose recap — "you
   talked about food for two hours": facts and open threads, no identity (the
-  soul is already in context). A long past is sent in parts of at most
-  ~60k tokens (`HANDOFF_PART_TOKENS`), each part given the recap so far.
-  This keeps a 500k window inside the request timeout and inside the context
-  of a smaller background model;
+  soul is already in context);
 - when the recap is ready, the window **slides**. The recap opens the next
   window as an `[EARLIER]` system block, followed by **every** line after the
   cut, read off the window as it is at that moment: the hot present plus

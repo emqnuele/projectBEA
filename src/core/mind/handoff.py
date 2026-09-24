@@ -10,9 +10,8 @@ Who she is never belongs here: soul.md is in context on every turn already.
 """
 
 import asyncio
-import math
 import time
-from typing import Any, List
+from typing import Any
 
 from src.core.language import write_in
 from src.utils.logger import get_logger
@@ -21,13 +20,6 @@ logger = get_logger("bea.mind.handoff")
 
 # cap: a handoff is a bridge, not a second window (~5-8k tokens)
 MAX_HANDOFF_CHARS = 24_000
-
-# the most older turns one worker call is handed. A 500k window leaves ~300k
-# to summarize, which in one call outlives the request timeout (85k took up to
-# 48s, measured) or outgrows a background model's context — and a handoff that
-# fails every time never frees the window at all. Parts are chained through
-# the recap, the same way one swap already hands its recap to the next.
-HANDOFF_PART_TOKENS = 60_000
 
 HANDOFF_SYSTEM = (
     "You keep a running memory for someone who cannot see the earlier part of "
@@ -75,28 +67,6 @@ def build_handoff_payload(cold_text: str, previous_handoff: str = "") -> str:
     return cold_text
 
 
-def split_parts(entries: List[Any], limit: int) -> List[List[Any]]:
-    """Older turns cut into parts of about the same size, about `limit` at most.
-
-    Even rather than greedy: filling each part to the brim leaves a sliver of
-    a last part, a whole worker call for a handful of lines. Each entry goes
-    to the part its midpoint falls in, so an entry is never halved and one
-    larger than a part simply is a part of its own.
-    """
-    total = sum(e.tokens for e in entries)
-    if not entries:
-        return []
-    count = max(1, math.ceil(total / max(1, limit)))
-    share = total / count
-    parts: List[List[Any]] = [[] for _ in range(count)]
-    before = 0
-    for entry in entries:
-        index = min(count - 1, int((before + entry.tokens / 2) / share)) if share else 0
-        parts[index].append(entry)
-        before += entry.tokens
-    return [part for part in parts if part]
-
-
 class HandoffWorker:
     """Runs the handoff in the background when the window fills up.
 
@@ -142,26 +112,24 @@ class HandoffWorker:
         try:
             version = ctx.version
             cold, cut = ctx.handoff_cut()
-            parts = [[e.payload for e in part
-                      if not (isinstance(e.payload, dict) and e.payload.get("role") == "system")]
-                     for part in split_parts(cold, HANDOFF_PART_TOKENS)]
-            texts = [t for t in (format_turns(p) for p in parts) if t.strip()]
-            if not texts:
+            cold_text = format_turns([
+                e.payload for e in cold
+                if not (isinstance(e.payload, dict) and e.payload.get("role") == "system")
+            ])
+            if not cold_text.strip():
                 return self._back_off()
             began = time.perf_counter()
             before = ctx.total_tokens
             logger.info(f"Handoff started: window at {before:,} tokens, summarizing "
-                        f"{sum(e.tokens for e in cold):,} older tokens in {len(texts)} part(s).")
-            prose = self.last_prose
-            for text in texts:
-                reply = await self._llm.complete([
-                    {"role": "system", "content": f"{HANDOFF_SYSTEM} {write_in(self.language)}"},
-                    {"role": "user", "content": build_handoff_payload(text, prose)},
-                ], tools=None)
-                prose = normalize_handoff(getattr(reply, "content", ""))
-                if not prose:
-                    logger.warning("Handoff got an empty recap, keeping the old window.")
-                    return self._back_off()
+                        f"{sum(e.tokens for e in cold):,} older tokens.")
+            reply = await self._llm.complete([
+                {"role": "system", "content": f"{HANDOFF_SYSTEM} {write_in(self.language)}"},
+                {"role": "user", "content": build_handoff_payload(cold_text, self.last_prose)},
+            ], tools=None)
+            prose = normalize_handoff(getattr(reply, "content", ""))
+            if not prose:
+                logger.warning("Handoff got an empty recap, keeping the old window.")
+                return self._back_off()
             # the consolidation empties the window while she sleeps: a recap of
             # the evening landing on top of that would put the evening back
             if ctx.version != version:

@@ -44,14 +44,14 @@ STREAM_HEADERS_TIMEOUT = 30.0
 # stream open with keep-alive comments while the model queues or stalls, so a
 # call can look alive for the whole REQUEST_TIMEOUT without a byte of answer.
 # What counts is data: the first block has to come within a budget that grows
-# with the prompt (prefill is linear in it: 383k uncached took 27s, measured),
+# with the prompt, since a cold prefill takes longer the longer the prompt,
 # and once it streams, no gap between two blocks may be longer than the idle
 # limit.
 STREAM_FIRST_BLOCK_BASE = 15.0
 STREAM_IDLE_TIMEOUT = 30.0
 
-# prefill throughput the first-block budget assumes, in request characters a
-# second: ~10k tokens/s, below the ~14k measured on a cold 383k-token prompt
+# measured cold on openrouter deepseek-v4-flash: 109k tokens -> 27.3s budget,
+# first token at 7.3s; 383k tokens -> 58.0s budget, first token at 19.1-26.8s
 PREFILL_CHARS_PER_SECOND = 40_000
 
 # how long an idle connection to a provider waits for the next call. A new one

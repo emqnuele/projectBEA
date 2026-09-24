@@ -341,51 +341,6 @@ async def test_handoff_cold_excludes_old_bridge_entries():
     assert "fresh recap" in bridges[0]["content"]
 
 
-async def test_a_long_past_is_summarized_in_parts_chained_through_the_recap():
-    """One call over a 300k past outlives the request timeout, or the
-    background model's context; a handoff that always fails never swaps."""
-    from src.core.mind import handoff
-
-    ctx = _full_window()
-    payloads = []
-
-    class _Parts:
-        async def complete(self, messages, tools=None):
-            payloads.append(messages[1]["content"])
-            return _Reply(f"recap after part {len(payloads)}")
-
-    worker = HandoffWorker(_Parts())
-    worker.last_prose = "the day before"
-    original = handoff.HANDOFF_PART_TOKENS
-    handoff.HANDOFF_PART_TOKENS = 4_000
-    try:
-        prose = await worker.maybe_swap(ctx)
-    finally:
-        handoff.HANDOFF_PART_TOKENS = original
-    assert len(payloads) >= 3
-    assert "PREVIOUS RECAP:\nthe day before" in payloads[0]
-    for i in range(1, len(payloads)):
-        assert f"PREVIOUS RECAP:\nrecap after part {i}" in payloads[i]
-    assert prose == f"recap after part {len(payloads)}"
-    bridges = [m for m in ctx.messages() if m["role"] == "system"]
-    assert bridges[0]["content"].endswith(prose)
-
-
-def test_parts_are_even_and_never_halve_a_line():
-    from src.core.mind.handoff import split_parts
-    from src.core.mind.token_budget import BudgetEntry
-
-    entries = [BudgetEntry(tokens=10, seq=i) for i in range(25)]
-    parts = split_parts(entries, limit=100)
-    assert len(parts) == 3
-    assert max(len(p) for p in parts) - min(len(p) for p in parts) <= 1
-    assert [e.seq for p in parts for e in p] == list(range(25))
-    big = [BudgetEntry(tokens=10, seq=1), BudgetEntry(tokens=500, seq=2),
-           BudgetEntry(tokens=10, seq=3)]
-    assert [[e.seq for e in p] for p in split_parts(big, limit=100)] == [[1], [2], [3]]
-    assert split_parts([], limit=100) == []
-
-
 async def test_a_recap_is_dropped_if_the_window_was_emptied_while_it_was_written():
     """The dream empties the window; a recap landing on top would put the
     evening back."""

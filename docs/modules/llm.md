@@ -252,12 +252,16 @@ stream is therefore watched on its data, and keep-alive comments do not count
 as data:
 
 - the first block of the answer must arrive within
-  `STREAM_FIRST_BLOCK_BASE` (15s) plus the time a cold prefill of this prompt
-  takes. The prefill part is the request size divided by
-  `PREFILL_CHARS_PER_SECOND`, about 10k tokens a second. That gives ~26s at
-  110k tokens and ~55s at 400k. For comparison, measured cold first tokens
-  were 7s and 27s. If the first block is late, the request is sent again
-  once, like a header stall.
+  `STREAM_FIRST_BLOCK_BASE` (15s) plus the request size divided by
+  `PREFILL_CHARS_PER_SECOND` (40k characters a second), because prefill time
+  grows with the prompt. If the first block is late, the request is sent
+  again once, like a header stall. Measured on OpenRouter with
+  deepseek-v4-flash, cold cache, 4.49 request characters per input token:
+
+  | input tokens | budget | first token |
+  | --- | --- | --- |
+  | 109,553 | 27.3s | 7.3s |
+  | 383,374 | 58.0s | 19.1s, 26.8s |
 - after that, no two blocks may be more than `STREAM_IDLE_TIMEOUT` (30s)
   apart. A stall at that point raises `ProviderStalled` and the request is
   **not** sent again: the start of the line may already be in the room, and
