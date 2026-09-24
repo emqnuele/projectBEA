@@ -8,9 +8,12 @@ events.
 """
 
 import asyncio
+import contextlib
+import ipaddress
 import json
 import time
 from typing import Any, AsyncIterator, Dict, Iterator, List, Optional, Tuple, Union
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -30,6 +33,12 @@ REQUEST_TIMEOUT = 120.0
 # permanent blacklist over one bad request would lose speaking-early for the
 # whole session; this forgets a transient refusal in a couple of minutes.
 NO_STREAM_COOLDOWN = 120.0
+
+# how long a streamed call may go without its response headers. A provider that
+# streams answers them at once — queueing included, it sends keep-alives — so a
+# silence this long is a stalled request, not a slow model. Without it the only
+# limit was REQUEST_TIMEOUT: two minutes of her standing there, then no turn.
+STREAM_HEADERS_TIMEOUT = 30.0
 
 # how long an idle connection to a provider waits for the next call. A new one
 # is dns, tcp and tls before the first token — 110 to 190ms a call, measured —
@@ -79,6 +88,46 @@ def _stale(error: BaseException) -> bool:
     if isinstance(error, aiohttp.ClientConnectorError):
         return False
     return isinstance(error, (aiohttp.ServerDisconnectedError, aiohttp.ClientOSError))
+
+
+def _is_local(base_url: str) -> bool:
+    """A model served on this machine or network: loading one can take a minute."""
+    host = (urlsplit(base_url).hostname or "").lower()
+    if host == "localhost" or host.endswith(".local"):
+        return True
+    try:
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        return False
+
+
+class ProviderStalled(RuntimeError):
+    """The provider took the request and never started answering.
+
+    Not a `ProviderError`: that one means "refused", and a refused stream is
+    retried without reasoning and then without streaming — each of which would
+    wait on the same stalled provider all over again.
+    """
+
+
+@contextlib.asynccontextmanager
+async def _answered_within(request, seconds: Optional[float], label: str):
+    """`async with request` whose response has to start within `seconds`."""
+    try:
+        if seconds is None:
+            response = await request.__aenter__()
+        else:
+            response = await asyncio.wait_for(request.__aenter__(), seconds)
+    except asyncio.TimeoutError as e:
+        raise ProviderStalled(f"{label}: no answer within {seconds:.0f}s") from e
+    failure = (None, None, None)
+    try:
+        yield response
+    except BaseException as e:
+        failure = (type(e), e, e.__traceback__)
+        raise
+    finally:
+        await request.__aexit__(*failure)
 
 
 class _StreamRefused(RuntimeError):
@@ -197,11 +246,13 @@ class AsyncLLMClient(LLMClient):
         """
         url = f"{self.base_url}{self.query_path}"
         headers = {"Content-Type": "application/json", **self.auth_headers()}
+        limit = None if _is_local(self.base_url) else STREAM_HEADERS_TIMEOUT
         retried = False
         while True:
             answered = False
             try:
-                async with _session().post(url, headers=headers, json=payload) as response:
+                async with _answered_within(_session().post(url, headers=headers, json=payload),
+                                            limit, self.model_name) as response:
                     answered = True
                     if response.status >= 400:
                         body = await response.text()
@@ -225,6 +276,13 @@ class AsyncLLMClient(LLMClient):
                             if item[0] != "event":
                                 yield event, item[1]
                     return
+            except ProviderStalled as e:
+                # nothing of the answer exists yet: the same request on a fresh
+                # connection, once, and then it is the pool's to fail over
+                if retried:
+                    raise
+                retried = True
+                logger.warning(f"{e}; sending it again on a fresh connection.")
             except Exception as e:
                 if answered or retried or not _stale(e):
                     raise

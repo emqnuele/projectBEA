@@ -233,6 +233,25 @@ the streamed call as well as the ordinary one. Without that the streamed retry
 was never attempted: the refused request was paid for, streaming was switched
 off for two minutes, and she lost speaking-early for the next forty turns.
 
+### A provider that never starts answering
+
+A streamed call must get its response headers within 30 seconds
+(`STREAM_HEADERS_TIMEOUT`). A provider that streams sends them at once, and
+keeps the connection alive while it queues, so a silence that long is a
+stalled request, not a slow model. It is sent again once, on a fresh
+connection; a second stall raises `ProviderStalled`, which the pool fails over
+on. It is deliberately not a refusal, so no retry without reasoning and no
+non-streaming fallback: each of those would wait on the same stalled provider
+all over again.
+
+A model on this machine or network (`localhost`, a private address, `.local`)
+is exempt, since loading one can take longer than that. What still bounds every call
+is `REQUEST_TIMEOUT`, 120 seconds for the whole request.
+
+With a single model in the `mind` pool, a stall still costs the turn, after up
+to a minute rather than two. A second model in the pool is what turns it into
+a failover.
+
 ---
 
 ## Hot reload
