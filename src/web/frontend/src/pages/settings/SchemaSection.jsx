@@ -386,7 +386,7 @@ function DerivedShape({ setting, ceiling, values }) {
                 <p className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--flux-err)' }}>
                     <AlertTriangle size={11} className="shrink-0" />
                     {labelOf('handoff_trigger_tokens', 'recap')} {compact(warning.trigger)} meets{' '}
-                    {labelOf('handoff_target_tokens', 'rest').toLowerCase()} {compact(warning.target)} —
+                    {labelOf('hot_tokens', 'hot').toLowerCase()} {compact(warning.hot)} —
                     every turn would recap. Raise the first or lower the second.
                 </p>
             )}

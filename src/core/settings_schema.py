@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, Sequence
 from src.core.config import MASK
 from src.core.mind.token_budget import (
     HOT_RATIO,
-    TARGET_RATIO,
     TRIGGER_RATIO,
     WINDOW_MAX_TOKENS,
     WINDOW_MIN_TOKENS,
@@ -479,7 +478,6 @@ CONSCIOUSNESS = Section(
                 WINDOW_MIN_TOKENS, minimum=WINDOW_MIN_TOKENS,
                 maximum=WINDOW_MAX_TOKENS, ui="slider", step=WINDOW_STEP_TOKENS,
                 derives=(("handoff_trigger_tokens", "recaps at", TRIGGER_RATIO),
-                         ("handoff_target_tokens", "settles near", TARGET_RATIO),
                          ("hot_tokens", "keeps word-for-word", HOT_RATIO))),
         Setting("idle_after", "Idle after", "float",
                 "Seconds of silence before she notices there is silence.",
@@ -504,22 +502,14 @@ CONSCIOUSNESS = Section(
         Setting("handoff_trigger_tokens", "Recap starts at", "int",
                 "Manual override: the memory size at which she pauses to "
                 "summarize the old past. Leave at 0 and it follows the "
-                "slider above. Must stay above 'settles near'.",
-                0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
-        Setting("handoff_target_tokens", "Settles near", "int",
-                "Manual override: how small the memory shrinks back to after "
-                "a recap. Leave at 0 and it follows the slider above. Must "
-                "stay below 'recap starts at'.",
+                "slider above. Must stay above 'kept word-for-word'.",
                 0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
         Setting("hot_tokens", "Kept word-for-word", "int",
                 "Manual override: how much of the latest chat survives a "
-                "recap exactly as written, never summarized. Leave at 0 and "
-                "it follows the slider above.",
+                "recap exactly as written, never summarized, however old it "
+                "is. Leave at 0 and it follows the slider above. Must stay "
+                "below 'recap starts at'.",
                 0, minimum=0, maximum=WINDOW_MAX_TOKENS, advanced=True),
-        Setting("hot_seconds", "Still now for", "float",
-                "How far back still counts as 'happening right now'. Older "
-                "than this, a message may be summarized like any other past.",
-                1800.0, minimum=60.0, maximum=21600.0, advanced=True),
         Setting("context_handoff", "Memory recap", "bool",
                 "On, she periodically summarizes the old past to make room "
                 "and keeps talking. Off, the memory only grows until the "
@@ -616,16 +606,16 @@ def plan_section(config, key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return staged
 
 
-_WINDOW_SHAPE_KEYS = ("context_max_tokens", "handoff_trigger_tokens", "handoff_target_tokens")
+_WINDOW_SHAPE_KEYS = ("context_max_tokens", "handoff_trigger_tokens", "hot_tokens")
 
 
 def _window_shape_errors(config, sec: Section, staged: Dict[str, Any],
                          payload: Dict[str, Any]) -> Dict[str, str]:
-    """The window must keep breathing room: trigger above target.
+    """The window must keep breathing room: trigger above the hot present.
 
-    `TokenBudget` clamps a target past its trigger down to it rather than
-    crashing, which turns a pinned trigger below the resting size into a
-    window that hands off on every single turn. Refuse that state at the save
+    A handoff keeps the hot present verbatim, so a hot share at or past the
+    trigger opens every new window already due for the next recap: a window
+    that hands off on every single turn. Refuse that state at the save
     instead: the payload carries one or two of the three numbers, the rest is
     what is already stored, and the effective shape is what both together
     would mean.
@@ -639,18 +629,18 @@ def _window_shape_errors(config, sec: Section, staged: Dict[str, Any],
     def effective(key: str, default: Any) -> Any:
         return staged.get(key, block.get(key, default))
 
-    budget, _ = budget_for(
+    budget, hot = budget_for(
         effective("context_max_tokens", WINDOW_MIN_TOKENS),
         trigger=effective("handoff_trigger_tokens", 0),
-        target=effective("handoff_target_tokens", 0),
+        hot=effective("hot_tokens", 0),
     )
-    if budget.trigger_tokens > budget.target_tokens:
+    if budget.trigger_tokens > hot:
         return {}
     return {
         "handoff_trigger_tokens":
-            f"must stay above settles near ({budget.target_tokens:,}): "
+            f"must stay above kept word-for-word ({hot:,}): "
             "at this size they meet and every turn recaps",
-        "handoff_target_tokens":
+        "hot_tokens":
             f"must stay below recap starts at ({budget.trigger_tokens:,}): "
             "at this size they meet and every turn recaps",
     }

@@ -115,10 +115,7 @@ class Consciousness:
         # the one sliding window: every turn is mirrored here for the budget,
         # and the handoff prose it produces comes back as continuity
         budget, hot = budget_from_config(cc)
-        self.sliding_window = SingleContext(
-            budget, hot_tokens=hot,
-            hot_seconds=float(cc.get("hot_seconds", 1800.0)),
-            store=memory.window)
+        self.sliding_window = SingleContext(budget, hot_tokens=hot, store=memory.window)
         # the loop the window belongs to: a resize posted from a dashboard
         # thread has to land on it, never run beside it
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -1560,12 +1557,10 @@ class Consciousness:
             cc = self.config.consciousness
             budget, hot = budget_from_config(cc)
             self._read_knobs(cc)
-            self.sliding_window.hot_seconds = max(60.0, float(cc.get("hot_seconds", 1800.0)))
             if self.sliding_window.retarget(budget, hot):
                 logger.info(
                     f"Window resized: ceiling {budget.max_tokens:,}, handoff at "
-                    f"{budget.trigger_tokens:,}, rests near {budget.target_tokens:,}, "
-                    f"hot {self.sliding_window.hot_tokens:,}."
+                    f"{budget.trigger_tokens:,}, hot {self.sliding_window.hot_tokens:,}."
                 )
                 # a ceiling raised past the trigger can leave a window that is
                 # already due for one: ask now instead of waiting for a turn

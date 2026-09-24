@@ -6,17 +6,16 @@ from src.core.mind.token_budget import TokenBudget, estimate_tokens, split_hot_c
 
 
 def test_token_budget_initialization():
-    budget = TokenBudget(max_tokens=10000, trigger_tokens=8000, target_tokens=5000)
+    budget = TokenBudget(max_tokens=10000, trigger_tokens=8000)
     assert budget.max_tokens == 10000
     assert budget.trigger_tokens == 8000
-    assert budget.target_tokens == 5000
     assert budget.needs_handoff(8000) is True
     assert budget.needs_handoff(7999) is False
     assert budget.over_max(10001) is True
 
 
 def test_single_context_append_and_status():
-    ctx = SingleContext(TokenBudget(max_tokens=10000, trigger_tokens=8000, target_tokens=5000))
+    ctx = SingleContext(TokenBudget(max_tokens=10000, trigger_tokens=8000))
     entry = ctx.append("user", "hello world", key="stage")
     assert entry.tokens == estimate_tokens("hello world") + 8
 
@@ -26,7 +25,7 @@ def test_single_context_append_and_status():
 
 
 def test_single_context_emergency_valve_in_append():
-    budget = TokenBudget(max_tokens=2000, trigger_tokens=1800, target_tokens=1500)
+    budget = TokenBudget(max_tokens=2000, trigger_tokens=1800)
     ctx = SingleContext(budget)
 
     # Fill context exactly to max
@@ -55,52 +54,100 @@ def test_single_context_turns_for():
     assert turns[1]["content"] == "hello"
 
 
+def _line(i, words=1000):
+    return f"line {i} " + "word " * words
+
+
 def test_single_context_swap():
-    budget = TokenBudget(max_tokens=200, trigger_tokens=150, target_tokens=100)
-    ctx = SingleContext(budget, hot_tokens=50, hot_seconds=3600.0)
+    budget = TokenBudget(max_tokens=20_000, trigger_tokens=15_000)
+    ctx = SingleContext(budget, hot_tokens=1_000)
+    for i in range(8):
+        ctx.append("user", _line(i))
+    ctx.append("user", "hot stuff")
 
-    # Add old cold message
-    ctx.append("user", "cold stuff", ts=time.time() - 4000)
-    # Add hot message
-    ctx.append("user", "hot stuff", ts=time.time())
-
-    assert len(ctx.messages()) == 2
-
-    handoff_prose = "you talked about cold stuff"
-    ctx.swap(handoff_prose)
+    ctx.swap("you talked about cold stuff")
 
     messages = ctx.messages()
-    assert len(messages) == 2
     assert messages[0]["role"] == "system"
-    assert messages[0]["content"] == handoff_prose
-    assert messages[1]["content"] == "hot stuff"
+    assert messages[0]["content"] == "you talked about cold stuff"
+    assert messages[-1]["content"] == "hot stuff"
     assert ctx.version == 1
 
 
 def test_swap_handoff_visible_in_scoped_reads():
-    ctx = SingleContext(TokenBudget(max_tokens=500, trigger_tokens=400, target_tokens=200),
-                        hot_tokens=50, hot_seconds=3600.0)
-    ctx.append("user", "cold stuff", ts=time.time() - 4000)
-    ctx.append("user", "hot stuff", ts=time.time())
+    ctx = SingleContext(TokenBudget(max_tokens=20_000, trigger_tokens=15_000),
+                        hot_tokens=1_000)
+    for i in range(8):
+        ctx.append("user", _line(i))
+    ctx.append("user", "hot stuff")
     ctx.swap("you talked about cold stuff")
     scoped = ctx.messages(key="discord:888")
     assert any(m["content"] == "you talked about cold stuff" for m in scoped)
 
 
-def test_swap_settles_near_target_not_at_trigger():
-    budget = TokenBudget(max_tokens=6000, trigger_tokens=4000, target_tokens=1000)
-    ctx = SingleContext(budget, hot_tokens=100, hot_seconds=60.0)
-    old = time.time() - 4000
-    for i in range(20):
-        ctx.append("user", f"old line {i} " + "word " * 300, ts=old)
-    ctx.append("user", "live now", ts=time.time())
-    assert ctx.status()["needs_handoff"] is True
-    ctx.swap("recap of the old lines")
-    assert ctx.total_tokens <= budget.target_tokens
+def test_the_hot_present_is_counted_in_tokens_not_minutes():
+    """A pause is not the end of the conversation: an hour-old line inside the
+    hot allowance stays word for word, where the half-hour age limit used to
+    send it to the recap and leave her a few thousand tokens of her evening."""
+    from src.core.mind.token_budget import BudgetEntry
+
+    now = time.time()
+    entries = [BudgetEntry(tokens=10, ts=now - 7 * 3600, payload={}, seq=1),
+               BudgetEntry(tokens=10, ts=now - 3600, payload={}, seq=2),
+               BudgetEntry(tokens=10, ts=now, payload={}, seq=3)]
+    cold, hot = split_hot_cold(entries, hot_tokens=20)
+    assert [e.seq for e in hot] == [2, 3]
+    assert [e.seq for e in cold] == [1]
+
+
+def test_the_newest_line_is_hot_however_large():
+    from src.core.mind.token_budget import BudgetEntry
+
+    entries = [BudgetEntry(tokens=10, payload={}, seq=1),
+               BudgetEntry(tokens=5_000, payload={}, seq=2)]
+    cold, hot = split_hot_cold(entries, hot_tokens=1_000)
+    assert [e.seq for e in hot] == [2]
+
+
+def test_a_slide_keeps_every_line_after_the_cut_however_many_arrived():
+    """What came in while the recap was being written was never summarized:
+    trimming it to a resting size would forget it outright."""
+    budget = TokenBudget(max_tokens=40_000, trigger_tokens=15_000)
+    ctx = SingleContext(budget, hot_tokens=2_000)
+    for i in range(12):
+        ctx.append("user", _line(i))
+    cold, cut = ctx.handoff_cut()
+    summarized = {m["content"] for m in [e.payload for e in cold]}
+    # far more than the hot allowance arrives while the worker writes
+    for i in range(10):
+        ctx.append("user", _line(100 + i), key="telegram:1")
+    status = ctx.slide("[EARLIER]\nrecap", cut)
+
+    kept = [m["content"] for m in ctx.messages() if m["role"] != "system"]
+    assert not summarized & set(kept), "a summarized line also travelled verbatim"
+    assert all(_line(100 + i) in kept for i in range(10))
+    assert ctx.total_tokens > budget.trigger_tokens - 5_000  # nothing trimmed to a rest
+    assert status["carried"] == len(kept)
+    assert ctx.evicted_tokens == 0
+
+
+def test_a_slide_yields_only_to_the_ceiling_and_counts_what_it_cost():
+    budget = TokenBudget(max_tokens=10_000, trigger_tokens=8_000)
+    ctx = SingleContext(budget, hot_tokens=1_000)
+    for i in range(6):
+        ctx.append("user", _line(i))
+    _, cut = ctx.handoff_cut()
+    for i in range(7):
+        ctx.append("user", _line(100 + i))
+    ctx.slide("[EARLIER]\nrecap", cut)
+    assert ctx.total_tokens <= budget.max_tokens
+    assert ctx.messages()[0]["content"] == "[EARLIER]\nrecap"
+    assert ctx.messages()[-1]["content"] == _line(106)
+    assert ctx.evicted_tokens > 0
 
 
 def test_oversized_single_message_cannot_pin_window():
-    budget = TokenBudget(max_tokens=2000, trigger_tokens=1800, target_tokens=1500)
+    budget = TokenBudget(max_tokens=2000, trigger_tokens=1800)
     ctx = SingleContext(budget)
     ctx.append("user", "z " * 5000)
     assert len(ctx._entries) == 1
@@ -108,23 +155,13 @@ def test_oversized_single_message_cannot_pin_window():
 
 
 def test_valve_pins_system_bridge_first():
-    budget = TokenBudget(max_tokens=500, trigger_tokens=400, target_tokens=200)
+    budget = TokenBudget(max_tokens=500, trigger_tokens=400)
     ctx = SingleContext(budget)
     ctx.append("system", "[EARLIER] the bridge", key="stage")
     for i in range(30):
         ctx.append("user", f"filler {i} " + "word " * 30, key="stage")
     assert ctx.total_tokens <= budget.max_tokens
     assert ctx.messages()[0]["content"] == "[EARLIER] the bridge"
-
-
-def test_split_defaults_to_wall_clock():
-    old_ts = time.time() - 7200
-    from src.core.mind.token_budget import BudgetEntry
-    entries = [BudgetEntry(tokens=10, ts=old_ts, payload={}),
-               BudgetEntry(tokens=10, ts=time.time(), payload={})]
-    cold, hot = split_hot_cold(entries, hot_tokens=10_000, hot_seconds=1800.0)
-    assert len(cold) == 1
-    assert len(hot) == 1
 
 
 def test_apply_overlap_carries_cold_tail_verbatim():
@@ -173,12 +210,11 @@ class _FakeLLM:
 
 
 def _full_window(**kw):
-    budget = TokenBudget(max_tokens=6000, trigger_tokens=3000, target_tokens=2000)
-    ctx = SingleContext(budget, hot_tokens=100, hot_seconds=60.0, **kw)
-    old = time.time() - 4000
-    for i in range(10):
-        ctx.append("user", f"cold line {i} " + "word " * 400, ts=old)
-    ctx.append("user", "live now", ts=time.time())
+    budget = TokenBudget(max_tokens=40_000, trigger_tokens=15_000)
+    ctx = SingleContext(budget, hot_tokens=1_000, **kw)
+    for i in range(14):
+        ctx.append("user", f"cold line {i} " + "word " * 1000)
+    ctx.append("user", "live now")
     assert ctx.status()["needs_handoff"] is True
     return ctx
 
@@ -219,8 +255,8 @@ async def test_handoff_empty_prose_keeps_old_window():
 
 
 async def test_handoff_cold_empty_backs_off():
-    ctx = SingleContext(TokenBudget(max_tokens=2000, trigger_tokens=1000, target_tokens=1000),
-                        hot_tokens=100_000, hot_seconds=10_000.0)
+    ctx = SingleContext(TokenBudget(max_tokens=2000, trigger_tokens=1000),
+                        hot_tokens=100_000)
     ctx.append("user", "one live line " + "word " * 1500, ts=time.time())
     assert ctx.status()["needs_handoff"] is True
     llm = _FakeLLM()
@@ -236,13 +272,11 @@ async def test_handoff_render_system_block():
 
 
 def test_swap_never_stacks_continuity_bridges():
-    budget = TokenBudget(max_tokens=6000, trigger_tokens=3000, target_tokens=5000)
-    ctx = SingleContext(budget, hot_tokens=100_000, hot_seconds=100_000.0)
+    budget = TokenBudget(max_tokens=6000, trigger_tokens=3000)
+    ctx = SingleContext(budget, hot_tokens=100_000)
     ctx.append("user", "hello world", key="stage")
-    _, hot = ctx.snapshot_for_handoff()
-    ctx.swap_with_snapshot("[EARLIER]\nfirst bridge", hot, [])
-    _, hot2 = ctx.snapshot_for_handoff()
-    ctx.swap_with_snapshot("[EARLIER]\nsecond bridge", hot2, [])
+    ctx.swap("[EARLIER]\nfirst bridge")
+    ctx.swap("[EARLIER]\nsecond bridge")
     bridges = [m for m in ctx.messages() if m.get("role") == "system"]
     assert len(bridges) == 1
     assert "second bridge" in bridges[0]["content"]
@@ -251,13 +285,13 @@ def test_swap_never_stacks_continuity_bridges():
 
 
 def test_hot_tokens_clamped_to_the_ceiling():
-    budget = TokenBudget(max_tokens=2000, trigger_tokens=1800, target_tokens=1500)
+    budget = TokenBudget(max_tokens=2000, trigger_tokens=1800)
     ctx = SingleContext(budget, hot_tokens=500_000)
     assert ctx.hot_tokens <= budget.max_tokens
 
 
 def test_valve_evictions_are_counted_in_status():
-    budget = TokenBudget(max_tokens=500, trigger_tokens=400, target_tokens=200)
+    budget = TokenBudget(max_tokens=500, trigger_tokens=400)
     ctx = SingleContext(budget)
     for i in range(30):
         ctx.append("user", f"filler {i} " + "word " * 30, key="stage")
@@ -284,13 +318,12 @@ def test_format_turns_still_skips_real_scaffolding():
 
 
 async def test_handoff_cold_excludes_old_bridge_entries():
-    budget = TokenBudget(max_tokens=6000, trigger_tokens=3000, target_tokens=2000)
-    ctx = SingleContext(budget, hot_tokens=100, hot_seconds=60.0)
-    old = time.time() - 4000
-    ctx.append("system", "[EARLIER]\nprevious bridge prose", key="stage", ts=old)
-    for i in range(10):
-        ctx.append("user", f"cold line {i} " + "word " * 400, ts=old)
-    ctx.append("user", "live now", ts=time.time())
+    budget = TokenBudget(max_tokens=40_000, trigger_tokens=15_000)
+    ctx = SingleContext(budget, hot_tokens=1_000)
+    ctx.append("system", "[EARLIER]\nprevious bridge prose", key="stage")
+    for i in range(14):
+        ctx.append("user", f"cold line {i} " + "word " * 1000)
+    ctx.append("user", "live now")
     assert ctx.status()["needs_handoff"] is True
     seen_payloads = []
 
@@ -306,3 +339,64 @@ async def test_handoff_cold_excludes_old_bridge_entries():
     bridges = [m for m in ctx.messages() if m.get("role") == "system"]
     assert len(bridges) == 1
     assert "fresh recap" in bridges[0]["content"]
+
+
+async def test_a_long_past_is_summarized_in_parts_chained_through_the_recap():
+    """One call over a 300k past outlives the request timeout, or the
+    background model's context; a handoff that always fails never swaps."""
+    from src.core.mind import handoff
+
+    ctx = _full_window()
+    payloads = []
+
+    class _Parts:
+        async def complete(self, messages, tools=None):
+            payloads.append(messages[1]["content"])
+            return _Reply(f"recap after part {len(payloads)}")
+
+    worker = HandoffWorker(_Parts())
+    worker.last_prose = "the day before"
+    original = handoff.HANDOFF_PART_TOKENS
+    handoff.HANDOFF_PART_TOKENS = 4_000
+    try:
+        prose = await worker.maybe_swap(ctx)
+    finally:
+        handoff.HANDOFF_PART_TOKENS = original
+    assert len(payloads) >= 3
+    assert "PREVIOUS RECAP:\nthe day before" in payloads[0]
+    for i in range(1, len(payloads)):
+        assert f"PREVIOUS RECAP:\nrecap after part {i}" in payloads[i]
+    assert prose == f"recap after part {len(payloads)}"
+    bridges = [m for m in ctx.messages() if m["role"] == "system"]
+    assert bridges[0]["content"].endswith(prose)
+
+
+def test_parts_are_even_and_never_halve_a_line():
+    from src.core.mind.handoff import split_parts
+    from src.core.mind.token_budget import BudgetEntry
+
+    entries = [BudgetEntry(tokens=10, seq=i) for i in range(25)]
+    parts = split_parts(entries, limit=100)
+    assert len(parts) == 3
+    assert max(len(p) for p in parts) - min(len(p) for p in parts) <= 1
+    assert [e.seq for p in parts for e in p] == list(range(25))
+    big = [BudgetEntry(tokens=10, seq=1), BudgetEntry(tokens=500, seq=2),
+           BudgetEntry(tokens=10, seq=3)]
+    assert [[e.seq for e in p] for p in split_parts(big, limit=100)] == [[1], [2], [3]]
+    assert split_parts([], limit=100) == []
+
+
+async def test_a_recap_is_dropped_if_the_window_was_emptied_while_it_was_written():
+    """The dream empties the window; a recap landing on top would put the
+    evening back."""
+    ctx = _full_window()
+
+    class _Dreamt:
+        async def complete(self, messages, tools=None):
+            ctx.clear("[EARLIER]\nwhat she dreamt")
+            return _Reply("the evening")
+
+    worker = HandoffWorker(_Dreamt())
+    assert await worker.maybe_swap(ctx) == ""
+    assert [m["content"] for m in ctx.messages()] == ["[EARLIER]\nwhat she dreamt"]
+    assert worker.last_prose == ""

@@ -33,19 +33,20 @@ export function windowShape(ceiling, derives = [], values = {}) {
 }
 
 /**
- * The collapsed window: trigger at or below target leaves no breathing room.
+ * The collapsed window: trigger at or below the hot present leaves no room.
  *
- * The engine clamps rather than crashes, so this state would hand off on
- * every turn. Returns the two figures when they meet, else null — the form
- * says it before the save is refused.
+ * A recap keeps the hot present word for word, so a new window would open
+ * already due for the next one and every turn would hand off. Returns the two
+ * figures when they meet, else null — the form says it before the save is
+ * refused.
  */
 export function shapeWarning(ceiling, derives = [], values = {}) {
     const shape = Object.fromEntries(
         windowShape(ceiling, derives, values).map((d) => [d.key, d.tokens]),
     );
     const trigger = shape.handoff_trigger_tokens;
-    const target = shape.handoff_target_tokens;
-    if (trigger == null || target == null) return null;
-    if (trigger <= target) return { trigger, target };
+    const hot = shape.hot_tokens;
+    if (trigger == null || hot == null) return null;
+    if (trigger <= hot) return { trigger, hot };
     return null;
 }

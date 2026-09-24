@@ -181,7 +181,7 @@ def test_a_line_shrunk_in_place_replays_with_its_new_words():
     ctx.append("assistant", long_line, key="stage", mood="happy")
     ctx.replay()
 
-    ctx.retarget(TokenBudget(max_tokens=1_000, trigger_tokens=800, target_tokens=400), 1_000)
+    ctx.retarget(TokenBudget(max_tokens=1_000, trigger_tokens=800), 1_000)
 
     message = calls_in(ctx.replay())[0][1]["message"]
     assert message == ctx.messages()[0]["content"]

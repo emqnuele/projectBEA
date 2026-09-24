@@ -92,8 +92,7 @@ def test_a_swap_replaces_what_is_stored_instead_of_adding_to_it(memory):
     live = window(memory)
     live.append("user", "vecchio")
     live.append("user", "recente")
-    _, hot = live.snapshot_for_handoff()
-    live.swap_with_snapshot("[EARLIER]\nvi siete parlati", hot)
+    live.swap("[EARLIER]\nvi siete parlati")
 
     after = reopened(memory)
 
@@ -102,7 +101,7 @@ def test_a_swap_replaces_what_is_stored_instead_of_adding_to_it(memory):
 
 
 def test_what_the_valve_throws_away_is_thrown_away_on_disk_too(memory):
-    live = window(memory, max_tokens=40, trigger_tokens=30, target_tokens=20)
+    live = window(memory, max_tokens=40, trigger_tokens=30)
     live.append("user", "x" * 200)
     live.append("user", "y" * 200)
     live.flush()
