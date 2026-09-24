@@ -364,7 +364,11 @@ class Consciousness:
             except Exception as e:
                 # the message alone names neither the line nor the skill it came
                 # from, and this is the one place every turn fails through
-                logger.error(f"Consciousness loop error: {e}", exc_info=True)
+                # a timeout's message is empty: the type is then all there is
+                logger.error(f"Consciousness loop error: {type(e).__name__}: {e}",
+                             exc_info=True)
+                self.events.publish(EventCategory.ERROR, "consciousness",
+                                    f"A turn failed: {type(e).__name__}: {e}")
                 await asyncio.sleep(1)
             finally:
                 # a turn that raised must not leave its caller hanging for the
