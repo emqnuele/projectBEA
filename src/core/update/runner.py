@@ -124,6 +124,7 @@ class Report:
     to_sha: str = ""
     backup: str = ""
     restart_required: bool = False
+    dependencies_on_restart: bool = False
 
     @property
     def ok(self) -> bool:
@@ -147,6 +148,7 @@ class Report:
             "to": self.to_sha[:8],
             "backup": self.backup,
             "restart_required": self.restart_required,
+            "dependencies_on_restart": self.dependencies_on_restart,
             "needs_review": len(self.reviews),
         }
 
@@ -310,7 +312,10 @@ def apply(root: Path = ROOT, source: str = "cli", progress: Progress = _noop,
 
     try:
         with lock.held(root, source):
-            return _run(root, repo, step, steps, rebuild)
+            # the dashboard is a running server holding its own native modules
+            # open, and windows will not let uv replace a file that is in use
+            return _run(root, repo, step, steps, rebuild,
+                        defer_sync=WINDOWS and source == "dashboard")
     except lock.UpdateBusy as e:
         return Report(status=BLOCKED, headline="An update is already running", detail=str(e), steps=steps)
     except GitError as e:
@@ -322,7 +327,8 @@ def apply(root: Path = ROOT, source: str = "cli", progress: Progress = _noop,
                       detail=f"{type(e).__name__}: {e}", steps=steps)
 
 
-def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Report:
+def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool,
+         defer_sync: bool = False) -> Report:
     # --- 1. preflight --------------------------------------------------------
     step("preflight", RUNNING)
 
@@ -436,8 +442,9 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
 
     # --- 6 & 7. dependencies and the dashboard -------------------------------
     changed = repo.changed_between(base_sha, target)
+    deferred = False
     if rebuild:
-        _sync_dependencies(root, changed, step)
+        deferred = _sync_dependencies(root, changed, step, defer=defer_sync)
         _rebuild_node(root, changed, step)
     else:
         step("dependencies", SKIPPED, "asked to skip")
@@ -456,6 +463,7 @@ def _run(root: Path, repo: Repo, step, steps: List[Step], rebuild: bool) -> Repo
         to_sha=target,
         backup=snapshot.name,
         restart_required=True,
+        dependencies_on_restart=deferred,
     )
 
 
@@ -543,13 +551,18 @@ def _reconcile_all(root: Path, repo: Repo, ours: Dict[str, str], base_sha: str, 
 # --- the rebuild half --------------------------------------------------------
 
 
-def _sync_dependencies(root: Path, changed: List[str], step) -> None:
+def _sync_dependencies(root: Path, changed: List[str], step, defer: bool = False) -> bool:
+    """Returns True when the sync was left for the restart to do."""
     if not any(p in ("uv.lock", "pyproject.toml") for p in changed):
         step("dependencies", SKIPPED, "no dependency changes in this update")
-        return
+        return False
+    if defer:
+        # `uv run` syncs before it starts her, while nothing is in use yet
+        step("dependencies", SKIPPED, "installed when you restart her with `uv run bea --web`")
+        return True
     if not shutil.which("uv"):
         step("dependencies", FAILED, "uv is not on PATH — run `uv sync` yourself before starting her")
-        return
+        return False
 
     step("dependencies", RUNNING)
     scripts = _scripts_dir() if WINDOWS else None
@@ -560,6 +573,7 @@ def _sync_dependencies(root: Path, changed: List[str], step) -> None:
         if scripts and aside:
             _restore_launcher(scripts, aside)
     step("dependencies", DONE if ok else FAILED, detail if not ok else "python dependencies are current")
+    return False
 
 
 def _scripts_dir() -> Optional[Path]:

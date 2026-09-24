@@ -267,7 +267,7 @@ function RunBody({ run, report }) {
                         </p>
                     )}
 
-                    {report.restart_required && <RestartNotice />}
+                    {report.restart_required && <RestartNotice dependencies={report.dependencies_on_restart} />}
                 </div>
             )}
         </div>
@@ -297,7 +297,7 @@ function StepRow({ step }) {
 }
 
 /** She keeps running the code she was started with until somebody restarts her. */
-function RestartNotice() {
+function RestartNotice({ dependencies }) {
     return (
         <div
             className="mt-4 flex items-start gap-2.5 rounded-b2 border px-3 py-2.5"
@@ -310,6 +310,12 @@ function RestartNotice() {
             <p className="text-[12px] leading-relaxed text-dim">
                 The new version is on disk. She is still running the old one until you restart her:
                 {' '}<code className="font-mono text-text">uv run bea --web</code>
+                {dependencies && (
+                    <>
+                        . Close her first: this version needs new packages, and Windows only lets them be
+                        installed while she is not running. Starting her with that command installs them.
+                    </>
+                )}
             </p>
         </div>
     );

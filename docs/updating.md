@@ -138,6 +138,12 @@ Windows will not let anyone delete. The `dependencies` step renames it to
 it back if the sync failed or wrote no new one. Leftover `.old` copies are
 removed at the start of the next sync.
 
+An update started from the dashboard on Windows does not run `uv sync` at all:
+the server has its native modules (`.pyd`) open, and renaming the launcher
+does not free those. The step is reported as skipped, the report carries
+`dependencies_on_restart: true`, and the restart banner says to close her and
+start her with `uv run bea --web`, which syncs before anything is loaded.
+
 ### Refusals
 
 Local modifications to tracked files outside `data/prompts/` abort the run with

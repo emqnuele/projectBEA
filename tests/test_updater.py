@@ -654,6 +654,79 @@ def test_skipping_the_rebuild_is_reported_as_such(world):
     assert {s.id: s.status for s in report.steps}["dependencies"] == "skipped"
 
 
+def _record_uv(monkeypatch):
+    ran = []
+
+    def record(cwd, args):
+        ran.append(args)
+        return True, ""
+
+    monkeypatch.setattr(runner.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(runner, "_command", record)
+    return ran
+
+
+def test_the_dashboard_on_windows_leaves_the_sync_for_the_restart(world, monkeypatch):
+    """The server holds its own native modules open, and windows will not let
+    uv replace a file in use; `uv run bea` syncs before anything is loaded."""
+    upstream, clone = world
+    write(upstream, "uv.lock", "lock = 2\n")
+    commit(upstream, "bump a dependency")
+    monkeypatch.setattr(runner, "WINDOWS", True)
+    ran = _record_uv(monkeypatch)
+
+    runner.invalidate()
+    report = runner.apply(root=clone, source="dashboard")
+
+    dependencies = [s for s in report.steps if s.id == "dependencies"][0]
+    assert ["uv", "sync"] not in ran
+    assert dependencies.status == "skipped"
+    assert "uv run bea" in dependencies.detail
+    assert report.status == UPDATED
+    assert report.describe()["dependencies_on_restart"] is True
+
+
+def test_the_terminal_on_windows_still_syncs(world, monkeypatch):
+    upstream, clone = world
+    write(upstream, "uv.lock", "lock = 2\n")
+    commit(upstream, "bump a dependency")
+    monkeypatch.setattr(runner, "WINDOWS", True)
+    monkeypatch.setattr(runner, "_scripts_dir", lambda: None)
+    ran = _record_uv(monkeypatch)
+
+    report = update(clone)
+
+    assert ["uv", "sync"] in ran
+    assert report.dependencies_on_restart is False
+
+
+def test_the_dashboard_off_windows_still_syncs(world, monkeypatch):
+    upstream, clone = world
+    write(upstream, "uv.lock", "lock = 2\n")
+    commit(upstream, "bump a dependency")
+    monkeypatch.setattr(runner, "WINDOWS", False)
+    ran = _record_uv(monkeypatch)
+
+    runner.invalidate()
+    report = runner.apply(root=clone, source="dashboard")
+
+    assert ["uv", "sync"] in ran
+    assert report.dependencies_on_restart is False
+
+
+def test_the_dashboard_on_windows_says_nothing_about_packages_when_none_changed(world, monkeypatch):
+    upstream, clone = world
+    replace(upstream, SOUL, "She is the one we ship.", "changed")
+    commit(upstream, "prompt only")
+    monkeypatch.setattr(runner, "WINDOWS", True)
+
+    runner.invalidate()
+    report = runner.apply(root=clone, source="dashboard")
+
+    assert report.dependencies_on_restart is False
+    assert "no dependency changes" in [s.detail for s in report.steps if s.id == "dependencies"][0]
+
+
 # --- checking ------------------------------------------------------------------
 
 
