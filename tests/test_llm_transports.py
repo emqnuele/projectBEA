@@ -7,6 +7,7 @@ error always raises (the pool's failover depends on it) instead of returning
 silence.
 """
 
+import asyncio
 import json
 
 import pytest
@@ -473,3 +474,75 @@ async def test_anthropic_json_mode_is_prompt_plus_parse(monkeypatch):
     client = anthropic_client()
 
     assert await client.complete_json("hi") == {"mood": "ok", "message": "hi"}
+
+
+# --- a provider that takes the request and never answers ----------------------
+#
+# 24 september, 01:05: a streamed call to openrouter got no response headers
+# for 120 seconds, the whole-request timeout. Nothing retried it, nothing failed
+# over, and the turn was lost after two minutes of silence.
+
+
+class Stalls(FakeResponse):
+    """A response whose headers never come."""
+
+    entered = 0
+
+    async def __aenter__(self):
+        Stalls.entered += 1
+        await asyncio.sleep(10)
+        return self
+
+
+STREAMED = ['data: {"choices": [{"delta": {"content": "eccomi"}}]}']
+
+
+@pytest.fixture
+def quick_stall(monkeypatch):
+    from src.modules.llm import base
+
+    monkeypatch.setattr(base, "STREAM_HEADERS_TIMEOUT", 0.05)
+    Stalls.entered = 0
+
+
+async def test_a_stalled_stream_is_sent_again_once_on_a_fresh_connection(monkeypatch, quick_stall):
+    wire(monkeypatch, Stalls(), FakeResponse(lines=STREAMED))
+    reply = await chat_client().stream_complete(
+        [{"role": "user", "content": "hi"}], on_tool_delta=lambda *a: None)
+    assert reply.content == "eccomi"
+    assert len(FakeSession.posts) == 2
+
+
+async def test_a_provider_that_stalls_twice_is_given_up_on_not_waited_on_again(
+        monkeypatch, quick_stall):
+    from src.modules.llm.base import ProviderStalled
+
+    # a stall is not a refusal: no retry without reasoning, no non-streaming
+    # fallback — each would wait on the same dead provider all over again
+    wire(monkeypatch, Stalls(), Stalls(), FakeResponse(payload=chat_reply("late")))
+    client = chat_client()
+    with pytest.raises(ProviderStalled, match="no answer within"):
+        await asyncio.wait_for(client.stream_complete(
+            [{"role": "user", "content": "hi"}], on_tool_delta=lambda *a: None), timeout=2)
+    assert len(FakeSession.posts) == 2
+    assert not client._stream_blocked()
+
+
+async def test_a_stall_fails_over_to_the_next_model_in_the_pool(monkeypatch, quick_stall):
+    from src.core.agent.registry import RotatingClient
+
+    wire(monkeypatch, Stalls(), Stalls(), FakeResponse(payload=chat_reply("from the other")))
+    pool = RotatingClient([chat_client(model_name="stuck"), chat_client(model_name="fine")])
+    reply = await pool.stream_complete([{"role": "user", "content": "hi"}],
+                                       on_tool_delta=lambda *a: None)
+    assert reply.content == "from the other"
+
+
+def test_a_model_on_this_machine_may_take_its_time_to_load():
+    from src.modules.llm.base import _is_local
+
+    for url in ("http://localhost:11434/v1", "http://127.0.0.1:1234/v1",
+                "http://192.168.1.20:8000/v1", "http://gpu-box.local/v1"):
+        assert _is_local(url), url
+    for url in ("https://openrouter.ai/api/v1", "https://api.openai.com/v1", "https://x/v1"):
+        assert not _is_local(url), url
