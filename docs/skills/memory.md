@@ -67,14 +67,27 @@ recollection, just noise.
 
 ## The diary
 
+A page is written from the stream of one session, and there is one page per
+session. Three paths write it; each checks whether the page exists first, so
+none of them writes one twice:
+
 ```
+DreamSkill.run_dream()                      the main path
+    └─ memory_skill.write_pages(sittings)     every session the dream read, awaited
 Brain.create_new_session()
-    └─ memory_skill.process_previous_session(session_id, history)
-            └─ [async task] DiaryGenerator.generate_diary(history)
-                    ├─ background model, JSON mode
-                    └─ {"diary_content", "tags", "user_id"}
-            └─ rag.remember(text, scope="diary", ...)
+    └─ memory_skill.process_previous_session(session_id)
+shutdown()
+    └─ memory_skill.save_all_pending()        the session still open: a safety net
+
+each of them:
+    └─ DiaryGenerator.generate_diary(transcript)
+            ├─ background model, JSON mode
+            └─ {"diary_content", "tags", "user_id"}
+    └─ rag.remember(text, scope="diary", ...)
 ```
+
+A boot opens a new session without rotating, so a session whose shutdown save
+did not complete has no page until the next dream reads it.
 
 The generator runs on the **`background`** model pool, never on the mind's — a
 diary is not worth the good model, and it must not compete with the part of her
