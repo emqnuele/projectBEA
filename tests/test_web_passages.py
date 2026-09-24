@@ -22,7 +22,7 @@ FILLER = [f"Paragraph {i} talks about harbours, boats and the sea." for i in ran
 
 
 def test_a_general_question_gets_the_start_of_the_page_not_fragments():
-    architecture = (Path(__file__).resolve().parents[1] / "docs" / "architecture.md").read_text()
+    architecture = (Path(__file__).resolve().parents[1] / "docs" / "architecture.md").read_text(encoding="utf-8")
     got = pick(architecture, "cosa c'è scritto, descrizione del progetto", 6000)
 
     assert got.text.startswith("# Architecture")

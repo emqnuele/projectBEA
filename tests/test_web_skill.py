@@ -361,7 +361,7 @@ async def test_a_digest_that_fails_falls_back_to_the_passages(make):
 
 
 def architecture() -> Page:
-    text = (Path(__file__).resolve().parents[1] / "docs" / "architecture.md").read_text()
+    text = (Path(__file__).resolve().parents[1] / "docs" / "architecture.md").read_text(encoding="utf-8")
     return Page(url="https://projectbea.emqnuele.dev/docs/architecture.md",
                 title="Architecture", text=text, source="markdown")
 
