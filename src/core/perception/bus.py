@@ -69,6 +69,50 @@ class PerceptionBus:
         """Returns everything currently queued without waiting (steering input)."""
         return [p for _, p in self._waiting()]
 
+    async def steer(self, wait_for_typing: bool) -> List[Perception]:
+        """What arrived mid-turn, taken once whoever is typing it has stopped.
+
+        The quiet gap that closes a batch holds between two steps as well: a
+        line somebody is still typing when a step ends is half of what they
+        mean, and letting it in alone earns the other half a reply of its own.
+        Only written text waits, and only up to `max_window`. Anything live in
+        the queue, or landing during the wait, ends it at once: a voice line or
+        a game event is never kept waiting for a typist.
+        """
+        entries = self._waiting()
+        if not wait_for_typing or not self._only_typing(entries):
+            return [p for _, p in entries]
+
+        last = max(arrived for arrived, p in entries if p.kind is PerceptionKind.CHAT)
+        ceiling = time.monotonic() + self.max_window
+        while True:
+            now = time.monotonic()
+            remaining = min(last + self.text_window - now, ceiling - now)
+            if remaining <= 0:
+                break
+            try:
+                arrived, perception = await asyncio.wait_for(self._queue.get(),
+                                                             timeout=remaining)
+            except asyncio.TimeoutError:
+                continue
+            entries.append((arrived, perception))
+            if perception.kind is PerceptionKind.CHAT:
+                last = max(last, arrived)
+            elif not perception.is_noise:
+                break
+        return [p for _, p in entries]
+
+    @staticmethod
+    def _only_typing(entries: List[Tuple[float, Perception]]) -> bool:
+        """Written text is waiting, and nothing live is waiting beside it."""
+        typing = False
+        for _, p in entries:
+            if p.kind is PerceptionKind.CHAT:
+                typing = True
+            elif not p.is_noise:
+                return False
+        return typing
+
     def _waiting(self) -> List[Tuple[float, Perception]]:
         entries: List[Tuple[float, Perception]] = []
         while True:

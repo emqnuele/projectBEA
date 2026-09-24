@@ -162,6 +162,8 @@ class Consciousness:
         # to say a turn ended mute and why
         self._unheard_words = False
         self._rescued = False
+        # shown to her mid-turn, these never come back as a turn of their own
+        self._owed: set = set()
         self._bg_tasks: set = set()
         # the written answers still going out: shutdown waits for these, so a
         # conversation does not end halfway through her own sentence
@@ -385,6 +387,7 @@ class Consciousness:
         # rather than from wherever `_turn` gets round to resetting it
         self._batch = list(batch)
         self._thought, self._acted, self._said, self._sent = [], [], None, []
+        self._owed = set()
         self._start_over = False
         task = asyncio.create_task(self._turn(batch))
         self._turn_task = task
@@ -498,24 +501,34 @@ class Consciousness:
         steps = 0
         spent = Usage()
         self._thought, self._acted, self._said, self._sent = [], [], None, []
+        self._owed = set()
         self._unheard_words = False
         self._rescued = False
+        last: Optional[AssistantMessage] = None
         for _ in range(self.burst_steps):
-            steer = self._steering()
+            steer = await self._steering()
             if steer:
                 self.correlations.extend_batch(steer)
                 self._remember(steer)
                 if self._needs_mind(steer):
-                    steered = self._annotate(steer)
-                    steer_frame = self._frame(steered, steering=True)
-                    context.append(steer_frame)
-                    frames.append((steer_frame, steered))
+                    answered = self._answered()
+                    still_coming = [p for p in steer if conversation_key(p) not in answered]
+                    after_reply = [p for p in steer if conversation_key(p) in answered]
+                    for part, after in ((still_coming, False), (after_reply, True)):
+                        if not part:
+                            continue
+                        steered = self._annotate(part)
+                        steer_frame = self._frame(steered, steering=True, after_reply=after)
+                        context.append(steer_frame)
+                        frames.append((steer_frame, steered))
+                    self._owed |= {conversation_key(p) for p in after_reply if p.is_memorable}
                     self._batch.extend(steer)
             if not self._batch:
                 break
 
             steps += 1
             assistant = await self._step(context, label="" if is_idle else f"step {steps}")
+            last = assistant
             spent = spent + assistant.usage
             if assistant.is_final:
                 break
@@ -531,17 +544,19 @@ class Consciousness:
         # private thinking, or every tool she reached for failed. Both
         # end the same way and both get the same one rescue — the
         # question is whether anything landed, never whether she tried
-        if self._needs_answer(batch) and not self._reached_someone():
+        owed = self._still_owed(last)
+        if (self._needs_answer(batch) and not self._reached_someone()) or owed:
             # said out loud on the way in: a turn that ends mute must read as
             # a failure in the log, never as her choice to stay quiet
             self._rescued = True
-            logger.warning(
-                f"A turn reached nobody ({self._silence_reason()}) - asking once more.")
+            reason = (self._silence_reason() if not owed else
+                      f"unanswered since her reply: {', '.join(sorted(owed))}")
+            logger.warning(f"A turn reached nobody ({reason}) - asking once more.")
             context.append({"role": "user", "content": self._NO_TOOL_NUDGE})
             steps += 1
             assistant = await self._step(context)
             spent = spent + assistant.usage
-            if not self._reached_someone():
+            if not self._reached_someone() or self._still_owed(assistant):
                 logger.error(
                     "Still unheard after the rescue: this turn ends with nobody there.")
                 self.events.publish(
@@ -668,28 +683,42 @@ class Consciousness:
         except Exception as e:
             logger.error(f"Could not drop the unspoken line: {e}")
 
-    def _steering(self) -> List[Perception]:
+    async def _steering(self) -> List[Perception]:
         """What arrived mid-turn and still belongs to this turn.
 
         Something that lands while she is thinking is steering: she has not
         answered yet, and reading it now is what stops her replying to a
-        question the room has already moved past. Something that lands in a
-        conversation she has **already** answered this turn is the next thing
-        that person said, and folding it into the same turn is how one person
-        typing three lines gets three replies. It goes back on the bus, where
-        the quiet gap will batch it with whatever else they are still writing.
-        """
-        answered = self._answered()
-        if not answered:
-            return self.bus.drain_nowait()
+        question the room has already moved past. A written line that lands
+        in a conversation she has **already** answered is the next thing that
+        person said: it goes in at the next step too, once they have stopped
+        typing, rather than waiting behind every step she has left.
 
+        A call keeps the steering it had. Nothing there waits for a typist,
+        and anything from a conversation she has answered goes back on the
+        bus for the next turn; so does anything that is not written text.
+        """
+        in_call = any(p.kind is PerceptionKind.VOICE for p in self._batch)
+        arrived = await self.bus.steer(wait_for_typing=not in_call)
+        answered = self._answered()
         steer: List[Perception] = []
-        for p in self.bus.drain_nowait():
-            if conversation_key(p) in answered:
+        for p in arrived:
+            if conversation_key(p) in answered and (in_call or p.kind is not PerceptionKind.CHAT):
                 self.bus.put(p)
             else:
                 steer.append(p)
         return steer
+
+    def _still_owed(self, last: Optional[AssistantMessage]) -> set:
+        """Conversations shown a line after her reply that got no answer since.
+
+        Choosing silence for them is an answer; plain text or simply stopping
+        is not.
+        """
+        if not self._owed or last is None:
+            return set()
+        if any(c.name in ("stay_silent", "say_nothing") for c in last.tool_calls):
+            return set()
+        return set(self._owed)
 
     @property
     def turn_batch(self) -> List[Perception]:
@@ -952,7 +981,7 @@ class Consciousness:
         return {"role": "system", "content": compose(*parts)}
 
     def _frame(self, annotated: List[Tuple[Perception, float]],
-               steering: bool = False) -> Dict[str, Any]:
+               steering: bool = False, after_reply: bool = False) -> Dict[str, Any]:
         """The one frame: everything that arrived, tagged with where it came from.
 
         One turn, one frame per batch: a telegram DM and a minecraft death are
@@ -961,10 +990,16 @@ class Consciousness:
         is and with whom, injected from code rather than hoped from prose — and
         the destination a `send_message` must name back.
         """
-        header = ("[STILL COMING IN — this arrived while you were mid-action, "
-                  "and you have not answered it yet. Fold it into the answer you "
-                  "are about to give; do not send a separate reply for it.]") \
-            if steering else "[PERCEPTIONS — answer where each arrived: `speak` for voice/stage, `send_message(platform, channel, text)` for the rest]"
+        if after_reply:
+            header = ("[NEW MESSAGE — arrived after you already replied in this "
+                      "conversation: it is the next thing they said. Answer it where "
+                      "it arrived, once; do not repeat what you already sent.]")
+        elif steering:
+            header = ("[STILL COMING IN — this arrived while you were mid-action, "
+                      "and you have not answered it yet. Fold it into the answer you "
+                      "are about to give; do not send a separate reply for it.]")
+        else:
+            header = "[PERCEPTIONS — answer where each arrived: `speak` for voice/stage, `send_message(platform, channel, text)` for the rest]"
         orientation = self._orientation(annotated)
         now = time.time()
         lines = [f"({p.kind.value.upper()}) [{self._provenance(p)}] {p.render(now=now)}"
@@ -1191,6 +1226,7 @@ class Consciousness:
         self._remember_spoken(message)
         self.events.publish(EventCategory.OUTPUT, "consciousness", message, metadata={"mood": mood})
         self._said = {"mood": mood, "message": message}
+        self._owed.discard(STAGE)
 
         latency = self._voice_latency
         # how she felt when she decided on this line, before it moves her
@@ -1283,6 +1319,7 @@ class Consciousness:
 
         key = f"{platform}:{channel}"
         self._sent.append({"platform": platform, "channel": str(channel), "text": text})
+        self._owed.discard(key)
         if self.attention:
             self.attention.mark_spoke(key)
         self._log_outgoing(key, platform, str(channel), text)
@@ -1321,6 +1358,8 @@ class Consciousness:
             ok = await skill.react(str(channel), str(message_id), emoji)
         except Exception as e:
             return f"FAILED: {e}"
+        if ok:
+            self._owed.discard(f"{platform}:{channel}")
         if ok and self.attention:
             self.attention.mark_spoke(f"{platform}:{channel}")
         return "Reacted." if ok else "FAILED: could not react."
