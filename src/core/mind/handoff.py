@@ -11,7 +11,7 @@ Who she is never belongs here: soul.md is in context on every turn already.
 
 import asyncio
 import time
-from typing import Any, List
+from typing import Any
 
 from src.core.language import write_in
 from src.utils.logger import get_logger
@@ -70,10 +70,10 @@ def build_handoff_payload(cold_text: str, previous_handoff: str = "") -> str:
 class HandoffWorker:
     """Runs the handoff in the background when the window fills up.
 
-    Trigger at 120k, rest near ~50k, loop never blocked: while the worker
-    thinks, new turns keep appending, and whatever arrived mid-flight is
-    carried into the next window verbatim. A failed worker call keeps the
-    old window intact — losing a bridge must never lose the turns it was for.
+    Trigger at 120k, loop never blocked: while the worker thinks, new turns
+    keep appending into the room left under the ceiling, and all of them — with
+    the hot present — open the next window verbatim. A failed worker call keeps
+    the old window intact — losing a bridge must never lose the turns it was for.
     """
 
     def __init__(self, llm: Any = None, *, noop_retry_seconds: float = 300.0,
@@ -96,6 +96,10 @@ class HandoffWorker:
         """binds the background client without touching privates from outside."""
         self._llm = llm
 
+    def _back_off(self) -> str:
+        self._noop_until = time.time() + self.noop_retry_seconds
+        return ""
+
     async def maybe_swap(self, ctx: Any) -> str:
         """One handoff if due and idle. Returns the prose, or nothing."""
         if self.running or self._llm is None:
@@ -106,49 +110,44 @@ class HandoffWorker:
             return ""
         self.running = True
         try:
-            # one snapshot for the whole operation: the split point (seen) and
-            # the hot set come from the same instant, so arrivals during the
-            # await below are exactly entries_after(seen) — brand new, keys
-            # intact, impossible to double-count into hot
-            seen = ctx.last_seq() if hasattr(ctx, "last_seq") else len(ctx.messages())
-            cold, hot = ctx.snapshot_for_handoff()
-            if hasattr(ctx, "apply_overlap"):
-                cold, carried = ctx.apply_overlap(list(cold), list(hot))
-            else:
-                carried = list(hot)
-            if not cold:
-                self._noop_until = time.time() + self.noop_retry_seconds
-                return ""
+            version = ctx.version
+            cold, cut = ctx.handoff_cut()
             cold_text = format_turns([
                 e.payload for e in cold
                 if not (isinstance(e.payload, dict) and e.payload.get("role") == "system")
             ])
             if not cold_text.strip():
-                self._noop_until = time.time() + self.noop_retry_seconds
-                return ""
+                return self._back_off()
+            began = time.perf_counter()
+            before = ctx.total_tokens
+            logger.info(f"Handoff started: window at {before:,} tokens, summarizing "
+                        f"{sum(e.tokens for e in cold):,} older tokens.")
             reply = await self._llm.complete([
                 {"role": "system", "content": f"{HANDOFF_SYSTEM} {write_in(self.language)}"},
                 {"role": "user", "content": build_handoff_payload(cold_text, self.last_prose)},
             ], tools=None)
             prose = normalize_handoff(getattr(reply, "content", ""))
             if not prose:
-                self._noop_until = time.time() + self.noop_retry_seconds
+                logger.warning("Handoff got an empty recap, keeping the old window.")
+                return self._back_off()
+            # the consolidation empties the window while she sleeps: a recap of
+            # the evening landing on top of that would put the evening back
+            if ctx.version != version:
+                logger.info("The window changed under the handoff; dropping its recap.")
                 return ""
-            if hasattr(ctx, "swap_with_snapshot"):
-                incoming: List[Any] = ctx.entries_after(seen)
-                ctx.swap_with_snapshot(render_handoff(prose), carried, incoming)
-            else:  # pragma: no cover — legacy context without entry handles
-                ctx.swap(render_handoff(prose))
+            landed = ctx.slide(render_handoff(prose), cut)
             self.last_prose = prose
             self.swaps += 1
             self._noop_until = 0.0
+            logger.info(f"Handoff done in {time.perf_counter() - began:.1f}s: window "
+                        f"{before:,} -> {landed['total_tokens']:,} tokens, "
+                        f"{landed['carried']} line(s) carried verbatim.")
             return prose
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.warning(f"Handoff failed, keeping the old window: {e}")
-            self._noop_until = time.time() + self.noop_retry_seconds
-            return ""
+            return self._back_off()
         finally:
             self.running = False
 

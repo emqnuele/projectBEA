@@ -296,16 +296,13 @@ class BrainConfig:
         "max_window": 8.0,         # ceiling on one batch, so a busy chat cannot hold the turn
         "burst_steps": 6,          # max reasoning steps per perception batch
         "correlation_timeout": 90.0,  # how long an HTTP caller waits for Bea to respond
-        # ongoing present: what counts as "happening right now" across a handoff
-        "hot_seconds": 1800,          # max age of an ongoing present message
         # the one sliding window. The ceiling is the only number anyone needs:
-        # the trigger, the resting size and the ongoing present follow it, so
+        # the trigger and the ongoing present follow it, so
         # raising it raises how much she actually keeps rather than just how
         # much the emergency valve tolerates. 0 means "follow the ceiling";
         # pin one to take it out of the owner's hands and into your own.
         "context_max_tokens": 150_000,
         "handoff_trigger_tokens": 0,
-        "handoff_target_tokens": 0,
         "hot_tokens": 0,
         "context_handoff": True,      # off: the window only grows until the ceiling trims it
         "window_persist_after_turn": True,  # off: the window only reaches disk on shutdown
@@ -429,10 +426,14 @@ class BrainConfig:
                 consciousness = data.get("consciousness")
                 if isinstance(consciousness, dict):
                     for key, legacy in (("handoff_trigger_tokens", 120_000),
-                                        ("handoff_target_tokens", 50_000),
                                         ("hot_tokens", 30_000)):
                         if consciousness.get(key) == legacy:
                             consciousness[key] = 0
+                    # gone: the present is the newest hot_tokens whatever their
+                    # age, and a handoff keeps everything after its cut, so
+                    # neither an age limit nor a resting size is left to set
+                    for key in ("hot_seconds", "handoff_target_tokens"):
+                        consciousness.pop(key, None)
 
                 # migration: `consciousness.enabled` is gone — the mind is the
                 # only path and is always on. A stored `false` used to leave her

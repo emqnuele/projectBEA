@@ -33,8 +33,7 @@ from src.core.settings_schema import ValidationError, apply_section, section
 def test_the_default_ceiling_derives_exactly_the_shape_it_always_had():
     budget, hot = budget_for(150_000)
 
-    assert (budget.max_tokens, budget.trigger_tokens, budget.target_tokens) == (
-        150_000, 120_000, 50_000)
+    assert (budget.max_tokens, budget.trigger_tokens) == (150_000, 120_000)
     assert hot == 30_000
 
 
@@ -44,15 +43,13 @@ def test_raising_the_ceiling_raises_what_she_actually_keeps():
     large, large_hot = budget_for(WINDOW_MAX_TOKENS)
 
     assert large.trigger_tokens > small.trigger_tokens
-    assert large.target_tokens > small.target_tokens
     assert large_hot > 30_000
 
 
 def test_the_derived_shape_stays_in_order_at_every_slider_position():
     for ceiling in range(WINDOW_MIN_TOKENS, WINDOW_MAX_TOKENS + 1, 10_000):
         budget, hot = budget_for(ceiling)
-        assert budget.target_tokens <= budget.trigger_tokens <= budget.max_tokens
-        assert hot <= budget.max_tokens
+        assert hot < budget.trigger_tokens <= budget.max_tokens
 
 
 def test_a_ceiling_outside_what_is_supported_is_clamped_not_refused():
@@ -75,31 +72,31 @@ def test_a_pinned_number_wins_over_the_ceiling():
 
 
 def test_zero_means_follow_the_ceiling_rather_than_a_window_of_nothing():
-    budget, hot = budget_for(300_000, trigger=0, target=0, hot=0)
+    budget, hot = budget_for(300_000, trigger=0, hot=0)
 
-    assert (budget.trigger_tokens, budget.target_tokens, hot) == (240_000, 100_000, 60_000)
+    assert (budget.trigger_tokens, hot) == (240_000, 60_000)
 
 
 def test_the_config_block_is_read_the_same_way_everywhere():
     budget, hot = budget_from_config(
-        {"context_max_tokens": 200_000, "handoff_target_tokens": 25_000})
+        {"context_max_tokens": 200_000, "hot_tokens": 25_000})
 
     assert budget.max_tokens == 200_000
     assert budget.trigger_tokens == 160_000   # followed
-    assert budget.target_tokens == 25_000     # pinned
-    assert hot == 40_000                      # followed
+    assert hot == 25_000                      # pinned
 
 
 # --- config and migration ------------------------------------------------------
 
 
-def test_a_fresh_config_lets_the_three_follow_the_ceiling():
+def test_a_fresh_config_lets_the_shape_follow_the_ceiling():
     cc = BrainConfig().consciousness
 
     assert cc["context_max_tokens"] == WINDOW_MIN_TOKENS
     assert cc["handoff_trigger_tokens"] == 0
-    assert cc["handoff_target_tokens"] == 0
     assert cc["hot_tokens"] == 0
+    assert "handoff_target_tokens" not in cc
+    assert "hot_seconds" not in cc
 
 
 def test_an_install_carrying_the_old_defaults_starts_following_the_ceiling(tmp_path):
@@ -115,8 +112,23 @@ def test_an_install_carrying_the_old_defaults_starts_following_the_ceiling(tmp_p
 
     cc = BrainConfig().consciousness
 
-    assert (cc["handoff_trigger_tokens"], cc["handoff_target_tokens"],
-            cc["hot_tokens"]) == (0, 0, 0)
+    assert (cc["handoff_trigger_tokens"], cc["hot_tokens"]) == (0, 0)
+
+
+def test_the_knobs_that_no_longer_mean_anything_are_dropped_on_load(tmp_path):
+    """The present is the newest hot tokens whatever their age, and a handoff
+    keeps all it did not summarize: an age limit and a resting size left in
+    the file would read as settings that still do something."""
+    import json
+
+    (tmp_path / "config.json").write_text(json.dumps(
+        {"consciousness": {"hot_seconds": 600.0, "handoff_target_tokens": 90_000}}))
+
+    config = BrainConfig()
+    config.load_from_file()
+
+    assert "hot_seconds" not in config.consciousness
+    assert "handoff_target_tokens" not in config.consciousness
 
 
 def test_a_number_somebody_chose_themselves_stays_chosen(tmp_path):
@@ -148,16 +160,15 @@ def test_the_slider_carries_the_numbers_it_implies():
     ratios of its own, so there is one definition of what a ceiling means."""
     derives = section("consciousness").get("context_max_tokens").describe()["derives"]
 
-    assert [d["key"] for d in derives] == [
-        "handoff_trigger_tokens", "handoff_target_tokens", "hot_tokens"]
+    assert [d["key"] for d in derives] == ["handoff_trigger_tokens", "hot_tokens"]
     for derive in derives:
         assert 0 < derive["ratio"] <= 1
 
 
-def test_the_three_are_folded_away_as_advanced():
+def test_the_overrides_are_folded_away_as_advanced():
     consciousness = section("consciousness")
 
-    for key in ("handoff_trigger_tokens", "handoff_target_tokens", "hot_tokens"):
+    for key in ("handoff_trigger_tokens", "hot_tokens"):
         assert consciousness.get(key).advanced, key
     assert not consciousness.get("context_max_tokens").advanced
 
@@ -179,8 +190,7 @@ def test_the_section_accepts_a_ceiling_inside_the_range():
 
 
 def window(**kw) -> SingleContext:
-    return SingleContext(TokenBudget(max_tokens=2_000, trigger_tokens=1_500,
-                                     target_tokens=1_000), hot_tokens=1_000, **kw)
+    return SingleContext(TokenBudget(max_tokens=2_000, trigger_tokens=1_500), hot_tokens=1_000, **kw)
 
 
 def test_a_wider_ceiling_reaches_the_live_window():
@@ -207,7 +217,7 @@ def test_a_narrower_ceiling_trims_the_window_it_no_longer_fits():
         ctx.append("user", f"line {i} " + "x" * 400)
     before = ctx.total_tokens
 
-    ctx.retarget(TokenBudget(max_tokens=1_000, trigger_tokens=900, target_tokens=500), 500)
+    ctx.retarget(TokenBudget(max_tokens=1_000, trigger_tokens=900), 500)
 
     assert ctx.total_tokens <= 1_000 < before
     assert ctx.evicted_tokens > 0   # unsummarized amnesia stays auditable
@@ -219,7 +229,7 @@ def test_trimming_on_a_resize_spares_the_continuity_bridge():
     for i in range(20):
         ctx.append("user", f"line {i} " + "x" * 400)
 
-    ctx.retarget(TokenBudget(max_tokens=1_000, trigger_tokens=900, target_tokens=500), 500)
+    ctx.retarget(TokenBudget(max_tokens=1_000, trigger_tokens=900), 500)
 
     assert any(m["role"] == "system" for m in ctx.messages())
 
@@ -227,8 +237,7 @@ def test_trimming_on_a_resize_spares_the_continuity_bridge():
 def test_the_hot_present_never_outgrows_the_ceiling_it_lives_in():
     ctx = window()
 
-    ctx.retarget(TokenBudget(max_tokens=5_000, trigger_tokens=4_000,
-                             target_tokens=2_000), 500_000)
+    ctx.retarget(TokenBudget(max_tokens=5_000, trigger_tokens=4_000), 500_000)
 
     assert ctx.hot_tokens <= 5_000
 
@@ -321,22 +330,23 @@ async def test_a_resize_on_the_loop_itself_is_applied_at_once():
 # --- the window must keep breathing room --------------------------------------
 
 
-def test_pinning_the_trigger_at_the_target_is_refused_not_clamped():
-    """A clamped window hands off on every turn. The save says so instead."""
+def test_pinning_the_trigger_at_the_hot_present_is_refused():
+    """A new window would open with the hot present already past the trigger,
+    and hand off on every turn. The save says so instead."""
     config = BrainConfig()
 
     with pytest.raises(ValidationError):
         apply_section(config, "consciousness", {
             "context_max_tokens": 500_000,
             "handoff_trigger_tokens": 90_000,
-            "handoff_target_tokens": 90_000,
+            "hot_tokens": 90_000,
         })
 
     assert config.consciousness["handoff_trigger_tokens"] == 0
-    assert config.consciousness["handoff_target_tokens"] == 0
+    assert config.consciousness["hot_tokens"] == 0
 
 
-def test_a_trigger_pinned_below_the_derived_rest_is_refused():
+def test_a_trigger_pinned_below_the_derived_hot_present_is_refused():
     config = BrainConfig()
 
     with pytest.raises(ValidationError):
@@ -364,11 +374,11 @@ def test_a_pin_with_room_to_breathe_is_accepted():
     apply_section(config, "consciousness", {
         "context_max_tokens": 500_000,
         "handoff_trigger_tokens": 300_000,
-        "handoff_target_tokens": 100_000,
+        "hot_tokens": 100_000,
     })
 
     assert config.consciousness["handoff_trigger_tokens"] == 300_000
-    assert config.consciousness["handoff_target_tokens"] == 100_000
+    assert config.consciousness["hot_tokens"] == 100_000
 
 
 def test_an_unrelated_save_does_not_trip_the_shape_check():
@@ -388,7 +398,7 @@ def test_a_reload_re_reads_the_whole_live_shape():
     config = BrainConfig()
     consciousness = mind(config)
 
-    config.consciousness["hot_seconds"] = 600.0
+    config.consciousness["hot_tokens"] = 20_000
     config.consciousness["window_persist_after_turn"] = False
     config.consciousness["dynamic_context_timeout"] = 1.5
     config.consciousness["idle_after"] = 60.0
@@ -397,7 +407,7 @@ def test_a_reload_re_reads_the_whole_live_shape():
     config.consciousness["stream_speech"] = False
     consciousness.apply_budget()
 
-    assert consciousness.sliding_window.hot_seconds == 600.0
+    assert consciousness.sliding_window.hot_tokens == 20_000
     assert consciousness._persist_after_turn is False
     assert consciousness._dynamic_timeout == 1.5
     assert consciousness.idle_after == 60.0
@@ -417,10 +427,10 @@ async def test_the_scalars_land_on_the_loop_with_the_resize():
 
     config.consciousness["context_max_tokens"] = 300_000
     config.consciousness["context_handoff"] = False
-    config.consciousness["hot_seconds"] = 600.0
+    config.consciousness["hot_tokens"] = 20_000
     await asyncio.to_thread(consciousness.apply_budget)
     await asyncio.sleep(0)
 
     assert consciousness.sliding_window.budget.max_tokens == 300_000
     assert consciousness._handoff_enabled is False
-    assert consciousness.sliding_window.hot_seconds == 600.0
+    assert consciousness.sliding_window.hot_tokens == 20_000

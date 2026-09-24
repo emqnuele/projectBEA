@@ -546,3 +546,105 @@ def test_a_model_on_this_machine_may_take_its_time_to_load():
         assert _is_local(url), url
     for url in ("https://openrouter.ai/api/v1", "https://api.openai.com/v1", "https://x/v1"):
         assert not _is_local(url), url
+
+
+# 24 september, 17:54: the headers came back at once, and then nothing but
+# keep-alive comments until the whole-request timeout, two minutes later. The
+# mind loop is one turn at a time, so for those two minutes nobody was read:
+# a telegram message sat on the bus without a single log line.
+
+
+class Trickle(FakeContent):
+    """A body that arrives line by line, each after its own pause."""
+
+    def __init__(self, timed_lines):
+        self._timed = [(delay, (l if isinstance(l, bytes) else l.encode()) + b"\n")
+                       for delay, l in timed_lines]
+
+    def __aiter__(self):
+        async def gen():
+            for delay, line in self._timed:
+                await asyncio.sleep(delay)
+                yield line
+        return gen()
+
+
+def trickling(*timed_lines):
+    response = FakeResponse()
+    response.content = Trickle(timed_lines)
+    return response
+
+
+KEEPALIVES = [(0.01, ": OPENROUTER PROCESSING")] * 3 + [(10, "")]
+CHUNK = 'data: {"choices": [{"delta": {"content": "%s"}}]}'
+
+
+@pytest.fixture
+def quick_watchdog(monkeypatch):
+    from src.modules.llm import base
+
+    monkeypatch.setattr(base, "STREAM_FIRST_BLOCK_BASE", 0.1)
+    monkeypatch.setattr(base, "STREAM_IDLE_TIMEOUT", 0.1)
+    monkeypatch.setattr(base, "PREFILL_CHARS_PER_SECOND", 10**12)
+
+
+async def test_keepalives_are_not_an_answer_and_the_call_is_sent_again(
+        monkeypatch, quick_watchdog):
+    wire(monkeypatch, trickling(*KEEPALIVES), FakeResponse(lines=STREAMED))
+    reply = await asyncio.wait_for(chat_client().stream_complete(
+        [{"role": "user", "content": "hi"}], on_tool_delta=lambda *a: None), timeout=2)
+    assert reply.content == "eccomi"
+    assert len(FakeSession.posts) == 2
+
+
+async def test_a_provider_that_only_keeps_alive_twice_is_given_up_on(
+        monkeypatch, quick_watchdog):
+    from src.modules.llm.base import ProviderStalled
+
+    wire(monkeypatch, trickling(*KEEPALIVES), trickling(*KEEPALIVES))
+    with pytest.raises(ProviderStalled, match="no answer within"):
+        await asyncio.wait_for(chat_client().stream_complete(
+            [{"role": "user", "content": "hi"}], on_tool_delta=lambda *a: None), timeout=2)
+    assert len(FakeSession.posts) == 2
+
+
+async def test_an_answer_that_goes_silent_halfway_is_not_sent_again(
+        monkeypatch, quick_watchdog):
+    """Half a line may already be in the room: a resend would say it twice."""
+    from src.modules.llm.base import ProviderStalled
+
+    wire(monkeypatch, trickling((0, CHUNK % "ecco"), (10, CHUNK % "mi")),
+         FakeResponse(lines=STREAMED))
+    with pytest.raises(ProviderStalled, match="went silent"):
+        await asyncio.wait_for(chat_client().stream_complete(
+            [{"role": "user", "content": "hi"}], on_tool_delta=lambda *a: None), timeout=2)
+    assert len(FakeSession.posts) == 1
+
+
+async def test_a_slow_answer_that_keeps_coming_is_left_alone(monkeypatch, quick_watchdog):
+    """The limit is on silence, not on length: each block resets it."""
+    lines = [(0.05, CHUNK % "a")] * 6 + [(0.05, 'data: [DONE]')]
+    wire(monkeypatch, trickling(*lines))
+    reply = await asyncio.wait_for(chat_client().stream_complete(
+        [{"role": "user", "content": "hi"}], on_tool_delta=lambda *a: None), timeout=2)
+    assert reply.content == "aaaaaa"
+    assert len(FakeSession.posts) == 1
+
+
+async def test_a_model_on_this_machine_is_not_hurried(monkeypatch, quick_watchdog):
+    lines = [(0.3, ": loading")] + [(0, CHUNK % "ok")]
+    wire(monkeypatch, trickling(*lines))
+    reply = await asyncio.wait_for(chat_client(base_url="http://localhost:11434/v1")
+                                   .stream_complete([{"role": "user", "content": "hi"}],
+                                                    on_tool_delta=lambda *a: None), timeout=2)
+    assert reply.content == "ok"
+
+
+def test_a_bigger_prompt_is_given_longer_to_start_answering():
+    from src.modules.llm.base import STREAM_FIRST_BLOCK_BASE, first_block_budget
+
+    small = first_block_budget({"input": "x" * 1_000})
+    large = first_block_budget({"input": "x" * 1_600_000})
+    assert STREAM_FIRST_BLOCK_BASE <= small < large
+    # a full 400k-token window, cold, measured 27s to its first token
+    assert large >= 45

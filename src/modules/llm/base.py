@@ -40,6 +40,20 @@ NO_STREAM_COOLDOWN = 120.0
 # limit was REQUEST_TIMEOUT: two minutes of her standing there, then no turn.
 STREAM_HEADERS_TIMEOUT = 30.0
 
+# headers are not an answer. OpenRouter sends them early and then holds the
+# stream open with keep-alive comments while the model queues or stalls, so a
+# call can look alive for the whole REQUEST_TIMEOUT without a byte of answer.
+# What counts is data: the first block has to come within a budget that grows
+# with the prompt, since a cold prefill takes longer the longer the prompt,
+# and once it streams, no gap between two blocks may be longer than the idle
+# limit.
+STREAM_FIRST_BLOCK_BASE = 15.0
+STREAM_IDLE_TIMEOUT = 30.0
+
+# measured cold on openrouter deepseek-v4-flash: 109k tokens -> 27.3s budget,
+# first token at 7.3s; 383k tokens -> 58.0s budget, first token at 19.1-26.8s
+PREFILL_CHARS_PER_SECOND = 40_000
+
 # how long an idle connection to a provider waits for the next call. A new one
 # is dns, tcp and tls before the first token — 110 to 190ms a call, measured —
 # and people pause for longer than aiohttp's own fifteen seconds all the time.
@@ -128,6 +142,28 @@ async def _answered_within(request, seconds: Optional[float], label: str):
         raise
     finally:
         await request.__aexit__(*failure)
+
+
+def first_block_budget(payload: Dict[str, Any]) -> float:
+    """How long a streamed call may take to send its first block of answer."""
+    try:
+        size = len(json.dumps(payload))
+    except (TypeError, ValueError):
+        size = 0
+    return STREAM_FIRST_BLOCK_BASE + size / PREFILL_CHARS_PER_SECOND
+
+
+async def _next_line(lines, deadline: Optional[float], why: str) -> bytes:
+    """The next raw line of a stream, or `ProviderStalled` once `deadline` passes.
+
+    `deadline` is a monotonic reading; None waits as long as the request may.
+    """
+    if deadline is None:
+        return await lines.__anext__()
+    try:
+        return await asyncio.wait_for(lines.__anext__(), max(0.0, deadline - time.monotonic()))
+    except asyncio.TimeoutError as e:
+        raise ProviderStalled(why) from e
 
 
 class _StreamRefused(RuntimeError):
@@ -246,11 +282,17 @@ class AsyncLLMClient(LLMClient):
         """
         url = f"{self.base_url}{self.query_path}"
         headers = {"Content-Type": "application/json", **self.auth_headers()}
-        limit = None if _is_local(self.base_url) else STREAM_HEADERS_TIMEOUT
+        local = _is_local(self.base_url)
+        limit = None if local else STREAM_HEADERS_TIMEOUT
+        first_budget = None if local else first_block_budget(payload)
         retried = False
+        # once a block has left, sending the request again would hand the
+        # caller the start of the answer twice
+        delivered = False
         while True:
             answered = False
             try:
+                started = time.monotonic()
                 async with _answered_within(_session().post(url, headers=headers, json=payload),
                                             limit, self.model_name) as response:
                     answered = True
@@ -260,26 +302,41 @@ class AsyncLLMClient(LLMClient):
                             f"{self.model_name}: HTTP {response.status}: {body[:500]}")
                     event = ""
                     buffer = ""
-                    async for raw in response.content:
+                    lines = response.content.__aiter__()
+                    deadline = None if first_budget is None else started + first_budget
+                    why = f"{self.model_name}: no answer within {first_budget or 0:.0f}s of asking"
+                    while True:
+                        try:
+                            raw = await _next_line(lines, deadline, why)
+                        except StopAsyncIteration:
+                            break
                         buffer += raw.decode("utf-8", errors="replace")
                         while "\n" in buffer:
                             line, buffer = buffer.split("\n", 1)
                             for item in _parse_line(line, event):
+                                # keep-alive comments never get here: only a
+                                # block of the answer moves the deadline
+                                if deadline is not None:
+                                    deadline = time.monotonic() + STREAM_IDLE_TIMEOUT
+                                    why = (f"{self.model_name}: went silent for "
+                                           f"{STREAM_IDLE_TIMEOUT:.0f}s mid-answer")
                                 if item[0] == "event":
                                     event = item[1]
                                 else:
+                                    delivered = True
                                     yield event, item[1]
                                     event = ""
                     # a truncated final chunk still carries a block worth yielding
                     if buffer.strip():
                         for item in _parse_line(buffer, event):
                             if item[0] != "event":
+                                delivered = True
                                 yield event, item[1]
                     return
             except ProviderStalled as e:
                 # nothing of the answer exists yet: the same request on a fresh
                 # connection, once, and then it is the pool's to fail over
-                if retried:
+                if retried or delivered:
                     raise
                 retried = True
                 logger.warning(f"{e}; sending it again on a fresh connection.")

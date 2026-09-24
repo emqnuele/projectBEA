@@ -29,8 +29,7 @@ def _config():
 
 
 def _window(now):
-    ctx = SingleContext(TokenBudget(max_tokens=6000, trigger_tokens=5000,
-                                    target_tokens=2000))
+    ctx = SingleContext(TokenBudget(max_tokens=6000, trigger_tokens=5000))
     for i in range(4):
         ctx.append("user", f"discord line {i}", ts=now - 600,
                    key="discord:123", author="bob")

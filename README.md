@@ -241,8 +241,9 @@ She does not keep a separate head per chat. Every turn lands in a single
 sliding context window — 150k tokens by default, adjustable up to 500k in
 Settings — that breathes instead of filling
 up: around 120k a background handoff writes down what went cold ("you talked
-about food for two hours") while the last half hour travels verbatim, and the
-window settles back near 50k. What was happening stays happening.
+about food for two hours") while she keeps talking. The latest 30k tokens,
+plus everything said while the recap was being written, travel over word for
+word. What was happening stays happening.
 
 Because the window knows where she is, she answers *there*: a Telegram
 message gets a Telegram reply, never silence, never "I don't have Telegram".

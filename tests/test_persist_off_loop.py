@@ -94,8 +94,7 @@ def test_a_stale_background_flush_loses_to_a_swap(memory):
     live.append("user", "vecchio")
     rows, version, write_seq = live.flush_snapshot()
 
-    _, hot = live.snapshot_for_handoff()
-    live.swap_with_snapshot("[EARLIER]\nvi siete parlati", hot)
+    live.swap("[EARLIER]\nvi siete parlati")
 
     assert memory.window.replace(rows, version, write_seq=write_seq) is False
     assert [r["content"] for r in memory.window.load()] == [

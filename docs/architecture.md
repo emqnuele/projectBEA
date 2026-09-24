@@ -27,7 +27,7 @@ reactive chat path — the consciousness is the only mind.
 | `PerceptionBus` | `src/core/perception/bus.py` | the one sensory channel: an asyncio.Queue that closes a batch on a quiet gap |
 | `SkillRegistry` | `src/core/skills/base.py` | the catalog of capabilities |
 | `SingleContext` | `src/core/mind/single_context.py` | the one sliding window: token-budgeted log that breathes 0 → trigger → ~target |
-| `TokenBudget` | `src/core/mind/token_budget.py` | the counter: ceiling (default 150k, up to 500k), derived trigger/target/hot, hot/cold split (pure) |
+| `TokenBudget` | `src/core/mind/token_budget.py` | the counter: ceiling (default 150k, up to 500k), derived trigger/hot, hot/cold split (pure) |
 | `HandoffWorker` | `src/core/mind/handoff.py` | background handoff: cold past to prose, hot ongoing verbatim |
 | `SpontaneousPresence` | `src/core/mind/spontaneous.py` | occasionally opens a conversation herself |
 | `Expression` | `src/core/expression/voice.py` | the **only** voice/visual output sink |
@@ -259,11 +259,13 @@ One mind, one log. Every live turn lands in `SingleContext`
 (`src/core/mind/single_context.py`), a token-budgeted append-only log that
 replaces message-count trimming with a real ceiling. The ceiling is the one
 number the owner sets — **150k by default, adjustable from 150k to 500k** —
-and the rest of the shape follows it: handoff trigger at four fifths,
-rest near a third, hot present at a fifth (so the default still breathes
-**150k max, trigger at 120k, rest near ~50k**). Each of the three can still be
-pinned individually (`0` means "follow the ceiling"); pinned values are
-clamped so the trigger never passes the ceiling. The window lives in RAM
+and the rest of the shape follows it: handoff trigger at four fifths, hot
+present at a fifth (the default is **150k max, trigger at 120k, 30k hot**).
+The fifth between trigger and ceiling is the room she keeps talking in while
+a handoff is being written. Trigger and hot can still be pinned individually
+(`0` means "follow the ceiling"); the trigger is clamped so it never passes
+the ceiling, and a save that would put it at or below the hot present is
+refused, since every new window would then open already due for a recap. The window lives in RAM
 while she talks —
 appends never touch the disk — and a flush after each turn, plus a synchronous
 one at shutdown, carries it over in a single transaction.
@@ -296,17 +298,30 @@ order. On restore the sequence is read back, so it keeps rising across
 restarts.
 
 When the trigger hits, `HandoffWorker` (`src/core/mind/handoff.py`) runs on
-the background pool, in parallel with the loop:
+the background pool, in parallel with the loop. Turns keep going the whole
+time. Nothing in the handoff blocks the loop, and the only step that touches
+the window, the slide at the end, is synchronous:
 
-- **cold** (everything older than ~30k tokens / ~30 min) goes to the worker,
-  which writes a short prose recap — "you talked about food for two hours" —
-  facts and open threads, no identity (the soul is in context already);
-- **hot** (what is happening right now) is carried into the next window
-  **verbatim**, speaker labels and all — the present is never compressed;
-- anything that arrived mid-handoff joins verbatim too, so nothing is lost;
-- the prose comes back as an `[EARLIER]` system block opening the next window,
-  and the window breathes: `0 → 50k → 120k → ~50k → 120k → …`, never pinned at
-  the ceiling. A failed handoff keeps the old window intact.
+- the **cut** is taken when the handoff starts. **Hot** is the newest
+  `hot_tokens` (30k by default), counted in tokens only: a conversation that
+  paused for an hour is still the conversation. Up to 5k tokens of the
+  older past right before it stay verbatim as well, so a sentence is never
+  cut in half at the boundary. Everything older is **cold**;
+- the cold part goes to the worker, which writes a short prose recap — "you
+  talked about food for two hours": facts and open threads, no identity (the
+  soul is already in context);
+- when the recap is ready, the window **slides**. The recap opens the next
+  window as an `[EARLIER]` system block, followed by **every** line after the
+  cut, read off the window as it is at that moment: the hot present plus
+  everything that arrived while the recap was being written. None of these
+  was summarized, so none of them is dropped to reach a resting size. They
+  only give way to the ceiling, oldest first, and that loss is counted in
+  `valve_evicted_tokens`;
+- the window breathes: it fills up to the trigger and comes back to about
+  the hot present, never pinned at the ceiling. A failed handoff keeps the
+  old window intact and tries again five minutes later. A handoff that
+  finishes after the consolidation has emptied the window drops its recap
+  instead of putting the evening back.
 
 Written channels get two related guarantees: a deterministic `[WHERE YOU ARE]`
 header (platform, conversation, who — injected from code, so she never
@@ -316,8 +331,8 @@ when a text-only answer would otherwise leave a mute turn (`NO_TOOL_CALL`).
 `GET /context` exposes the budget live; the dashboard overview shows it as
 the Context tile, and a ceiling changed in Settings → Mind reaches the live
 window on the next turn — no restart. New knobs live under `consciousness`
-(`context_max_tokens`, plus the advanced pins `handoff_trigger_tokens`,
-`handoff_target_tokens`, `hot_tokens`, and `hot_seconds`, `context_handoff`,
+(`context_max_tokens`, plus the advanced pins `handoff_trigger_tokens` and
+`hot_tokens`, and `context_handoff`,
 `window_persist_after_turn`, `dynamic_context_timeout`) — see [Configuration](configuration.md#consciousness).
 
 ---
