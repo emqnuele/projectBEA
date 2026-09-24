@@ -339,6 +339,43 @@ def test_a_bot_token_saved_in_a_section_lands_in_the_env_file(client, tmp_path):
     assert "DISCORD_TOKEN=bot-token" in (tmp_path / ".env").read_text(encoding="utf-8")
 
 
+def test_a_search_key_saved_in_the_web_section_lands_in_the_env_file(client, tmp_path):
+    api, stub = client
+
+    res = api.post("/settings/web", json={"brave_api_key": "BSA-typed"})
+
+    assert res.status_code == 200
+    assert res.json()["secrets_written_to_env"] == ["BRAVE_API_KEY"]
+    assert "BRAVE_API_KEY=BSA-typed" in (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "BSA-typed" not in (tmp_path / "config.json").read_text(encoding="utf-8")
+
+
+def test_the_skills_list_never_hands_out_a_key_typed_in_settings(client):
+    """`GET /skills` is unauthenticated and polled every five seconds.
+
+    A key saved in a section stays in the skill's block in memory until the next
+    start, and this endpoint used to hand that block out as it was.
+    """
+    api, stub = client
+
+    class Web:
+        skill_name, enabled, active = "web", True, True
+
+    class Registry:
+        def toggleable(self):
+            return [Web()]
+
+    stub.skill_registry = Registry()
+    api.post("/settings/web", json={"brave_api_key": "BSA-typed"})
+
+    body = api.get("/skills")
+
+    assert body.status_code == 200
+    assert "BSA-typed" not in body.text
+    assert body.json()["web"]["config"]["brave_api_key"] == MASK
+    assert stub.config.skills["web"]["brave_api_key"] == "BSA-typed"
+
+
 def test_a_saved_secret_never_reaches_config_json(client, tmp_path):
     api, _ = client
 

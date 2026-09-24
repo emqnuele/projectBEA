@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 from dataclasses import asdict, dataclass, field
@@ -524,10 +525,18 @@ class BrainConfig:
         for secret in self.SECRET_KEYS:
             data.pop(secret, None)
 
-        skills = data.get("skills", {})
+        data["skills"] = self.public_skills()
+        return data
+
+    def public_skills(self) -> Dict[str, Dict[str, Any]]:
+        """Every skill block as the UI may see it, with its secrets masked.
+
+        A key typed into the dashboard lives in the block in memory until the
+        next start, so any endpoint handing a block out must go through here.
+        """
+        skills = copy.deepcopy(self.skills)
         for skill_key, field_name in SECRET_SKILL_FIELDS:
             block = skills.get(skill_key)
             if isinstance(block, dict) and field_name in block:
                 block[field_name] = MASK if block[field_name] else ""
-
-        return data
+        return skills
