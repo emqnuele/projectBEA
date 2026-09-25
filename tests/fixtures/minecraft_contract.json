@@ -27,6 +27,12 @@
     "store_item",
     "use_block"
   ],
+  "concurrent_actions": [
+    "chat",
+    "check_death_log",
+    "look_at",
+    "request_screenshot"
+  ],
   "actions": {
     "attack_entity": {
       "skill": "AttackSkill",

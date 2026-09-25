@@ -1,0 +1,42 @@
+{
+  "status": "CONNECTED",
+  "message": "Welcome to BeaCraft",
+  "protocol": 2,
+  "mod_version": "2.1.0+26.2",
+  "mc_version": "26.2",
+  "planner": "beacraft",
+  "baritone_installed": false,
+  "actions": [
+    "move_to",
+    "stop_moving",
+    "look_at",
+    "mine_block",
+    "place_block",
+    "select_slot",
+    "find_block",
+    "pillar_up",
+    "mine_down",
+    "bridge",
+    "craft_item",
+    "use_block",
+    "smelt_item",
+    "store_item",
+    "retrieve_item",
+    "equip_item",
+    "discard_item",
+    "eat_food",
+    "attack_entity",
+    "check_death_log",
+    "request_screenshot",
+    "chat",
+    "goto_player",
+    "follow_player",
+    "give_item"
+  ],
+  "concurrent": [
+    "chat",
+    "check_death_log",
+    "request_screenshot",
+    "look_at"
+  ]
+}

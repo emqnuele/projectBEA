@@ -80,7 +80,7 @@ class FakeClient:
         self.latest_state = dict(STATE)
         self.calls = []
 
-    async def execute(self, action, params, instant=False):
+    async def execute(self, action, params, timeout=None):
         self.calls.append((action, params))
         return "SUCCESS"
 

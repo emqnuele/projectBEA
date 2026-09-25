@@ -14,9 +14,19 @@ _NOTEBOOK_DESC = (
     "Keep a checklist with [ ] / [x] and update it as you progress, fail, or find new resources."
 )
 
-# actions the mod executes and reports back as completed (the agent awaits them)
-# vs instant actions that return immediately with no completion event.
-_INSTANT = {"request_screenshot", "check_death_log", "stop_moving", "chat"}
+# answered in a moment: they read, speak or stop, and never walk anywhere
+_QUICK = {"request_screenshot", "check_death_log", "stop_moving", "chat", "look_at",
+          "look_at_player"}
+
+# seconds the brain waits for an answer. Each is longer than the mod's own
+# budget for the action, so the mod always gives up first and says why; the
+# other way round, the brain moved on while the mod kept going, and its late
+# answer landed on whatever was asked next
+ACTION_TIMEOUTS: Dict[str, float] = {
+    "find_block": 240.0, "build": 900.0, "move_to": 120.0, "smelt_item": 180.0,
+    "mine_block": 70.0,
+}
+DEFAULT_TIMEOUT = 60.0
 
 # tool name -> (mod action, argument renames). Looking at a person is the same
 # mod skill as looking at a coordinate, told who to look at instead of where.
@@ -205,19 +215,18 @@ def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
     """
     registry = ToolRegistry()
 
-    def make_handler(tool_name: str, instant: bool):
+    def make_handler(tool_name: str):
         action, renames = _ALIASES.get(tool_name, (tool_name, {}))
+        timeout = ACTION_TIMEOUTS.get(action, DEFAULT_TIMEOUT)
 
         async def handler(**kwargs):
             args = {renames.get(k, k): v for k, v in kwargs.items()}
-            return await client.execute(action, args, instant=instant)
+            return await client.execute(action, args, timeout=timeout)
         return handler
 
     for name, (description, parameters) in _TOOLS.items():
-        instant = name in _INSTANT
-        # long-running body actions run async (single-slot) so they never block reasoning
-        registry.add(name, description, parameters, make_handler(name, instant),
-                     long_running=not instant, surface=surface)
+        registry.add(name, description, parameters, make_handler(name),
+                     long_running=name not in _QUICK, surface=surface)
 
     registry.add(
         "update_notebook",

@@ -31,8 +31,10 @@ class FakeClient:
         self.results = results or {}
         self.is_connected = True
         self.mod_version = "test"
+        self.protocol = 2
+        self.concurrent = {"chat", "check_death_log", "request_screenshot", "look_at"}
 
-    async def execute(self, action, params, instant=False):
+    async def execute(self, action, params, timeout=None):
         self.calls.append((action, params))
         return self.results.get(action, "SUCCESS")
 
@@ -430,6 +432,59 @@ async def test_a_reflex_puts_the_goal_down_and_picks_it_back_up(surface):
     await tool.handler(name="Marco")
     assert surface.agent.goal.text == "build a house"
     assert surface.agent.goal.status == RUNNING
+
+
+async def test_a_glance_leaves_the_body_on_its_goal(surface, monkeypatch):
+    """The mod turns the head beside whatever the body does; taking the body for
+    it cancelled the move the body was in the middle of."""
+    surface.agent.set_goal("build a house")
+    borrowed = []
+    monkeypatch.setattr(surface.agent, "borrow", lambda: borrowed.append(True))
+    await next(t for t in surface.tools() if t.name == "mc_look_at_player").handler(name="Marco")
+    assert borrowed == []
+    assert surface.client.calls == [("look_at", {"player": "Marco"})]
+
+
+async def test_walking_to_someone_still_takes_the_body(surface, monkeypatch):
+    surface.agent.set_goal("build a house")
+    borrowed = []
+    monkeypatch.setattr(surface.agent, "borrow", lambda: borrowed.append(True))
+    await next(t for t in surface.tools() if t.name == "mc_goto_player").handler(name="Marco")
+    assert borrowed == [True]
+
+
+def test_what_the_body_did_on_its_own_reaches_the_body(surface):
+    surface._on_mod_event("reflex", {"type": "reflex", "reflex": "eat", "event": "started",
+                                     "message": "eating: food was 12/20", "interrupted_id": None})
+    assert surface.agent.behaviour_log == ["eat: eating: food was 12/20"]
+    assert surface.bus.items == []          # eating is the body's business, not news
+
+
+def test_being_attacked_and_fighting_back_reaches_her(surface):
+    surface._on_mod_event("reflex", {"type": "reflex", "reflex": "defend", "event": "started",
+                                     "message": "defending against Zombie", "interrupted_id": "r4"})
+    assert any("defending against Zombie" in p.content for p in surface.bus.items)
+    assert surface.agent.behaviour_log == ["defend: defending against Zombie"]
+
+
+async def test_the_body_reads_what_it_did_on_its_own_before_its_next_move():
+    llm = FakeLLMClient([calls("move_to", x=1, y=64, z=1), done("Done.")])
+    a = agent(llm)
+    a.start()
+    a.set_goal("go over there")
+    a.note_reflex("defend: defending against Zombie")
+    await _until(lambda: a.goal.status == DONE)
+    await a.stop()
+    assert "While you were working: defend: defending against Zombie" in _text(llm.calls[0])
+    assert _text(llm.calls[1]).count("While you were working") == 1    # told once, not every move
+    assert a.behaviour_log == []
+
+
+def test_a_burst_of_reflexes_stays_a_short_paragraph():
+    a = agent(FakeLLMClient())
+    for i in range(30):
+        a.note_reflex(f"defend: swing {i}")
+    assert len(a.behaviour_log) == 8 and a.behaviour_log[-1] == "defend: swing 29"
 
 
 def test_the_mind_no_longer_carries_the_notebook(surface):

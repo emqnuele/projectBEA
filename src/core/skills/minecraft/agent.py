@@ -46,6 +46,10 @@ THOUGHT_LIMIT = 220
 # the one game-state note in the window; a new one replaces it
 STATE_TAG = "state"
 
+# reflexes remembered between two of the body's moves. A burst of them (a long
+# fight) is still one short paragraph, not a wall
+MAX_BEHAVIOUR_LINES = 8
+
 OnMilestone = Callable[[str], None]
 OnGoalClosed = Callable[[Goal], None]
 
@@ -88,6 +92,8 @@ class GameAgent:
         self._round_goal: Optional[Goal] = None
         self.last_thought: str = ""
         self.ctx = BodyContext(keep_rounds)
+        # what the body did on its own since its last move: eating, fighting
+        self.behaviour_log: List[str] = []
 
         self._loop_task: Optional[asyncio.Task] = None
         self._step_task: Optional[asyncio.Task] = None
@@ -252,6 +258,18 @@ class GameAgent:
         self.ctx.observe(f"{note} Re-read the state and carry on where you left off.")
         self._work.set()
 
+    def note_reflex(self, line: str) -> None:
+        """The mod acted on its own; the body hears about it before its next move.
+
+        Otherwise an interruption arrives as a bare `INTERRUPTED` and the body
+        retries into the same zombie.
+        """
+        line = " ".join(str(line or "").split())
+        if not line:
+            return
+        self.behaviour_log.append(_clip(line, THOUGHT_LIMIT))
+        del self.behaviour_log[:-MAX_BEHAVIOUR_LINES]
+
     # --- what she can see ---------------------------------------------------
 
     @property
@@ -286,6 +304,10 @@ class GameAgent:
         self._round_goal = goal
         if goal.steps == 0 or (self.refresh_every and goal.steps % self.refresh_every == 0):
             self.ctx.observe(self._state_note(), tag=STATE_TAG)
+
+        if self.behaviour_log:
+            self.ctx.observe("While you were working: " + "; ".join(self.behaviour_log))
+            self.behaviour_log = []
 
         goal.steps += 1
         reply = await self.llm.complete(

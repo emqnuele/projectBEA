@@ -1,0 +1,7 @@
+{
+  "type": "reflex",
+  "reflex": "respawn",
+  "event": "started",
+  "message": "died to Unknown at (3, -57, 0); respawning",
+  "interrupted_id": "h5"
+}

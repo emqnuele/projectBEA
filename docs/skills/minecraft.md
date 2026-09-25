@@ -252,9 +252,13 @@ only two ways a goal ends.
 `eat_food`, `check_death_log`, `goto_player`, `follow_player`, `look_at_player`,
 `give_item`, `chat` — plus `update_notebook`.
 
-`chat`, `stop_moving`, `request_screenshot` and `check_death_log` are instant
-and return at once. Every other tool awaits the mod's completion event, so the
-observation the model reasons on is what actually happened.
+Every tool awaits the mod's answer to it, so the observation the model reasons
+on is what actually happened: `RESULT: sentence`, followed by the last lines of
+the action's own log when it sent one. `chat`, `check_death_log`,
+`request_screenshot` and `look_at` run beside whatever the body is doing and are
+answered at once; they never stop it. How long the brain waits depends on the
+action (`ACTION_TIMEOUTS` in `tools.py`), and is always longer than the mod's own
+budget for it, so the mod gives up first and says why.
 
 ---
 
@@ -274,23 +278,15 @@ like a normal client — nothing is required server-side, and it works on vanill
 3. Launch Minecraft — the mod opens a WebSocket on `ws://localhost:8080`.
 4. Make sure `server_url` matches, and toggle the skill on.
 
-> The mod binds on the LAN without authentication. Keep it on a trusted
-> network, or bind it to loopback.
+> The mod listens on loopback (`127.0.0.1`) unless `host` in
+> `config/beacraft.json` says otherwise, and has no authentication: only open it
+> to a trusted network.
 
 ### Protocol
 
-**Mod → brain.** Dispatch is on `type` first, then `status`:
-
-| Field | Value | Meaning |
-|---|---|---|
-| `type` | `chat`, `player_event`, `combat`, `death_event` | a sense; handed to the surface |
-| `status` | `FINISHED` / `IDLE` | an action completed; `result` is `SUCCESS`/`FAILURE` |
-| `status` | `INTERRUPTED` | something cut the action short; `reason` says what |
-| `status` | `ENGAGED_AUTO_ACTION` | the mod defended itself; she is told she is fighting |
-| — | contains `player` | a game-state snapshot |
-
-A `death_event` also resolves whatever action was in flight, so nothing waits
-out the 60-second timeout for something that is never coming.
+The mod announces itself on connect: `protocol`, `mod_version`, `mc_version`,
+the `actions` it has, and which of them are `concurrent`. The brain speaks
+protocol 2.
 
 **Brain → mod:**
 
@@ -298,21 +294,44 @@ out the 60-second timeout for something that is never coming.
 { "id": "r41", "action": "mine_block", "parameters": { "x": 100, "y": 64, "z": 100 } }
 ```
 
-`id` is new, and a mod that ignores it still works. The brain keeps every action
-in flight in an ordered map: a completion carrying an `id` goes to the caller
-that asked for it, and one without goes to the oldest action still waiting.
-A single slot used to mean two concurrent actions — a reflex of hers and the
-body's goal, which now genuinely overlap — overwrote each other, leaving one
-caller hanging for the full 60-second timeout while somebody else's completion
-resolved the wrong `await`. Actions nobody is waiting for any more are
-remembered too, so their late completion is discarded rather than handed to
-whoever asked next.
+**Mod → brain.** Dispatch is on `type` first, then `status`:
+
+| Field | Value | Meaning |
+|---|---|---|
+| `type` | `chat`, `player_event`, `combat`, `death_event` | a sense; handed to the surface |
+| `type` | `reflex` | the body acted on its own: `reflex` is `eat`, `defend`, `clutch`, `unstuck` or `respawn`, `event` is `started`/`finished`, `interrupted_id` names the request it cut short |
+| `status` | `FINISHED` | the answer to request `id`: `result` (`SUCCESS`, `FAILURE_<CODE>`, `INTERRUPTED`), `message`, optional `log`, `details`, and `reason` when interrupted |
+| — | `type: game_state` | a game-state snapshot, once a second |
+
+```json
+{"status": "FINISHED", "id": "r41", "action": "move_to", "result": "INTERRUPTED",
+ "message": "interrupted (self_defence: Zombie)", "reason": "self_defence: Zombie"}
+{"type": "reflex", "reflex": "defend", "event": "started",
+ "message": "defending against Zombie after taking 2.0 damage", "interrupted_id": "r41"}
+```
+
+Every request is answered exactly once, with its own `id`, however it ends:
+finished, replaced by a newer request, stopped by `stop_moving`, cut short by a
+reflex, by death, or by the agent disconnecting. An answer is matched to its
+caller by `id` only; one nobody is waiting for any more (the caller timed out, or
+the body was taken off the goal mid-swing) is discarded. What the body does
+without being asked never has a `status`, so it can never answer for anything:
+the surface appends it to the body's behaviour log, which the body reads as
+"While you were working: …" before its next move, and a fight or a death is also
+told to her.
+
+A jar that speaks protocol 1 still plays: the brain logs an error that it is
+outdated, matches its answers in order, reads its explanation from `details`,
+and does not wait for the four actions it never answers. The packets the tests
+hold the client to are recorded from a live mod
+(`tests/fixtures/minecraft_packets/`).
 
 ### The contract
 
 `tests/fixtures/minecraft_contract.json`: for every action,
 the parameters that mod skill actually looks at, and the ones `ActionManager`
-fills in itself. `tools/mc_contract.py` regenerates it from a checkout:
+fills in itself, plus which actions run beside the body. `tools/mc_contract.py`
+regenerates it from a checkout:
 
 ```bash
 uv run python tools/mc_contract.py --mod ../beacraft

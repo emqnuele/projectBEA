@@ -141,7 +141,9 @@ def test_completion_events_still_resolve_an_action():
     loop = asyncio.new_event_loop()
     client = MinecraftClient("ws://x", loop)
     waiting = _awaiting(client, loop, "r1")
-    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "mined 3 logs"})
+    # the shape a protocol-1 jar really sends: the sentence under `details`
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "action": "mine_block",
+                    "details": {"message": "mined 3 logs"}})
     assert waiting.result() == "SUCCESS: mined 3 logs"
 
 
@@ -165,8 +167,10 @@ def test_each_action_is_answered_with_its_own_result():
     client = MinecraftClient("ws://x", loop)
     mining, walking = _awaiting(client, loop, "r1"), _awaiting(client, loop, "r2")
 
-    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "mined", "id": "r1"})
-    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "walked", "id": "r2"})
+    client._handle({"status": "FINISHED", "id": "r1", "action": "mine_block", "result": "SUCCESS",
+                    "message": "mined"})
+    client._handle({"status": "FINISHED", "id": "r2", "action": "move_to", "result": "SUCCESS",
+                    "message": "walked"})
 
     assert mining.result() == "SUCCESS: mined"
     assert walking.result() == "SUCCESS: walked"
@@ -178,8 +182,10 @@ def test_an_older_mod_is_answered_in_order():
     client = MinecraftClient("ws://x", loop)
     first, second = _awaiting(client, loop, "r1"), _awaiting(client, loop, "r2")
 
-    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "one"})
-    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "two"})
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "action": "mine_block",
+                    "details": {"message": "one"}})
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "action": "move_to",
+                    "details": {"message": "two"}})
 
     assert first.result() == "SUCCESS: one" and second.result() == "SUCCESS: two"
 
@@ -197,10 +203,12 @@ def test_the_answer_to_an_abandoned_action_is_not_given_to_the_next_caller():
     client._abandon("r1")
     walking = _awaiting(client, loop, "r2")
 
-    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "the old one"})
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "action": "mine_block",
+                    "details": {"message": "the old one"}})
     assert not walking.done()
 
-    client._handle({"status": "FINISHED", "result": "SUCCESS", "message": "walked"})
+    client._handle({"status": "FINISHED", "result": "SUCCESS", "action": "move_to",
+                    "details": {"message": "walked"}})
     assert walking.result() == "SUCCESS: walked"
 
 
@@ -433,6 +441,6 @@ class _RecordingClient:
     def __init__(self):
         self.calls = []
 
-    async def execute(self, action, params, instant=False):
+    async def execute(self, action, params, timeout=None):
         self.calls.append((action, params))
         return "SUCCESS"

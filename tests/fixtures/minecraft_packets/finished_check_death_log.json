@@ -1,0 +1,17 @@
+{
+  "status": "FINISHED",
+  "id": "h6",
+  "action": "check_death_log",
+  "result": "SUCCESS",
+  "message": "you died at (3, -57, 0) in minecraft:overworld to Unknown, 5 s ago",
+  "details": {
+    "timestamp": 1790336345,
+    "killer": "Unknown",
+    "dimension": "minecraft:overworld",
+    "coordinates": {
+      "x": 3.4256827594663517,
+      "y": -57.0,
+      "z": 0.49841593422451197
+    }
+  }
+}

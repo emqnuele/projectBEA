@@ -1,0 +1,18 @@
+{
+  "status": "FINISHED",
+  "id": "h5",
+  "action": "move_to",
+  "result": "INTERRUPTED",
+  "message": "interrupted (death)",
+  "details": {
+    "target_x": 20,
+    "target_y": -57,
+    "target_z": 0,
+    "path_length": 20,
+    "path_status": "COMPLETE",
+    "planner": "beacraft",
+    "replans": 0,
+    "message": "Arrived at BlockPos{x=20, y=-57, z=0}."
+  },
+  "reason": "death"
+}

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from src.core.skills.minecraft.tools import _ALIASES, _TOOLS
+from src.core.skills.minecraft.tools import _ALIASES, _QUICK, _TOOLS
 
 CONTRACT = json.loads(
     (Path(__file__).parent / "fixtures/minecraft_contract.json").read_text(encoding="utf-8"))
@@ -75,3 +75,13 @@ def test_the_mod_never_takes_a_parameter_it_fills_in_itself():
     for action, spec in ACTIONS.items():
         clash = exposed_by(action) & set(spec["injected_by_mod"])
         assert not clash, f"{action}: the brain overrides {sorted(clash)}, which the mod sets"
+
+
+def test_what_the_mod_runs_beside_the_body_is_declared_known():
+    assert set(CONTRACT["concurrent_actions"]) <= set(CONTRACT["known_actions"])
+
+
+def test_what_the_mod_runs_beside_the_body_is_quick_for_the_brain():
+    """A glance or a chat line is answered at once; nothing about it runs long."""
+    for action in CONTRACT["concurrent_actions"]:
+        assert action in _QUICK, f"{action} runs beside the body in the mod but not in the brain"

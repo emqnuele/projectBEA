@@ -281,6 +281,8 @@ class MinecraftSurface(Skill):
             self._on_death(data)
         elif kind == "auto_action":
             self._on_auto_action(data)
+        elif kind == "reflex":
+            self._on_reflex(data)
 
     def _on_chat(self, data: dict) -> None:
         """Someone talked in game.
@@ -391,6 +393,22 @@ class MinecraftSurface(Skill):
             salience=0.85, meta={"event": "hurt", "source": "mob"},
         ))
 
+    def _on_reflex(self, data: dict) -> None:
+        """The body did something nobody asked for: eat, fight, clutch, get unstuck.
+
+        The body reads it before its next move, so an interruption is never a
+        mystery. Fighting and dying are also hers to hear about.
+        """
+        reflex = str(data.get("reflex") or "reflex")
+        message = " ".join(str(data.get("message") or "").split())
+        if not message:
+            return
+        agent = self.agent
+        if agent is not None:
+            agent.note_reflex(f"{reflex}: {message}")
+        if reflex in ("defend", "respawn") and data.get("event") == "started":
+            self._emit_milestone(f"your body, on its own: {message}")
+
     def _is_whisper(self, text: str, name: str) -> bool:
         """Vanilla renders a whisper as "Marco whispers to you: ..."."""
         low = text.lower()
@@ -494,13 +512,16 @@ class MinecraftSurface(Skill):
 
             The goal is put down for the duration and picked back up after: one
             body, and two things wanting it at once is two sets of movement
-            orders arriving at the same legs.
+            orders arriving at the same legs. An action the mod runs beside the
+            current one (a glance) leaves the goal alone.
             """
             rename = rename or {}
             why = action.replace("_", " ")
 
             async def handler(**kwargs):
                 args = {rename.get(k, k): v for k, v in kwargs.items()}
+                if action in client.concurrent:
+                    return await client.execute(action, args)
                 agent = self.agent
                 if agent is not None:
                     agent.borrow()
@@ -600,14 +621,17 @@ class MinecraftSurface(Skill):
     async def _tool_chat(self, message: str) -> str:
         if self.client is None:
             return "FAILED: your body isn't connected."
-        await self.client.execute("chat", {"message": message}, instant=True)
-        return "Typed it in game chat."
+        # the mod types it beside whatever the body is doing; it no longer stops it
+        said = await self.client.execute("chat", {"message": message})
+        if said.startswith(("SUCCESS", "SENT")):
+            return "Typed it in game chat."
+        return said
 
     async def _tool_stop(self) -> str:
         if self.client is None or self.agent is None:
             return "FAILED: your body isn't connected."
         said = self.agent.clear_goal("she told it to stop")
-        await self.client.execute("stop_moving", {}, instant=True)
+        await self.client.execute("stop_moving", {})
         return said
 
 

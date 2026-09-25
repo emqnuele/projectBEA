@@ -1,0 +1,8 @@
+{
+  "status": "FINISHED",
+  "result": "FAILURE_NO_FOOD",
+  "action": "programmatic_EatSkill",
+  "details": {
+    "message": "Finished eating"
+  }
+}

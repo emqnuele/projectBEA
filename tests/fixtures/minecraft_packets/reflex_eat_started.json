@@ -1,0 +1,7 @@
+{
+  "type": "reflex",
+  "reflex": "eat",
+  "event": "started",
+  "message": "eating: food was 19/20",
+  "interrupted_id": null
+}

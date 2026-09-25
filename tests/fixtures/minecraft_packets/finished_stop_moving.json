@@ -1,0 +1,7 @@
+{
+  "status": "FINISHED",
+  "id": "h4",
+  "action": "stop_moving",
+  "result": "SUCCESS",
+  "message": "stopped move_to"
+}

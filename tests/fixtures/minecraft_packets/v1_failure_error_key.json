@@ -1,0 +1,9 @@
+{
+  "status": "FINISHED",
+  "result": "FAILURE",
+  "action": "craft_item",
+  "details": {
+    "status": "failed",
+    "error": "Crafting failed (Verified: 0 -> 0)"
+  }
+}
