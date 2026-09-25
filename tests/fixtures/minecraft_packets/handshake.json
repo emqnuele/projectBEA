@@ -33,13 +33,15 @@
     "follow_player",
     "give_item",
     "pickup_items",
-    "build"
+    "build",
+    "scan"
   ],
   "concurrent": [
     "chat",
     "check_death_log",
     "request_screenshot",
-    "look_at"
+    "look_at",
+    "scan"
   ],
   "budgets": {
     "default": 45,

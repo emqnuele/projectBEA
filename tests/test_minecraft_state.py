@@ -109,3 +109,55 @@ def test_every_tool_that_needs_a_coordinate_can_read_one_off_the_state(tool):
 def test_the_target_attack_wants_is_a_name_the_state_shows():
     rendered = render_state(packet())
     assert "Zombie" in rendered and "Notch" in rendered
+
+
+# --- resources and the world -------------------------------------------------
+
+
+def _with(**parts):
+    state = {"player": {"health": 20, "food": 20, "position": {"x": 0, "y": -57, "z": 0}}}
+    state.update(parts)
+    return state
+
+
+def test_a_tree_seven_blocks_away_is_in_sight_with_where_to_go():
+    """The reported gap: the lidar stopped at four blocks, and a tree at seven did not exist."""
+    text = render_state(_with(
+        resources={"oak_log": {"count": 5, "nearest": {"x": 7, "y": -57, "z": 0, "distance": 7.0},
+                               "nearest_exposed": {"x": 7, "y": -57, "z": 0, "distance": 7.0}}},
+        resources_scan={"radius": 20, "ms": 4.1}))
+    assert "- resources in sight (within 20 blocks): oak_log×5 (7, -57, 0) 7.0m" in text
+
+
+def test_ores_come_first_and_a_buried_one_says_so():
+    text = render_state(_with(resources={
+        "stone": {"count": 900, "nearest": {"x": 0, "y": -58, "z": 0, "distance": 1.0},
+                  "nearest_exposed": {"x": 0, "y": -58, "z": 0, "distance": 1.0}},
+        "iron_ore": {"count": 1, "nearest": {"x": 12, "y": -60, "z": -3, "distance": 12.7}},
+    }))
+    line = next(x for x in text.splitlines() if x.startswith("- resources"))
+    assert line == "- resources in sight: iron_ore×1 (12, -60, -3) 12.7m buried, stone×900 (0, -58, 0) 1.0m"
+
+
+def test_only_eight_kinds_are_named():
+    many = {f"k{i}": {"count": 1, "nearest": {"x": i, "y": 0, "z": 0, "distance": float(i)}} for i in range(12)}
+    line = next(x for x in render_state(_with(resources=many)).splitlines() if x.startswith("- resources"))
+    assert line.count("×") == 8 and "k0×1" in line and "k11" not in line
+
+
+def test_night_and_the_dark_reach_her():
+    assert "- time: night (hostiles spawn in the dark), raining, no light where you stand" in render_state(
+        _with(world={"is_night": True, "raining": True, "block_light": 0, "dimension": "minecraft:overworld"}))
+    assert "- time: day" in render_state(_with(world={"is_night": False, "block_light": 0}))
+    assert "in the the_nether" in render_state(_with(world={"dimension": "minecraft:the_nether"}))
+
+
+def test_the_real_packet_shows_the_tree_and_the_ore_the_old_one_hid():
+    """Recorded from the mod: the setup that used to render only the crafting table."""
+    import json
+    from pathlib import Path
+    real = json.loads((Path(__file__).parent / "fixtures/minecraft_packets/game_state.json").read_text())
+    text = render_state(real)
+    assert "oak_log×5 (7, -57, 0) 7.0m" in text
+    assert "iron_ore×1 (12, -57, -3) 12.4m" in text
+    assert "- time: day" in text

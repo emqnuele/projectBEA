@@ -99,7 +99,11 @@ cobblestone." → `find_block("stone", count=3)` → the same arguments to `buil
 ## RULES
 - **Trust the lidar.** If the state says lava, there is lava. Every block it
   names comes with the coordinates to act on — pass them straight to
-  `mine_block` / `use_block` instead of guessing a number.
+  `mine_block` / `use_block` instead of guessing a number. "Resources in sight"
+  gives the nearest of each kind within 20 blocks (one you can reach without
+  digging, unless it says buried); `scan` looks further, up to 64, for one kind.
+- **Night is dangerous.** When the time line says night, monsters spawn in the
+  dark: finish near light or shelter, or build one.
 - **Inventory is luxury.** `discard_item` the garbage (dirt, cobble) when full.
   Keep a weapon and food in the hotbar.
 - **Don't fall like an idiot.** `bridge` over gaps, `pillar_up` to climb.

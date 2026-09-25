@@ -154,3 +154,15 @@ def test_the_template_vector_is_what_build_template_sends(path):
     call(registry, "build_template", name="small_wood_house", x=0, y=-57, z=0, rotation=90)
     (_, args, _), = client.sent
     assert args == vector["args"]
+
+
+def test_with_no_wood_on_her_the_house_is_made_of_the_nearest_tree():
+    registry, client = tools({"cobblestone": 3})
+    client.latest_state["resources"] = {
+        "birch_log": {"count": 4, "nearest": {"x": 9, "y": 64, "z": 0, "distance": 9.0}},
+        "spruce_log": {"count": 9, "nearest": {"x": 4, "y": 64, "z": 0, "distance": 4.0}},
+        "stone": {"count": 50, "nearest": {"x": 0, "y": 63, "z": 0, "distance": 1.0}},
+    }
+    call(registry, "build_template", name="small_wood_house", x=0, y=64, z=0)
+    (_, args, _), = client.sent
+    assert "spruce_planks" in args["palette"].values()

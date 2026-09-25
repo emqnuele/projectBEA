@@ -1,6 +1,6 @@
 {
   "type": "game_state",
-  "timestamp": 1790336328,
+  "timestamp": 1790356828,
   "is_busy": false,
   "current_action": "idle",
   "player": {
@@ -8,15 +8,15 @@
     "uuid": "1d6ad2d6-9534-3cac-b82a-95a793dcf5ea",
     "health": 20.0,
     "food": 20,
-    "saturation": 5.0,
+    "saturation": 20.0,
     "position": {
       "x": 0.5,
       "y": -57.0,
       "z": 0.5
     },
     "rotation": {
-      "yaw": 30.035448,
-      "pitch": 14.423736
+      "yaw": -0.08733047,
+      "pitch": -0.14625248
     },
     "is_alive": true,
     "is_moving": true
@@ -24,8 +24,9 @@
   "inventory": {
     "selected_slot": 0,
     "hand_main": {
-      "item": "minecraft:cobblestone",
-      "count": 8
+      "item": "minecraft:wooden_pickaxe",
+      "count": 1,
+      "durability": 59
     },
     "hand_off": {
       "item": "minecraft:air",
@@ -33,13 +34,14 @@
     },
     "hotbar": [
       {
-        "item": "minecraft:cobblestone",
-        "count": 8,
+        "item": "minecraft:wooden_pickaxe",
+        "count": 1,
+        "durability": 59,
         "slot": 0
       },
       {
-        "item": "minecraft:bread",
-        "count": 4,
+        "item": "minecraft:oak_planks",
+        "count": 3,
         "slot": 1
       },
       {
@@ -236,20 +238,20 @@
     "context": {
       "craftable_2x2": [
         {
-          "item": "minecraft:cobblestone_slab",
-          "max_craftable": 8
+          "item": "minecraft:oak_pressure_plate",
+          "max_craftable": 1
         },
         {
-          "item": "minecraft:stone",
-          "max_craftable": 8
+          "item": "minecraft:stick",
+          "max_craftable": 1
         },
         {
-          "item": "minecraft:cobblestone_wall",
-          "max_craftable": 8
+          "item": "minecraft:oak_button",
+          "max_craftable": 3
         },
         {
-          "item": "minecraft:cobblestone_stairs",
-          "max_craftable": 8
+          "item": "minecraft:oak_slab",
+          "max_craftable": 1
         }
       ],
       "screen_open": "none"
@@ -257,7 +259,15 @@
   },
   "lidar": {
     "radius": 4,
-    "blocks": [],
+    "blocks": [
+      {
+        "x": -3,
+        "y": -57,
+        "z": 2,
+        "name": "minecraft:crafting_table",
+        "distance": 3.6
+      }
+    ],
     "surrounded_by": {
       "dirt": 162,
       "grass_block": 81,
@@ -265,6 +275,77 @@
     },
     "standing_on": "grass_block",
     "above_head": "air"
+  },
+  "resources": {
+    "crafting_table": {
+      "count": 1,
+      "nearest": {
+        "x": -3,
+        "y": -57,
+        "z": 2,
+        "distance": 3.6
+      },
+      "nearest_exposed": {
+        "x": -3,
+        "y": -57,
+        "z": 2,
+        "distance": 3.6
+      }
+    },
+    "iron_ore": {
+      "count": 1,
+      "nearest": {
+        "x": 12,
+        "y": -57,
+        "z": -3,
+        "distance": 12.4
+      },
+      "nearest_exposed": {
+        "x": 12,
+        "y": -57,
+        "z": -3,
+        "distance": 12.4
+      }
+    },
+    "oak_log": {
+      "count": 5,
+      "nearest": {
+        "x": 7,
+        "y": -57,
+        "z": 0,
+        "distance": 7.0
+      },
+      "nearest_exposed": {
+        "x": 7,
+        "y": -57,
+        "z": 0,
+        "distance": 7.0
+      }
+    },
+    "stone": {
+      "count": 5043,
+      "nearest": {
+        "x": 0,
+        "y": -61,
+        "z": 0,
+        "distance": 4.0
+      }
+    }
+  },
+  "resources_scan": {
+    "radius": 20,
+    "ms": 8.7
+  },
+  "world": {
+    "time_of_day": 6000,
+    "is_night": false,
+    "dimension": "minecraft:overworld",
+    "biome": "minecraft:plains",
+    "raining": false,
+    "thundering": false,
+    "light": 15,
+    "block_light": 0,
+    "game_mode": "survival"
   },
   "entities": [],
   "players_online": [

@@ -47,7 +47,7 @@ data/minecraft/blueprints/   ready-made buildings (mindcraft's, MIT)
                      │  play_minecraft("get a stone pickaxe")
 ┌────────────────────▼───────────────────────────────────┐
 │ the body — GameAgent, one loop that never ends         │
-│ 33 tools + the survival guide + the notebook           │
+│ 34 tools + the survival guide + the notebook           │
 │ think → act → observe, paced, re-reading the world     │
 │ reports back: milestones, and how the goal ended       │
 └────────────────────┬───────────────────────────────────┘
@@ -100,6 +100,18 @@ one. The list is capped per kind, so a row of torches cannot spend the budget
 and hide the ore behind it. The bulk census, the block underfoot and the block
 overhead come from the mod as well: standing on air is how the body learns it
 is falling.
+
+That close view reaches four blocks. Further out, the mod scans a cube of 20
+blocks around her every two seconds (a few milliseconds of the game's frame)
+and reports each useful kind once: logs by wood, leaves, stone, cobblestone,
+deepslate, every ore, sand, gravel, clay, water and lava sources, crafting
+tables, furnaces, chests, barrels, beds and ripe crops, with how many there are,
+the nearest, and the nearest she can reach without digging. `state.py` turns it
+into one line, ores first, eight kinds at most. A `world` block adds the time of
+day, whether it is dark outside, the weather, the light at her feet (hostiles
+spawn where the block light is 0), the biome and the dimension; the state says
+"night" when monsters are about. Beyond twenty blocks the body asks: `scan(block,
+radius)` looks up to 64 blocks for one kind, beside whatever she is doing.
 
 ---
 
@@ -250,7 +262,7 @@ does. The same line twice is never sent twice, and two never arrive within
 **The body's own two:** `goal_done(summary)` and `goal_blocked(reason)` — the
 only two ways a goal ends.
 
-**The body's game tools:** `mine_block`, `attack_entity`, `move_to`,
+**The body's game tools:** `scan`, `mine_block`, `attack_entity`, `move_to`,
 `stop_moving`, `request_screenshot`, `look_at`, `place_block`, `build`,
 `select_slot`, `find_block`, `pillar_up`, `mine_down`, `bridge`, `craft_item`,
 `use_block`, `smelt_item`, `store_item`, `retrieve_item`, `equip_item`,
@@ -262,8 +274,8 @@ and the building tools worked out in the brain: `plan_build`, `list_templates`,
 Every tool awaits the mod's answer to it, so the observation the model reasons
 on is what actually happened: `RESULT: sentence`, followed by the last lines of
 the action's own log when it sent one. `chat`, `check_death_log`,
-`request_screenshot` and `look_at` run beside whatever the body is doing and are
-answered at once; they never stop it. How long the brain waits depends on the
+`request_screenshot`, `look_at` and `scan` run beside whatever the body is doing
+and are answered at once; they never stop it. How long the brain waits depends on the
 action (`ACTION_TIMEOUTS` in `tools.py`), and is always longer than the mod's own
 budget for it (announced in the handshake), so the mod gives up first and says
 why.

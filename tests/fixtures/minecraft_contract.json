@@ -23,6 +23,7 @@
     "place_block",
     "request_screenshot",
     "retrieve_item",
+    "scan",
     "select_slot",
     "smelt_item",
     "stop_moving",
@@ -33,7 +34,8 @@
     "chat",
     "check_death_log",
     "look_at",
-    "request_screenshot"
+    "request_screenshot",
+    "scan"
   ],
   "actions": {
     "attack_entity": {
@@ -226,6 +228,15 @@
       "injected_by_mod": [
         "mode"
       ]
+    },
+    "scan": {
+      "skill": "ScanSkill",
+      "accepts": [
+        "block",
+        "count",
+        "radius"
+      ],
+      "injected_by_mod": []
     },
     "select_slot": {
       "skill": "InventorySkill",

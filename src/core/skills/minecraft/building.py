@@ -114,6 +114,14 @@ def describe_template(name: str, template: Dict[str, Any]) -> str:
     return f"{name}: {width} wide (x) by {depth} deep (z) by {height} high{sunk}{door}; needs {cost}"
 
 
+def nearest_log(state: Optional[Dict[str, Any]]) -> Optional[str]:
+    """The kind of log nearest to her in the state's resources: the wood a build defaults to."""
+    resources = (state or {}).get("resources") or {}
+    logs = [(float((info.get("nearest") or {}).get("distance", 1e9)), name)
+            for name, info in resources.items() if name.endswith("_log") and isinstance(info, dict)]
+    return min(logs)[1] if logs else None
+
+
 def _missing_line(items: Dict[str, int], inventory: Dict[str, int]) -> str:
     missing = shortfall(items, inventory)
     if not missing:
@@ -150,7 +158,8 @@ def register_building_tools(registry: ToolRegistry, client: MinecraftClient, sur
         template = templates.get(str(name).strip())
         if template is None:
             return f"ERROR: no template '{name}'; there are {', '.join(templates)}."
-        args = from_template(with_door_facing(template), int(x), int(y), int(z), int(rotation), inventory())
+        args = from_template(with_door_facing(template), int(x), int(y), int(z), int(rotation), inventory(),
+                             nearest_log(client.latest_state))
         # a template's floor sits in the ground: whatever holds its cells makes way
         args["clear"] = True
         if dry_run:

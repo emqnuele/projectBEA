@@ -17,7 +17,7 @@ _NOTEBOOK_DESC = (
 
 # answered in a moment: they read, speak or stop, and never walk anywhere
 _QUICK = {"request_screenshot", "check_death_log", "stop_moving", "chat", "look_at",
-          "look_at_player"}
+          "look_at_player", "scan"}
 
 # seconds the brain waits for an answer. Each is longer than the mod's own
 # budget for the action, so the mod always gives up first and says why; the
@@ -152,6 +152,20 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
                 "radius": {"type": "integer", "default": 48, "maximum": 100,
                            "description": "How far to search."},
                 "count": {"type": "integer", "description": "How many to gather; defaults to 7."},
+            },
+            "required": ["block"],
+        }),
+    "scan": (
+        "Where the nearest blocks of a kind are, up to 64 blocks away, without moving and "
+        "without stopping what you are doing. The state already lists what is within 20 "
+        "blocks; scan is for looking further, or for one kind. Names match like find_block "
+        "('log' is any log). FAILURE_NONE_FOUND means there is none that close.",
+        {
+            "type": "object",
+            "properties": {
+                "block": {"type": "string"},
+                "radius": {"type": "integer", "maximum": 64, "description": "Defaults to 32."},
+                "count": {"type": "integer", "maximum": 20, "description": "How many to list; defaults to 5."},
             },
             "required": ["block"],
         }),
