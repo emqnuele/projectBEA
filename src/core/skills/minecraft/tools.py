@@ -26,7 +26,8 @@ _QUICK = {"request_screenshot", "check_death_log", "stop_moving", "chat", "look_
 # answer landed on whatever was asked next
 ACTION_TIMEOUTS: Dict[str, float] = {
     "find_block": 240.0, "build": 900.0, "move_to": 120.0, "smelt_item": 180.0,
-    "mine_block": 70.0, "goto_player": 100.0, "give_item": 100.0,
+    "mine_block": 70.0, "goto_player": 100.0, "give_item": 100.0, "move_away": 70.0,
+    "go_to_surface": 130.0,
 }
 DEFAULT_TIMEOUT = 60.0
 
@@ -59,14 +60,32 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         }},
         "required": ["target"],
     }),
-    "move_to": ("Move to specific coordinates.", {
+    "move_to": (
+        "Walk to coordinates. She first looks for a way that breaks nothing (round a wall, "
+        "through a door she opens); only when there is none does she dig, and never through "
+        "doors, chests, beds, glass or torches. `range` is how close counts as there. The "
+        "answer says where she stopped; FAILURE means she could not get there.", {
         "type": "object",
         "properties": {
             "x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"},
+            "range": {"type": "number", "minimum": 0, "maximum": 32,
+                      "description": "Blocks from the target that count as arrived; defaults to 1.5 "
+                                     "(the cell, or one next to it)."},
             "allowPillaring": _PILLARING, "allowBridging": _BRIDGING,
         },
         "required": ["x", "y", "z"],
     }),
+    "move_away": (
+        "Put `distance` blocks between you and where you stand, in whatever direction is open. "
+        "FAILURE_BLOCKED says how far you got.", {
+        "type": "object",
+        "properties": {"distance": {"type": "number", "minimum": 2, "maximum": 64,
+                                    "description": "Defaults to 20."}},
+    }),
+    "go_to_surface": (
+        "Get out from underground to where you can see the sky: walking out if there is a way, "
+        "else digging a staircase up, away from lava and water. Slow without a pickaxe. "
+        "FAILURE_NO_SURFACE in the Nether.", {"type": "object", "properties": {}}),
     "stop_moving": ("Stop all movement immediately.", {"type": "object", "properties": {}}),
     "request_screenshot": ("Request a visual screenshot of the current view.", {"type": "object", "properties": {}}),
     "look_at": ("Look at specific coordinates.", {

@@ -35,7 +35,9 @@
     "pickup_items",
     "build",
     "scan",
-    "view_container"
+    "view_container",
+    "move_away",
+    "go_to_surface"
   ],
   "concurrent": [
     "chat",
@@ -54,6 +56,8 @@
     "smelt_item": 150,
     "goto_player": 90,
     "give_item": 90,
+    "move_away": 60,
+    "go_to_surface": 120,
     "follow_player": 0
   }
 }

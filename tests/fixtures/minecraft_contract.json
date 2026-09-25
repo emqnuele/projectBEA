@@ -13,10 +13,12 @@
     "find_block",
     "follow_player",
     "give_item",
+    "go_to_surface",
     "goto_player",
     "look_at",
     "mine_block",
     "mine_down",
+    "move_away",
     "move_to",
     "pickup_items",
     "pillar_up",
@@ -139,6 +141,11 @@
       ],
       "injected_by_mod": []
     },
+    "go_to_surface": {
+      "skill": "GoToSurfaceSkill",
+      "accepts": [],
+      "injected_by_mod": []
+    },
     "goto_player": {
       "skill": "FollowSkill",
       "accepts": [
@@ -178,12 +185,22 @@
       ],
       "injected_by_mod": []
     },
+    "move_away": {
+      "skill": "MoveAwaySkill",
+      "accepts": [
+        "distance",
+        "from_x",
+        "from_z"
+      ],
+      "injected_by_mod": []
+    },
     "move_to": {
       "skill": "MoveSkill",
       "accepts": [
         "allowBridging",
         "allowMining",
         "allowPillaring",
+        "range",
         "x",
         "y",
         "z"

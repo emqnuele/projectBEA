@@ -45,6 +45,8 @@ OMITTED = {
     "smelt_item": {"input_item", "fuel_item"},
     # the chest skill shared with store/retrieve: a look moves nothing
     "view_container": {"item", "count"},
+    # the point to flee from is the flee reflex's; asked for, she moves away from where she is
+    "move_away": {"from_x", "from_z"},
 }
 
 

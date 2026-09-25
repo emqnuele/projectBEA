@@ -266,7 +266,7 @@ does. The same line twice is never sent twice, and two never arrive within
 only two ways a goal ends.
 
 **The body's game tools:** `scan`, `mine_block`, `attack_entity`, `move_to`,
-`stop_moving`, `request_screenshot`, `look_at`, `place_block`, `build`,
+`move_away`, `go_to_surface`, `stop_moving`, `request_screenshot`, `look_at`, `place_block`, `build`,
 `select_slot`, `find_block`, `pillar_up`, `mine_down`, `bridge`, `craft_item`,
 `use_block`, `smelt_item`, `store_item`, `retrieve_item`, `view_container`,
 `equip_item`, `discard_item`, `eat_food`, `check_death_log`, `goto_player`,
@@ -334,6 +334,30 @@ with `confirm=true`. The mod never sees code.
 **While it builds** the mod sends `{"type": "progress", "done", "total",
 "message"}` every ten cells; it becomes the body's current thought, which is what
 her commentary reads.
+
+---
+
+## Walking
+
+`move_to(x, y, z, range)` plans twice when it may dig: first a way that breaks
+nothing, found within 5,000 steps of search (round a wall, through a door she
+opens); only when there is none, a way that digs. A path never digs through the
+protected blocks, whatever the cost: doors, trapdoors, fence gates, beds, chests,
+barrels, shulker boxes, furnaces, crafting tables, glass and panes, torches and
+lanterns (`protectedBlocks` in `config/beacraft.json`; ids, `#tags` and
+`*suffixes`). A closed wooden door or fence gate on the way is a step of the path:
+she opens it when she reaches it, and one she walks into gets opened too. Fences
+and walls are 1.5 blocks high, so they are never taken for a step to jump onto.
+`range` up to 1.5 only forgives where she stops; a bigger one is where the plan
+aims, so she stops as soon as she is that close.
+
+A walk that stops gaining ground steps aside once and plans again before it gives
+up, and the answer's log says so. `move_away(distance)` puts that many blocks
+between her and where she stands, trying up to three directions. `go_to_surface`
+walks out to open ground when there is a way, else digs a staircase up, one step
+forward and one up, in a direction with no lava or water behind what it opens;
+it is done when the sky is over her head and the ground ahead is no higher than
+her feet.
 
 ---
 
