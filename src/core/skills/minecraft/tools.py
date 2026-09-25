@@ -346,7 +346,8 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "different audience from your voice. Your voice (`speak`) is heard by your "
         "stream; this is what the people in the game see. You can use both in the "
         "same turn, and often should: comment out loud for your audience, and "
-        "answer in chat for whoever is standing there.",
+        "answer in chat for whoever is standing there. On clients with Baritone "
+        "a line starting with its command prefix is refused, so say it plainly.",
         {
             "type": "object",
             "properties": {"message": {"type": "string"}},
