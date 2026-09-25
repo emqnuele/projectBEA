@@ -22,6 +22,14 @@ ACTIONS = CONTRACT["actions"]
 # tools that never reach the mod
 LOCAL_ONLY = {"update_notebook", "goal_done", "goal_blocked"}
 
+# mod actions the body is not given, and why
+NOT_EXPOSED = {
+    # nothing in the body looks at an image yet: a screenshot would be a slow, blind call
+    "request_screenshot",
+    # equip_item puts the thing in her hand from anywhere; a slot number is a guess about her hotbar
+    "select_slot",
+}
+
 # mod parameters the brain deliberately does not offer, and why. Anything the
 # mod accepts that is neither exposed nor listed here fails the test on purpose.
 OMITTED = {
@@ -76,7 +84,14 @@ def test_the_mod_reads_every_parameter_the_brain_sends(action):
         f"it accepts {sorted(accepted)}")
 
 
-@pytest.mark.parametrize("action", sorted(ACTIONS))
+def test_every_mod_action_is_a_tool_or_left_out_on_purpose():
+    exposed = {_ALIASES.get(t, (t, {}))[0] for t in _TOOLS}
+    undecided = set(CONTRACT["known_actions"]) - exposed - NOT_EXPOSED
+    assert not undecided, f"the mod offers {sorted(undecided)} and the body has no tool for it"
+    assert not (NOT_EXPOSED & exposed), "an action listed as left out is exposed after all"
+
+
+@pytest.mark.parametrize("action", sorted(set(ACTIONS) - NOT_EXPOSED))
 def test_no_mod_parameter_is_left_undecided(action):
     accepted = set(ACTIONS[action]["accepts"])
     unclaimed = accepted - exposed_by(action) - OMITTED.get(action, set())

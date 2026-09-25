@@ -12,6 +12,7 @@ from src.core.skills.minecraft.client import MinecraftClient
 from src.core.skills.minecraft.context import KEEP_ROUNDS
 from src.core.skills.minecraft.goal import ABANDONED, DONE, Goal
 from src.core.skills.minecraft.notebook import Notebook
+from src.core.skills.minecraft.places import DEATH, Places, server_of
 from src.core.skills.minecraft.state import render_state
 from src.core.skills.minecraft.tools import build_minecraft_tools
 from src.utils.logger import get_logger
@@ -54,6 +55,8 @@ class MinecraftSurface(Skill):
             prompt_for(cfg, "body_prompt", "data/prompts/minecraft_body.md"))
         self.client: Optional[MinecraftClient] = None
         self.notebook = Notebook()
+        self.places: Optional[Places] = None
+        self._saving: set = set()
         self._registry = None
         self.agent: Optional[GameAgent] = None
         self._poll_task: Optional[asyncio.Task] = None
@@ -75,8 +78,10 @@ class MinecraftSurface(Skill):
         loop = asyncio.get_running_loop()
         cfg = self.skill_config
         self.client = MinecraftClient(url, loop, on_event=self._on_mod_event)
+        self.places = await asyncio.to_thread(Places)
         self._registry = build_minecraft_tools(
-            self.client, self.notebook, build_scripts=bool(cfg.get("build_scripts", True)))
+            self.client, self.notebook, build_scripts=bool(cfg.get("build_scripts", True)),
+            places=self.places)
         self.agent = GameAgent(
             llm=self._body_model(),
             registry=self._registry,
@@ -88,6 +93,7 @@ class MinecraftSurface(Skill):
             steps_per_goal=int(cfg.get("steps_per_goal", STEPS_PER_GOAL)),
             tick_seconds=float(cfg.get("tick_seconds", TICK_SECONDS)),
             keep_rounds=int(cfg.get("body_context_rounds", KEEP_ROUNDS)),
+            places=self._places_line,
         )
         self.client.connect()
         self.active = True
@@ -374,6 +380,7 @@ class MinecraftSurface(Skill):
         details = data.get("details") or {}
         pos = details.get("death_pos") or {}
         lost = details.get("lost_items") or []
+        self._remember_death(pos, str(details.get("dimension") or "minecraft:overworld"))
 
         where = ""
         if pos.get("x") is not None:
@@ -441,6 +448,26 @@ class MinecraftSurface(Skill):
 
     def _latest_state(self) -> dict:
         return self.client.latest_state if self.client is not None else {}
+
+    def _places_line(self) -> str:
+        if self.places is None:
+            return ""
+        state = self._latest_state() or {}
+        pos = (state.get("player") or {}).get("position") or {}
+        here = (float(pos["x"]), float(pos["y"]), float(pos["z"])) if {"x", "y", "z"} <= set(pos) else None
+        dimension = str((state.get("world") or {}).get("dimension") or "minecraft:overworld")
+        return self.places.render(server_of(state), here, dimension)
+
+    def _remember_death(self, pos: dict, dimension: str) -> None:
+        """Where she died, kept as last_death: what she dropped is lying there."""
+        if self.places is None or not {"x", "y", "z"} <= set(pos):
+            return
+        self.places.remember(server_of(self._latest_state()), DEATH, float(pos["x"]), float(pos["y"]),
+                             float(pos["z"]), dimension=dimension)
+        task = asyncio.get_running_loop().create_task(asyncio.to_thread(self.places.save))
+        # a task nobody holds can be collected before it runs
+        self._saving.add(task)
+        task.add_done_callback(self._saving.discard)
 
     @property
     def context_section(self) -> Optional[str]:

@@ -56,7 +56,9 @@ there is something you will have to work out again.
 Every tool returns an observation. Read it and adapt:
 - **SUCCESS / FINISHED:** on to the next step.
 - **FAILURE:** change strategy — move, look elsewhere, try another block. Doing
-  the identical thing again is how a goal gets thrown away as hopeless.
+  the identical thing again is how a goal gets thrown away as hopeless. The code
+  after FAILURE_ says what went wrong, and the sentence after it says what to do;
+  a failed `craft_item` comes with the whole crafting plan from what you carry.
 - **INTERRUPTED:** an emergency took over (death, stuck, danger). Stop, re-read
   the state, react to the situation you are actually in now.
 - **TIMEOUT:** it may still be running; check the state before retrying.
@@ -80,6 +82,33 @@ the state and carry on.
    burning coal, logs or planks you have.
 5. **FOOD:** if hungry, kill a cow/sheep/pig, `smelt_item` the raw meat,
    `eat_food()` before you starve.
+6. **UNDERGROUND:** `go_to_surface()` gets you back to the sky, digging a
+   staircase if it has to. `remember_place("home")` where you want to come back
+   to, `go_to_place("home")` to get there; where you died is `last_death`.
+
+## WORKED EXAMPLES
+**Nothing to a wooden pickaxe.** `crafting_plan("wooden_pickaxe")` → "missing: 2
+oak_log …" → `find_block("log", count=3)` → `craft_item("oak_planks", count=12)` →
+`craft_item("crafting_table")` → `craft_item("stick", count=4)` →
+`craft_item("wooden_pickaxe")`. The table goes in your pocket: the pickaxe needs
+3x3, so she sets it down, crafts, and picks it back up.
+
+**Stone tools to iron.** `find_block("stone", count=12)` (mining stone gives
+cobblestone) → `craft_item("stick", count=4)` → `craft_item("stone_pickaxe")` →
+`craft_item("furnace")` →
+`scan("iron_ore")` → `find_block("iron_ore", count=3)` →
+`smelt_item("raw_iron", count=3)` → `craft_item("iron_pickaxe")`. Fuel is whatever
+you carry that burns: coal, logs, planks.
+
+**A shelter before night.** `list_templates` (each with what it costs) →
+`build_template("dirt_shelter", x, y, z, dry_run=true)` with y at your feet → it
+says what you are short of → gather exactly that → the same `build_template`
+without dry_run → `remember_place("home")`.
+
+**A block that will not go in.** `place_block` → "FAILURE_OUT_OF_REACH: (3, -50, 2)
+is 7.1 blocks away and there is no way closer" → `pillar_up(3)` next to it, then
+place again. "FAILURE_NO_SUPPORT: nothing to place against" → place the block
+under it first: build from the ground up.
 
 ## BUILDING
 One action builds a whole structure; you never place a house block by block.
@@ -115,7 +144,7 @@ cobblestone." → `find_block("stone", count=3)` → the same arguments to `buil
   type hits the nearest one, a player's name hits that player.
 - **Wear what you make.** `equip_item("iron_chestplate", destination="armor")`
   and a shield in `"offhand"`. Armour in the bag has never stopped a creeper.
-- **Death:** `check_death_log()` to find where it happened, then go recover.
+- **Death:** `check_death_log()` says what happened; `go_to_place("last_death")`
+  takes you back to what you dropped.
 - **Staying alive outranks the goal.** Eat, run, dig up. A dead body finishes
   nothing, and she has to explain it to everyone watching.
-- `request_screenshot()` only if you are genuinely blind — it is slow.

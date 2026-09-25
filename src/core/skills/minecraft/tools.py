@@ -1,9 +1,11 @@
-from typing import Any, Dict, Tuple
+import asyncio
+from typing import Any, Dict, Optional, Tuple
 
 from src.core.agent.tools import ToolRegistry
 from src.core.skills.minecraft.building import register_building_tools
 from src.core.skills.minecraft.client import MinecraftClient
 from src.core.skills.minecraft.notebook import Notebook
+from src.core.skills.minecraft.places import Places, server_of
 from src.core.skills.minecraft.recipebook import PLAN_DESC, RecipeBook
 
 _NOTEBOOK_DESC = (
@@ -52,7 +54,10 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
         "required": ["x", "y", "z"],
     }),
-    "attack_entity": ("Attack something: a player by name, or the nearest mob of a type.", {
+    "attack_entity": (
+        "Fight something until it dies: a player by name, or the nearest mob of a type. She "
+        "puts on armour and takes her best weapon. FAILURE_NOT_FOUND when there is none near, "
+        "FAILURE_TARGET_TOO_FAR when it got away.", {
         "type": "object",
         "properties": {"target": {
             "type": "string",
@@ -86,9 +91,9 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "Get out from underground to where you can see the sky: walking out if there is a way, "
         "else digging a staircase up, away from lava and water. Slow without a pickaxe. "
         "FAILURE_NO_SURFACE in the Nether.", {"type": "object", "properties": {}}),
-    "stop_moving": ("Stop all movement immediately.", {"type": "object", "properties": {}}),
-    "request_screenshot": ("Request a visual screenshot of the current view.", {"type": "object", "properties": {}}),
-    "look_at": ("Look at specific coordinates.", {
+    "stop_moving": ("Stop whatever the body is doing, at once; the answer names what was stopped.",
+                    {"type": "object", "properties": {}}),
+    "look_at": ("Turn the head to look at coordinates, without stopping what the body is doing.", {
         "type": "object",
         "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
         "required": ["x", "y", "z"],
@@ -155,11 +160,6 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         },
         "required": ["origin"],
     }),
-    "select_slot": ("Select a hotbar slot (0-8).", {
-        "type": "object",
-        "properties": {"slot": {"type": "integer", "minimum": 0, "maximum": 8}},
-        "required": ["slot"],
-    }),
     "find_block": (
         "Collect `count` items of a block kind: find the nearest ones (open ones first), mine "
         "them and pick up the drops, until you carry that many more. FAILURE_NOT_ENOUGH says "
@@ -196,17 +196,21 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
             "type": "object",
             "properties": {"radius": {"type": "number", "description": "How far to look; defaults to 6."}},
         }),
-    "pillar_up": ("Pillar up a certain height.", {
+    "pillar_up": ("Jump and place blocks under yourself to rise `height` blocks. FAILURE_NO_BLOCKS "
+                  "when you carry nothing to stand on.", {
         "type": "object",
         "properties": {"height": {"type": "integer"}, "block": {"type": "string"}},
         "required": ["height"],
     }),
-    "mine_down": ("Mine downwards a certain depth.", {
+    "mine_down": ("Dig straight down `depth` blocks, falling as you go. She stops before lava, "
+                  "fire, water or a drop deeper than 3 (FAILURE_DANGER says which).", {
         "type": "object",
         "properties": {"depth": {"type": "integer"}},
         "required": ["depth"],
     }),
-    "bridge": ("Build a bridge in a direction.", {
+    "bridge": ("From the edge you stand on, build `count` blocks out over a gap, walking backwards "
+               "onto them. FAILURE_NO_EDGE when you are not at an edge facing that way, "
+               "FAILURE_NO_BLOCKS when you carry nothing to build with.", {
         "type": "object",
         "properties": {
             "direction": {"type": "string", "enum": ["NORTH", "SOUTH", "EAST", "WEST"]},
@@ -229,7 +233,10 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         },
         "required": ["item"],
     }),
-    "use_block": ("Interact (right click) with a block at coordinates.", {
+    "use_block": (
+        "Right-click a block (a lever, a button, a door, a bed), walking into reach first. The "
+        "answer says what changed. Chests, furnaces and tables have their own tools; a screen "
+        "a click opens is closed again. FAILURE_OUT_OF_REACH, FAILURE_NOTHING_THERE.", {
         "type": "object",
         "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
         "required": ["x", "y", "z"],
@@ -282,7 +289,8 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     }),
     "equip_item": (
         "Put something on: a tool in your hand, armour on your body, a shield in your "
-        "off hand. Armour and a shield are what keep you alive — wear them.",
+        "off hand. Armour and a shield are what keep you alive — wear them. "
+        "FAILURE_ITEM_NOT_FOUND when you have none.",
         {
             "type": "object",
             "properties": {
@@ -294,7 +302,8 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
             },
             "required": ["item"],
         }),
-    "discard_item": ("Discard (throw away) items. Omit `count` to drop every one you have.", {
+    "discard_item": ("Throw items on the ground. Omit `count` to drop every one you have. The name "
+                     "is exact: 'stone' is stone, never a stone pickaxe. FAILURE_ITEM_NOT_FOUND.", {
         "type": "object",
         "properties": {
             "item": {"type": "string"},
@@ -303,16 +312,18 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         },
         "required": ["item"],
     }),
-    "eat_food": ("Eat the best available food.", {"type": "object", "properties": {}}),
-    "check_death_log": ("Check the last death details.", {"type": "object", "properties": {}}),
+    "eat_food": ("Eat the best food you carry. FAILURE_NO_FOOD when there is none.",
+                 {"type": "object", "properties": {}}),
+    "check_death_log": ("Where, how and when you last died, and what you dropped.",
+                        {"type": "object", "properties": {}}),
     # --- playing WITH people, not just near them ---
     "goto_player": (
         "Walk over to a specific player and stop next to them. They move, so she "
-        "re-paths as they go.",
+        "re-paths as they go. FAILURE_NOT_FOUND, FAILURE_UNREACHABLE.",
         {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
     "follow_player": (
         "Stay with a player, keeping a few blocks behind them, until you stop. "
-        "Stops on its own if you lose them.",
+        "Stops on its own if you lose them (FAILURE_LOST).",
         {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
     "look_at_player": (
         "Turn and look at a player. Staring at someone is communication — use it "
@@ -345,12 +356,14 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
 
 
 def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
-                          surface: str = "game:mc", build_scripts: bool = True) -> ToolRegistry:
+                          surface: str = "game:mc", build_scripts: bool = True,
+                          places: Optional[Places] = None) -> ToolRegistry:
     """Builds a registry whose handlers drive the mod and return observations.
 
     Also registers the local `update_notebook` tool, which mutates the agent's
     private working memory instead of talking to the mod, and the building
-    tools worked out in the brain (`build_script` only when `build_scripts`).
+    tools worked out in the brain (`build_script` only when `build_scripts`),
+    and, given a place book, `remember_place` and `go_to_place`.
     """
     registry = ToolRegistry()
 
@@ -397,5 +410,64 @@ def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
         surface=surface,
     )
     register_building_tools(registry, client, surface, build_scripts)
+    if places is not None:
+        register_place_tools(registry, client, places, surface)
 
     return registry
+
+
+def register_place_tools(registry: ToolRegistry, client: MinecraftClient, places: Places,
+                         surface: str = "game:mc") -> None:
+    """remember_place and go_to_place, over the places of the server she is on."""
+
+    def where() -> Tuple[Optional[Tuple[float, float, float]], str, str]:
+        state = client.latest_state or {}
+        pos = (state.get("player") or {}).get("position") or {}
+        world = state.get("world") or {}
+        here = (float(pos["x"]), float(pos["y"]), float(pos["z"])) if {"x", "y", "z"} <= set(pos) else None
+        return here, server_of(state), str(world.get("dimension") or "minecraft:overworld")
+
+    async def remember_place(name: str) -> str:
+        here, server, dimension = where()
+        if here is None:
+            return "ERROR: the game has not said where you are yet."
+        if not str(name or "").strip():
+            return "ERROR: a place needs a name."
+        key = places.remember(server, name, *here, dimension=dimension)
+        await asyncio.to_thread(places.save)
+        p = places.get(server, key) or {}
+        return f"remembered {key} at ({p.get('x')}, {p.get('y')}, {p.get('z')})."
+
+    async def go_to_place(name: str, range: float = 0.0) -> str:
+        here, server, dimension = where()
+        p = places.get(server, name)
+        if p is None:
+            known = ", ".join(places.names(server)) or "none yet"
+            return f"ERROR: you remember no place called {name}; you know: {known}."
+        if p.get("dimension", dimension) != dimension:
+            return (f"FAILURE_OTHER_DIMENSION: {name} is in {str(p['dimension']).split(':')[-1]}, "
+                    f"and you are in {dimension.split(':')[-1]}.")
+        args: Dict[str, Any] = {"x": p["x"], "y": p["y"], "z": p["z"]}
+        if range:
+            args["range"] = range
+        return await client.execute("move_to", args, timeout=ACTION_TIMEOUTS["move_to"])
+
+    registry.add("remember_place", (
+        "Remember where you stand under a name (home, mine, the village), for this world. "
+        "The same name again moves it. Your places are listed with the game state; where "
+        "you last died is remembered for you as last_death."), {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+        "required": ["name"],
+    }, remember_place, surface=surface)
+    registry.add("go_to_place", (
+        "Walk to a place you remembered (see remember_place), the way move_to walks."), {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "range": {"type": "number", "minimum": 0, "maximum": 32,
+                      "description": "Blocks from it that count as arrived; defaults to 1.5."},
+        },
+        "required": ["name"],
+    }, go_to_place, long_running=True, surface=surface)
+

@@ -74,8 +74,10 @@ class GameAgent:
                  steps_per_goal: int = STEPS_PER_GOAL,
                  tick_seconds: float = TICK_SECONDS,
                  keep_rounds: int = KEEP_ROUNDS,
-                 refresh_every: int = REFRESH_EVERY):
+                 refresh_every: int = REFRESH_EVERY,
+                 places: Optional[Callable[[], str]] = None):
         self.llm = llm
+        self._places = places
         self.registry = registry
         self.notebook = notebook
         self._state = state_getter
@@ -398,6 +400,9 @@ class GameAgent:
 
     def _state_note(self) -> str:
         parts = ["GAME STATE (now):\n" + (render_state(self._state()) or "(nothing to see)")]
+        known = self._places() if self._places else ""
+        if known:
+            parts.append("PLACES YOU REMEMBER: " + known)
         parts.append("YOUR NOTEBOOK:\n" + self.notebook.render())
         return "\n\n".join(parts)
 

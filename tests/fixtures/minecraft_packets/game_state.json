@@ -1,6 +1,6 @@
 {
   "type": "game_state",
-  "timestamp": 1790359729,
+  "timestamp": 1790363835,
   "is_busy": false,
   "current_action": "idle",
   "player": {
@@ -15,17 +15,18 @@
       "z": 0.5
     },
     "rotation": {
-      "yaw": 21.052963,
-      "pitch": -8.184711
+      "yaw": -12.988934,
+      "pitch": 1.2457107
     },
     "is_alive": true,
     "is_moving": true
   },
   "inventory": {
-    "selected_slot": 7,
+    "selected_slot": 0,
     "hand_main": {
-      "item": "minecraft:air",
-      "count": 0
+      "item": "minecraft:wooden_pickaxe",
+      "count": 1,
+      "durability": 59
     },
     "hand_off": {
       "item": "minecraft:air",
@@ -241,12 +242,12 @@
           "max_craftable": 1
         },
         {
-          "item": "minecraft:oak_button",
-          "max_craftable": 3
-        },
-        {
           "item": "minecraft:stick",
           "max_craftable": 1
+        },
+        {
+          "item": "minecraft:oak_button",
+          "max_craftable": 3
         }
       ],
       "craftable_3x3": [
@@ -255,12 +256,12 @@
           "max_craftable": 1
         },
         {
-          "item": "minecraft:oak_button",
-          "max_craftable": 3
-        },
-        {
           "item": "minecraft:stick",
           "max_craftable": 1
+        },
+        {
+          "item": "minecraft:oak_button",
+          "max_craftable": 3
         },
         {
           "item": "minecraft:oak_slab",
@@ -347,7 +348,7 @@
   },
   "resources_scan": {
     "radius": 20,
-    "ms": 9.1
+    "ms": 9.3
   },
   "world": {
     "time_of_day": 6000,
@@ -358,7 +359,8 @@
     "thundering": false,
     "light": 15,
     "block_light": 0,
-    "game_mode": "survival"
+    "game_mode": "survival",
+    "server": "127.0.0.1:25565"
   },
   "entities": [],
   "players_online": [

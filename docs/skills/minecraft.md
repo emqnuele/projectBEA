@@ -266,14 +266,29 @@ does. The same line twice is never sent twice, and two never arrive within
 only two ways a goal ends.
 
 **The body's game tools:** `scan`, `mine_block`, `attack_entity`, `move_to`,
-`move_away`, `go_to_surface`, `stop_moving`, `request_screenshot`, `look_at`, `place_block`, `build`,
-`select_slot`, `find_block`, `pillar_up`, `mine_down`, `bridge`, `craft_item`,
-`use_block`, `smelt_item`, `store_item`, `retrieve_item`, `view_container`,
-`equip_item`, `discard_item`, `eat_food`, `check_death_log`, `goto_player`,
-`follow_player`, `look_at_player`, `give_item`, `chat`, `pickup_items` — plus
-`update_notebook`, `crafting_plan`, and the building tools worked out in the
-brain: `plan_build`, `list_templates`, `build_template` and `build_script` (the
-last only with `build_scripts` on).
+`move_away`, `go_to_surface`, `stop_moving`, `look_at`, `place_block`, `build`,
+`find_block`, `pillar_up`, `mine_down`, `bridge`, `craft_item`, `use_block`,
+`smelt_item`, `store_item`, `retrieve_item`, `view_container`, `equip_item`,
+`discard_item`, `eat_food`, `check_death_log`, `goto_player`, `follow_player`,
+`look_at_player`, `give_item`, `chat`, `pickup_items` — plus the ones worked out
+in the brain: `update_notebook`, `crafting_plan`, `remember_place`,
+`go_to_place`, `plan_build`, `list_templates`, `build_template` and
+`build_script` (the last only with `build_scripts` on). The mod's
+`request_screenshot` and `select_slot` are left out on purpose: nothing in the
+body reads an image yet, and `equip_item` takes anything into her hand. The
+contract test fails when the mod offers an action the body neither has nor
+leaves out by name.
+
+Every description says what the tool does and what it answers when it fails.
+`use_block` walks into reach, clicks the face turned towards her and says what
+changed; a screen it opens is closed again. `mine_down` stops before lava, fire,
+water or a drop deeper than three.
+
+**Places** are kept per world, under the address the mod puts in `world.server`,
+in `data/minecraft/places.json`: `remember_place(name)` stores where she stands,
+`go_to_place(name)` walks there with `move_to`, a place in another dimension is
+refused, and the body reads them with every game state as *PLACES YOU REMEMBER*.
+Where she died is stored for her as `last_death` when the death event arrives.
 
 Every tool awaits the mod's answer to it, so the observation the model reasons
 on is what actually happened: `RESULT: sentence`, followed by the last lines of
