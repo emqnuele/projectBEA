@@ -245,12 +245,12 @@ does. The same line twice is never sent twice, and two never arrive within
 **The body's own two:** `goal_done(summary)` and `goal_blocked(reason)` — the
 only two ways a goal ends.
 
-**The body's twenty-six:** `mine_block`, `attack_entity`, `move_to`,
+**The body's twenty-seven:** `mine_block`, `attack_entity`, `move_to`,
 `stop_moving`, `request_screenshot`, `look_at`, `place_block`, `select_slot`,
 `find_block`, `pillar_up`, `mine_down`, `bridge`, `craft_item`, `use_block`,
 `smelt_item`, `store_item`, `retrieve_item`, `equip_item`, `discard_item`,
 `eat_food`, `check_death_log`, `goto_player`, `follow_player`, `look_at_player`,
-`give_item`, `chat` — plus `update_notebook`.
+`give_item`, `chat`, `pickup_items` — plus `update_notebook`.
 
 Every tool awaits the mod's answer to it, so the observation the model reasons
 on is what actually happened: `RESULT: sentence`, followed by the last lines of
@@ -258,7 +258,8 @@ the action's own log when it sent one. `chat`, `check_death_log`,
 `request_screenshot` and `look_at` run beside whatever the body is doing and are
 answered at once; they never stop it. How long the brain waits depends on the
 action (`ACTION_TIMEOUTS` in `tools.py`), and is always longer than the mod's own
-budget for it, so the mod gives up first and says why.
+budget for it (announced in the handshake), so the mod gives up first and says
+why.
 
 ---
 
@@ -285,7 +286,10 @@ like a normal client — nothing is required server-side, and it works on vanill
 ### Protocol
 
 The mod announces itself on connect: `protocol`, `mod_version`, `mc_version`,
-the `actions` it has, and which of them are `concurrent`. The brain speaks
+the `actions` it has, which of them are `concurrent`, and the `budgets`: how
+many seconds each action may run before the mod stops it and answers
+`FAILURE_TIMEOUT` with what it was doing (0 for none, as with `follow_player`).
+The brain waits at least five seconds longer than that budget. It speaks
 protocol 2.
 
 **Brain → mod:**

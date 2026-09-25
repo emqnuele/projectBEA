@@ -17,6 +17,7 @@
     "mine_block",
     "mine_down",
     "move_to",
+    "pickup_items",
     "pillar_up",
     "place_block",
     "request_screenshot",
@@ -95,8 +96,6 @@
     "find_block": {
       "skill": "FindSkill",
       "accepts": [
-        "allowBridging",
-        "allowPillaring",
         "block",
         "count",
         "radius"
@@ -146,6 +145,8 @@
     "mine_block": {
       "skill": "MineSkill",
       "accepts": [
+        "pickup",
+        "vein",
         "x",
         "y",
         "z"
@@ -167,6 +168,13 @@
         "x",
         "y",
         "z"
+      ],
+      "injected_by_mod": []
+    },
+    "pickup_items": {
+      "skill": "PickupSkill",
+      "accepts": [
+        "radius"
       ],
       "injected_by_mod": []
     },

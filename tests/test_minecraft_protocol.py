@@ -237,3 +237,30 @@ def test_the_brain_waits_longer_than_the_mod_works(loop, tool, wait):
     args = {k: 1 for k in required}
     loop.run_until_complete(registry.get(tool).handler(**args))
     assert client.timeouts[tool] == wait
+
+
+# --- the mod's budgets -----------------------------------------------------------
+
+
+def test_the_mod_announces_how_long_each_action_may_run(loop):
+    client = client_on(loop)
+    assert client.budgets["find_block"] == 180
+    assert client.budgets["follow_player"] == 0
+
+
+def test_the_brain_never_waits_less_than_the_mod_works(loop):
+    """The mod gives up first and says why; the other way round its late answer was lost."""
+    from src.core.skills.minecraft.tools import ACTION_TIMEOUTS, DEFAULT_TIMEOUT
+
+    client = client_on(loop)
+    for action, budget in client.budgets.items():
+        if action == "default" or budget <= 0:
+            continue
+        assert ACTION_TIMEOUTS.get(action, DEFAULT_TIMEOUT) > budget, action
+        assert client.wait_for(action, 1.0) >= budget + 5
+    assert client.wait_for("pillar_up", None) >= client.budgets["default"] + 5
+
+
+def test_an_open_ended_action_keeps_the_brain_timeout(loop):
+    client = client_on(loop)
+    assert client.wait_for("follow_player", 60.0) == 60.0

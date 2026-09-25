@@ -24,7 +24,7 @@ _QUICK = {"request_screenshot", "check_death_log", "stop_moving", "chat", "look_
 # answer landed on whatever was asked next
 ACTION_TIMEOUTS: Dict[str, float] = {
     "find_block": 240.0, "build": 900.0, "move_to": 120.0, "smelt_item": 180.0,
-    "mine_block": 70.0,
+    "mine_block": 70.0, "goto_player": 100.0, "give_item": 100.0,
 }
 DEFAULT_TIMEOUT = 60.0
 
@@ -41,7 +41,10 @@ _BRIDGING = {"type": "boolean",
 
 # name -> (description, json-schema parameters)
 _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
-    "mine_block": ("Navigate to and mine a specific block.", {
+    "mine_block": (
+        "Walk into reach of a block and break it, with the rest of its tree or ore vein, then "
+        "pick up the drops. The answer says what was mined, what was picked up and what was "
+        "left out of reach; FAILURE_WRONG_TOOL names the tool the block needs.", {
         "type": "object",
         "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
         "required": ["x", "y", "z"],
@@ -83,17 +86,26 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "required": ["slot"],
     }),
     "find_block": (
-        "Find the nearest block of a given type, go to it and mine it. Set `count` "
-        "to keep going until you have that many.",
+        "Collect `count` items of a block kind: find the nearest ones (open ones first), mine "
+        "them and pick up the drops, until you carry that many more. FAILURE_NOT_ENOUGH says "
+        "how many you got when there is no more nearby; FAILURE_NONE_REACHABLE and "
+        "FAILURE_NONE_FOUND mean look somewhere else.",
         {
             "type": "object",
             "properties": {
                 "block": {"type": "string"},
-                "radius": {"type": "integer", "default": 100, "description": "How far to search."},
+                "radius": {"type": "integer", "default": 48, "maximum": 100,
+                           "description": "How far to search."},
                 "count": {"type": "integer", "description": "How many to gather; defaults to 7."},
-                "allowPillaring": _PILLARING, "allowBridging": _BRIDGING,
             },
             "required": ["block"],
+        }),
+    "pickup_items": (
+        "Walk over the items lying on the ground around you, nearest first, and pick them up. "
+        "The answer lists what ended up in your inventory.",
+        {
+            "type": "object",
+            "properties": {"radius": {"type": "number", "description": "How far to look; defaults to 6."}},
         }),
     "pillar_up": ("Pillar up a certain height.", {
         "type": "object",

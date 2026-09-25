@@ -33,6 +33,9 @@ OMITTED = {
     # she knows the people around her by name; the uuid is the mod's index
     "follow_player": {"uuid"},
     "goto_player": {"uuid"},
+    # the whole tree and the drops are what mining is for; single blocks without
+    # pickup are for the mod's own paths and pillars, never her decision
+    "mine_block": {"vein", "pickup"},
 }
 
 

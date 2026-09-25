@@ -2,7 +2,7 @@
   "status": "CONNECTED",
   "message": "Welcome to BeaCraft",
   "protocol": 2,
-  "mod_version": "2.1.0+26.2",
+  "mod_version": "2.2.0+26.2",
   "mc_version": "26.2",
   "planner": "beacraft",
   "baritone_installed": false,
@@ -31,12 +31,25 @@
     "chat",
     "goto_player",
     "follow_player",
-    "give_item"
+    "give_item",
+    "pickup_items"
   ],
   "concurrent": [
     "chat",
     "check_death_log",
     "request_screenshot",
     "look_at"
-  ]
+  ],
+  "budgets": {
+    "default": 45,
+    "move_to": 90,
+    "find_block": 180,
+    "mine_block": 60,
+    "build": 600,
+    "craft_item": 30,
+    "smelt_item": 150,
+    "goto_player": 90,
+    "give_item": 90,
+    "follow_player": 0
+  }
 }

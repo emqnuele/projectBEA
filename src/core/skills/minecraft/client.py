@@ -21,6 +21,9 @@ PROTOCOL_VERSION = 2
 # how many lines of an action's own log travel with its observation
 LOG_LINES = 8
 
+# seconds the brain waits past the mod's own budget for an action
+BUDGET_MARGIN = 5.0
+
 # what a protocol-1 jar never answers: waiting on these costs the whole timeout
 _LEGACY_UNANSWERED = {"request_screenshot", "check_death_log", "stop_moving", "chat"}
 
@@ -61,6 +64,8 @@ class MinecraftClient:
         self.protocol: int = 0
         # actions the mod runs beside the current one instead of stopping it
         self.concurrent: set = set()
+        # seconds the mod lets each action run before it gives up and says why
+        self.budgets: Dict[str, float] = {}
         # every in-flight action, oldest first. A single slot used to mean the
         # second caller overwrote the first, who then waited out the whole
         # timeout while somebody else's completion resolved the wrong await
@@ -125,13 +130,22 @@ class MinecraftClient:
         self._waiting[request_id] = fut
         self._send(payload)
         try:
-            return await asyncio.wait_for(fut, timeout=timeout or ACTION_TIMEOUT)
+            return await asyncio.wait_for(fut, timeout=self.wait_for(action, timeout))
         except asyncio.TimeoutError:
             return "TIMEOUT: no completion event from the mod (action may still be running)."
         finally:
             self._waiting.pop(request_id, None)
             if not fut.done():
                 self._abandon(request_id)
+
+    def wait_for(self, action: str, timeout: Optional[float] = None) -> float:
+        """How long to wait for an answer: never less than the mod's own budget
+        plus a margin, so the mod always gives up first and says why."""
+        wait = timeout or ACTION_TIMEOUT
+        budget = self.budgets.get(action, self.budgets.get("default", 0.0))
+        if budget > 0:
+            wait = max(wait, budget + BUDGET_MARGIN)
+        return wait
 
     def drain_events(self) -> List[str]:
         """Returns and clears any notable events (interrupts) seen since last call."""
@@ -257,6 +271,7 @@ class MinecraftClient:
         self.mc_version = str(data.get("mc_version", "unknown"))
         self.actions = set(data.get("actions") or [])
         self.concurrent = set(data.get("concurrent") or [])
+        self.budgets = _budgets(data.get("budgets"))
         protocol = data.get("protocol")
         try:
             self.protocol = int(protocol or 0)
@@ -366,3 +381,15 @@ def _observation(data: Dict[str, Any]) -> str:
     if isinstance(log, list) and log:
         text += "\n" + "\n".join(str(line) for line in log[-LOG_LINES:])
     return text
+
+
+def _budgets(raw: Any) -> Dict[str, float]:
+    """The handshake's `budgets`, seconds per action; 0 means the action has none."""
+    out: Dict[str, float] = {}
+    if isinstance(raw, dict):
+        for name, value in raw.items():
+            try:
+                out[str(name)] = float(value)
+            except (TypeError, ValueError):
+                continue
+    return out
