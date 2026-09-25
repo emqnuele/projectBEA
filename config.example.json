@@ -122,6 +122,7 @@
             "steps_per_goal": 40,
             "tick_seconds": 0.4,
             "body_context_rounds": 12,
+            "build_scripts": true,
             "system_prompt_path": "data/prompts/minecraft.md",
             "body_prompt_path": "data/prompts/minecraft_body.md"
         },

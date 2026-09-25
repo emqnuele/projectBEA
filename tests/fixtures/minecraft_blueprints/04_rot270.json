@@ -1,0 +1,25 @@
+{
+  "args": {
+    "layers": [
+      [
+        "##"
+      ]
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "#": "stone"
+    },
+    "rotation": 270
+  },
+  "cells": {
+    "0,0,-1": "stone",
+    "0,0,0": "stone"
+  },
+  "items": {
+    "stone": 2
+  }
+}

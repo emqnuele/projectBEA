@@ -1,6 +1,7 @@
 from typing import Any, Dict, Tuple
 
 from src.core.agent.tools import ToolRegistry
+from src.core.skills.minecraft.building import register_building_tools
 from src.core.skills.minecraft.client import MinecraftClient
 from src.core.skills.minecraft.notebook import Notebook
 
@@ -72,13 +73,67 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
         "required": ["x", "y", "z"],
     }),
-    "place_block": ("Place a block at specific coordinates. Can specify block type.", {
+    "place_block": (
+        "Place one block at exact coordinates: she walks into reach, takes it from anywhere in "
+        "her inventory and places it against a solid neighbour, then checks it is there. A "
+        "state like oak_door[facing=south] or oak_log[axis=x] sets how it sits. Fails with "
+        "FAILURE_OCCUPIED (something is in the cell; mine it, or pass replace), "
+        "FAILURE_NO_SUPPORT (nothing to place it against), FAILURE_NO_ITEM, "
+        "FAILURE_OUT_OF_REACH, FAILURE_BODY_IN_THE_WAY or FAILURE_NOT_PLACED.", {
         "type": "object",
         "properties": {
             "x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"},
-            "block": {"type": "string", "description": "Optional block name to place"},
+            "block": {"type": "string",
+                      "description": "e.g. cobblestone, oak_stairs[facing=east,half=top]; "
+                                     "omit for the block in your hand"},
+            "facing": {"type": "string", "enum": ["north", "south", "east", "west", "up", "down"],
+                       "description": "Shorthand for [facing=...] in the block name."},
+            "replace": {"type": "boolean",
+                        "description": "Break whatever is in the cell first. Default false."},
         },
         "required": ["x", "y", "z"],
+    }),
+    "build": (
+        "Build a whole structure in one action: she clears the cells that must be empty, "
+        "places the rest bottom-up from what already holds them, walking as she needs, and "
+        "answers cell by cell with what is still wrong and what was missing. Describe it as "
+        "`layers` + `palette` (bottom layer first; each layer is a list of rows along +z, each "
+        "row a string of palette characters along +x; a space leaves the cell as it is; a "
+        "palette entry 'air' means empty it) and/or `ops`, relative to `origin`. `rotation` "
+        "turns it clockwise seen from above. `dry_run` only reports what is already right and "
+        "what you are missing. At most 2000 cells.", {
+        "type": "object",
+        "properties": {
+            "origin": {"type": "object", "description": "Where relative (0, 0, 0) goes.",
+                       "properties": {"x": {"type": "integer"}, "y": {"type": "integer"},
+                                      "z": {"type": "integer"}},
+                       "required": ["x", "y", "z"]},
+            "rotation": {"type": "integer", "enum": [0, 90, 180, 270]},
+            "palette": {"type": "object", "additionalProperties": {"type": "string"},
+                        "description": 'One character -> block, e.g. {"#": "cobblestone", '
+                                       '"D": "oak_door[facing=north]", ".": "air"}.'},
+            "layers": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+            "ops": {"type": "array", "items": {
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string", "enum": ["fill", "walls", "set", "roof"],
+                           "description": "fill a box (hollow: only its shell), walls = the "
+                                          "sides of a box, set one cell, roof = a fill"},
+                    "from": {"type": "array", "items": {"type": "integer"}},
+                    "to": {"type": "array", "items": {"type": "integer"}},
+                    "at": {"type": "array", "items": {"type": "integer"}},
+                    "block": {"type": "string"},
+                    "hollow": {"type": "boolean"},
+                },
+                "required": ["op", "block"],
+            }},
+            "clear": {"type": "boolean",
+                      "description": "Left out: only cells meant to be 'air' are emptied. "
+                                     "true: also break blocks in the way of a different "
+                                     "block. false: break nothing."},
+            "dry_run": {"type": "boolean"},
+        },
+        "required": ["origin"],
     }),
     "select_slot": ("Select a hotbar slot (0-8).", {
         "type": "object",
@@ -219,11 +274,12 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
 
 
 def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
-                          surface: str = "game:mc") -> ToolRegistry:
+                          surface: str = "game:mc", build_scripts: bool = True) -> ToolRegistry:
     """Builds a registry whose handlers drive the mod and return observations.
 
     Also registers the local `update_notebook` tool, which mutates the agent's
-    private working memory instead of talking to the mod.
+    private working memory instead of talking to the mod, and the building
+    tools worked out in the brain (`build_script` only when `build_scripts`).
     """
     registry = ToolRegistry()
 
@@ -250,5 +306,6 @@ def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
         },
         lambda notes="": notebook.update(notes),
     )
+    register_building_tools(registry, client, surface, build_scripts)
 
     return registry

@@ -35,7 +35,7 @@ MAX_ABANDONED = 32
 _COMPLETION = {"FINISHED", "IDLE"}
 
 # packets that are senses rather than answers: they are handed to the surface
-_TYPED_EVENTS = {"chat", "player_event", "combat", "death_event", "reflex"}
+_TYPED_EVENTS = {"chat", "player_event", "combat", "death_event", "reflex", "progress"}
 
 
 class MinecraftClient:

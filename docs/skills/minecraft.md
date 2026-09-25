@@ -23,8 +23,13 @@ src/core/skills/minecraft/
 ├── context.py   the body's own sliding window
 ├── client.py    WebSocket bridge to the mod
 ├── state.py     the state packet, rendered as a few readable lines
-├── tools.py     26 game tools, for the body
+├── tools.py     the game tools, for the body
+├── building.py  plan_build, templates and build scripts, worked out before the mod
+├── blueprint.py a build's arguments, expanded to cells and costed
+├── buildscript.py  a build drawn by a short, sandboxed script
 └── notebook.py  the body's private scratchpad
+
+data/minecraft/blueprints/   ready-made buildings (mindcraft's, MIT)
 ```
 
 ---
@@ -42,7 +47,7 @@ src/core/skills/minecraft/
                      │  play_minecraft("get a stone pickaxe")
 ┌────────────────────▼───────────────────────────────────┐
 │ the body — GameAgent, one loop that never ends         │
-│ 28 tools + the survival guide + the notebook           │
+│ 33 tools + the survival guide + the notebook           │
 │ think → act → observe, paced, re-reading the world     │
 │ reports back: milestones, and how the goal ended       │
 └────────────────────┬───────────────────────────────────┘
@@ -221,8 +226,8 @@ someone who said hello no longer costs her the house she was building.
 **Milestones** are the only thing that *interrupts* the mind mid-goal — the
 commentary nudge waits its turn instead. Movement and looking are means, not
 results; `craft_item`, `mine_block`, `place_block`, `smelt_item`, `find_block`,
-`equip_item`, `store_item`, `retrieve_item`, `attack_entity` and `give_item`
-produce one when they succeed or fail badly. An interrupt or a death always
+`equip_item`, `store_item`, `retrieve_item`, `attack_entity`, `give_item`,
+`build`, `build_template` and `build_script` produce one when they succeed or fail badly. An interrupt or a death always
 does. The same line twice is never sent twice, and two never arrive within
 8 seconds of each other.
 
@@ -245,12 +250,14 @@ does. The same line twice is never sent twice, and two never arrive within
 **The body's own two:** `goal_done(summary)` and `goal_blocked(reason)` — the
 only two ways a goal ends.
 
-**The body's twenty-seven:** `mine_block`, `attack_entity`, `move_to`,
-`stop_moving`, `request_screenshot`, `look_at`, `place_block`, `select_slot`,
-`find_block`, `pillar_up`, `mine_down`, `bridge`, `craft_item`, `use_block`,
-`smelt_item`, `store_item`, `retrieve_item`, `equip_item`, `discard_item`,
-`eat_food`, `check_death_log`, `goto_player`, `follow_player`, `look_at_player`,
-`give_item`, `chat`, `pickup_items` — plus `update_notebook`.
+**The body's game tools:** `mine_block`, `attack_entity`, `move_to`,
+`stop_moving`, `request_screenshot`, `look_at`, `place_block`, `build`,
+`select_slot`, `find_block`, `pillar_up`, `mine_down`, `bridge`, `craft_item`,
+`use_block`, `smelt_item`, `store_item`, `retrieve_item`, `equip_item`,
+`discard_item`, `eat_food`, `check_death_log`, `goto_player`, `follow_player`,
+`look_at_player`, `give_item`, `chat`, `pickup_items` — plus `update_notebook`
+and the building tools worked out in the brain: `plan_build`, `list_templates`,
+`build_template` and `build_script` (the last only with `build_scripts` on).
 
 Every tool awaits the mod's answer to it, so the observation the model reasons
 on is what actually happened: `RESULT: sentence`, followed by the last lines of
@@ -260,6 +267,57 @@ answered at once; they never stop it. How long the brain waits depends on the
 action (`ACTION_TIMEOUTS` in `tools.py`), and is always longer than the mod's own
 budget for it (announced in the handshake), so the mod gives up first and says
 why.
+
+---
+
+## Building
+
+A whole structure is one `build`: the mod clears the cells that must be empty,
+places the rest bottom-up starting from what already holds them up, walks where
+it needs to, and answers with every cell still wrong and every block it ran out
+of. The body never places a house block by block. Three ways lead to it:
+
+| Way | Tool | For |
+|---|---|---|
+| template | `build_template(name, x, y, z, rotation)` | houses and shelters: no spatial reasoning at all |
+| ops / layers | `build(origin, rotation, palette, layers, ops)` | a wall, a floor, a box |
+| script | `build_script(code, x, y, z, rotation, confirm)` | towers, stairs, domes: loops and curves |
+
+**The arguments.** `layers` are horizontal slices, bottom first; each is a list
+of rows along +z, each row a string of palette characters along +x. A space
+leaves a cell as it is; a palette entry `air` means the cell must be empty. `ops`
+(`fill`, optionally `hollow`; `walls`; `set`; `roof`) apply after the layers and
+overwrite them. `rotation` turns the whole build clockwise seen from above
+around `origin`, and turns `facing` and `axis` in block states with it. At most
+2000 cells. Block names take vanilla's state syntax: `oak_door[facing=north]`,
+`oak_log[axis=x]`, `oak_stairs[facing=east,half=top]`.
+
+**Two expansions, one meaning.** `blueprint.py` expands the arguments in the
+brain, to cost a build before it starts (`plan_build`); BeaCraft's `Blueprint`
+expands them again to build. Both are held to the same vectors in
+`tests/fixtures/minecraft_blueprints/`, which the mod's tests read from a copy.
+Change one and the vectors say so.
+
+**Templates** are mindcraft's `dirt_shelter`, `small_wood_house` and
+`small_stone_house`, in their own format (`blocks[y][z][x]`, generic names like
+`planks`, a negative `offset` for a floor sunk into the ground), with their
+licence in `_source`. `build_template` resolves the generic names from what she
+carries (the wood she has most of, the wool colour for the bed), gives the door
+the facing a player standing outside would give it, and asks the mod to clear
+whatever stands in the way.
+
+**Scripts** only draw. The body writes a few lines against `set`, `fill`,
+`walls`, `line`, `circle`, `get` and `note`; the script is checked against a
+whitelist of syntax (no imports, no attributes, no names starting with `_`),
+then run in a separate interpreter (`python -I -S`) with no builtins beyond
+arithmetic, a 3-second limit and a 512 MB memory watch, and all that comes back
+is a list of cells, turned into `layers` + `palette`. `confirm=false` returns the
+box it fills and what it costs; nothing is built until the same script comes back
+with `confirm=true`. The mod never sees code.
+
+**While it builds** the mod sends `{"type": "progress", "done", "total",
+"message"}` every ten cells; it becomes the body's current thought, which is what
+her commentary reads.
 
 ---
 
@@ -372,6 +430,7 @@ locks.
   "steps_per_goal": 40,
   "tick_seconds": 0.4,
   "body_context_rounds": 12,
+  "build_scripts": true,
   "system_prompt_path": "data/prompts/minecraft.md",
   "body_prompt_path": "data/prompts/minecraft_body.md"
 }
@@ -385,6 +444,7 @@ locks.
 | `steps_per_goal` | Rounds the body spends on one goal before calling it stuck and handing it back |
 | `tick_seconds` | Pause between two rounds. Most pacing is the game itself; this stops a goal of instant tools from spinning |
 | `body_context_rounds` | How many of its own rounds the body remembers. Everything older lives in the notebook |
+| `build_scripts` | Whether the body may draw a build with a script (`build_script`). Off, the tool is not offered; templates and ops still work |
 | `system_prompt_path` | What the **mind** knows about having a body |
 | `body_prompt_path` | The survival guide and crafting chains, for the **body** |
 

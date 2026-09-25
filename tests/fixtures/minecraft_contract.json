@@ -3,6 +3,7 @@
   "known_actions": [
     "attack_entity",
     "bridge",
+    "build",
     "chat",
     "check_death_log",
     "craft_item",
@@ -49,6 +50,19 @@
         "direction",
         "x",
         "z"
+      ],
+      "injected_by_mod": []
+    },
+    "build": {
+      "skill": "BuildSkill",
+      "accepts": [
+        "clear",
+        "dry_run",
+        "layers",
+        "ops",
+        "origin",
+        "palette",
+        "rotation"
       ],
       "injected_by_mod": []
     },
@@ -164,6 +178,7 @@
       "skill": "MoveSkill",
       "accepts": [
         "allowBridging",
+        "allowMining",
         "allowPillaring",
         "x",
         "y",
@@ -190,6 +205,8 @@
       "skill": "PlaceSkill",
       "accepts": [
         "block",
+        "facing",
+        "replace",
         "x",
         "y",
         "z"

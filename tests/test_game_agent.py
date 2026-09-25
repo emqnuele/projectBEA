@@ -627,3 +627,19 @@ async def test_switching_the_skill_off_stops_the_body(monkeypatch):
     body.set_goal("get wood")
     await skill.stop()
     assert body._loop_task is None and not skill.active
+
+
+def test_a_build_reporting_in_becomes_what_the_body_is_thinking(surface):
+    """Commentary reads the latest thought: a long build narrates itself without interrupting her."""
+    surface.agent.set_goal("build a house")
+    surface._on_mod_event("progress", {"type": "progress", "id": "r7", "action": "build", "done": 10,
+                                       "total": 48, "message": "building: 10 placed, 38 to go"})
+    assert surface.agent.last_thought == "building: 10 placed, 38 to go"
+
+
+def test_a_finished_build_reaches_her_and_a_preview_does_not():
+    heard = []
+    a = agent(FakeLLMClient(), on_milestone=heard.append)
+    a._watch("build_script", "PREVIEW (nothing built yet):\n121 cells in a 5x7x5 box")
+    a._watch("build_template", "SUCCESS: built 112/112 cells of the build.")
+    assert heard == ["your body finished build_template: SUCCESS: built 112/112 cells of the build."]

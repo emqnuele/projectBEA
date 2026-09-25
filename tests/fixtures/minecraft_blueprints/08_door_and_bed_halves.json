@@ -1,0 +1,31 @@
+{
+  "args": {
+    "layers": [
+      [
+        "D BB"
+      ],
+      [
+        "D"
+      ]
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "B": "red_bed",
+      "D": "oak_door"
+    }
+  },
+  "cells": {
+    "0,0,0": "oak_door",
+    "0,1,0": "oak_door",
+    "2,0,0": "red_bed",
+    "3,0,0": "red_bed"
+  },
+  "items": {
+    "oak_door": 1,
+    "red_bed": 1
+  }
+}

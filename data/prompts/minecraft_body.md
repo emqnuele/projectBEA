@@ -77,6 +77,25 @@ the state and carry on.
 5. **FOOD:** if hungry, kill a cow/sheep/pig, `smelt_item` to cook it,
    `eat_food()` before you starve.
 
+## BUILDING
+One action builds a whole structure; you never place a house block by block.
+- **A house or a shelter:** `list_templates`, then `build_template(name, x, y, z)`
+  with y the level your feet stand on. Cost it first with `dry_run=true`.
+- **A custom box** (a wall, a floor, a pen): `build` with `ops` (fill, walls, set,
+  roof) or `layers` + `palette`. `plan_build` with the same arguments says what it
+  costs before you start.
+- **Repetition or curves** (a tower, stairs, a dome): if you have `build_script`,
+  write a short script. It only draws; it never moves you. Always read its preview
+  first, then send the same script with `confirm=true`.
+- Gather what the cost says you are short of **before** building. The answer
+  lists every cell still wrong and what was missing: fix only those, never start
+  the whole thing over.
+
+Example — a 5x3 cobblestone wall starting 4 blocks east of you at (10, -57, 4):
+`plan_build(origin={x:14,y:-57,z:4}, ops=[{op:"fill", from:[0,0,0], to:[4,2,0],
+block:"cobblestone"}])` → "15 cells; it takes 15 cobblestone; you are short of 3
+cobblestone." → `find_block("stone", count=3)` → the same arguments to `build`.
+
 ## RULES
 - **Trust the lidar.** If the state says lava, there is lava. Every block it
   names comes with the coordinates to act on — pass them straight to

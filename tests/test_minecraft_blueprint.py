@@ -1,0 +1,129 @@
+"""Blueprint expansion: the same vectors BeaCraft's BuildSkill is tested against."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from src.core.skills.minecraft.blueprint import (
+    BlueprintError,
+    expand,
+    from_template,
+    items_needed,
+    order,
+    resolve_generic,
+    rotate,
+    satisfied,
+    shortfall,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+VECTORS = sorted((ROOT / "tests" / "fixtures" / "minecraft_blueprints").glob("*.json"))
+TEMPLATES = ROOT / "data" / "minecraft" / "blueprints"
+
+
+def _cells(bp):
+    return {f"{x},{y},{z}": b for (x, y, z), b in bp.cells.items()}
+
+
+@pytest.mark.parametrize("path", VECTORS, ids=lambda p: p.stem)
+def test_shared_vectors(path):
+    vector = json.loads(path.read_text())
+    if "error" in vector:
+        with pytest.raises(BlueprintError, match=vector["error"]):
+            expand(vector["args"])
+        return
+    bp = expand(vector["args"])
+    assert _cells(bp) == vector["cells"]
+    assert bp.items == vector["items"]
+
+
+def test_rotation_is_clockwise_from_above():
+    assert rotate(1, 0, 0, 90) == (0, 0, 1)      # east -> south
+    assert rotate(0, 0, 1, 90) == (-1, 0, 0)     # south -> west
+    assert rotate(2, 5, 3, 180) == (-2, 5, -3)
+    assert rotate(1, 0, 0, 270) == (0, 0, -1)    # east -> north
+
+
+def test_rotating_a_non_square_template_keeps_every_cell():
+    tpl = json.loads((TEMPLATES / "small_wood_house.json").read_text())
+    base = expand(from_template(tpl, 0, 64, 0, 0, {}))
+    for r in (90, 180, 270):
+        turned = expand(from_template(tpl, 0, 64, 0, r, {}))
+        assert len(turned.cells) == len(base.cells)
+        assert turned.items == base.items
+
+
+def test_unknown_argument_is_named():
+    with pytest.raises(BlueprintError, match="unknown argument: size"):
+        expand({"origin": {"x": 0, "y": 0, "z": 0}, "size": 3, "ops": []})
+
+
+def test_a_door_and_a_bed_cost_one_item_each():
+    cells = {(0, 0, 0): "oak_door", (0, 1, 0): "oak_door",
+             (2, 0, 0): "red_bed", (2, 0, 1): "red_bed"}
+    assert items_needed(cells) == {"oak_door": 1, "red_bed": 1}
+
+
+def test_template_costs_what_mindcraft_lists():
+    tpl = json.loads((TEMPLATES / "small_wood_house.json").read_text())
+    args = from_template(tpl, 10, 64, 10, 0, {"spruce_log": 5})
+    assert args["origin"]["y"] == 63                   # offset -1: the floor sits in the ground
+    bp = expand(args)
+    assert bp.items == {"spruce_planks": 55, "spruce_log": 8, "torch": 4, "white_bed": 1,
+                        "spruce_door": 1, "chest": 1}
+
+
+def test_generic_names_follow_the_inventory():
+    assert resolve_generic("planks", {"dark_oak_log": 3, "oak_planks": 1}) == "dark_oak_planks"
+    assert resolve_generic("planks", {}, nearest_log="dark_oak_log") == "dark_oak_planks"
+    assert resolve_generic("planks", {}) == "oak_planks"
+    assert resolve_generic("bed", {"red_wool": 3}) == "red_bed"
+    assert resolve_generic("cobblestone", {}) == "cobblestone"
+
+
+def test_shortfall_counts_any_wood_for_generic_planks():
+    assert shortfall({"planks": 10, "cobblestone": 4}, {"birch_planks": 6, "oak_planks": 1}) == {
+        "planks": 3, "cobblestone": 4}
+
+
+def test_what_is_already_there_counts():
+    assert satisfied("dirt", "grass_block")
+    assert satisfied("torch", "minecraft:wall_torch")
+    assert satisfied("planks", "cherry_planks")
+    assert not satisfied("cobblestone", "stone")
+    assert satisfied("air", "cave_air")
+
+
+def test_order_clears_top_down_then_builds_bottom_up_from_support():
+    args = {"origin": {"x": 0, "y": 0, "z": 0}, "palette": {"#": "stone", ".": "air"},
+            "layers": [["##"], ["#."], ["#."]]}
+    bp = expand(args)
+
+    def ground(c):
+        return c[1] < 0 or c == (1, 2, 0) or c == (1, 1, 0)
+
+    steps = order(bp, ground, start=(5, 0, 0))
+    assert steps[:2] == [("clear", (1, 2, 0)), ("clear", (1, 1, 0))]
+    placed = [c for kind, c in steps if kind == "place"]
+    assert [c[1] for c in placed] == sorted(c[1] for c in placed)
+    assert placed[0] == (1, 0, 0)                        # nearest to (5,0,0) first
+
+
+def test_floating_cells_are_reported_not_placed():
+    bp = expand({"origin": {"x": 0, "y": 10, "z": 0}, "ops": [{"op": "set", "at": [0, 0, 0], "block": "stone"}]})
+    assert order(bp, lambda c: False, (0, 0, 0)) == [("no_support", (0, 10, 0))]
+
+
+def test_block_states_turn_with_the_build():
+    args = {"origin": {"x": 0, "y": 0, "z": 0}, "rotation": 90,
+            "palette": {"D": "oak_door[facing=south]", "L": "oak_log[axis=x]"}, "layers": [["DL"]]}
+    bp = expand(args)
+    assert bp.cells == {(0, 0, 0): "oak_door[facing=west]", (0, 0, 1): "oak_log[axis=z]"}
+    assert bp.items == {"oak_door": 1, "oak_log": 1}
+    assert satisfied("oak_door[facing=west]", "oak_door")
+
+
+def test_bad_block_state_is_named():
+    with pytest.raises(BlueprintError, match="bad block state"):
+        expand({"origin": {"x": 0, "y": 0, "z": 0}, "palette": {"D": "oak_door[facing]"}, "layers": [["D"]]})

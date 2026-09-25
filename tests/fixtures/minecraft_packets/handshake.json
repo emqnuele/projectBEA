@@ -32,7 +32,8 @@
     "goto_player",
     "follow_player",
     "give_item",
-    "pickup_items"
+    "pickup_items",
+    "build"
   ],
   "concurrent": [
     "chat",

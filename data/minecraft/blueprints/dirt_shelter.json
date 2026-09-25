@@ -1,0 +1,39 @@
+{
+    "_source": "mindcraft-bots/mindcraft@5f3acc87 src/agent/npc/construction/dirt_shelter.json (MIT, Copyright (c) 2024 Kolby Nottingham)",
+    "name": "dirt_shelter",
+    "offset": -2,
+    "blocks": [
+        [
+            ["", "", "", "", ""],
+            ["", "dirt", "dirt", "dirt", ""],
+            ["", "dirt", "dirt", "dirt", ""],
+            ["", "dirt", "dirt", "dirt", ""],
+            ["", "", "dirt", "", ""],
+            ["", "", "dirt", "", ""]
+        ],
+        [
+            ["dirt", "dirt", "dirt", "dirt", "dirt"],
+            ["dirt", "chest", "bed", "air", "dirt"],
+            ["dirt", "air", "bed", "air", "dirt"],
+            ["dirt", "air", "air", "air", "dirt"],
+            ["dirt", "dirt", "door", "dirt", "dirt"],
+            ["dirt", "dirt", "air", "dirt", "dirt"]
+        ],
+        [
+            ["dirt", "dirt", "dirt", "dirt", "dirt"],
+            ["dirt", "air", "air", "air", "dirt"],
+            ["dirt", "torch", "air", "air", "dirt"],
+            ["dirt", "air", "air", "air", "dirt"],
+            ["dirt", "dirt", "door", "dirt", "dirt"],
+            ["air", "air", "air", "air", "air"]
+        ],
+        [
+            ["air", "air", "air", "air", "air"],
+            ["dirt", "dirt", "dirt", "dirt", "dirt"],
+            ["dirt", "dirt", "dirt", "dirt", "dirt"],
+            ["dirt", "dirt", "dirt", "dirt", "dirt"],
+            ["air", "air", "air", "air", "air"],
+            ["air", "air", "air", "air", "air"]
+        ]
+    ]
+}

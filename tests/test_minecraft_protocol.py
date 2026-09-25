@@ -264,3 +264,22 @@ def test_the_brain_never_waits_less_than_the_mod_works(loop):
 def test_an_open_ended_action_keeps_the_brain_timeout(loop):
     client = client_on(loop)
     assert client.wait_for("follow_player", 60.0) == 60.0
+
+
+def test_a_build_reporting_in_is_an_event_not_an_answer(loop):
+    events = []
+    client = client_on(loop, events=events)
+    future = waiting(client, loop, "h1")
+    client._handle(packet("progress_build"))
+    assert events[-1] == ("progress", packet("progress_build"))
+    assert not future.done()
+
+
+def test_an_unfinished_build_says_what_is_missing_and_where(loop):
+    client = client_on(loop)
+    future = waiting(client, loop, "h1")
+    client._handle(packet("finished_build_incomplete"))
+    observation = future.result()
+    assert observation.startswith(
+        "FAILURE_INCOMPLETE: built 20/25 cells of the build; missing 5 cobblestone.")
+    assert "still wrong: (7, -57, 3) holds air, wanted cobblestone" in observation

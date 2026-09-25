@@ -1,0 +1,43 @@
+{
+    "_source": "mindcraft-bots/mindcraft@5f3acc87 src/agent/npc/construction/small_stone_house.json (MIT, Copyright (c) 2024 Kolby Nottingham)",
+    "name": "small_stone_house",
+    "offset": -1,
+    "blocks": [
+        [
+            ["", "", "", "", ""],
+            ["", "planks", "planks", "planks", ""],
+            ["", "planks", "planks", "planks", ""],
+            ["", "planks", "planks", "planks", ""],
+            ["", "planks", "planks", "planks", ""],
+            ["", "", "planks", "", ""],
+            ["", "", "", "", ""]
+        ],
+        [
+            ["cobblestone", "cobblestone", "cobblestone", "cobblestone", "cobblestone"],
+            ["cobblestone", "chest", "bed", "air", "cobblestone"],
+            ["cobblestone", "air", "bed", "air", "cobblestone"],
+            ["cobblestone", "air", "air", "air", "cobblestone"],
+            ["cobblestone", "air", "air", "air", "cobblestone"],
+            ["cobblestone", "cobblestone", "door", "cobblestone", "cobblestone"],
+            ["", "air", "air", "air", ""]
+        ],
+        [
+            ["cobblestone", "cobblestone", "cobblestone", "cobblestone", "cobblestone"],
+            ["cobblestone", "torch", "air", "torch", "cobblestone"],
+            ["cobblestone", "air", "air", "air", "cobblestone"],
+            ["cobblestone", "air", "air", "air", "cobblestone"],
+            ["cobblestone", "torch", "air", "torch", "cobblestone"],
+            ["cobblestone", "cobblestone", "door", "cobblestone", "cobblestone"],
+            ["", "air", "air", "air", ""]
+        ],
+        [
+            ["air", "air", "air", "air", "air"],
+            ["air", "cobblestone", "cobblestone", "cobblestone", "air"],
+            ["cobblestone", "cobblestone", "cobblestone", "cobblestone", "cobblestone"],
+            ["cobblestone", "cobblestone", "cobblestone", "cobblestone", "cobblestone"],
+            ["air", "cobblestone", "cobblestone", "cobblestone", "air"],
+            ["air", "air", "air", "air", "air"],
+            ["", "air", "air", "air", ""]
+        ]
+    ]
+}

@@ -75,7 +75,8 @@ class MinecraftSurface(Skill):
         loop = asyncio.get_running_loop()
         cfg = self.skill_config
         self.client = MinecraftClient(url, loop, on_event=self._on_mod_event)
-        self._registry = build_minecraft_tools(self.client, self.notebook)
+        self._registry = build_minecraft_tools(
+            self.client, self.notebook, build_scripts=bool(cfg.get("build_scripts", True)))
         self.agent = GameAgent(
             llm=self._body_model(),
             registry=self._registry,
@@ -283,6 +284,8 @@ class MinecraftSurface(Skill):
             self._on_auto_action(data)
         elif kind == "reflex":
             self._on_reflex(data)
+        elif kind == "progress":
+            self._on_progress(data)
 
     def _on_chat(self, data: dict) -> None:
         """Someone talked in game.
@@ -408,6 +411,17 @@ class MinecraftSurface(Skill):
             agent.note_reflex(f"{reflex}: {message}")
         if reflex in ("defend", "respawn") and data.get("event") == "started":
             self._emit_milestone(f"your body, on its own: {message}")
+
+    def _on_progress(self, data: dict) -> None:
+        """A long action saying how far it has got: what the body is thinking now.
+
+        Commentary reads the body's latest thought, so a build narrates itself
+        without a word of it becoming an interruption.
+        """
+        agent = self.agent
+        message = " ".join(str(data.get("message") or "").split())
+        if agent is not None and message:
+            agent.note_progress(message)
 
     def _is_whisper(self, text: str, name: str) -> bool:
         """Vanilla renders a whisper as "Marco whispers to you: ..."."""

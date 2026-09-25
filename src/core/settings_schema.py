@@ -284,6 +284,9 @@ MINECRAFT = Section(
                 "How many of its own moves her body remembers. Everything older lives "
                 "in its notebook. Higher costs more per move.",
                 12, minimum=2, maximum=60),
+        Setting("build_scripts", "Build with scripts", "bool",
+                "Let her body sketch a build as a short program (towers, stairs, domes). "
+                "The program only draws; it cannot move her or touch your computer.", True),
     ],
 )
 

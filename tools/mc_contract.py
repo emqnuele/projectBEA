@@ -28,6 +28,9 @@ INJECTS = re.compile(r'params\.addProperty\(\s*"([A-Za-z_][A-Za-z0-9_]*)"')
 KNOWN = re.compile(r"KNOWN_ACTIONS\s*=.*?List\.of\((.*?)\)\)\)", re.S)
 # the actions that run beside the current one instead of stopping it
 CONCURRENT = re.compile(r"CONCURRENT_ACTIONS\s*=.*?List\.of\((.*?)\)\)\)", re.S)
+# a skill that hands its whole json to the blueprint expander accepts the expander's keys
+EXPANDS = re.compile(r"Blueprint\.expand\(\s*params\s*\)")
+BLUEPRINT_KEYS = re.compile(r"KEYS\s*=\s*Set\.of\((.*?)\);", re.S)
 
 
 def extract(mod_root: Path) -> Dict[str, object]:
@@ -53,7 +56,11 @@ def extract(mod_root: Path) -> Dict[str, object]:
             source = base / "skills" / f"{skill}.java"
             if not source.exists():
                 sys.exit(f"{name}: {skill}.java not found under {source.parent}")
-            reads = set(READS.findall(source.read_text(encoding="utf-8")))
+            text = source.read_text(encoding="utf-8")
+            reads = set(READS.findall(text))
+            if EXPANDS.search(text):
+                blueprint = (base / "utils" / "Blueprint.java").read_text(encoding="utf-8")
+                reads |= set(re.findall(r'"([a-z_]+)"', BLUEPRINT_KEYS.search(blueprint).group(1)))
 
         actions[name] = {
             "skill": skill,

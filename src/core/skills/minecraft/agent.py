@@ -270,6 +270,10 @@ class GameAgent:
         self.behaviour_log.append(_clip(line, THOUGHT_LIMIT))
         del self.behaviour_log[:-MAX_BEHAVIOUR_LINES]
 
+    def note_progress(self, line: str) -> None:
+        """A long action reporting in (a build, cell by cell): it stands in for the body's thought."""
+        self._think(line)
+
     # --- what she can see ---------------------------------------------------
 
     @property
@@ -439,6 +443,7 @@ class GameAgent:
 _MILESTONE_TOOLS = frozenset({
     "craft_item", "smelt_item", "find_block", "mine_block", "place_block",
     "equip_item", "store_item", "retrieve_item", "attack_entity", "give_item",
+    "build", "build_template", "build_script",
 })
 
 _BAD = ("FAILURE", "FAILED", "ERROR", "TIMEOUT", "INTERRUPTED")
