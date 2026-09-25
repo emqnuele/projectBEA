@@ -374,9 +374,14 @@ forward and one up, in a direction with no lava or water behind what it opens;
 it is done when the sky is over her head and the ground ahead is no higher than
 her feet.
 
-When the player installs Baritone, its routes drive the same walks: `full`
-plans and walks, `plan` plans while her own skills walk, `off` keeps the
-built-in A*. A chat line starting with its command prefix is refused, so it
+Baritone is an optional dependency the player adds as a separate mod
+([MeteorDevelopment/baritone](https://github.com/MeteorDevelopment/baritone)):
+with it she walks its routes, in `full` parkour included; without it everything
+works the same on her own A*. `baritoneMode` in the mod's config (or `/beacraft
+baritone` in game) picks how: `full` plans and walks, `plan` plans while her
+own skills walk, `off` keeps the built-in A*. The protected blocks, door
+opening, `range` and the step aside are hers in every mode, whichever planner
+drew the route. A chat line starting with its command prefix is refused, so it
 never ends up in its command handler instead of the game.
 
 ---
