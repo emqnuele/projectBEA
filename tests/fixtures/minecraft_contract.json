@@ -28,7 +28,8 @@
     "smelt_item",
     "stop_moving",
     "store_item",
-    "use_block"
+    "use_block",
+    "view_container"
   ],
   "concurrent_actions": [
     "chat",
@@ -83,6 +84,7 @@
     "craft_item": {
       "skill": "CraftingSkill",
       "accepts": [
+        "count",
         "item",
         "quantity"
       ],
@@ -223,7 +225,11 @@
     "retrieve_item": {
       "skill": "ContainerSkill",
       "accepts": [
-        "item"
+        "count",
+        "item",
+        "x",
+        "y",
+        "z"
       ],
       "injected_by_mod": [
         "mode"
@@ -248,8 +254,11 @@
     "smelt_item": {
       "skill": "SmeltSkill",
       "accepts": [
+        "count",
+        "fuel",
         "fuel_item",
-        "input_item"
+        "input_item",
+        "item"
       ],
       "injected_by_mod": []
     },
@@ -261,7 +270,11 @@
     "store_item": {
       "skill": "ContainerSkill",
       "accepts": [
-        "item"
+        "count",
+        "item",
+        "x",
+        "y",
+        "z"
       ],
       "injected_by_mod": [
         "mode"
@@ -275,6 +288,19 @@
         "z"
       ],
       "injected_by_mod": []
+    },
+    "view_container": {
+      "skill": "ContainerSkill",
+      "accepts": [
+        "count",
+        "item",
+        "x",
+        "y",
+        "z"
+      ],
+      "injected_by_mod": [
+        "mode"
+      ]
     }
   }
 }

@@ -4,6 +4,7 @@ from src.core.agent.tools import ToolRegistry
 from src.core.skills.minecraft.building import register_building_tools
 from src.core.skills.minecraft.client import MinecraftClient
 from src.core.skills.minecraft.notebook import Notebook
+from src.core.skills.minecraft.recipebook import PLAN_DESC, RecipeBook
 
 _NOTEBOOK_DESC = (
     "Rewrite your private notebook — your working memory and plan. It is NOT spoken; "
@@ -194,12 +195,18 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         },
         "required": ["direction", "count"],
     }),
-    "craft_item": ("Craft an item using a nearby crafting table or inventory.", {
+    "craft_item": (
+        "Make `count` items (items, not crafts: count 5 sticks is two crafts, 8 sticks). A "
+        "recipe that fits the 2x2 grid is made in your inventory; anything bigger at the nearest "
+        "crafting table within 16 blocks, walking there, or at the one you carry, set down and "
+        "picked back up. Fails with FAILURE_MISSING_INGREDIENTS (says what you are short of), "
+        "FAILURE_NO_TABLE, FAILURE_NO_RECIPE (not unlocked yet) or FAILURE_UNREACHABLE; a "
+        "failure comes with the crafting_plan from what you carry.", {
         "type": "object",
         "properties": {
             "item": {"type": "string"},
-            "quantity": {"type": "integer", "minimum": 1,
-                         "description": "How many to make; defaults to 1."},
+            "count": {"type": "integer", "minimum": 1,
+                      "description": "How many items you want; defaults to one craft."},
         },
         "required": ["item"],
     }),
@@ -208,20 +215,51 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
         "required": ["x", "y", "z"],
     }),
-    "smelt_item": ("Smelt an item in a furnace.", {
+    "smelt_item": (
+        "Smelt `count` of an item (raw_iron, sand, a log...) and wait for it: at the nearest "
+        "furnace within 16 blocks, or at the one you carry, set down and picked back up. She "
+        "puts in just enough fuel from what you carry (or `fuel`), takes out everything, and "
+        "takes back what was not used. About 10 s per item, at most 10 per call. Fails with "
+        "FAILURE_NO_FUEL, FAILURE_NO_FURNACE, FAILURE_FURNACE_BUSY (it holds someone else's "
+        "smelt), FAILURE_NOT_SMELTABLE or FAILURE_STALLED.", {
         "type": "object",
-        "properties": {"input_item": {"type": "string"}, "fuel_item": {"type": "string"}},
-        "required": ["input_item", "fuel_item"],
-    }),
-    "store_item": ("Store items in a container.", {
-        "type": "object",
-        "properties": {"item": {"type": "string"}},
+        "properties": {
+            "item": {"type": "string"},
+            "count": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Defaults to 1."},
+            "fuel": {"type": "string", "description": "What to burn; left out, the least wasteful."},
+        },
         "required": ["item"],
     }),
-    "retrieve_item": ("Retrieve items from a container.", {
+    "store_item": (
+        "Put `count` of an item (all of it if left out) into a chest or barrel: the one at x, y, z, "
+        "or the nearest within 32 blocks. She walks there, opens it, moves exactly that item and "
+        "closes it; the answer says what the chest holds now. Fails with FAILURE_NO_CONTAINER, "
+        "FAILURE_CONTAINER_FULL or FAILURE_NO_ITEM.", {
         "type": "object",
-        "properties": {"item": {"type": "string"}},
+        "properties": {
+            "item": {"type": "string"},
+            "count": {"type": "integer", "minimum": 1},
+            "x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"},
+        },
         "required": ["item"],
+    }),
+    "retrieve_item": (
+        "Take `count` of an item (all of it if left out) out of a chest or barrel: the one at "
+        "x, y, z, or the nearest within 32 blocks. Fails with FAILURE_NOT_IN_CONTAINER, "
+        "FAILURE_NOT_ENOUGH (it held fewer), FAILURE_INVENTORY_FULL or FAILURE_NO_CONTAINER.", {
+        "type": "object",
+        "properties": {
+            "item": {"type": "string"},
+            "count": {"type": "integer", "minimum": 1},
+            "x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"},
+        },
+        "required": ["item"],
+    }),
+    "view_container": (
+        "Look inside a chest or barrel: the one at x, y, z, or the nearest within 32 blocks. She "
+        "walks there and opens it, so it takes the body like any walk.", {
+        "type": "object",
+        "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
     }),
     "equip_item": (
         "Put something on: a tool in your hand, armour on your body, a shield in your "
@@ -297,13 +335,20 @@ def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
     """
     registry = ToolRegistry()
 
+    book = RecipeBook(client)
+
     def make_handler(tool_name: str):
         action, renames = _ALIASES.get(tool_name, (tool_name, {}))
         timeout = ACTION_TIMEOUTS.get(action, DEFAULT_TIMEOUT)
 
         async def handler(**kwargs):
             args = {renames.get(k, k): v for k, v in kwargs.items()}
-            return await client.execute(action, args, timeout=timeout)
+            observation = await client.execute(action, args, timeout=timeout)
+            if action == "craft_item" and str(observation).startswith("FAILURE"):
+                # the mod sees one step; the plan shows the chain from what she carries
+                plan = book.plan(str(args.get("item", "")), int(args.get("count") or 1))
+                observation = f"{observation}\ncrafting_plan:\n{plan}"
+            return observation
         return handler
 
     for name, (description, parameters) in _TOOLS.items():
@@ -319,6 +364,18 @@ def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
             "required": ["notes"],
         },
         lambda notes="": notebook.update(notes),
+    )
+    registry.add(
+        "crafting_plan",
+        PLAN_DESC,
+        {
+            "type": "object",
+            "properties": {"item": {"type": "string"},
+                           "count": {"type": "integer", "minimum": 1, "description": "Defaults to 1."}},
+            "required": ["item"],
+        },
+        lambda item="", count=1: book.plan(item, count),
+        surface=surface,
     )
     register_building_tools(registry, client, surface, build_scripts)
 

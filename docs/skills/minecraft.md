@@ -27,9 +27,12 @@ src/core/skills/minecraft/
 ├── building.py  plan_build, templates and build scripts, worked out before the mod
 ├── blueprint.py a build's arguments, expanded to cells and costed
 ├── buildscript.py  a build drawn by a short, sandboxed script
+├── crafting.py  what it takes to make an item, from what she carries
+├── recipebook.py crafting_plan, and the plan behind a failed craft
 └── notebook.py  the body's private scratchpad
 
 data/minecraft/blueprints/   ready-made buildings (mindcraft's, MIT)
+data/minecraft/recipes/      the crafting and smelting recipes, one file per Minecraft version
 ```
 
 ---
@@ -265,11 +268,12 @@ only two ways a goal ends.
 **The body's game tools:** `scan`, `mine_block`, `attack_entity`, `move_to`,
 `stop_moving`, `request_screenshot`, `look_at`, `place_block`, `build`,
 `select_slot`, `find_block`, `pillar_up`, `mine_down`, `bridge`, `craft_item`,
-`use_block`, `smelt_item`, `store_item`, `retrieve_item`, `equip_item`,
-`discard_item`, `eat_food`, `check_death_log`, `goto_player`, `follow_player`,
-`look_at_player`, `give_item`, `chat`, `pickup_items` — plus `update_notebook`
-and the building tools worked out in the brain: `plan_build`, `list_templates`,
-`build_template` and `build_script` (the last only with `build_scripts` on).
+`use_block`, `smelt_item`, `store_item`, `retrieve_item`, `view_container`,
+`equip_item`, `discard_item`, `eat_food`, `check_death_log`, `goto_player`,
+`follow_player`, `look_at_player`, `give_item`, `chat`, `pickup_items` — plus
+`update_notebook`, `crafting_plan`, and the building tools worked out in the
+brain: `plan_build`, `list_templates`, `build_template` and `build_script` (the
+last only with `build_scripts` on).
 
 Every tool awaits the mod's answer to it, so the observation the model reasons
 on is what actually happened: `RESULT: sentence`, followed by the last lines of
@@ -330,6 +334,58 @@ with `confirm=true`. The mod never sees code.
 **While it builds** the mod sends `{"type": "progress", "done", "total",
 "message"}` every ten cells; it becomes the body's current thought, which is what
 her commentary reads.
+
+---
+
+## Crafting, smelting and chests
+
+Each of these is one action that does the whole job, the way a player would:
+find the block it needs, walk into reach, open it, do the work, close it.
+
+**`craft_item(item, count)`** makes `count` items, not `count` crafts: five
+sticks are two crafts and eight sticks. A recipe that fits the 2x2 grid is made
+in her inventory. Whether it fits is the recipe's shape, not its number of
+ingredients: a slab is three planks in a row, so it needs a table. Anything
+bigger goes to the nearest crafting table within 16 blocks, walking there; with
+none around she sets down the table she carries, crafts, and picks it back up
+(`pickUpPlacedTable` in `config/beacraft.json`, on by default). A shortage is
+named with the numbers: *takes 3 planks and 2 stick; you are short of 2 planks
+(you have 1)*. The mod crafts only recipes she has unlocked, and says so; the
+game unlocks a recipe when she first carries one of its ingredients.
+
+**`crafting_plan(item, count)`** is answered in the brain, at once: every craft
+and smelt in order from what she carries, what is missing, which steps need a
+table or a furnace, the fuel and the leftovers. It reads
+`data/minecraft/recipes/<version>.json`, the one matching the `mc_version` in the
+handshake, or the newest older one with a note saying so. A failed `craft_item`
+comes back with the plan appended. The planner uses what she carries first,
+fills a slot like `#planks` from any planks she has, picks the recipe with the
+fewest missing items, never unpacks a storage block she does not carry, and never
+smelts an ore (mining it already drops the raw item).
+
+The recipe files are extracted from Mojang's server jar and committed:
+
+```bash
+uv run python tools/mc_recipes.py 26.2                  # downloads the jar
+uv run python tools/mc_recipes.py path/to/server.jar 26.2
+```
+
+**`smelt_item(item, count, fuel)`** uses the nearest furnace within 16 blocks, or
+sets down the one she carries. She puts in exactly `count` items and just enough
+fuel: one kind of fuel (a furnace holds one), the kind that leaves the least burn
+unused, so one raw iron costs a plank rather than a coal; the planner picks the
+same way. She waits, taking out what comes out, and stops when it is all done or
+nothing has come out for 11 seconds (a smelt takes 10). What she put in and did
+not use comes back out. A furnace already smelting something else is left alone
+(`FAILURE_FURNACE_BUSY`). At most 10 items per call, which keeps the walk, the
+smelting and the pick-up inside the mod's 150 s budget.
+
+**`store_item`, `retrieve_item`** move exactly `count` of exactly the item named
+(all of it when `count` is left out) between her and a chest or barrel: the one
+at `x, y, z`, or the nearest within 32 blocks. **`view_container`** only looks.
+Every answer ends with what the chest holds now. `view_container` is a body
+action, not one of the side tasks that run beside the body: it walks, and opening
+any screen releases every key the body is holding, which would end a walk.
 
 ---
 

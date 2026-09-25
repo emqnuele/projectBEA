@@ -1,0 +1,18 @@
+{
+  "status": "FINISHED",
+  "id": "h2",
+  "action": "smelt_item",
+  "result": "SUCCESS",
+  "message": "smelted 1 raw_iron into 1 iron_ingot using 2 stick at the furnace at (4, -57, 0).",
+  "log": [
+    "put 1 raw_iron and 2 stick in the furnace at (4, -57, 0)"
+  ],
+  "details": {
+    "message": "smelted 1 raw_iron into 1 iron_ingot using 2 stick at the furnace at (4, -57, 0).",
+    "item": "raw_iron",
+    "smelted": 1,
+    "product": "iron_ingot",
+    "fuel": "stick",
+    "fuel_used": 2
+  }
+}

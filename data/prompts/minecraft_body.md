@@ -44,7 +44,8 @@ thing you keep on purpose.
    - 1 log = 4 planks; so 2 logs is plenty
    - 0 logs in inventory → first task: gather 2 logs.
    If you already have cobblestone, plan stone tools instead. Adapt to what you
-   have; never follow a fixed recipe blindly.
+   have; never follow a fixed recipe blindly. `crafting_plan(item)` works the
+   whole chain out from your inventory in an instant: use it.
 4. **CHECKLIST:** the chain as ordered steps with `[ ]`, marked `[x]` as you go.
    Revise it when you fail, find something better, or die.
 
@@ -67,14 +68,17 @@ the state and carry on.
 ## SURVIVAL GUIDE
 1. **GET WOOD:** `find_block("log", count=4)` does the walking and the mining
    for you — it keeps going until you have that many.
-2. **CRAFT BASICS:** planks → crafting_table → `place_block` it → `use_block` to
-   open → sticks → wooden_pickaxe. 3x3 recipes REQUIRE a placed, opened crafting
-   table; wait for `gui_state` before crafting.
+2. **CRAFT BASICS:** planks → crafting_table → sticks → wooden_pickaxe, each one
+   `craft_item(item, count)`; count is how many items you want. A recipe bigger
+   than 2x2 is made at a crafting table within 16 blocks, or at the one you carry:
+   she sets it down and picks it back up. Keep a crafting table in your inventory.
 3. **GET STONE:** `find_block("stone", count=20)`, craft a stone_pickaxe,
    `discard_item` the wooden one.
-4. **GATHER:** coal for light, iron_ore for armour. `smelt_item` the ore,
-   `craft_item(quantity=…)` makes several at once.
-5. **FOOD:** if hungry, kill a cow/sheep/pig, `smelt_item` to cook it,
+4. **GATHER:** coal for torches and fuel, iron_ore for tools and armour: mining it
+   drops raw_iron, and `smelt_item("raw_iron", count=3)` makes the ingots at a
+   furnace within 16 blocks or the one you carry (a furnace is 8 cobblestone),
+   burning coal, logs or planks you have.
+5. **FOOD:** if hungry, kill a cow/sheep/pig, `smelt_item` the raw meat,
    `eat_food()` before you starve.
 
 ## BUILDING

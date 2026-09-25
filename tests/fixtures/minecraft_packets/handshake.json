@@ -34,7 +34,8 @@
     "give_item",
     "pickup_items",
     "build",
-    "scan"
+    "scan",
+    "view_container"
   ],
   "concurrent": [
     "chat",

@@ -283,3 +283,20 @@ def test_an_unfinished_build_says_what_is_missing_and_where(loop):
     assert observation.startswith(
         "FAILURE_INCOMPLETE: built 20/25 cells of the build; missing 5 cobblestone.")
     assert "still wrong: (7, -57, 3) holds air, wanted cobblestone" in observation
+
+
+def test_a_craft_short_of_something_names_it(loop):
+    client = client_on(loop)
+    future = waiting(client, loop, packet("finished_craft_missing")["id"])
+    client._handle(packet("finished_craft_missing"))
+    assert future.result() == ("FAILURE_MISSING_INGREDIENTS: 1 wooden_pickaxe takes 3 planks and 2 stick; "
+                               "you are short of 2 planks (you have 1).")
+
+
+def test_a_smelt_says_what_went_in_and_came_out(loop):
+    client = client_on(loop)
+    future = waiting(client, loop, packet("finished_smelt")["id"])
+    client._handle(packet("finished_smelt"))
+    observation = future.result()
+    assert observation.startswith("SUCCESS: smelted 1 raw_iron into 1 iron_ingot using 2 stick")
+    assert observation.endswith("put 1 raw_iron and 2 stick in the furnace at (4, -57, 0)")

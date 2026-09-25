@@ -39,6 +39,12 @@ OMITTED = {
     # the placer walks without digging so it never takes apart what it built;
     # her own walks keep the right to dig through terrain
     "move_to": {"allowMining"},
+    # the old count of crafts; count (items wanted) is the one that means what she thinks
+    "craft_item": {"quantity"},
+    # the old names of item and fuel, still read for brains that send them
+    "smelt_item": {"input_item", "fuel_item"},
+    # the chest skill shared with store/retrieve: a look moves nothing
+    "view_container": {"item", "count"},
 }
 
 

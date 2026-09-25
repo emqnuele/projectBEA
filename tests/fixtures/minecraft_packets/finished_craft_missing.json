@@ -1,0 +1,13 @@
+{
+  "status": "FINISHED",
+  "id": "h1",
+  "action": "craft_item",
+  "result": "FAILURE_MISSING_INGREDIENTS",
+  "message": "1 wooden_pickaxe takes 3 planks and 2 stick; you are short of 2 planks (you have 1).",
+  "details": {
+    "message": "1 wooden_pickaxe takes 3 planks and 2 stick; you are short of 2 planks (you have 1).",
+    "item": "wooden_pickaxe",
+    "wanted": 1,
+    "crafted": 0
+  }
+}
