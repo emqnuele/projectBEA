@@ -1,0 +1,25 @@
+{
+  "args": {
+    "layers": [
+      [
+        "###"
+      ]
+    ],
+    "origin": {
+      "x": 10,
+      "y": 64,
+      "z": 4
+    },
+    "palette": {
+      "#": "cobblestone"
+    }
+  },
+  "cells": {
+    "10,64,4": "cobblestone",
+    "11,64,4": "cobblestone",
+    "12,64,4": "cobblestone"
+  },
+  "items": {
+    "cobblestone": 3
+  }
+}

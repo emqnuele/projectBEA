@@ -1,0 +1,27 @@
+{
+  "args": {
+    "ops": [
+      {
+        "block": "stone",
+        "from": [
+          0,
+          0,
+          0
+        ],
+        "hollow": [],
+        "op": "fill",
+        "to": [
+          2,
+          2,
+          2
+        ]
+      }
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    }
+  },
+  "error": "ops[0]: hollow must be true or false"
+}

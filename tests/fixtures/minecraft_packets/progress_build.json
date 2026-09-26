@@ -1,0 +1,8 @@
+{
+  "type": "progress",
+  "id": "h1",
+  "action": "build",
+  "done": 10,
+  "total": 25,
+  "message": "building: 10 placed, 15 to go"
+}

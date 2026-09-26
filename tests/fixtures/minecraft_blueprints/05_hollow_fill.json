@@ -1,0 +1,58 @@
+{
+  "args": {
+    "ops": [
+      {
+        "block": "cobblestone",
+        "from": [
+          0,
+          0,
+          0
+        ],
+        "hollow": true,
+        "op": "fill",
+        "to": [
+          2,
+          2,
+          2
+        ]
+      }
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    }
+  },
+  "cells": {
+    "0,0,0": "cobblestone",
+    "0,0,1": "cobblestone",
+    "0,0,2": "cobblestone",
+    "0,1,0": "cobblestone",
+    "0,1,1": "cobblestone",
+    "0,1,2": "cobblestone",
+    "0,2,0": "cobblestone",
+    "0,2,1": "cobblestone",
+    "0,2,2": "cobblestone",
+    "1,0,0": "cobblestone",
+    "1,0,1": "cobblestone",
+    "1,0,2": "cobblestone",
+    "1,1,0": "cobblestone",
+    "1,1,1": "air",
+    "1,1,2": "cobblestone",
+    "1,2,0": "cobblestone",
+    "1,2,1": "cobblestone",
+    "1,2,2": "cobblestone",
+    "2,0,0": "cobblestone",
+    "2,0,1": "cobblestone",
+    "2,0,2": "cobblestone",
+    "2,1,0": "cobblestone",
+    "2,1,1": "cobblestone",
+    "2,1,2": "cobblestone",
+    "2,2,0": "cobblestone",
+    "2,2,1": "cobblestone",
+    "2,2,2": "cobblestone"
+  },
+  "items": {
+    "cobblestone": 26
+  }
+}

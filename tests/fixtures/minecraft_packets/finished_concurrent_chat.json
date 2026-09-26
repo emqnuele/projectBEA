@@ -1,0 +1,10 @@
+{
+  "status": "FINISHED",
+  "id": "h3",
+  "action": "chat",
+  "result": "SUCCESS",
+  "message": "Chat packet sent",
+  "details": {
+    "message": "Chat packet sent"
+  }
+}

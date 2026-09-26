@@ -1,0 +1,30 @@
+{
+  "args": {
+    "ops": [
+      {
+        "at": [
+          0,
+          0,
+          0
+        ],
+        "block": "stone",
+        "op": "set"
+      },
+      {
+        "at": [
+          1200,
+          64,
+          -900
+        ],
+        "block": "stone",
+        "op": "set"
+      }
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    }
+  },
+  "error": "the build spans 1201 blocks along x (from 0 to 1200); the most is 256"
+}

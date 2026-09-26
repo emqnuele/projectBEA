@@ -1,0 +1,16 @@
+{
+  "args": {
+    "layers": [
+      "##"
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "#": "stone"
+    }
+  },
+  "error": "layers[0] must be a list of rows (strings)"
+}

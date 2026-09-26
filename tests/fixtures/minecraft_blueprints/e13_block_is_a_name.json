@@ -1,0 +1,18 @@
+{
+  "args": {
+    "layers": [
+      [
+        "#"
+      ]
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "#": 5
+    }
+  },
+  "error": "palette['#']: a block is a name like 'cobblestone'"
+}

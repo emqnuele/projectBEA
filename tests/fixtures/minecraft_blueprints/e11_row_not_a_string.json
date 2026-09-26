@@ -1,0 +1,18 @@
+{
+  "args": {
+    "layers": [
+      [
+        5
+      ]
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "#": "stone"
+    }
+  },
+  "error": "layers[0][0] must be a string"
+}

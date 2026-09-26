@@ -71,9 +71,9 @@ perception instead:
 ```python
 Perception(
     GAME, "game:mc",
-    "Your body is standing still in Minecraft, doing nothing, and today's plan "
-    "still has: #2 find diamonds. Give it something to do with play_minecraft…",
-    meta={"addressed": "idle-body"},
+    "You have been standing around in Minecraft doing nothing for 34s. Today's "
+    "plan still has: #2 find diamonds. It is your game: do something.",
+    meta={"addressed": "idle-in-game"},
 )
 ```
 
@@ -83,11 +83,11 @@ what makes the nudge survive the attention gate — a nudge filed under "noticed
 is a nudge that never happened, and she would go straight back to waiting to be
 spoken to.
 
-It fires at most every `skills.minecraft.idle_nudge_seconds` (90 by default,
-`0` disables it), never when the plan is empty, and never while the body is
-already busy — a working body gets the
-[commentary nudge](minecraft.md#speaking-without-being-spoken-to) instead,
-because a second goal would replace the one it is running.
+It fires at most every `skills.minecraft.idle_nudge_seconds` (30 by default,
+`0` disables it), and never while an action of hers is running — then she gets
+the [word about what she is doing](minecraft.md#two-silences-worth-breaking)
+instead, and only when something in it changed. With an empty plan it still
+fires, without the list: she is in a game either way.
 
 ---
 
@@ -114,10 +114,10 @@ The owner can also close, reopen, reorder and delete objectives — you are
 watching the stream too, and it is faster than telling her.
 
 While the Minecraft skill is active the page also carries a **What are you
-doing?** button, which asks her to say what her body is up to without waiting
-for her own clock. It is the Minecraft
-[commentary nudge](minecraft.md#speaking-without-being-spoken-to) fired by hand,
-not a separate prompt, and it is hidden when she is not in the game.
+doing?** button, which asks her to say what she is up to in the game without
+waiting for her own clock. It is the Minecraft
+[word about what she is doing](minecraft.md#two-silences-worth-breaking) fired
+by hand, not a separate prompt, and it is hidden when she is not in the game.
 
 See the [API reference](../web/api.md#stream-plan) for the endpoints.
 

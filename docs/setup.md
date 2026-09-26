@@ -291,8 +291,8 @@ Two things to know. Every model in `mind` must support tool calling — she
 speaks only through tools, so a model without them never says a word, and the
 doctor tells you exactly that. And a local model is slower than Groq: she
 still answers in time, but the background pool is where small local models
-shine — the diary, the dreamer and the Minecraft body never needed a
-frontier model in the first place.
+shine — the diary and the dreamer never needed a frontier model in the
+first place.
 
 [LLM modules →](modules/llm.md)
 

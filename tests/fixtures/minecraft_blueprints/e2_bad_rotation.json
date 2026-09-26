@@ -1,0 +1,19 @@
+{
+  "args": {
+    "layers": [
+      [
+        "#"
+      ]
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "#": "stone"
+    },
+    "rotation": 45
+  },
+  "error": "rotation must be"
+}

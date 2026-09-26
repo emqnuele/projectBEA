@@ -232,7 +232,7 @@ answering on it.
      given one more step (`_NO_TOOL_NUDGE`). Only tools that declare
      `reaches=True` (audience: `speak`, chat sends, reacts, DMs, explicit
      silence) count as reaching someone; side effects (`objective_*`,
-     `play_minecraft`, body actions, recall) never stand in for the answer.
+     game actions, recall) never stand in for the answer.
      An audience success suppresses the rescue even if plain text follows it —
      no double answer, the extra words stay in `thought`.
 7. **Resolve** any dangling correlations, **write** the full context and decision to the Turn Log, and **mirror** the turn into the sliding
@@ -371,7 +371,7 @@ not been given invents the call.
 | `TwitchSkill` | `chat:twitch` | `twitch` | anonymous IRC read; every message is tallied, all of them reach the one frame with a priority |
 | `DonationSkill` | `donation` | `donations` | `POST /webhook/donation`; always reacts, promotes the donor immediately |
 | `IdleSurface` | `idle` | `monologue` | produces no input: supplies the monologue rules on a pure-idle frame |
-| `MinecraftSurface` | `game:mc` | `minecraft` | WebSocket client to the mod; **7** tools to the mind, the other 24 (plus `goal_done`/`goal_blocked`) to the `GameAgent` |
+| `MinecraftSurface` | `game:mc` | `minecraft` | WebSocket client to the mod; every game tool is hers, actions that take time run in the background and answer as `ACTION` perceptions |
 | `MemorySkill` | `memory` | `memory` | RAG over `bea.db`, injected via `context_for` in two labelled blocks; no tools |
 | `SocialMemory` | `social` | `social_memory` | roster tally + person cards; injects `[WHO YOU'RE TALKING TO]` |
 | `DreamSkill` | `dream` | `dream` | self-lore + hot facts always in context; morning pass; `go_to_sleep`; offline dreamer |
@@ -440,16 +440,12 @@ Python side (`src/core/skills/minecraft/`):
   on the player's UUID. That one detail is what switches the entire social stack
   on inside the game: the roster, person cards, promotion and the attention gate
   are all keyed on `Author`, so none of them needed Minecraft-specific code.
-- `agent.py` — the `GameAgent`, a loop that runs for as long as the skill does.
-  The mind decides an **intention** (`play_minecraft("get a stone pickaxe")`)
-  and returns to what it was doing; the body works at it with all 24 game tools
-  and the notebook, re-reading the world as it goes, and reports only
-  milestones and how the goal ended. It idles for free when it has no goal, so
-  she is never what keeps her own body alive. The mind keeps seven tools and
-  its personality.
-- `goal.py` / `context.py` — the intention as a thing with a status and a step
-  count, and the body's own bounded window. It trims whole think/act rounds, so
-  a `tool` message can never be orphaned from the `tool_calls` that asked for it.
+- `tools.py` — the game tools, handed to her like any other skill's. One that
+  takes time (walking, mining, crafting, building, fighting) is long-running:
+  the consciousness starts it in the background and its answer comes back as an
+  `ACTION` perception. Several in one step run in order, the first failure
+  stops the rest; a later step replaces what is still going. The fast loop of
+  playing is the mod's: reflexes and whole-job actions.
 - `state.py` — renders the state packet as a few readable lines instead of a wall
   of JSON, and it lives in `live_state()` rather than in a perception: it is
   *where she is*, always true, not an event that should make her think.
@@ -460,16 +456,16 @@ turn is usually right, and is much of what makes a persona playing multiplayer
 worth watching.
 
 **The two nudges.** The heartbeat is marked `noise` so a quiet server costs
-nothing, which also means nothing in the game ever makes her speak on its own.
-Two perceptions do, and `surface.py` emits at most one per tick:
+nothing. Two perceptions ask something of her, and `surface.py` emits at most
+one per tick:
 
-- the body is **working** — it carries what the body is doing and the last
-  thing it thought, and asks for words rather than a decision, at most every
-  `commentary_seconds` (20 by default, 0 to disable). Without it the only thing
-  reaching her mid-goal is a milestone, and those are minutes apart.
-- the body is **standing still** with an objective still open on the stream
-  plan — it asks her to hand the body a goal, at most every
-  `idle_nudge_seconds` (90 by default, 0 to disable).
+- she is **in the middle of something long** — what, for how long, how far it
+  has got and what she carries, at most every `commentary_seconds` (20 by
+  default, 0 to disable) and only when something in it changed since she last
+  heard. It asks for words, not a decision.
+- she is **standing around** — no action running for `idle_nudge_seconds` (30
+  by default, 0 to disable), with the open objectives of the stream plan when
+  there are any.
 
 Both carry `meta["addressed"]`, which is what makes them survive the gate: a
 nudge filed under "noticed" is a nudge that never happened.

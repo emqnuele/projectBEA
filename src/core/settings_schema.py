@@ -260,30 +260,21 @@ TWITCH = Section(
 
 MINECRAFT = Section(
     key="minecraft", label="Minecraft", scope="skills", toggleable=True,
-    blurb="A body on a vanilla server.",
+    blurb="She plays on a vanilla server.",
     settings=[
         Setting("enabled", "On", "bool", "Whether she is in the game.", False),
         Setting("server_url", "Agent URL", "string",
-                "The websocket her in-game body connects to.", "ws://127.0.0.1:8080"),
+                "The websocket of the BeaCraft mod in her game.", "ws://127.0.0.1:8080"),
         Setting("idle_nudge_seconds", "Nudge her after", "int",
-                "Seconds of nothing happening before she does something on her own. 0 never.",
-                90, minimum=0, maximum=3600),
+                "Seconds standing around in the game doing nothing before she is told. 0 never.",
+                30, minimum=0, maximum=3600),
         Setting("commentary_seconds", "Say something every", "int",
-                "Seconds between one word and the next while her body is busy playing. "
-                "0 keeps her quiet until something finishes.",
+                "At most one word asked of her this often while a long action runs, and "
+                "only when something in it changed. 0 keeps her quiet until it finishes.",
                 20, minimum=0, maximum=600),
-        Setting("steps_per_goal", "Give up after", "int",
-                "Tries her body spends on one goal before it admits it is stuck and "
-                "hands the problem back to her. It keeps playing either way.",
-                40, minimum=4, maximum=200),
-        Setting("tick_seconds", "Breathing room", "float",
-                "Seconds between two of her body's moves. Most of the pacing is the "
-                "game itself; this is what keeps a cheap goal from spinning.",
-                0.4, minimum=0.0, maximum=5.0),
-        Setting("body_context_rounds", "Body memory", "int",
-                "How many of its own moves her body remembers. Everything older lives "
-                "in its notebook. Higher costs more per move.",
-                12, minimum=2, maximum=60),
+        Setting("build_scripts", "Build with scripts", "bool",
+                "Let her sketch a build as a short program (towers, stairs, domes). "
+                "The program only draws; it cannot move her or touch your computer.", True),
     ],
 )
 
@@ -453,10 +444,6 @@ MODELS = Section(
                 [], restart=True),
         Setting("background", "Background pool", "list",
                 "Diary, dreamer, person cards. Slow and cheap is fine here.",
-                [], restart=True),
-        Setting("minecraft", "Body pool", "list",
-                "What her body in the game thinks with. Empty means the mind pool: "
-                "playing well is reasoning, not clerical work.",
                 [], restart=True),
         Setting("reasoning", "Thinking", "select",
                 "Off is what makes her quick enough for a voice call. Auto leaves each "

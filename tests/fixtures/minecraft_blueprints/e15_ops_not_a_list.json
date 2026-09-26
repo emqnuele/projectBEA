@@ -1,0 +1,13 @@
+{
+  "args": {
+    "ops": {
+      "op": "set"
+    },
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    }
+  },
+  "error": "ops must be a list of objects"
+}

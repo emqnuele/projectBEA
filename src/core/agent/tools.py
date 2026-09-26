@@ -24,14 +24,14 @@ class Tool:
     description: str
     parameters: Dict[str, Any]
     handler: ToolHandler
-    long_running: bool = False  # BODY actions that should run async (single-slot), not block reasoning
+    long_running: bool = False  # actions that take time: run in the background, not blocking her turn
     # which surface owns it, so the result of a long-running action comes back
     # attributed to the right place instead of a hardcoded guess
     surface: str = ""
     # whether this tool puts something in front of an audience (speak, a chat
     # message, a react). The mind reads it when deciding whether a turn
     # reached anybody: a tool that only *does* something - a plan objective, a
-    # body action - must never stand in for the answer she has not given yet.
+    # game action - must never stand in for the answer she has not given yet.
     reaches: bool = False
 
     def schema(self) -> Dict[str, Any]:

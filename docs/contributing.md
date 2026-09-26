@@ -143,6 +143,10 @@ assertion than a call-count matcher.
   neither can be reviewed properly.
 - Say what breaks if the change is wrong. That is the most useful sentence in a
   description.
+- If it changes what ships (`src/`, `data/`, dependencies, `config.example.json`),
+  raise the version in `pyproject.toml` and run `uv lock`: a fix is `2.6.1`,
+  something new `2.7.0`. CI refuses the pull request otherwise
+  (`tools/version_bumped.py`); tests, CI and docs alone need no bump.
 - If it changes behaviour someone might be relying on, update the docs in the
   same pull request. `docs/` is what the documentation site renders, so a stale
   page there is a stale page in public.

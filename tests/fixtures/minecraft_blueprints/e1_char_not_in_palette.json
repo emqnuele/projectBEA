@@ -1,0 +1,18 @@
+{
+  "args": {
+    "layers": [
+      [
+        "#X"
+      ]
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "#": "stone"
+    }
+  },
+  "error": "'X' is not in the palette"
+}

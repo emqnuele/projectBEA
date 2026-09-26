@@ -1,6 +1,6 @@
 [project]
 name = "projectbea"
-version = "2.5.0"
+version = "2.6.0"
 description = "ProjectBEA - AI Vtuber Engine"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -29,6 +29,7 @@ dependencies = [
     "python-telegram-bot[job-queue]>=21",
     "trafilatura>=2.0",
     "ddgs>=9.0",
+    "psutil>=7.2.2",
 ]
 
 [project.scripts]

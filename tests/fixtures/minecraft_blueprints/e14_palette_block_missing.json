@@ -1,0 +1,18 @@
+{
+  "args": {
+    "layers": [
+      [
+        "#"
+      ]
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "#": null
+    }
+  },
+  "error": "palette['#']: missing block"
+}

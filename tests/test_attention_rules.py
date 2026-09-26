@@ -86,7 +86,7 @@ def test_a_reply_to_someone_else_is_not():
 
 def test_a_body_action_result_always_comes_back_to_her():
     p = perception(kind=PerceptionKind.ACTION, content="[mine] result: FINISHED")
-    assert is_addressed(p, trigger_words=TRIGGERS) == "addressed:body"
+    assert is_addressed(p, trigger_words=TRIGGERS) == "addressed:action"
 
 
 def test_death_always_reaches_her():

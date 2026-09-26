@@ -1,0 +1,29 @@
+{
+  "args": {
+    "layers": [
+      [
+        "#P",
+        " #"
+      ]
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "#": "stone",
+      "P": "minecraft:oak_planks"
+    },
+    "rotation": 180
+  },
+  "cells": {
+    "-1,0,-1": "stone",
+    "-1,0,0": "oak_planks",
+    "0,0,0": "stone"
+  },
+  "items": {
+    "oak_planks": 1,
+    "stone": 2
+  }
+}

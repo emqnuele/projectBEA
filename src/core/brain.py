@@ -598,7 +598,7 @@ class AIVtuberBrain:
         return skill if isinstance(skill, DonationSkill) else None
 
     def ask_minecraft_for_a_word(self) -> bool:
-        """The dashboard asking her to say what her body is up to, right now.
+        """The dashboard asking her what she is up to in the game, right now.
 
         Says whether it landed: the caller turns a False into a 409 rather than
         a button that quietly does nothing while she is out of the game.
@@ -606,28 +606,17 @@ class AIVtuberBrain:
         surface = self._surface("game:mc")
         return bool(surface is not None and surface.ask_for_a_word())
 
-    def minecraft_body(self) -> Optional[Dict[str, Any]]:
-        """What her body is doing, for the dashboard. None when she is not in."""
+    def minecraft_now(self) -> Optional[Dict[str, Any]]:
+        """What she is doing in the game, for the dashboard. None when she is not in."""
         surface = self._surface("game:mc")
-        return surface.body_snapshot() if surface is not None and surface.active else None
+        return surface.snapshot() if surface is not None and surface.active else None
 
-    def direct_minecraft_body(self, goal: str) -> Optional[str]:
-        """The owner pointing the body somewhere, over her head.
-
-        The same door the console already is: she is told nothing, because the
-        goal arriving is indistinguishable from one she set herself — which is
-        the point of a control the person running the stream can reach.
-        """
+    async def stop_minecraft(self) -> Optional[str]:
+        """The dashboard putting her hands down. None when she is not in the game."""
         surface = self._surface("game:mc")
-        if surface is None or not surface.active or surface.agent is None:
+        if surface is None or not surface.active:
             return None
-        return surface.agent.set_goal(goal)
-
-    def stop_minecraft_body(self) -> Optional[str]:
-        surface = self._surface("game:mc")
-        if surface is None or not surface.active or surface.agent is None:
-            return None
-        return surface.agent.clear_goal("the dashboard stopped it")
+        return await surface.stop_doing()
 
     def perceive_discord_text(self, text: str, username: str, channel_id: str,
                               message_id: Optional[str] = None, user_id: Optional[str] = None,

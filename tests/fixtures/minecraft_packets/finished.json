@@ -1,0 +1,10 @@
+{
+  "status": "FINISHED",
+  "id": "h1",
+  "action": "place_block",
+  "result": "SUCCESS",
+  "message": "Place action executed",
+  "details": {
+    "message": "Place action executed"
+  }
+}

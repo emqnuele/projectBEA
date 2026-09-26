@@ -14,10 +14,12 @@ MAX_CRAFTABLE = 8
 MAX_BLOCKS = 12
 # so a row of torches cannot spend the whole budget and hide the ore behind it
 MAX_PER_KIND = 3
+# kinds of resource named in one line: the ores first, then the nearest
+MAX_RESOURCES = 8
 
 
 def render_state(state: Optional[Dict[str, Any]]) -> str:
-    """A compact, human-readable view of where Bea's body is and what it holds."""
+    """A compact, human-readable view of where Bea is and what she holds."""
     if not state or "player" not in state:
         return ""
 
@@ -37,6 +39,14 @@ def render_state(state: Optional[Dict[str, Any]]) -> str:
         lines.append(craftable)
 
     lines.extend(_lidar_lines(state.get("lidar") or {}))
+
+    resources = _resources_line(state.get("resources") or {}, state.get("resources_scan") or {})
+    if resources:
+        lines.append(resources)
+
+    world = _world_line(state.get("world") or {})
+    if world:
+        lines.append(world)
 
     entities = _entities_line(state.get("entities") or [])
     if entities:
@@ -63,7 +73,7 @@ def _player_lines(state: Dict[str, Any]) -> List[str]:
         lines.append("- you are DEAD")
     action = state.get("current_action")
     if state.get("is_busy") and action:
-        lines.append(f"- your body is busy: {action}")
+        lines.append(f"- you are busy: {action}")
     return lines
 
 
@@ -165,6 +175,50 @@ def _lidar_lines(lidar: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _resources_line(resources: Dict[str, Any], scan: Dict[str, Any]) -> str:
+    """What there is to use within the scan, where to go for it, ores first.
+
+    The place given is the nearest one she can get at without digging; a kind
+    that is all buried says so, with where the nearest one is anyway.
+    """
+    kinds = [(name, info) for name, info in resources.items() if isinstance(info, dict) and info.get("nearest")]
+    if not kinds:
+        return ""
+    kinds.sort(key=lambda kv: (not kv[0].endswith("_ore"), _distance(kv[1]["nearest"])))
+    parts = []
+    for name, info in kinds[:MAX_RESOURCES]:
+        count = _int(info.get("count"))
+        open_one = info.get("nearest_exposed")
+        if open_one:
+            parts.append(f"{name}×{count} {_block_at('', open_one).strip()}")
+        else:
+            parts.append(f"{name}×{count} {_block_at('', info['nearest']).strip()} buried")
+    radius = scan.get("radius")
+    within = f" (within {_int(radius)} blocks)" if radius else ""
+    return f"- resources in sight{within}: " + ", ".join(parts)
+
+
+def _world_line(world: Dict[str, Any]) -> str:
+    """Day or night, weather, and whether where she stands is dark enough for monsters."""
+    if not world:
+        return ""
+    parts = []
+    if world.get("is_night"):
+        parts.append("night (hostiles spawn in the dark)")
+    else:
+        parts.append("day")
+    if world.get("thundering"):
+        parts.append("thunderstorm")
+    elif world.get("raining"):
+        parts.append("raining")
+    if world.get("block_light") == 0 and world.get("is_night"):
+        parts.append("no light where you stand")
+    dimension = _short(str(world.get("dimension") or ""))
+    if dimension and dimension != "overworld":
+        parts.append(f"in the {dimension}")
+    return "- time: " + ", ".join(parts)
+
+
 def _block_at(name: str, b: Dict[str, Any]) -> str:
     where = f"({_int(b.get('x'))}, {_int(b.get('y'))}, {_int(b.get('z'))})"
     distance = b.get("distance")
@@ -174,8 +228,9 @@ def _block_at(name: str, b: Dict[str, Any]) -> str:
 
 
 def _distance(b: Dict[str, Any]) -> float:
+    value = b.get("distance")
     try:
-        return float(b.get("distance", 999) or 999)
+        return 999.0 if value is None else float(value)
     except (TypeError, ValueError):
         return 999.0
 

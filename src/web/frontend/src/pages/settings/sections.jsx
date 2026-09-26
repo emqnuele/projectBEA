@@ -6,7 +6,7 @@ import { CopyField, Group, ProviderChoice, SecretState, TestButton } from './par
 import { StagePreview } from './StagePreview';
 import { PromptEditor } from './PromptEditor';
 import { createSchemaSection } from './SchemaSection';
-import BodyPanel from '../../components/console/BodyPanel';
+import GamePanel from '../../components/console/GamePanel';
 import { PersonalitySection } from './PersonalitySection';
 
 // What the engine can speak, asked of the engine. The copy that used to live
@@ -714,7 +714,7 @@ function StreamSection({ config, update, setConfig }) {
 
 // --- where she is -----------------------------------------------------------
 
-// --- her body ---------------------------------------------------------------
+// --- her game ---------------------------------------------------------------
 
 const MinecraftSettings = createSchemaSection('minecraft');
 
@@ -722,24 +722,17 @@ function WorldSection({ config, updateSkill }) {
     const [editing, setEditing] = useState(null);
     const minecraft = config.skills?.minecraft || {};
 
-    // her instructions and her body's are different documents for different
-    // readers: hers is how to be a person in a game, its is how to play one
     const prompts = [
         {
             key: 'system_prompt',
-            title: 'How she behaves in the world',
-            blurb: 'Her side: two audiences, the people around her, what to do when the body reports in.',
-        },
-        {
-            key: 'body_prompt',
-            title: 'How her body plays',
-            blurb: 'Its side: the survival guide, the crafting chains, when to call a goal finished.',
+            title: 'How she plays',
+            blurb: 'Playing and talking at once, the people around her, the survival guide.',
         },
     ];
 
     return (
         <>
-            <BodyPanel />
+            <GamePanel />
 
             <MinecraftSettings />
 

@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import json
+import secrets
 import threading
 import time
 from collections import OrderedDict
@@ -16,7 +17,16 @@ logger = get_logger("bea.skills.minecraft.client")
 ACTION_TIMEOUT = 60.0
 
 # the wire format this client speaks; the mod announces its own on connect
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
+
+# how many lines of an action's own log travel with its observation
+LOG_LINES = 8
+
+# seconds the brain waits past the mod's own budget for an action
+BUDGET_MARGIN = 5.0
+
+# what a protocol-1 jar never answers: waiting on these costs the whole timeout
+_LEGACY_UNANSWERED = {"request_screenshot", "check_death_log", "stop_moving", "chat"}
 
 # how many unclaimed actions to remember. Only ever a handful in practice; the
 # cap is there so a mod that never completes anything cannot grow this forever
@@ -25,8 +35,9 @@ MAX_ABANDONED = 32
 # statuses the mod sends when a long-running action finishes
 _COMPLETION = {"FINISHED", "IDLE"}
 
-# packets that are senses rather than answers: they are handed to the surface
-_TYPED_EVENTS = {"chat", "player_event", "combat", "death_event"}
+# packets that are senses rather than answers: they are handed to the surface.
+# `activity`: something answered when it started (following someone) has ended
+_TYPED_EVENTS = {"chat", "player_event", "combat", "death_event", "reflex", "progress", "activity"}
 
 
 class MinecraftClient:
@@ -51,6 +62,12 @@ class MinecraftClient:
         self.mod_version: str = "unknown"
         self.mc_version: str = "unknown"
         self.actions: set = set()
+        # 0 until the handshake: the wire format the jar speaks
+        self.protocol: int = 0
+        # actions the mod runs beside the current one instead of stopping it
+        self.concurrent: set = set()
+        # seconds the mod lets each action run before it gives up and says why
+        self.budgets: Dict[str, float] = {}
         # every in-flight action, oldest first. A single slot used to mean the
         # second caller overwrote the first, who then waited out the whole
         # timeout while somebody else's completion resolved the wrong await
@@ -60,6 +77,9 @@ class MinecraftClient:
         # completion that arrives belongs to them, not to whoever asked next
         self._abandoned: "OrderedDict[str, None]" = OrderedDict()
         self._ids = itertools.count(1)
+        # the mod answers every connection, so ids carry this client's own mark: "r1" from two
+        # brains at once (or a brain and a test harness) would each take the other's answers
+        self._session = secrets.token_hex(3)
         self._events: "asyncio.Queue[str]" = asyncio.Queue()
         self._connected = asyncio.Event()
         self._first_state = asyncio.Event()
@@ -87,40 +107,52 @@ class MinecraftClient:
 
     # --- agent-facing api ---
 
-    async def execute(self, action: str, params: Dict[str, Any], instant: bool = False) -> str:
-        """Sends a command and returns the resulting observation.
+    async def execute(self, action: str, params: Dict[str, Any],
+                      timeout: Optional[float] = None) -> str:
+        """Sends a command and returns the observation that answers it.
 
-        For `instant` actions (chat, screenshot, ...) the mod emits no
-        completion event, so we return immediately. Otherwise we await the
-        next FINISHED/IDLE/INTERRUPTED event.
+        Every action is answered, with its own id, by a mod that speaks
+        protocol 2. A protocol-1 jar never answers a few of them, and those
+        are sent and left, as they always were.
         """
         # the mod told us what it can do: refuse here rather than wait out the
         # sixty second timeout on a jar that has never heard of this action
         if self.actions and action not in self.actions:
-            return (f"FAILED: your body cannot '{action}'. The installed mod "
+            return (f"FAILED: you cannot '{action}' yet. The installed mod "
                     f"(beacraft {self.mod_version}) is older than the brain — update the jar.")
 
         payload: Dict[str, Any] = {"action": action, "parameters": params}
 
-        if instant:
-            self._send(payload)
-            return "SENT"
+        if self.protocol < 2 and action in _LEGACY_UNANSWERED:
+            return "SENT" if self._send(payload) else "FAILED: not connected to the game; nothing was sent."
 
         # the mod echoes it back when it is new enough to know about ids; older
         # jars ignore it and are matched in order instead
-        request_id = f"r{next(self._ids)}"
+        request_id = f"r{next(self._ids)}-{self._session}"
         payload["id"] = request_id
         fut = self.loop.create_future()
         self._waiting[request_id] = fut
-        self._send(payload)
+        if not self._send(payload):
+            # nothing went out, so nothing will ever answer: say so now, not after the whole timeout
+            self._waiting.pop(request_id, None)
+            return "FAILED: not connected to the game; nothing was sent."
         try:
-            return await asyncio.wait_for(fut, timeout=ACTION_TIMEOUT)
+            return await asyncio.wait_for(fut, timeout=self.wait_for(action, timeout))
         except asyncio.TimeoutError:
             return "TIMEOUT: no completion event from the mod (action may still be running)."
         finally:
             self._waiting.pop(request_id, None)
             if not fut.done():
                 self._abandon(request_id)
+
+    def wait_for(self, action: str, timeout: Optional[float] = None) -> float:
+        """How long to wait for an answer: never less than the mod's own budget
+        plus a margin, so the mod always gives up first and says why."""
+        wait = timeout or ACTION_TIMEOUT
+        budget = self.budgets.get(action, self.budgets.get("default", 0.0))
+        if budget > 0:
+            wait = max(wait, budget + BUDGET_MARGIN)
+        return wait
 
     def drain_events(self) -> List[str]:
         """Returns and clears any notable events (interrupts) seen since last call."""
@@ -139,14 +171,17 @@ class MinecraftClient:
 
     # --- websocket plumbing (runs on background thread) ---
 
-    def _send(self, data: Dict[str, Any]) -> None:
+    def _send(self, data: Dict[str, Any]) -> bool:
+        """True when it went out on the socket."""
         if self.ws and self.is_connected:
             try:
                 self.ws.send(json.dumps(data))
+                return True
             except Exception as e:
                 logger.error(f"Failed to send: {e}")
-        else:
-            logger.warning("Tried to send while disconnected.")
+                return False
+        logger.warning("Tried to send while disconnected.")
+        return False
 
     def _run_forever(self) -> None:
         while self.keep_running:
@@ -178,6 +213,8 @@ class MinecraftClient:
         try:
             self.loop.call_soon_threadsafe(
                 self._resolve_pending, "FAILED: the connection to the game dropped mid-action.")
+            # nor the end of anything still going on by itself (following someone)
+            self.loop.call_soon_threadsafe(self._emit, "connection_lost", {})
         except RuntimeError:
             pass  # the loop is already closed: nobody is waiting
 
@@ -195,8 +232,10 @@ class MinecraftClient:
         kind = data.get("type")
         if kind in _TYPED_EVENTS:
             self._emit(kind, data)
-            # a death ends whatever she was doing: don't make the caller time out
-            if kind == "death_event":
+            # a protocol-1 jar never answers what a death cut short. A newer one does, with ids,
+            # and this event comes after the respawn: settling everything here would answer
+            # requests sent since then with a death they never saw
+            if kind == "death_event" and self.protocol < 2:
                 self._resolve_pending("INTERRUPTED: you died.")
             return
 
@@ -213,11 +252,12 @@ class MinecraftClient:
                 self._first_state.set()
 
         if status == "ENGAGED_AUTO_ACTION":
-            # self-defence kicked in on its own; she should know she is fighting
+            # protocol 1: self-defence kicked in on its own; she should know she is fighting
             self._emit("auto_action", data)
             return
 
         if status == "INTERRUPTED":
+            # protocol 1: stuck, clutch and death stopped her without naming a request
             reason = data.get("reason") or data.get("event", {}).get("reason", "unknown emergency")
             observation = f"INTERRUPTED: {reason}"
             logger.warning(observation)
@@ -226,9 +266,12 @@ class MinecraftClient:
             return
 
         if status in _COMPLETION:
-            result = data.get("result", "SUCCESS")
-            message = data.get("message", "")
-            observation = f"{result}" + (f": {message}" if message else "")
+            observation = _observation(data)
+            if self.protocol >= 2 and not data.get("id"):
+                # the mod acted on its own and nobody asked for this: an answer
+                # without an id was how eating came to answer for her walk
+                logger.debug(f"unsolicited completion: {observation}")
+                return
             self._settle(observation, data.get("id"))
 
     def _on_handshake(self, data: Dict[str, Any]) -> None:
@@ -241,7 +284,13 @@ class MinecraftClient:
         self.mod_version = str(data.get("mod_version", "unknown"))
         self.mc_version = str(data.get("mc_version", "unknown"))
         self.actions = set(data.get("actions") or [])
+        self.concurrent = set(data.get("concurrent") or [])
+        self.budgets = _budgets(data.get("budgets"))
         protocol = data.get("protocol")
+        try:
+            self.protocol = int(protocol or 0)
+        except (TypeError, ValueError):
+            self.protocol = 0
 
         if protocol is None:
             logger.error(
@@ -255,10 +304,17 @@ class MinecraftClient:
             f"Mod handshake: beacraft {self.mod_version} on Minecraft {self.mc_version} "
             f"(protocol {protocol}, {len(self.actions)} actions)."
         )
-        if protocol != PROTOCOL_VERSION:
+        if self.protocol < PROTOCOL_VERSION:
+            logger.error(
+                f"The installed jar is outdated: the mod speaks protocol {protocol}, this brain "
+                f"speaks {PROTOCOL_VERSION}. It still plays, but its answers are matched by order, "
+                "so eating or self-defence can answer for the wrong action, and what went wrong "
+                "is never explained. Update it from https://modrinth.com/mod/projectbea"
+            )
+        elif self.protocol > PROTOCOL_VERSION:
             logger.error(
                 f"Protocol mismatch: the mod speaks {protocol}, this brain speaks "
-                f"{PROTOCOL_VERSION}. Update whichever is older before playing."
+                f"{PROTOCOL_VERSION}. Update the brain before playing."
             )
 
     def _emit(self, kind: str, data: Dict[str, Any]) -> None:
@@ -288,6 +344,12 @@ class MinecraftClient:
                 if not fut.done():
                     fut.set_result(observation)
                 return True
+        if self.protocol >= 2:
+            # a jar that echoes ids is only ever matched by them: an answer
+            # nobody is waiting for is dropped, never handed to the next caller
+            if key is not None:
+                logger.debug(f"answer for {key}, which nobody is waiting for: {observation}")
+            return False
         if self._abandoned:
             # the oldest thing still outstanding is one nobody wants the answer
             # to; handing this to the next caller would answer the wrong question
@@ -312,3 +374,36 @@ class MinecraftClient:
             _, fut = self._waiting.popitem(last=False)
             if not fut.done():
                 fut.set_result(observation)
+
+
+def _message_of(data: Dict[str, Any]) -> str:
+    """Why it ended: protocol 2 says it on top, older jars under `details`."""
+    if data.get("message"):
+        return str(data["message"])
+    details = data.get("details")
+    if isinstance(details, dict):
+        return str(details.get("message") or details.get("error") or "")
+    return ""
+
+
+def _observation(data: Dict[str, Any]) -> str:
+    """`RESULT: message`, then the last few lines of what the action did."""
+    result = str(data.get("result", "SUCCESS"))
+    message = _message_of(data)
+    text = f"{result}: {message}" if message else result
+    log = data.get("log")
+    if isinstance(log, list) and log:
+        text += "\n" + "\n".join(str(line) for line in log[-LOG_LINES:])
+    return text
+
+
+def _budgets(raw: Any) -> Dict[str, float]:
+    """The handshake's `budgets`, seconds per action; 0 means the action has none."""
+    out: Dict[str, float] = {}
+    if isinstance(raw, dict):
+        for name, value in raw.items():
+            try:
+                out[str(name)] = float(value)
+            except (TypeError, ValueError):
+                continue
+    return out

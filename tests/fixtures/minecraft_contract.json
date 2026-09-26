@@ -3,6 +3,7 @@
   "known_actions": [
     "attack_entity",
     "bridge",
+    "build",
     "chat",
     "check_death_log",
     "craft_item",
@@ -12,20 +13,32 @@
     "find_block",
     "follow_player",
     "give_item",
+    "go_to_surface",
     "goto_player",
     "look_at",
     "mine_block",
     "mine_down",
+    "move_away",
     "move_to",
+    "pickup_items",
     "pillar_up",
     "place_block",
     "request_screenshot",
     "retrieve_item",
+    "scan",
     "select_slot",
     "smelt_item",
     "stop_moving",
     "store_item",
-    "use_block"
+    "use_block",
+    "view_container"
+  ],
+  "concurrent_actions": [
+    "chat",
+    "check_death_log",
+    "look_at",
+    "request_screenshot",
+    "scan"
   ],
   "actions": {
     "attack_entity": {
@@ -45,6 +58,19 @@
       ],
       "injected_by_mod": []
     },
+    "build": {
+      "skill": "BuildSkill",
+      "accepts": [
+        "clear",
+        "dry_run",
+        "layers",
+        "ops",
+        "origin",
+        "palette",
+        "rotation"
+      ],
+      "injected_by_mod": []
+    },
     "chat": {
       "skill": "ChatSkill",
       "accepts": [
@@ -60,6 +86,7 @@
     "craft_item": {
       "skill": "CraftingSkill",
       "accepts": [
+        "count",
         "item",
         "quantity"
       ],
@@ -89,8 +116,6 @@
     "find_block": {
       "skill": "FindSkill",
       "accepts": [
-        "allowBridging",
-        "allowPillaring",
         "block",
         "count",
         "radius"
@@ -114,6 +139,11 @@
         "item",
         "name"
       ],
+      "injected_by_mod": []
+    },
+    "go_to_surface": {
+      "skill": "GoToSurfaceSkill",
+      "accepts": [],
       "injected_by_mod": []
     },
     "goto_player": {
@@ -140,6 +170,8 @@
     "mine_block": {
       "skill": "MineSkill",
       "accepts": [
+        "pickup",
+        "vein",
         "x",
         "y",
         "z"
@@ -153,14 +185,32 @@
       ],
       "injected_by_mod": []
     },
+    "move_away": {
+      "skill": "MoveAwaySkill",
+      "accepts": [
+        "distance",
+        "from_x",
+        "from_z"
+      ],
+      "injected_by_mod": []
+    },
     "move_to": {
       "skill": "MoveSkill",
       "accepts": [
         "allowBridging",
+        "allowMining",
         "allowPillaring",
+        "range",
         "x",
         "y",
         "z"
+      ],
+      "injected_by_mod": []
+    },
+    "pickup_items": {
+      "skill": "PickupSkill",
+      "accepts": [
+        "radius"
       ],
       "injected_by_mod": []
     },
@@ -176,6 +226,8 @@
       "skill": "PlaceSkill",
       "accepts": [
         "block",
+        "facing",
+        "replace",
         "x",
         "y",
         "z"
@@ -190,11 +242,24 @@
     "retrieve_item": {
       "skill": "ContainerSkill",
       "accepts": [
-        "item"
+        "count",
+        "item",
+        "x",
+        "y",
+        "z"
       ],
       "injected_by_mod": [
         "mode"
       ]
+    },
+    "scan": {
+      "skill": "ScanSkill",
+      "accepts": [
+        "block",
+        "count",
+        "radius"
+      ],
+      "injected_by_mod": []
     },
     "select_slot": {
       "skill": "InventorySkill",
@@ -206,8 +271,11 @@
     "smelt_item": {
       "skill": "SmeltSkill",
       "accepts": [
+        "count",
+        "fuel",
         "fuel_item",
-        "input_item"
+        "input_item",
+        "item"
       ],
       "injected_by_mod": []
     },
@@ -219,7 +287,11 @@
     "store_item": {
       "skill": "ContainerSkill",
       "accepts": [
-        "item"
+        "count",
+        "item",
+        "x",
+        "y",
+        "z"
       ],
       "injected_by_mod": [
         "mode"
@@ -233,6 +305,19 @@
         "z"
       ],
       "injected_by_mod": []
+    },
+    "view_container": {
+      "skill": "ContainerSkill",
+      "accepts": [
+        "count",
+        "item",
+        "x",
+        "y",
+        "z"
+      ],
+      "injected_by_mod": [
+        "mode"
+      ]
     }
   }
 }

@@ -1,0 +1,375 @@
+{
+  "type": "game_state",
+  "timestamp": 1790363835,
+  "is_busy": false,
+  "current_action": "idle",
+  "player": {
+    "name": "Bea",
+    "uuid": "1d6ad2d6-9534-3cac-b82a-95a793dcf5ea",
+    "health": 20.0,
+    "food": 20,
+    "saturation": 20.0,
+    "position": {
+      "x": 0.5,
+      "y": -57.0,
+      "z": 0.5
+    },
+    "rotation": {
+      "yaw": -12.988934,
+      "pitch": 1.2457107
+    },
+    "is_alive": true,
+    "is_moving": true
+  },
+  "inventory": {
+    "selected_slot": 0,
+    "hand_main": {
+      "item": "minecraft:wooden_pickaxe",
+      "count": 1,
+      "durability": 59
+    },
+    "hand_off": {
+      "item": "minecraft:air",
+      "count": 0
+    },
+    "hotbar": [
+      {
+        "item": "minecraft:wooden_pickaxe",
+        "count": 1,
+        "durability": 59,
+        "slot": 0
+      },
+      {
+        "item": "minecraft:oak_planks",
+        "count": 3,
+        "slot": 1
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 2
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 3
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 4
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 5
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 6
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 7
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 8
+      }
+    ],
+    "main": [
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 9
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 10
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 11
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 12
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 13
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 14
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 15
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 16
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 17
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 18
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 19
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 20
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 21
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 22
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 23
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 24
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 25
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 26
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 27
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 28
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 29
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 30
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 31
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 32
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 33
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 34
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0,
+        "slot": 35
+      }
+    ],
+    "armor": [
+      {
+        "item": "minecraft:air",
+        "count": 0
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0
+      },
+      {
+        "item": "minecraft:air",
+        "count": 0
+      }
+    ],
+    "context": {
+      "craftable_2x2": [
+        {
+          "item": "minecraft:oak_pressure_plate",
+          "max_craftable": 1
+        },
+        {
+          "item": "minecraft:stick",
+          "max_craftable": 1
+        },
+        {
+          "item": "minecraft:oak_button",
+          "max_craftable": 3
+        }
+      ],
+      "craftable_3x3": [
+        {
+          "item": "minecraft:oak_pressure_plate",
+          "max_craftable": 1
+        },
+        {
+          "item": "minecraft:stick",
+          "max_craftable": 1
+        },
+        {
+          "item": "minecraft:oak_button",
+          "max_craftable": 3
+        },
+        {
+          "item": "minecraft:oak_slab",
+          "max_craftable": 1
+        }
+      ],
+      "screen_open": "none"
+    }
+  },
+  "lidar": {
+    "radius": 4,
+    "blocks": [
+      {
+        "x": -3,
+        "y": -57,
+        "z": 2,
+        "name": "minecraft:crafting_table",
+        "distance": 3.6
+      }
+    ],
+    "surrounded_by": {
+      "dirt": 162,
+      "grass_block": 81,
+      "stone": 81
+    },
+    "standing_on": "grass_block",
+    "above_head": "air"
+  },
+  "resources": {
+    "crafting_table": {
+      "count": 1,
+      "nearest": {
+        "x": -3,
+        "y": -57,
+        "z": 2,
+        "distance": 3.6
+      },
+      "nearest_exposed": {
+        "x": -3,
+        "y": -57,
+        "z": 2,
+        "distance": 3.6
+      }
+    },
+    "iron_ore": {
+      "count": 1,
+      "nearest": {
+        "x": 12,
+        "y": -57,
+        "z": -3,
+        "distance": 12.4
+      },
+      "nearest_exposed": {
+        "x": 12,
+        "y": -57,
+        "z": -3,
+        "distance": 12.4
+      }
+    },
+    "oak_log": {
+      "count": 5,
+      "nearest": {
+        "x": 7,
+        "y": -57,
+        "z": 0,
+        "distance": 7.0
+      },
+      "nearest_exposed": {
+        "x": 7,
+        "y": -57,
+        "z": 0,
+        "distance": 7.0
+      }
+    },
+    "stone": {
+      "count": 5043,
+      "nearest": {
+        "x": 0,
+        "y": -61,
+        "z": 0,
+        "distance": 4.0
+      }
+    }
+  },
+  "resources_scan": {
+    "radius": 20,
+    "ms": 9.3
+  },
+  "world": {
+    "time_of_day": 6000,
+    "is_night": false,
+    "dimension": "minecraft:overworld",
+    "biome": "minecraft:plains",
+    "raining": false,
+    "thundering": false,
+    "light": 15,
+    "block_light": 0,
+    "game_mode": "survival",
+    "server": "127.0.0.1:25565"
+  },
+  "entities": [],
+  "players_online": [
+    {
+      "uuid": "1d6ad2d6-9534-3cac-b82a-95a793dcf5ea",
+      "name": "Bea"
+    }
+  ],
+  "gui_state": {
+    "is_open": false
+  }
+}

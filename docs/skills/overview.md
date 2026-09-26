@@ -15,7 +15,8 @@ the consciousness — and a skill plugs into it by doing any subset of these:
 | `tools()` | tools armed only while the skill is active |
 | `context_section` | static prompt rules mounted while active |
 | `context_for(batch)` | prompt content computed from the current batch (e.g. recall) |
-| `live_state()` | volatile state injected into every frame (e.g. where her body is) |
+| `live_state()` | volatile state injected into every frame (e.g. where she is in the game) |
+| `left_undone(batch, acted)` | a word for her when a turn is ending with this skill's world still waiting; the turn gets one more step (Minecraft: she only talked, her hands are empty) |
 | `start()` / `stop()` | owns infrastructure — a subprocess, a WebSocket, a poller |
 
 **File:** `src/core/skills/base.py`
@@ -90,7 +91,7 @@ not to a skill. Everything else is armed by whichever skill is active:
 | `chat:telegram` | `telegram_send_message` |
 | `chat:twitch` | `twitch_say` |
 | `donation` | `recall_donors` |
-| `game:mc` | `play_minecraft`, `mc_chat`, `mc_stop`, `mc_goto_player`, `mc_follow_player`, `mc_look_at_player`, `mc_give_item` |
+| `game:mc` | every game tool: `find_block`, `craft_item`, `move_to`, `attack_entity`, `build_template`, `mc_chat`, `stop_moving`, … (full list in [minecraft](minecraft.md#tools)) |
 | `social` | `remember_person`, `recall_person` |
 | `dream` | `go_to_sleep` |
 | `web` | `web_search`, `web_fetch` |

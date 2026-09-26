@@ -34,7 +34,7 @@ Returns the current brain state.
   "active_skills": ["memory", "discord"],
   "session_id": "session_1750000000",
   "uptime": 1832.4,
-  "version": "2.5.0"
+  "version": "2.6.0"
 }
 ```
 
@@ -499,9 +499,9 @@ Clears the headline and every objective — a new stream from nothing.
 
 #### `POST /minecraft/ask`
 
-Asks her, right now, to say what her body is up to. It puts the same perception
-the skill produces on its own every `commentary_seconds` — off the clock, and
-pushing the next automatic one back so she does not answer twice in a row.
+Asks her, right now, to say what she is up to in the game, standing still or
+not — off the clock, and pushing the next automatic word back so she does not
+answer twice in a row.
 
 `409` when the skill is not active: a button that silently does nothing is worse
 than one that says why.
@@ -509,6 +509,23 @@ than one that says why.
 ```json
 { "status": "asked" }
 ```
+
+#### `GET /minecraft/now`
+
+What she is doing in the game: the action in her hands and its arguments, how
+long it has been going, the progress it last reported, and the last one she
+finished. The same things her own frame carries.
+
+```json
+{ "active": true, "connected": true, "mod_version": "3.0.0+26.2",
+  "doing": "find_block(block=log, count=16)", "elapsed": 41.2,
+  "progress": "", "last": "craft_item: SUCCESS: crafted 1 wooden_axe …" }
+```
+
+#### `POST /minecraft/stop`
+
+Puts her hands down: the mod's `stop_moving`. The action it stops reaches her as
+interrupted. `409` when she is not in the game.
 
 ---
 
@@ -642,7 +659,7 @@ minutes; `?force=true` refetches.
 ```json
 {
   "supported": true, "available": true, "reason": "",
-  "behind": 3, "current": "4523164a", "latest": "96f7125b", "version": "2.5.0",
+  "behind": 3, "current": "4523164a", "latest": "96f7125b", "version": "2.6.0",
   "commits": [ { "sha": "96f7125b", "subject": "…", "author": "…", "date": "2026-09-10" } ],
   "reviews": [ { "name": "operating.md", "path": "data/prompts/operating.md" } ],
   "can_apply": true, "busy": false, "run": null

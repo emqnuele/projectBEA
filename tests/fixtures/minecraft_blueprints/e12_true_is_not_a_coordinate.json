@@ -1,0 +1,21 @@
+{
+  "args": {
+    "ops": [
+      {
+        "at": [
+          true,
+          0,
+          0
+        ],
+        "block": "stone",
+        "op": "set"
+      }
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    }
+  },
+  "error": "ops[0]: at must be [x, y, z]"
+}

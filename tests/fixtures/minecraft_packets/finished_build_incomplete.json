@@ -1,0 +1,26 @@
+{
+  "status": "FINISHED",
+  "id": "h1",
+  "action": "build",
+  "result": "FAILURE_INCOMPLETE",
+  "message": "built 20/25 cells of the build; missing 5 cobblestone.",
+  "log": [
+    "25 cells: 0 already right, 0 to clear, 25 to place",
+    "short of 5 cobblestone before starting",
+    "still wrong: (7, -57, 3) holds air, wanted cobblestone",
+    "still wrong: (7, -57, 4) holds air, wanted cobblestone",
+    "still wrong: (7, -57, 5) holds air, wanted cobblestone",
+    "still wrong: (7, -57, 6) holds air, wanted cobblestone",
+    "still wrong: (7, -57, 7) holds air, wanted cobblestone"
+  ],
+  "details": {
+    "message": "built 20/25 cells of the build; missing 5 cobblestone.",
+    "cells": 25,
+    "placed": 20,
+    "missing": {
+      "cobblestone": 5
+    },
+    "no_support": [],
+    "failed": {}
+  }
+}

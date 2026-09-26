@@ -105,7 +105,17 @@ class Skill:
         return []
 
     def live_state(self) -> Optional[str]:
-        """Volatile state injected into every perception frame (e.g. the notebook)."""
+        """Volatile state injected into every perception frame (e.g. where she is in the game)."""
+        return None
+
+    def left_undone(self, batch, acted) -> Optional[str]:
+        """A word for her when a turn is about to end with this skill's world left waiting.
+
+        Most skills are answered by a reply and have nothing to say here. A
+        game is not: a turn that only talked about playing leaves nothing
+        happening in it. `acted` is the turn's tool calls so far, each with its
+        `tool` and `result`.
+        """
         return None
 
 
@@ -176,6 +186,15 @@ class SkillRegistry:
         out: List[str] = []
         for s in self.active():
             text = self._contribution(s, "context for this batch", lambda s=s: s.context_for(batch))
+            if text:
+                out.append(text)
+        return out
+
+    def left_undone(self, batch, acted) -> List[str]:
+        out: List[str] = []
+        for s in self.active():
+            text = self._contribution(s, "word on what is left undone",
+                                      lambda s=s: s.left_undone(batch, acted))
             if text:
                 out.append(text)
         return out

@@ -48,9 +48,9 @@ def is_addressed(
     if declared:
         return f"addressed:{declared}"
 
-    # her own body shouting: an interrupt, a death, damage from a player
+    # the outcome of something she did herself: she is always waiting on it
     if p.kind is PerceptionKind.ACTION:
-        return "addressed:body"
+        return "addressed:action"
     event = str(meta.get("event", "")).lower()
     if event in CRITICAL_GAME_EVENTS:
         return f"addressed:{event}"

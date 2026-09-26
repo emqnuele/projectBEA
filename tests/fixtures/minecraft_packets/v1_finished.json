@@ -1,0 +1,10 @@
+{
+  "status": "FINISHED",
+  "result": "SUCCESS",
+  "action": "pillar_up",
+  "details": {
+    "target_height": 3,
+    "built_height": 3,
+    "message": "Pillar action finished"
+  }
+}

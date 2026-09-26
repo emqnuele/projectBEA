@@ -1,0 +1,24 @@
+{
+  "type": "death_event",
+  "status": "DIED",
+  "timestamp": 1790336345,
+  "details": {
+    "cause": "Unknown",
+    "death_pos": {
+      "x": 3.4256827594663517,
+      "y": -57.0,
+      "z": 0.49841593422451197
+    },
+    "dimension": "minecraft:overworld",
+    "lost_items": []
+  },
+  "current_status": {
+    "location": "respawn_point",
+    "pos": {
+      "x": -9.5,
+      "y": -57.0,
+      "z": -5.5
+    },
+    "inventory": "empty"
+  }
+}

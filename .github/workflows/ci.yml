@@ -84,6 +84,26 @@ jobs:
         env:
           BEA_PERF: off
 
+  version:
+    # a pull request that changes what ships raises the version, or two installs
+    # running different code both say they are the same one
+    name: version raised
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: uv run --no-project python tools/version_bumped.py "origin/$BASE_REF"
+
   frontend:
     name: browser source tests
     runs-on: ubuntu-latest

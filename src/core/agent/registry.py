@@ -7,8 +7,6 @@ OpenRouter ids keep their `/` and their `:free` suffix.
   through tools, so a model without it would never say anything.
 - `background` — diary, dreamer, profiles. Slow and cheap is fine,
   and it must never compete with the mind.
-- `minecraft` — her body in the game. Falls back to the mind's pool rather than
-  to a cheap one: playing is reasoning, not clerical work.
 """
 
 import asyncio
@@ -23,12 +21,6 @@ logger = get_logger("bea.agent.registry")
 
 MIND = "mind"
 BACKGROUND = "background"
-MINECRAFT = "minecraft"
-
-# a role with nothing configured borrows another role's pool instead of falling
-# back to the legacy single-model fields. Her body is her, thinking about a
-# different thing — so unless somebody picks a model for it, it thinks with hers
-_BORROWS: Dict[str, str] = {MINECRAFT: MIND}
 
 # a configuration mistake, not a hiccup: it fails identically forever
 _NO_TOOLS_RE = re.compile(
@@ -171,10 +163,6 @@ class ModelRegistry:
         specs = (getattr(self.config, "models", None) or {}).get(role) or []
         if specs:
             return [s for s in specs if s]
-        borrowed = _BORROWS.get(role)
-        if borrowed:
-            logger.info(f"Role '{role}': no pool of its own, using '{borrowed}'.")
-            return self._specs(borrowed)
         return self._legacy_specs(role)
 
     def _legacy_specs(self, role: str) -> List[str]:
@@ -211,5 +199,5 @@ def _label(client: Any) -> str:
 
 __all__ = [
     "ModelRegistry", "RotatingClient", "ModelPoolError", "MIND", "BACKGROUND",
-    "MINECRAFT", "looks_like_missing_tool_support",
+    "looks_like_missing_tool_support",
 ]

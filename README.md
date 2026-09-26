@@ -139,21 +139,19 @@ part you cannot fake with a longer prompt.
 
 <img src="assets/minecraft.png" align="left" width="290" alt="Bea in Minecraft" />
 
-Not "Minecraft integration". A body, on a vanilla server, that other people can
-walk up to.
+Not "Minecraft integration". Her, on a vanilla server, playing, where other
+people can walk up to her.
 
-She does not pilot it block by block. She hands it an intention, *get a stone
-pickaxe*, and carries straight on with the conversation she was already having.
-The body runs its own think/act/observe loop, continuously, for as long as she
-is in the game: a survival guide, a notebook it rewrites as it goes, and the
-world re-read every few moves. It tells her when it finishes and when it gets
-stuck, and otherwise gets on with it.
+The game is one more thing she lives in, like the call or the chat: its tools
+are her hands. *Chop sixteen logs* is one action that walks, chops and picks up
+on its own, and it runs beside her while she keeps talking; what came of it
+reaches her the way a message does, and she decides the next thing. The fast
+part of playing — eating, fighting back, landing a fall — is reflexes in the
+mod, answered in ticks.
 
-Only a milestone interrupts her mid-goal: a block mined, a tool crafted, an
-interrupt, a death. Moving and looking are means, not results. But she does not
-play in silence either — every twenty seconds she is handed what the body is
-doing and the last thing it thought, and says something about it, out loud or in
-game chat.
+She talks like a player, because she is one: *"ok, I'm on it"*, not *"go do
+it"*. Deep in something long, she is asked for a word only when something in it
+changed, and she answers out loud, in game chat, or not at all.
 
 Players who talk to her in game chat get an `Author` like anyone else, so the
 roster, the person cards and the attention gate all work in-game with no
@@ -351,7 +349,7 @@ thought. One mind reasons over it and acts through tools.
   Expression → voice+OBS    send_message → the channel
                      │
                      ▼  tools
-   speak · send_message · react · say_nothing · play_minecraft · objective_done · …
+   speak · send_message · react · say_nothing · find_block · objective_done · …
                      │
                      ▼
         Expression → TTS + OBS      ·      bea.db (memory)
@@ -401,11 +399,10 @@ ollama pull qwen3:8b
 ```
 
 Pick **Local models** in the setup, and that is the whole configuration. Her
-mind, her background and her Minecraft body are separate pools, so give the
-talking to a capable model and the diary and the dreamer to a small one — or
+mind and her background are separate pools, so give the talking (and the
+playing) to a capable model and the diary and the dreamer to a small one — or
 mix a local model with a cloud key, and the pool falls over when the laptop
-sleeps. The body borrows the mind's pool unless you give it one: playing well
-is reasoning, not clerical work.
+sleeps.
 
 **[Local setup →](docs/setup.md#7c-local-models-optional-and-the-interesting-one)**
 

@@ -1,0 +1,36 @@
+{
+  "args": {
+    "layers": [
+      [
+        "###"
+      ]
+    ],
+    "ops": [
+      {
+        "at": [
+          1,
+          0,
+          0
+        ],
+        "block": "air",
+        "op": "set"
+      }
+    ],
+    "origin": {
+      "x": 5,
+      "y": 5,
+      "z": 5
+    },
+    "palette": {
+      "#": "stone"
+    }
+  },
+  "cells": {
+    "5,5,5": "stone",
+    "6,5,5": "air",
+    "7,5,5": "stone"
+  },
+  "items": {
+    "stone": 2
+  }
+}

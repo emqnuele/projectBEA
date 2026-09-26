@@ -1,0 +1,46 @@
+{
+  "args": {
+    "ops": [
+      {
+        "block": "oak_planks",
+        "from": [
+          2,
+          1,
+          2
+        ],
+        "op": "walls",
+        "to": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    }
+  },
+  "cells": {
+    "0,0,0": "oak_planks",
+    "0,0,1": "oak_planks",
+    "0,0,2": "oak_planks",
+    "0,1,0": "oak_planks",
+    "0,1,1": "oak_planks",
+    "0,1,2": "oak_planks",
+    "1,0,0": "oak_planks",
+    "1,0,2": "oak_planks",
+    "1,1,0": "oak_planks",
+    "1,1,2": "oak_planks",
+    "2,0,0": "oak_planks",
+    "2,0,1": "oak_planks",
+    "2,0,2": "oak_planks",
+    "2,1,0": "oak_planks",
+    "2,1,1": "oak_planks",
+    "2,1,2": "oak_planks"
+  },
+  "items": {
+    "oak_planks": 16
+  }
+}
