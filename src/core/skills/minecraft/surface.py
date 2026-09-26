@@ -18,7 +18,7 @@ logger = get_logger("bea.skills.minecraft")
 
 # how long she may stand around doing nothing in the game before she is told.
 # 0 turns the nudge off.
-IDLE_NUDGE_SECONDS = 90.0
+IDLE_NUDGE_SECONDS = 30.0
 
 # the shortest gap between two words asked of her while a long action runs,
 # and only when something changed in it. 0 turns it off.

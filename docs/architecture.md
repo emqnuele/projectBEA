@@ -463,7 +463,7 @@ one per tick:
   has got and what she carries, at most every `commentary_seconds` (20 by
   default, 0 to disable) and only when something in it changed since she last
   heard. It asks for words, not a decision.
-- she is **standing around** — no action running for `idle_nudge_seconds` (90
+- she is **standing around** — no action running for `idle_nudge_seconds` (30
   by default, 0 to disable), with the open objectives of the stream plan when
   there are any.
 

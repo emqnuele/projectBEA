@@ -170,7 +170,7 @@ The heartbeat is marked `noise`, so an idle server costs nothing. Two
 perceptions ask something of her instead; the surface emits at most one per
 tick, and which one depends on whether her hands are busy.
 
-**Standing around.** With no action running for `idle_nudge_seconds` (90 by
+**Standing around.** With no action running for `idle_nudge_seconds` (30 by
 default), she is told how long she has been standing there, with the open
 objectives of the [stream plan](plan.md) when there are any, and that it is her
 game. With an empty plan she is told too: a player in a field is still a player.
@@ -572,7 +572,7 @@ locks.
 "minecraft": {
   "enabled": false,
   "server_url": "ws://127.0.0.1:8080",
-  "idle_nudge_seconds": 90,
+  "idle_nudge_seconds": 30,
   "commentary_seconds": 20,
   "build_scripts": true,
   "system_prompt_path": "data/prompts/minecraft.md"

@@ -235,7 +235,7 @@ class BrainConfig:
         "minecraft": {
             "enabled": False,
             "server_url": "ws://127.0.0.1:8080",
-            "idle_nudge_seconds": 90,   # 0 = she only ever reacts, never starts
+            "idle_nudge_seconds": 30,   # 0 = she only ever reacts, never starts
             "commentary_seconds": 20,   # 0 = nothing asked of her mid-action
             "build_scripts": True,      # she may draw a build with a short script
             "system_prompt_path": "data/prompts/minecraft.md"

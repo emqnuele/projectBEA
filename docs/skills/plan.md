@@ -71,7 +71,7 @@ perception instead:
 ```python
 Perception(
     GAME, "game:mc",
-    "You have been standing around in Minecraft doing nothing for 94s. Today's "
+    "You have been standing around in Minecraft doing nothing for 34s. Today's "
     "plan still has: #2 find diamonds. It is your game: do something.",
     meta={"addressed": "idle-in-game"},
 )
@@ -83,7 +83,7 @@ what makes the nudge survive the attention gate — a nudge filed under "noticed
 is a nudge that never happened, and she would go straight back to waiting to be
 spoken to.
 
-It fires at most every `skills.minecraft.idle_nudge_seconds` (90 by default,
+It fires at most every `skills.minecraft.idle_nudge_seconds` (30 by default,
 `0` disables it), and never while an action of hers is running — then she gets
 the [word about what she is doing](minecraft.md#two-silences-worth-breaking)
 instead, and only when something in it changed. With an empty plan it still

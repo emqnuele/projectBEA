@@ -142,7 +142,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
         "minecraft": {
             "enabled": false,
             "server_url": "ws://127.0.0.1:8080",
-            "idle_nudge_seconds": 90,
+            "idle_nudge_seconds": 30,
             "commentary_seconds": 20,
             "build_scripts": true,
             "system_prompt_path": "data/prompts/minecraft.md"

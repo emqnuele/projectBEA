@@ -267,7 +267,7 @@ MINECRAFT = Section(
                 "The websocket of the BeaCraft mod in her game.", "ws://127.0.0.1:8080"),
         Setting("idle_nudge_seconds", "Nudge her after", "int",
                 "Seconds standing around in the game doing nothing before she is told. 0 never.",
-                90, minimum=0, maximum=3600),
+                30, minimum=0, maximum=3600),
         Setting("commentary_seconds", "Say something every", "int",
                 "At most one word asked of her this often while a long action runs, and "
                 "only when something in it changed. 0 keeps her quiet until it finishes.",
