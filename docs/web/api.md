@@ -34,7 +34,7 @@ Returns the current brain state.
   "active_skills": ["memory", "discord"],
   "session_id": "session_1750000000",
   "uptime": 1832.4,
-  "version": "2.5.0"
+  "version": "2.6.0"
 }
 ```
 
@@ -659,7 +659,7 @@ minutes; `?force=true` refetches.
 ```json
 {
   "supported": true, "available": true, "reason": "",
-  "behind": 3, "current": "4523164a", "latest": "96f7125b", "version": "2.5.0",
+  "behind": 3, "current": "4523164a", "latest": "96f7125b", "version": "2.6.0",
   "commits": [ { "sha": "96f7125b", "subject": "…", "author": "…", "date": "2026-09-10" } ],
   "reviews": [ { "name": "operating.md", "path": "data/prompts/operating.md" } ],
   "can_apply": true, "busy": false, "run": null
