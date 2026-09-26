@@ -319,7 +319,9 @@ whatever stands in the way.
 `walls`, `line`, `circle`, `get` and `note`; the script is checked against a
 whitelist of syntax (no imports, no attributes, no names starting with `_`),
 then run in a separate interpreter (`python -I -S`) with no builtins beyond
-arithmetic, a 3-second limit and a 512 MB memory watch, and all that comes back
+arithmetic, a 3-second limit and a 512 MB memory watch over the interpreter and
+every process under it (on Windows a venv's `python.exe` is a launcher that runs
+the real interpreter as its child), and all that comes back
 is a list of cells, turned into `layers` + `palette` row by row from the cells
 there are (a script whose cells span more than 256 blocks is refused before
 anything is laid out). The interpreter starts with an empty environment: nothing

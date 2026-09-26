@@ -1,7 +1,11 @@
 """Build scripts: what the body may write, and what it may not."""
 
+import subprocess
+import sys
+import time
 import tracemalloc
 
+import psutil
 import pytest
 
 from src.core.skills.minecraft import buildscript
@@ -130,3 +134,33 @@ def test_a_parser_that_runs_out_of_stack_is_a_script_error(monkeypatch):
     monkeypatch.setattr(buildscript.ast, "parse", overflow)
     with pytest.raises(ScriptError, match="nested too deeply"):
         check("x = 1")
+
+
+# a venv python.exe on windows is a launcher: the script's memory grows in its child
+LAUNCHER = (
+    "import subprocess, sys\n"
+    "subprocess.run([sys.executable, '-c', sys.stdin.read()])\n"
+)
+
+
+def _left_running(marker: str) -> list:
+    found = []
+    for p in psutil.process_iter(["cmdline", "status"]):
+        if marker in " ".join(p.info["cmdline"] or []) and p.info["status"] != psutil.STATUS_ZOMBIE:
+            found.append(p)
+    return found
+
+
+def test_memory_grown_in_a_launchers_child_is_still_caught():
+    proc = subprocess.Popen(
+        [sys.executable, "-c", LAUNCHER],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+    )
+    script = "x = [[0] * 10**6 for launched in range(10**6)]"
+    with pytest.raises(ScriptError, match="more than 512 MB"):
+        buildscript._supervise(proc, script)
+    # a kill is not instant: give the child a moment to be gone
+    deadline = time.monotonic() + 2
+    while _left_running("for launched in range") and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert _left_running("for launched in range") == []

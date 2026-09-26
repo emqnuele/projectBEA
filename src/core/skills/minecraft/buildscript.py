@@ -176,11 +176,39 @@ def _limits() -> None:  # pragma: no cover - runs in the child, POSIX only
         pass  # macos refuses any address-space cap: the watch in _supervise covers it
 
 
+def _tree(watched: psutil.Process) -> List[psutil.Process]:
+    try:
+        return [watched, *watched.children(recursive=True)]
+    except psutil.Error:
+        return []  # already gone: the feeder is about to return
+
+
+def _rss(processes: List[psutil.Process]) -> int:
+    total = 0
+    for p in processes:
+        try:
+            total += p.memory_info().rss
+        except psutil.Error:
+            pass
+    return total
+
+
+def _kill(proc: "subprocess.Popen[str]", processes: List[psutil.Process]) -> None:
+    for p in processes[1:]:
+        try:
+            p.kill()
+        except psutil.Error:
+            pass
+    proc.kill()
+
+
 def _supervise(proc: "subprocess.Popen[str]", source: str) -> str:
     """Feed the script in and wait for its answer, killing it if it runs long or grows fat.
 
     The memory watch is what holds on macOS and Windows, where no rlimit caps
-    a process: a three-second list comprehension reached 6.6 GB there.
+    a process: a three-second list comprehension reached 6.6 GB there. It adds
+    up the whole tree: on Windows a venv's python.exe is a launcher that runs
+    the real interpreter as its child, and the launcher alone stays at 3 MB.
     """
     out: List[str] = []
     feeder = threading.Thread(target=lambda: out.append(proc.communicate(source)[0]), daemon=True)
@@ -188,12 +216,10 @@ def _supervise(proc: "subprocess.Popen[str]", source: str) -> str:
     watched = psutil.Process(proc.pid)
     deadline = time.monotonic() + TIMEOUT_S
     while feeder.is_alive():
-        try:
-            too_big = watched.memory_info().rss > MAX_MEMORY
-        except psutil.Error:
-            too_big = False  # already gone: the feeder is about to return
+        processes = _tree(watched)
+        too_big = _rss(processes) > MAX_MEMORY
         if too_big or time.monotonic() > deadline:
-            proc.kill()
+            _kill(proc, processes)
             feeder.join()
             if too_big:
                 raise ScriptError(f"the script used more than {MAX_MEMORY // 2**20} MB")
