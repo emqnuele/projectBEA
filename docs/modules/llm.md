@@ -77,7 +77,7 @@ is not set. `GET /config` never returns them.
 | Role | Who uses it | What it needs |
 |---|---|---|
 | `mind` | the consciousness | **must support tool calling** |
-| `background` | diary, dreamer, profiler, the Minecraft body | cheap and slow is fine |
+| `background` | diary, dreamer, profiler | cheap and slow is fine |
 
 A spec is `"provider:model"`, split on the **first** `:` so OpenRouter ids keep
 their `/` and their `:free` suffix.

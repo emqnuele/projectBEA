@@ -3,22 +3,11 @@ from typing import Any, Dict, Optional, Tuple
 from src.core.agent.tools import ToolRegistry
 from src.core.skills.minecraft.building import register_building_tools
 from src.core.skills.minecraft.client import MinecraftClient
-from src.core.skills.minecraft.notebook import Notebook
 from src.core.skills.minecraft.places import Places, server_of
 from src.core.skills.minecraft.recipebook import PLAN_DESC, RecipeBook
 
-_NOTEBOOK_DESC = (
-    "Rewrite your private notebook — your working memory and plan. It is NOT spoken; "
-    "it persists across turns so you don't forget what you're doing. ALWAYS pass the FULL "
-    "updated notebook (it overwrites the old one). Use it to: state your current goal; list "
-    "the items/blocks you need; and crucially work out the CRAFTING DEPENDENCY CHAIN from what "
-    "you have right now (e.g. wooden_pickaxe needs 3 planks + 2 sticks; sticks need 2 planks; "
-    "planks need 1 log -> so check your inventory and figure out how many logs to gather). "
-    "Keep a checklist with [ ] / [x] and update it as you progress, fail, or find new resources."
-)
-
 # answered in a moment: they read, speak or stop, and never walk anywhere
-_QUICK = {"request_screenshot", "check_death_log", "stop_moving", "chat", "look_at",
+_QUICK = {"request_screenshot", "check_death_log", "stop_moving", "mc_chat", "look_at",
           "look_at_player", "scan"}
 
 # seconds the brain waits for an answer. Each is longer than the mod's own
@@ -36,6 +25,8 @@ DEFAULT_TIMEOUT = 60.0
 # mod skill as looking at a coordinate, told who to look at instead of where.
 _ALIASES = {
     "look_at_player": ("look_at", {"name": "player"}),
+    # beside telegram and discord, a tool called just "chat" says nothing about where it goes
+    "mc_chat": ("chat", {}),
 }
 
 _PILLARING = {"type": "boolean",
@@ -54,8 +45,8 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "required": ["x", "y", "z"],
     }),
     "attack_entity": (
-        "Fight something until it dies: a player by name, or the nearest mob of a type. She "
-        "puts on armour and takes her best weapon. FAILURE_NOT_FOUND when there is none near, "
+        "Fight something until it dies: a player by name, or the nearest mob of a type. You "
+        "put on armour and take your best weapon. FAILURE_NOT_FOUND when there is none near, "
         "FAILURE_TARGET_TOO_FAR when it got away.", {
         "type": "object",
         "properties": {"target": {
@@ -65,10 +56,10 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "required": ["target"],
     }),
     "move_to": (
-        "Walk to coordinates. She first looks for a way that breaks nothing (round a wall, "
-        "through a door she opens); only when there is none does she dig, and never through "
+        "Walk to coordinates. You first look for a way that breaks nothing (round a wall, "
+        "through a door you open); only when there is none do you dig, and never through "
         "doors, chests, beds, glass or torches. `range` is how close counts as there. The "
-        "answer says where she stopped; FAILURE means she could not get there.", {
+        "answer says where you stopped; FAILURE means you could not get there.", {
         "type": "object",
         "properties": {
             "x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"},
@@ -90,16 +81,16 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "Get out from underground to where you can see the sky: walking out if there is a way, "
         "else digging a staircase up, away from lava and water. Slow without a pickaxe. "
         "FAILURE_NO_SURFACE in the Nether.", {"type": "object", "properties": {}}),
-    "stop_moving": ("Stop whatever the body is doing, at once; the answer names what was stopped.",
+    "stop_moving": ("Stop whatever you are doing, at once; the answer names what was stopped.",
                     {"type": "object", "properties": {}}),
-    "look_at": ("Turn the head to look at coordinates, without stopping what the body is doing.", {
+    "look_at": ("Turn the head to look at coordinates, without stopping what you are doing.", {
         "type": "object",
         "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
         "required": ["x", "y", "z"],
     }),
     "place_block": (
-        "Place one block at exact coordinates: she walks into reach, takes it from anywhere in "
-        "her inventory and places it against a solid neighbour, then checks it is there. A "
+        "Place one block at exact coordinates: you walk into reach, take it from anywhere in "
+        "your inventory and places it against a solid neighbour, then checks it is there. A "
         "state like oak_door[facing=south] or oak_log[axis=x] sets how it sits. Fails with "
         "FAILURE_OCCUPIED (something is in the cell; mine it, or pass replace), "
         "FAILURE_NO_SUPPORT (nothing to place it against), FAILURE_NO_ITEM, "
@@ -118,8 +109,8 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "required": ["x", "y", "z"],
     }),
     "build": (
-        "Build a whole structure in one action: she clears the cells that must be empty, "
-        "places the rest bottom-up from what already holds them, walking as she needs, and "
+        "Build a whole structure in one action: you clear the cells that must be empty, "
+        "places the rest bottom-up from what already holds them, walking as you need, and "
         "answers cell by cell with what is still wrong and what was missing. Describe it as "
         "`layers` + `palette` (bottom layer first; each layer is a list of rows along +z, each "
         "row a string of palette characters along +x; a space leaves the cell as it is; a "
@@ -203,7 +194,7 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "properties": {"height": {"type": "integer"}, "block": {"type": "string"}},
         "required": ["height"],
     }),
-    "mine_down": ("Dig straight down `depth` blocks, falling as you go. She stops before lava, "
+    "mine_down": ("Dig straight down `depth` blocks, falling as you go. You stop before lava, "
                   "fire, water or a drop deeper than 3 (FAILURE_DANGER says which).", {
         "type": "object",
         "properties": {"depth": {"type": "integer"}},
@@ -244,8 +235,8 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     }),
     "smelt_item": (
         "Smelt `count` of an item (raw_iron, sand, a log...) and wait for it: at the nearest "
-        "furnace within 16 blocks, or at the one you carry, set down and picked back up. She "
-        "puts in just enough fuel from what you carry (or `fuel`), takes out everything, and "
+        "furnace within 16 blocks, or at the one you carry, set down and picked back up. You "
+        "put in just enough fuel from what you carry (or `fuel`), takes out everything, and "
         "takes back what was not used. About 10 s per item, at most 10 per call. Fails with "
         "FAILURE_NO_FUEL, FAILURE_NO_FURNACE, FAILURE_FURNACE_BUSY (it holds someone else's "
         "smelt), FAILURE_NOT_SMELTABLE or FAILURE_STALLED.", {
@@ -259,8 +250,8 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
     }),
     "store_item": (
         "Put `count` of an item (all of it if left out) into a chest or barrel: the one at x, y, z, "
-        "or the nearest within 32 blocks. She walks there, opens it, moves exactly that item and "
-        "closes it; the answer says what the chest holds now. Fails with FAILURE_NO_CONTAINER, "
+        "or the nearest within 32 blocks. You walk there, open it, move exactly that item and "
+        "close it; the answer says what the chest holds now. Fails with FAILURE_NO_CONTAINER, "
         "FAILURE_CONTAINER_FULL or FAILURE_NO_ITEM.", {
         "type": "object",
         "properties": {
@@ -283,13 +274,13 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "required": ["item"],
     }),
     "view_container": (
-        "Look inside a chest or barrel: the one at x, y, z, or the nearest within 32 blocks. She "
-        "walks there and opens it, so it takes the body like any walk.", {
+        "Look inside a chest or barrel: the one at x, y, z, or the nearest within 32 blocks. You "
+        "walk there and open it, so it takes your hands like any walk.", {
         "type": "object",
         "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
     }),
     "equip_item": (
-        "Put something on: a tool in your hand, armour on your body, a shield in your "
+        "Put something on: a tool in your hand, armour on, a shield in your "
         "off hand. Armour and a shield are what keep you alive — wear them. "
         "FAILURE_ITEM_NOT_FOUND when you have none.",
         {
@@ -319,8 +310,8 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
                         {"type": "object", "properties": {}}),
     # --- playing WITH people, not just near them ---
     "goto_player": (
-        "Walk over to a specific player and stop next to them. They move, so she "
-        "re-paths as they go. FAILURE_NOT_FOUND, FAILURE_UNREACHABLE.",
+        "Walk over to a specific player and stop next to them. They move, so you "
+        "re-path as they go. FAILURE_NOT_FOUND, FAILURE_UNREACHABLE.",
         {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
     "follow_player": (
         "Stay with a player, keeping a few blocks behind them. The answer comes as soon as "
@@ -344,13 +335,12 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
             },
             "required": ["name", "item"],
         }),
-    "chat": (
-        "TYPE a message in the game chat. The other players read this — it is a "
-        "different audience from your voice. Your voice (`speak`) is heard by your "
-        "stream; this is what the people in the game see. You can use both in the "
-        "same turn, and often should: comment out loud for your audience, and "
-        "answer in chat for whoever is standing there. On clients with Baritone "
-        "a line starting with its command prefix is refused, so say it plainly.",
+    "mc_chat": (
+        "TYPE a message in the game chat. The other players read this — a different "
+        "audience from your voice: `speak` is heard by your stream, this is what the "
+        "people in the game see. Both in the same turn is often right: comment out loud, "
+        "answer in chat. On clients with Baritone a line starting with its command "
+        "prefix is refused, so say it plainly.",
         {
             "type": "object",
             "properties": {"message": {"type": "string"}},
@@ -359,15 +349,14 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
 }
 
 
-def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
-                          surface: str = "game:mc", build_scripts: bool = True,
+def build_minecraft_tools(client: MinecraftClient, surface: str = "game:mc",
+                          build_scripts: bool = True,
                           places: Optional[Places] = None) -> ToolRegistry:
     """Builds a registry whose handlers drive the mod and return observations.
 
-    Also registers the local `update_notebook` tool, which mutates the agent's
-    private working memory instead of talking to the mod, and the building
-    tools worked out in the brain (`build_script` only when `build_scripts`),
-    and, given a place book, `remember_place` and `go_to_place`.
+    Also registers what is worked out in the brain: `crafting_plan`, the
+    building tools (`build_script` only when `build_scripts`) and, given a
+    place book, `remember_place` and `go_to_place`.
     """
     registry = ToolRegistry()
 
@@ -389,18 +378,8 @@ def build_minecraft_tools(client: MinecraftClient, notebook: Notebook,
 
     for name, (description, parameters) in _TOOLS.items():
         registry.add(name, description, parameters, make_handler(name),
-                     long_running=name not in _QUICK, surface=surface)
-
-    registry.add(
-        "update_notebook",
-        _NOTEBOOK_DESC,
-        {
-            "type": "object",
-            "properties": {"notes": {"type": "string", "description": "The full new notebook content."}},
-            "required": ["notes"],
-        },
-        lambda notes="": notebook.update(notes),
-    )
+                     long_running=name not in _QUICK, surface=surface,
+                     reaches=name == "mc_chat")
     registry.add(
         "crafting_plan",
         PLAN_DESC,

@@ -19,7 +19,7 @@ MAX_RESOURCES = 8
 
 
 def render_state(state: Optional[Dict[str, Any]]) -> str:
-    """A compact, human-readable view of where Bea's body is and what it holds."""
+    """A compact, human-readable view of where Bea is and what she holds."""
     if not state or "player" not in state:
         return ""
 
@@ -73,7 +73,7 @@ def _player_lines(state: Dict[str, Any]) -> List[str]:
         lines.append("- you are DEAD")
     action = state.get("current_action")
     if state.get("is_busy") and action:
-        lines.append(f"- your body is busy: {action}")
+        lines.append(f"- you are busy: {action}")
     return lines
 
 

@@ -58,12 +58,20 @@ def _tool_failed(call: Dict[str, Any]) -> bool:
     return str(call.get("result", "")).startswith(("ERROR", "FAILED"))
 
 
+# how a game action says it did not get there
+_WENT_WRONG = ("FAILURE", "FAILED", "ERROR", "TIMEOUT", "INTERRUPTED")
+
+
+def _went_wrong(result: str) -> bool:
+    return result.lstrip().upper().startswith(_WENT_WRONG)
+
+
 class Consciousness:
     """The single, always-on mind.
 
     One context, one loop: it drains perceptions from every surface, orders
     them by priority, reasons over the one sliding window, and acts through
-    unified tools. Speaking is non-blocking and body actions run async, so she
+    unified tools. Speaking is non-blocking and game actions run async, so she
     can talk and play at once. A telegram DM and a minecraft session live in
     the same window — answering one never forgets the other.
     """
@@ -141,7 +149,16 @@ class Consciousness:
         self.alive = False
         self.sleeping = False
         self._loop_task: Optional[asyncio.Task] = None
-        self._body_task: Optional[asyncio.Task] = None
+        self._action_task: Optional[asyncio.Task] = None
+        # what her hands still have to do, in the order she asked, and the step
+        # that asked: things asked in one breath queue, a later step replaces them
+        self._action_queue: List[Tuple[Tool, Dict[str, Any]]] = []
+        self._action_step = -1
+        self._steps_taken = 0
+        # the calls of this step that only set something going in the background
+        self._backgrounded: set = set()
+        # this turn has already been given its one extra step by a skill
+        self._pushed = False
         # a line already on its way out while the tool call that asked for it is
         # still being written
         self._live: Optional[LiveLine] = None
@@ -162,6 +179,7 @@ class Consciousness:
         # to say a turn ended mute and why
         self._unheard_words = False
         self._rescued = False
+        self._pushed = False
         # shown to her mid-turn, these never come back as a turn of their own
         self._owed: set = set()
         self._bg_tasks: set = set()
@@ -309,9 +327,9 @@ class Consciousness:
             logger.error(f"Surface '{s.name}' failed to stop: {e}")
 
     async def _cancel_background(self) -> None:
-        """Cancels a body action, a profile pass or a line still playing."""
-        pending = [t for t in (self._body_task, *self._bg_tasks) if t is not None and not t.done()]
-        self._body_task = None
+        """Cancels an action of hers, a profile pass or a line still playing."""
+        pending = [t for t in (self._action_task, *self._bg_tasks) if t is not None and not t.done()]
+        self._action_task = None
         for task in pending:
             task.cancel()
         # consumed, so none of them is reported as an exception never retrieved
@@ -530,15 +548,14 @@ class Consciousness:
             assistant = await self._step(context, label="" if is_idle else f"step {steps}")
             last = assistant
             spent = spent + assistant.usage
-            if assistant.is_final:
+            if not self._turn_is_over(assistant):
+                continue
+            undone = self._left_undone()
+            if undone is None:
                 break
-
-            # she spoke or chose silence: the turn is over, and a new
-            # message becomes its own next turn
-            if assistant.tool_calls and all(
-                c.name in self._TERMINAL_TOOLS for c in assistant.tool_calls
-            ):
-                break
+            # a world still waiting on her (a game she only talked about
+            # playing) gets one more step, and only one
+            context.append({"role": "user", "content": undone})
 
         # nobody heard her: either she only wrote plain text, which is
         # private thinking, or every tool she reached for failed. Both
@@ -580,6 +597,8 @@ class Consciousness:
 
     async def _step(self, context: List[Dict[str, Any]], label: str = "") -> AssistantMessage:
         """One model call, and every tool it asked for. `label` names it in the log."""
+        self._steps_taken += 1
+        self._backgrounded = set()
         t_llm = time.perf_counter()
         assistant = await self._think(context)
         if label:
@@ -707,6 +726,35 @@ class Consciousness:
             else:
                 steer.append(p)
         return steer
+
+    def _turn_is_over(self, assistant: AssistantMessage) -> bool:
+        """Whether this step ended the turn, before any skill has had its say."""
+        if assistant.is_final:
+            return True
+        calls = assistant.tool_calls
+        # she spoke or chose silence: a new message becomes its own next turn.
+        # anything else keeps the turn going, so she acts first and talks after
+        if not calls:
+            return False
+        if all(c.name in self._TERMINAL_TOOLS for c in calls):
+            return True
+        # actions started in the background only answer "started": once she has
+        # also spoken, in this step or before, another call would learn nothing
+        spoken = self._said is not None or bool(self._sent) or any(
+            c.name in self._TERMINAL_TOOLS for c in calls)
+        return spoken and all(
+            c.name in self._TERMINAL_TOOLS or c.id in self._backgrounded for c in calls)
+
+    def _left_undone(self) -> Optional[str]:
+        """What the active skills say is still waiting on her, once per turn."""
+        if self._pushed:
+            return None
+        said = self.surfaces.left_undone(self._batch, self._acted)
+        if not said:
+            return None
+        self._pushed = True
+        logger.info("The turn was ending with a skill's world left waiting: one more step.")
+        return "\n".join(said)
 
     def _still_owed(self, last: Optional[AssistantMessage]) -> set:
         """Conversations shown a line after her reply that got no answer since.
@@ -1023,7 +1071,7 @@ class Consciousness:
                 return "via voice call"
             if p.surface == "chat:ui":
                 return "via dashboard"
-            if p.kind is PerceptionKind.GAME:
+            if p.kind is PerceptionKind.GAME or p.surface == "game:mc":
                 return "via minecraft"
             if p.kind is PerceptionKind.IDLE:
                 return "via silence"
@@ -1133,30 +1181,56 @@ class Consciousness:
             return f"ERROR: unknown tool '{call.name}'."
 
         if tool.long_running:
-            return self._dispatch_body(tool, call.arguments)
+            self._backgrounded.add(call.id)
+            return self._start_action(tool, call.arguments)
 
         return await registry.dispatch(call)
 
-    def _dispatch_body(self, tool: Tool, args: Dict[str, Any]) -> str:
-        """Starts a BODY action async (single-slot, preempts the previous one)."""
-        if self._body_task and not self._body_task.done():
-            self._body_task.cancel()
-        self._body_task = asyncio.create_task(self._run_body(tool, args))
+    def _start_action(self, tool: Tool, args: Dict[str, Any]) -> str:
+        """Starts an action that takes time, beside her.
+
+        One pair of hands: what she asks for in the same step is done in that
+        order, and a later decision replaces whatever is still going.
+        """
+        running = self._action_task is not None and not self._action_task.done()
+        if running and self._action_step == self._steps_taken:
+            self._action_queue.append((tool, args))
+            return f"{tool.name} queued: you do it right after the one before."
+        if running and self._action_task is not None:
+            self._action_task.cancel()
+        self._action_step = self._steps_taken
+        self._action_queue = [(tool, args)]
+        self._action_task = asyncio.create_task(self._run_actions(self._action_queue))
         return f"{tool.name} started (running in the background; its result will reach you as a perception)."
 
-    async def _run_body(self, tool: Tool, args: Dict[str, Any]):
-        try:
-            result = tool.handler(**args)
-            if asyncio.iscoroutine(result):
-                result = await result
-        except asyncio.CancelledError:
-            return
-        except Exception as e:
-            result = f"ERROR: {e}"
+    async def _run_actions(self, queue: List[Tuple[Tool, Dict[str, Any]]]):
+        """Does each queued action in turn and reports them together once over.
+
+        One report, not one per action: each would wake her mid-sequence, and a
+        new decision there would cancel the rest of what she had just asked for.
+        """
+        lines: List[str] = []
+        surface = queue[0][0].surface if queue else ""
+        index = 0
+        while index < len(queue):
+            tool, args = queue[index]
+            index += 1
+            try:
+                result = tool.handler(**args)
+                if asyncio.iscoroutine(result):
+                    result = await result
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                result = f"ERROR: {e}"
+            lines.append(f"[{tool.name}] result: {result}")
+            if _went_wrong(str(result)) and index < len(queue):
+                rest = ", ".join(t.name for t, _ in queue[index:])
+                lines.append(f"not done: {rest} (after the failure above)")
+                break
         # attributed to the surface that owns the tool, not to minecraft
         self.bus.put(Perception(
-            PerceptionKind.ACTION, tool.surface or "body",
-            f"[{tool.name}] result: {result}", salience=0.7,
+            PerceptionKind.ACTION, surface or "body", "\n".join(lines), salience=0.7,
         ))
 
     # --- speaking (non-blocking) -------------------------------------------

@@ -15,7 +15,7 @@ the person running the engine:
 | `operating.md` | `src/core/mind/operating.py` | the speak tool, moods, how perception is phrased |
 | `chat.md` | fallback when the operating manual is absent | legacy system prompt |
 | `monologue.md` | the monologue skill | what she says into silence |
-| `minecraft.md`, `minecraft_body.md` | the Minecraft agent | goal reasoning and the body loop |
+| `minecraft.md` | the Minecraft skill | how she plays: acting and talking, people, the survival guide |
 
 `soul.md` is content and `operating.md` is machinery, but both ship with the
 repository and both keep changing upstream. That combination is what breaks a

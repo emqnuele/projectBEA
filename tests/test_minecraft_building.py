@@ -7,7 +7,6 @@ import pytest
 
 from src.core.skills.minecraft.blueprint import expand
 from src.core.skills.minecraft.building import door_facing, load_templates, time_line
-from src.core.skills.minecraft.notebook import Notebook
 from src.core.skills.minecraft.tools import build_minecraft_tools
 
 
@@ -30,7 +29,7 @@ def run(coro):
 
 def tools(items=None, build_scripts=True):
     client = FakeClient(items)
-    return build_minecraft_tools(client, Notebook(), build_scripts=build_scripts), client
+    return build_minecraft_tools(client, build_scripts=build_scripts), client
 
 
 def call(registry, tool, **args):

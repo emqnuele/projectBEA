@@ -118,7 +118,7 @@ class MinecraftClient:
         # the mod told us what it can do: refuse here rather than wait out the
         # sixty second timeout on a jar that has never heard of this action
         if self.actions and action not in self.actions:
-            return (f"FAILED: your body cannot '{action}'. The installed mod "
+            return (f"FAILED: you cannot '{action}' yet. The installed mod "
                     f"(beacraft {self.mod_version}) is older than the brain — update the jar.")
 
         payload: Dict[str, Any] = {"action": action, "parameters": params}

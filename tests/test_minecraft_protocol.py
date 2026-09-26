@@ -272,11 +272,10 @@ class _TimedClient:
     ("craft_item", 60.0),
 ])
 def test_the_brain_waits_longer_than_the_mod_works(loop, tool, wait):
-    from src.core.skills.minecraft.notebook import Notebook
     from src.core.skills.minecraft.tools import _TOOLS, build_minecraft_tools
 
     client = _TimedClient()
-    registry = build_minecraft_tools(client, Notebook())
+    registry = build_minecraft_tools(client)
     required = _TOOLS[tool][1].get("required", [])
     args = {k: 1 for k in required}
     loop.run_until_complete(registry.get(tool).handler(**args))

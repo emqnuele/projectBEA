@@ -5,7 +5,6 @@ import json
 
 import pytest
 
-from src.core.skills.minecraft.notebook import Notebook
 from src.core.skills.minecraft.places import DEATH, Places
 from src.core.skills.minecraft.tools import build_minecraft_tools
 
@@ -33,7 +32,7 @@ def book(tmp_path):
 
 def test_a_place_is_kept_where_she_stands_and_walked_back_to(book, tmp_path):
     client = FakeClient()
-    tools = build_minecraft_tools(client, Notebook(), places=book)
+    tools = build_minecraft_tools(client, places=book)
     assert call(tools, "remember_place", name="My Home") == "remembered my_home at (10, -57, 3)."
     saved = json.loads((tmp_path / "places.json").read_text())
     assert saved["play.example.net"]["my_home"]["x"] == 10
@@ -44,8 +43,8 @@ def test_a_place_is_kept_where_she_stands_and_walked_back_to(book, tmp_path):
 
 
 def test_places_belong_to_their_world(book):
-    here = build_minecraft_tools(FakeClient(server="a.example"), Notebook(), places=book)
-    there = build_minecraft_tools(FakeClient(server="b.example"), Notebook(), places=book)
+    here = build_minecraft_tools(FakeClient(server="a.example"), places=book)
+    there = build_minecraft_tools(FakeClient(server="b.example"), places=book)
     call(here, "remember_place", name="home")
     assert call(there, "go_to_place", name="home") == \
         "ERROR: you remember no place called home; you know: none yet."
@@ -53,7 +52,7 @@ def test_places_belong_to_their_world(book):
 
 def test_a_place_in_another_dimension_is_not_walked_to(book):
     client = FakeClient()
-    tools = build_minecraft_tools(client, Notebook(), places=book)
+    tools = build_minecraft_tools(client, places=book)
     call(tools, "remember_place", name="base")
     client.latest_state["world"]["dimension"] = "minecraft:the_nether"
     assert call(tools, "go_to_place", name="base").startswith("FAILURE_OTHER_DIMENSION: base is in overworld")
@@ -100,17 +99,6 @@ def test_a_death_is_remembered_for_her(tmp_path):
 class _Bus:
     def put(self, perception):
         pass
-
-
-def test_the_body_reads_its_places_with_the_state():
-    from src.core.agent.tools import ToolRegistry
-    from src.core.skills.minecraft.agent import GameAgent
-
-    agent = GameAgent(llm=None, registry=ToolRegistry(), notebook=Notebook(), state_getter=lambda: {},
-                      places=lambda: "home (10, -57, 3) 10m")
-    assert "PLACES YOU REMEMBER: home (10, -57, 3) 10m" in agent._state_note()
-    quiet = GameAgent(llm=None, registry=ToolRegistry(), notebook=Notebook(), state_getter=lambda: {})
-    assert "PLACES" not in quiet._state_note()
 
 
 def test_the_real_state_names_the_server():

@@ -19,12 +19,9 @@ CONTRACT = json.loads(
     (Path(__file__).parent / "fixtures/minecraft_contract.json").read_text(encoding="utf-8"))
 ACTIONS = CONTRACT["actions"]
 
-# tools that never reach the mod
-LOCAL_ONLY = {"update_notebook", "goal_done", "goal_blocked"}
-
-# mod actions the body is not given, and why
+# mod actions she is not given, and why
 NOT_EXPOSED = {
-    # nothing in the body looks at an image yet: a screenshot would be a slow, blind call
+    # nothing of hers looks at an image yet: a screenshot would be a slow, blind call
     "request_screenshot",
     # equip_item puts the thing in her hand from anywhere; a slot number is a guess about her hotbar
     "select_slot",
@@ -69,7 +66,7 @@ def exposed_by(action: str) -> set:
     return sent
 
 
-@pytest.mark.parametrize("tool", sorted(set(_TOOLS) - LOCAL_ONLY))
+@pytest.mark.parametrize("tool", sorted(_TOOLS))
 def test_every_tool_names_an_action_the_mod_knows(tool):
     action, _renames = _ALIASES.get(tool, (tool, {}))
     assert action in CONTRACT["known_actions"], f"{tool} -> {action} is not a mod action"
@@ -87,7 +84,7 @@ def test_the_mod_reads_every_parameter_the_brain_sends(action):
 def test_every_mod_action_is_a_tool_or_left_out_on_purpose():
     exposed = {_ALIASES.get(t, (t, {}))[0] for t in _TOOLS}
     undecided = set(CONTRACT["known_actions"]) - exposed - NOT_EXPOSED
-    assert not undecided, f"the mod offers {sorted(undecided)} and the body has no tool for it"
+    assert not undecided, f"the mod offers {sorted(undecided)} and she has no tool for it"
     assert not (NOT_EXPOSED & exposed), "an action listed as left out is exposed after all"
 
 
@@ -106,11 +103,12 @@ def test_the_mod_never_takes_a_parameter_it_fills_in_itself():
         assert not clash, f"{action}: the brain overrides {sorted(clash)}, which the mod sets"
 
 
-def test_what_the_mod_runs_beside_the_body_is_declared_known():
+def test_what_the_mod_runs_beside_an_action_is_declared_known():
     assert set(CONTRACT["concurrent_actions"]) <= set(CONTRACT["known_actions"])
 
 
-def test_what_the_mod_runs_beside_the_body_is_quick_for_the_brain():
+def test_what_the_mod_runs_beside_an_action_is_quick_for_the_brain():
     """A glance or a chat line is answered at once; nothing about it runs long."""
+    quick = {_ALIASES.get(t, (t, {}))[0] for t in _QUICK}
     for action in CONTRACT["concurrent_actions"]:
-        assert action in _QUICK, f"{action} runs beside the body in the mod but not in the brain"
+        assert action in quick, f"{action} runs beside an action in the mod but not in the brain"

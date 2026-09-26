@@ -131,11 +131,10 @@ class FakeClient:
 def _tools(**kw):
     import asyncio
 
-    from src.core.skills.minecraft.notebook import Notebook
     from src.core.skills.minecraft.tools import build_minecraft_tools
 
     client = FakeClient(**kw)
-    registry = build_minecraft_tools(client, Notebook())
+    registry = build_minecraft_tools(client)
 
     def call(tool, **args):
         out = registry.get(tool).handler(**args)
