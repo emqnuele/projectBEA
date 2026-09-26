@@ -25,6 +25,11 @@ from src.core.skills.minecraft.state import count_items
 
 TEMPLATES = Path(__file__).resolve().parents[4] / "data" / "minecraft" / "blueprints"
 BUILD_TIMEOUT = 900.0
+# seconds a placed block takes, walking included: 112 cells in 70 s (a house) and
+# 121 in 112 s (a tower), measured live
+SECONDS_PER_CELL = (0.62, 0.93)
+# what the mod gives one build when its handshake has not said
+BUILD_BUDGET = 600.0
 _OPPOSITE = {"north": "south", "south": "north", "east": "west", "west": "east"}
 
 _ORIGIN = {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"},
@@ -122,6 +127,17 @@ def nearest_log(state: Optional[Dict[str, Any]]) -> Optional[str]:
     return min(logs)[1] if logs else None
 
 
+def time_line(cells: int, budget: float) -> str:
+    """How long placing `cells` blocks takes, said only when it is more than one build call does."""
+    slow = cells * SECONDS_PER_CELL[1]
+    if cells <= 0 or slow <= budget:
+        return ""
+    fast = cells * SECONDS_PER_CELL[0]
+    return (f"about {fast / 60:.0f}-{slow / 60:.0f} minutes of placing, and one build runs at most "
+            f"{budget / 60:.0f}: when it stops for time, send the same build again and it carries on "
+            "(what is already right is skipped)")
+
+
 def _missing_line(items: Dict[str, int], inventory: Dict[str, int]) -> str:
     missing = shortfall(items, inventory)
     if not missing:
@@ -136,6 +152,9 @@ def register_building_tools(registry: ToolRegistry, client: MinecraftClient, sur
     def inventory() -> Dict[str, int]:
         return count_items(client.latest_state)
 
+    def budget() -> float:
+        return float(getattr(client, "budgets", {}).get("build", BUILD_BUDGET) or BUILD_BUDGET)
+
     def plan_build(**args: Any) -> str:
         try:
             bp = expand(args)
@@ -144,7 +163,9 @@ def register_building_tools(registry: ToolRegistry, client: MinecraftClient, sur
         items = ", ".join(f"{n} {b}" for b, n in sorted(bp.items.items())) or "nothing to place"
         cleared = sum(1 for b in bp.cells.values() if b == "air")
         empty = f", {cleared} to leave empty" if cleared else ""
-        return f"{len(bp.cells)} cells{empty}; it takes {items}; {_missing_line(bp.items, inventory())}."
+        timing = time_line(len(bp.to_place()), budget())
+        return (f"{len(bp.cells)} cells{empty}; it takes {items}; {_missing_line(bp.items, inventory())}"
+                + (f"; {timing}" if timing else "") + ".")
 
     def list_templates() -> str:
         templates = load_templates()
@@ -169,10 +190,13 @@ def register_building_tools(registry: ToolRegistry, client: MinecraftClient, sur
     async def build_script(code: str, x: int, y: int, z: int, rotation: int = 0,
                            confirm: bool = False) -> str:
         try:
-            args, _bp, text = await asyncio.to_thread(
+            args, bp, text = await asyncio.to_thread(
                 preview, str(code), int(x), int(y), int(z), int(rotation), inventory())
         except (ScriptError, BlueprintError) as e:
             return f"ERROR: {e}"
+        timing = time_line(len(bp.to_place()), budget())
+        if timing:
+            text += "\n" + timing
         if not confirm:
             return "PREVIEW (nothing built yet):\n" + text
         return await client.execute("build", args, timeout=BUILD_TIMEOUT)

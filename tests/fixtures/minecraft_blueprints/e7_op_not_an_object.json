@@ -1,0 +1,13 @@
+{
+  "args": {
+    "ops": [
+      "fill"
+    ],
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    }
+  },
+  "error": "ops[0] must be an object"
+}

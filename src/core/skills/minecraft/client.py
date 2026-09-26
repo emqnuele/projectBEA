@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import json
+import secrets
 import threading
 import time
 from collections import OrderedDict
@@ -34,8 +35,9 @@ MAX_ABANDONED = 32
 # statuses the mod sends when a long-running action finishes
 _COMPLETION = {"FINISHED", "IDLE"}
 
-# packets that are senses rather than answers: they are handed to the surface
-_TYPED_EVENTS = {"chat", "player_event", "combat", "death_event", "reflex", "progress"}
+# packets that are senses rather than answers: they are handed to the surface.
+# `activity`: something answered when it started (following someone) has ended
+_TYPED_EVENTS = {"chat", "player_event", "combat", "death_event", "reflex", "progress", "activity"}
 
 
 class MinecraftClient:
@@ -75,6 +77,9 @@ class MinecraftClient:
         # completion that arrives belongs to them, not to whoever asked next
         self._abandoned: "OrderedDict[str, None]" = OrderedDict()
         self._ids = itertools.count(1)
+        # the mod answers every connection, so ids carry this client's own mark: "r1" from two
+        # brains at once (or a brain and a test harness) would each take the other's answers
+        self._session = secrets.token_hex(3)
         self._events: "asyncio.Queue[str]" = asyncio.Queue()
         self._connected = asyncio.Event()
         self._first_state = asyncio.Event()
@@ -119,16 +124,18 @@ class MinecraftClient:
         payload: Dict[str, Any] = {"action": action, "parameters": params}
 
         if self.protocol < 2 and action in _LEGACY_UNANSWERED:
-            self._send(payload)
-            return "SENT"
+            return "SENT" if self._send(payload) else "FAILED: not connected to the game; nothing was sent."
 
         # the mod echoes it back when it is new enough to know about ids; older
         # jars ignore it and are matched in order instead
-        request_id = f"r{next(self._ids)}"
+        request_id = f"r{next(self._ids)}-{self._session}"
         payload["id"] = request_id
         fut = self.loop.create_future()
         self._waiting[request_id] = fut
-        self._send(payload)
+        if not self._send(payload):
+            # nothing went out, so nothing will ever answer: say so now, not after the whole timeout
+            self._waiting.pop(request_id, None)
+            return "FAILED: not connected to the game; nothing was sent."
         try:
             return await asyncio.wait_for(fut, timeout=self.wait_for(action, timeout))
         except asyncio.TimeoutError:
@@ -164,14 +171,17 @@ class MinecraftClient:
 
     # --- websocket plumbing (runs on background thread) ---
 
-    def _send(self, data: Dict[str, Any]) -> None:
+    def _send(self, data: Dict[str, Any]) -> bool:
+        """True when it went out on the socket."""
         if self.ws and self.is_connected:
             try:
                 self.ws.send(json.dumps(data))
+                return True
             except Exception as e:
                 logger.error(f"Failed to send: {e}")
-        else:
-            logger.warning("Tried to send while disconnected.")
+                return False
+        logger.warning("Tried to send while disconnected.")
+        return False
 
     def _run_forever(self) -> None:
         while self.keep_running:
@@ -203,6 +213,8 @@ class MinecraftClient:
         try:
             self.loop.call_soon_threadsafe(
                 self._resolve_pending, "FAILED: the connection to the game dropped mid-action.")
+            # nor the end of anything still going on by itself (following someone)
+            self.loop.call_soon_threadsafe(self._emit, "connection_lost", {})
         except RuntimeError:
             pass  # the loop is already closed: nobody is waiting
 
@@ -220,8 +232,10 @@ class MinecraftClient:
         kind = data.get("type")
         if kind in _TYPED_EVENTS:
             self._emit(kind, data)
-            # a death ends whatever she was doing: don't make the caller time out
-            if kind == "death_event":
+            # a protocol-1 jar never answers what a death cut short. A newer one does, with ids,
+            # and this event comes after the respawn: settling everything here would answer
+            # requests sent since then with a death they never saw
+            if kind == "death_event" and self.protocol < 2:
                 self._resolve_pending("INTERRUPTED: you died.")
             return
 

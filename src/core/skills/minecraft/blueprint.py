@@ -10,12 +10,17 @@ mindcraft-bots/mindcraft, MIT): `blocks[y][z][x]`, "" for "leave as it is",
 generic names like "planks" resolved from the inventory.
 """
 
+import math
+import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 Cell = Tuple[int, int, int]
 
 MAX_CELLS = 2000
+# blocks from one end of a build to the other, along any axis: more is coordinates
+# given as absolute where they were meant relative to the origin
+MAX_SPAN = 256
 ROTATIONS = (0, 90, 180, 270)
 OPS = {"fill", "walls", "set", "roof"}
 KEYS = {"origin", "rotation", "palette", "layers", "ops", "clear", "dry_run"}
@@ -32,6 +37,9 @@ COLORS = ("white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", 
 
 class BlueprintError(ValueError):
     pass
+
+
+_INTEGER = re.compile(r"[+-]?[0-9]+")
 
 
 @dataclass
@@ -84,35 +92,68 @@ def rotate_state(block: str, rotation: int) -> str:
 
 
 def expand(args: Dict[str, Any]) -> Blueprint:
+    """The cells a build asks for. Every malformed argument is a BlueprintError whose
+    text is the same one BeaCraft's Blueprint.java gives for it."""
     unknown = set(args) - KEYS
     if unknown:
         raise BlueprintError(f"unknown argument: {sorted(unknown)[0]}")
-    origin = args.get("origin") or {}
+    origin = args.get("origin")
     try:
-        ox, oy, oz = int(origin["x"]), int(origin["y"]), int(origin["z"])
+        if not isinstance(origin, dict):
+            raise TypeError
+        ox, oy, oz = _int(origin["x"]), _int(origin["y"]), _int(origin["z"])
     except (KeyError, TypeError, ValueError):
         raise BlueprintError("origin needs x, y and z") from None
-    rotation = int(args.get("rotation", 0))
+    try:
+        rotation = 0 if args.get("rotation") is None else _int(args["rotation"])
+    except (TypeError, ValueError):
+        rotation = -1
     if rotation not in ROTATIONS:
         raise BlueprintError("rotation must be 0, 90, 180 or 270")
 
     relative: Dict[Cell, str] = {}
-    palette = {str(k): _name(v) for k, v in (args.get("palette") or {}).items()}
-    for y, layer in enumerate(args.get("layers") or []):
+    raw_palette = args.get("palette")
+    if raw_palette is None:
+        raw_palette = {}
+    if not isinstance(raw_palette, dict):
+        raise BlueprintError("palette must map one character to a block, like {\"#\": \"cobblestone\"}")
+    palette: Dict[str, str] = {}
+    for key, value in raw_palette.items():
+        if len(key) != 1:
+            raise BlueprintError(f"palette key '{key}' must be one character")
+        palette[key] = _block(value, f"palette['{key}']")
+    layers = args.get("layers")
+    if layers is None:
+        layers = []
+    if not isinstance(layers, list):
+        raise BlueprintError("layers must be a list of layers, each a list of rows (strings)")
+    for y, layer in enumerate(layers):
+        if not isinstance(layer, list):
+            raise BlueprintError(f"layers[{y}] must be a list of rows (strings)")
         for z, row in enumerate(layer):
+            if not isinstance(row, str):
+                raise BlueprintError(f"layers[{y}][{z}] must be a string")
             for x, ch in enumerate(row):
                 if ch == " ":
                     continue
                 if ch not in palette:
                     raise BlueprintError(f"layer {y} row {z}: '{ch}' is not in the palette")
                 relative[(x, y, z)] = palette[ch]
-    for i, op in enumerate(args.get("ops") or []):
+    ops = args.get("ops")
+    if ops is None:
+        ops = []
+    if not isinstance(ops, list):
+        raise BlueprintError("ops must be a list of objects")
+    for i, op in enumerate(ops):
+        if not isinstance(op, dict):
+            raise BlueprintError(f"ops[{i}] must be an object")
         for cell, block in _op(op, i):
             relative[cell] = block
     if len(relative) > MAX_CELLS:
         raise BlueprintError(f"{len(relative)} cells; the most a build takes is {MAX_CELLS}")
     if not relative:
         raise BlueprintError("nothing to build: give layers or ops")
+    check_span(relative)
 
     cells: Dict[Cell, str] = {}
     for (x, y, z), block in relative.items():
@@ -121,18 +162,30 @@ def expand(args: Dict[str, Any]) -> Blueprint:
     return Blueprint(cells, items_needed(cells))
 
 
+def check_span(cells: Iterable[Cell]) -> None:
+    """A build fits in MAX_SPAN blocks along each axis; the usual reason it does not is a
+    coordinate given as absolute (x=1200) next to relative ones (x=0)."""
+    points = list(cells)
+    for axis, name in enumerate("xyz"):
+        low = min(p[axis] for p in points)
+        high = max(p[axis] for p in points)
+        if high - low + 1 > MAX_SPAN:
+            raise BlueprintError(
+                f"the build spans {high - low + 1} blocks along {name} (from {low} to {high}); the most is "
+                f"{MAX_SPAN}: are some coordinates absolute where they should be relative to the origin?")
+
+
 def _op(op: Dict[str, Any], i: int) -> Iterable[Tuple[Cell, str]]:
     kind = op.get("op")
-    if kind not in OPS:
+    if not isinstance(kind, str) or kind not in OPS:
         raise BlueprintError(f"ops[{i}]: op must be one of {sorted(OPS)}")
-    block = _name(op.get("block", ""))
-    if not block:
-        raise BlueprintError(f"ops[{i}]: missing block")
+    block = _block(op.get("block"), f"ops[{i}]")
     if kind == "set":
         x, y, z = _vec(op, "at", i)
         yield (x, y, z), block
         return
     (x1, y1, z1), (x2, y2, z2) = _vec(op, "from", i), _vec(op, "to", i)
+    hollow = _flag(op.get("hollow"), f"ops[{i}]: hollow")
     xs = range(min(x1, x2), max(x1, x2) + 1)
     ys = range(min(y1, y2), max(y1, y2) + 1)
     zs = range(min(z1, z2), max(z1, z2) + 1)
@@ -145,17 +198,61 @@ def _op(op: Dict[str, Any], i: int) -> Iterable[Tuple[Cell, str]]:
                 shell = edge or y in (ys[0], ys[-1])
                 if kind == "walls" and not edge:
                     continue
-                if kind == "fill" and op.get("hollow") and not shell:
+                if kind == "fill" and hollow and not shell:
                     yield (x, y, z), "air"
                     continue
                 yield (x, y, z), block      # "roof" is a fill kept for readability
 
 
-def _vec(op: Dict[str, Any], key: str, i: int) -> Cell:
+def _vec(op: Mapping[str, Any], key: str, i: int) -> Cell:
     v = op.get(key)
-    if not isinstance(v, (list, tuple)) or len(v) != 3:
-        raise BlueprintError(f"ops[{i}]: {key} must be [x, y, z]")
-    return int(v[0]), int(v[1]), int(v[2])
+    try:
+        if not isinstance(v, list) or len(v) != 3:
+            raise ValueError
+        return _int(v[0]), _int(v[1]), _int(v[2])
+    except ValueError:
+        raise BlueprintError(f"ops[{i}]: {key} must be [x, y, z]") from None
+
+
+def _int(value: Any) -> int:
+    """A whole number as JSON gives it: 5, 5.0 (cut to 5) or "5"; never true, never out of an int."""
+    if isinstance(value, bool):
+        raise ValueError(value)
+    if isinstance(value, int):
+        n = value
+    elif isinstance(value, float) and math.isfinite(value):
+        n = int(value)
+    elif isinstance(value, str) and _INTEGER.fullmatch(value):
+        n = int(value)
+    else:
+        raise ValueError(value)
+    if not -2**31 <= n < 2**31:
+        raise ValueError(value)
+    return n
+
+
+def _flag(value: Any, where: str) -> bool:
+    """true/false, 0/1 or "true"/"false"; anything else is a mistake worth saying."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    raise BlueprintError(f"{where} must be true or false")
+
+
+def _block(value: Any, where: str) -> str:
+    if value is None or value == "":
+        raise BlueprintError(f"{where}: missing block")
+    if not isinstance(value, str):
+        raise BlueprintError(f"{where}: a block is a name like 'cobblestone'")
+    name = value.removeprefix("minecraft:")
+    if not name:
+        raise BlueprintError(f"{where}: missing block")
+    return name
 
 
 def _name(block: Any) -> str:
@@ -287,42 +384,3 @@ def from_template(template: Dict[str, Any], x: int, y: int, z: int, rotation: in
         "palette": {ch: block for block, ch in palette.items()},
         "layers": layers,
     }
-
-
-def order(bp: Blueprint, is_solid, start: Cell) -> List[Tuple[str, Cell]]:
-    """The order the body works in: clear top-down, then place bottom-up, supported first,
-    nearest first. `is_solid(cell)` answers for the world as it is now."""
-    solid = {c for c in bp.cells if is_solid(c)}
-    clears = sorted((c for c, b in bp.cells.items() if b == "air" and c in solid),
-                    key=lambda c: (-c[1], _dist(c, start)))
-    steps: List[Tuple[str, Cell]] = [("clear", c) for c in clears]
-    solid -= set(clears)
-    todo = {c for c, b in bp.cells.items() if b != "air" and not is_solid(c)}
-    pos = start
-    while todo:
-        low = min(c[1] for c in todo)
-        level = [c for c in todo if c[1] == low]
-        ready = [c for c in level if _supported(c, solid, is_solid, bp.cells)]
-        if not ready:
-            for c in sorted(level):
-                steps.append(("no_support", c))
-                todo.discard(c)
-            continue
-        nxt = min(ready, key=lambda c: (_dist(c, pos), c))
-        steps.append(("place", nxt))
-        solid.add(nxt)
-        todo.discard(nxt)
-        pos = nxt
-    return steps
-
-
-def _supported(c: Cell, solid: set, is_solid, cells: Dict[Cell, str]) -> bool:
-    x, y, z = c
-    for n in ((x, y - 1, z), (x, y + 1, z), (x + 1, y, z), (x - 1, y, z), (x, y, z + 1), (x, y, z - 1)):
-        if n in solid or (n not in cells and is_solid(n)):
-            return True
-    return False
-
-
-def _dist(a: Cell, b: Cell) -> int:
-    return abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2])

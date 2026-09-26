@@ -120,3 +120,30 @@ def test_the_real_state_names_the_server():
     real = json.loads((Path(__file__).parent / "fixtures/minecraft_packets/game_state.json").read_text())
     assert server_of(real) == "127.0.0.1:25565"
     assert server_of({}) == "unknown"
+
+
+def test_saves_at_once_never_fail_and_the_newest_wins(tmp_path):
+    book = Places(tmp_path / "places.json")
+
+    async def storm():
+        tasks = []
+        for i in range(1200):
+            book.remember("s", f"p{i % 20}", i, 0, 0)
+            tasks.append(asyncio.create_task(book.save()))
+        await asyncio.gather(*tasks)
+
+    asyncio.run(storm())
+    on_disk = json.loads((tmp_path / "places.json").read_text())
+    assert on_disk == book._data
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["places.json"]
+
+
+def test_an_older_snapshot_never_lands_over_a_newer_one(tmp_path):
+    book = Places(tmp_path / "places.json")
+    book.remember("s", "home", 1, 0, 0)
+    old = book.snapshot()
+    book.remember("s", "home", 2, 0, 0)
+    new = book.snapshot()
+    book.write(*new)
+    book.write(*old)
+    assert json.loads((tmp_path / "places.json").read_text())["s"]["home"]["x"] == 2

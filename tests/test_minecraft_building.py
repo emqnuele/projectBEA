@@ -6,7 +6,7 @@ import json
 import pytest
 
 from src.core.skills.minecraft.blueprint import expand
-from src.core.skills.minecraft.building import door_facing, load_templates
+from src.core.skills.minecraft.building import door_facing, load_templates, time_line
 from src.core.skills.minecraft.notebook import Notebook
 from src.core.skills.minecraft.tools import build_minecraft_tools
 
@@ -53,6 +53,22 @@ def test_plan_build_costs_against_what_she_carries():
                 ops=[{"op": "fill", "from": [0, 0, 0], "to": [4, 2, 0], "block": "cobblestone"}])
     assert text == "15 cells; it takes 15 cobblestone; you are short of 5 cobblestone."
     assert client.sent == []
+
+
+def test_a_build_longer_than_one_call_says_so_and_how_to_carry_on():
+    registry, client = tools({"cobblestone": 2000})
+    client.budgets = {"build": 600.0}
+    ops = [{"op": "fill", "from": [0, 0, z], "to": [29, 9, z], "block": "cobblestone"} for z in range(4)]
+    text = call(registry, "plan_build", origin={"x": 0, "y": 64, "z": 0}, ops=ops)
+    assert text.startswith("1200 cells; it takes 1200 cobblestone")
+    assert "about 12-19 minutes of placing, and one build runs at most 10" in text
+    assert "send the same build again and it carries on" in text
+
+
+def test_a_small_build_says_nothing_about_time():
+    assert time_line(100, 600.0) == ""
+    assert time_line(645, 600.0) == ""
+    assert time_line(646, 600.0) != ""
 
 
 def test_plan_build_names_a_mistake():

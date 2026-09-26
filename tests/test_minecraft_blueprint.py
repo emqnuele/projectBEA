@@ -1,6 +1,7 @@
 """Blueprint expansion: the same vectors BeaCraft's BuildSkill is tested against."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,6 @@ from src.core.skills.minecraft.blueprint import (
     expand,
     from_template,
     items_needed,
-    order,
     resolve_generic,
     rotate,
     satisfied,
@@ -18,7 +18,10 @@ from src.core.skills.minecraft.blueprint import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-VECTORS = sorted((ROOT / "tests" / "fixtures" / "minecraft_blueprints").glob("*.json"))
+VECTOR_DIR = ROOT / "tests" / "fixtures" / "minecraft_blueprints"
+VECTORS = sorted(VECTOR_DIR.glob("*.json"))
+# BeaCraft's copy of the vectors, when its checkout sits next to this one
+MOD_VECTORS = ROOT.parent / "beacraft" / "src" / "test" / "resources" / "blueprints"
 TEMPLATES = ROOT / "data" / "minecraft" / "blueprints"
 
 
@@ -30,7 +33,7 @@ def _cells(bp):
 def test_shared_vectors(path):
     vector = json.loads(path.read_text())
     if "error" in vector:
-        with pytest.raises(BlueprintError, match=vector["error"]):
+        with pytest.raises(BlueprintError, match=re.escape(vector["error"])):
             expand(vector["args"])
         return
     bp = expand(vector["args"])
@@ -95,24 +98,19 @@ def test_what_is_already_there_counts():
     assert satisfied("air", "cave_air")
 
 
-def test_order_clears_top_down_then_builds_bottom_up_from_support():
-    args = {"origin": {"x": 0, "y": 0, "z": 0}, "palette": {"#": "stone", ".": "air"},
-            "layers": [["##"], ["#."], ["#."]]}
-    bp = expand(args)
-
-    def ground(c):
-        return c[1] < 0 or c == (1, 2, 0) or c == (1, 1, 0)
-
-    steps = order(bp, ground, start=(5, 0, 0))
-    assert steps[:2] == [("clear", (1, 2, 0)), ("clear", (1, 1, 0))]
-    placed = [c for kind, c in steps if kind == "place"]
-    assert [c[1] for c in placed] == sorted(c[1] for c in placed)
-    assert placed[0] == (1, 0, 0)                        # nearest to (5,0,0) first
+@pytest.mark.skipif(not MOD_VECTORS.is_dir(), reason="no beacraft checkout next to this one")
+def test_the_mod_tests_against_the_same_vectors():
+    mine = {p.name: p.read_bytes() for p in VECTORS}
+    theirs = {p.name: p.read_bytes() for p in sorted(MOD_VECTORS.glob("*.json"))}
+    assert sorted(theirs) == sorted(mine), "copy tests/fixtures/minecraft_blueprints/ into beacraft again"
+    for name, data in mine.items():
+        assert theirs[name] == data, f"{name} differs in beacraft"
 
 
-def test_floating_cells_are_reported_not_placed():
-    bp = expand({"origin": {"x": 0, "y": 10, "z": 0}, "ops": [{"op": "set", "at": [0, 0, 0], "block": "stone"}]})
-    assert order(bp, lambda c: False, (0, 0, 0)) == [("no_support", (0, 10, 0))]
+def test_null_optional_arguments_are_absent():
+    bp = expand({"origin": {"x": 0, "y": 0, "z": 0}, "rotation": None, "palette": None, "layers": None,
+                 "ops": [{"op": "set", "at": [0, 0, 0], "block": "stone"}]})
+    assert bp.cells == {(0, 0, 0): "stone"}
 
 
 def test_block_states_turn_with_the_build():

@@ -9,6 +9,7 @@ the brain's tests green while every explanation it did send was dropped.
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 
 import pytest
@@ -193,7 +194,7 @@ def test_every_action_is_awaited_on_protocol_2(loop):
     client = client_on(loop)
     client.is_connected = True
     sent = []
-    client._send = sent.append
+    client._send = lambda payload: sent.append(payload) or True
 
     async def ask():
         task = asyncio.ensure_future(client.execute("chat", {"message": "hi"}, timeout=1))
@@ -207,8 +208,51 @@ def test_every_action_is_awaited_on_protocol_2(loop):
 def test_an_old_jar_is_not_waited_on_for_what_it_never_answers(loop):
     client = client_on(loop, "v1_handshake")
     client.is_connected = True
-    client._send = lambda payload: None
+    client._send = lambda payload: True
     assert loop.run_until_complete(client.execute("check_death_log", {})) == "SENT"
+
+
+def test_a_request_that_never_went_out_fails_at_once(loop):
+    """It used to wait out its whole timeout, up to 900 s for a build, on a closed socket."""
+    client = client_on(loop)
+    client.is_connected = False
+    started = time.monotonic()
+    answer = loop.run_until_complete(client.execute("build", {}, timeout=900))
+    assert answer == "FAILED: not connected to the game; nothing was sent."
+    assert time.monotonic() - started < 1.0
+    assert not client._waiting and not client._abandoned
+
+
+def test_two_clients_never_share_an_id(loop):
+    """The mod answers every connection: "r1" from two of them would take each other's answers."""
+    ids = []
+    for _ in range(2):
+        client = client_on(loop)
+        client.is_connected = True
+        client._send = lambda payload: ids.append(payload["id"]) or True
+        client.budgets = {}  # no answer comes here: wait the 0.01 s asked, not the mod's budget
+        loop.run_until_complete(client.execute("chat", {"message": "hi"}, timeout=0.01))
+    assert len(set(ids)) == 2
+    assert all(i.startswith("r1-") for i in ids)
+
+
+def test_a_death_event_does_not_answer_what_was_asked_after_it(loop):
+    """On protocol 2 the mod answers what a death cut short, with ids; the event comes after
+    the respawn, when a new request may already be waiting."""
+    client = client_on(loop)
+    fut = waiting(client, loop, "r9")
+    client._handle(packet("death_event"))
+    assert not fut.done()
+
+
+def test_the_end_of_a_following_reaches_the_surface(loop):
+    seen = []
+    client = client_on(loop)
+    client.on_event = lambda kind, data: seen.append((kind, data))
+    client._handle({"type": "activity", "action": "follow_player", "id": "r3", "event": "ended",
+                    "result": "FAILURE_LOST", "message": "lost marco: not in sight for 10 s."})
+    assert seen and seen[0][0] == "activity"
+    assert seen[0][1]["result"] == "FAILURE_LOST"
 
 
 # --- how long the brain waits ---------------------------------------------------

@@ -1,7 +1,10 @@
 """Build scripts: what the body may write, and what it may not."""
 
+import tracemalloc
+
 import pytest
 
+from src.core.skills.minecraft import buildscript
 from src.core.skills.minecraft.blueprint import expand, rotate
 from src.core.skills.minecraft.buildscript import ScriptError, check, preview, run, to_build_args
 
@@ -89,3 +92,41 @@ def test_refused_while_running(source, error):
 def test_long_scripts_are_refused():
     with pytest.raises(ScriptError, match="keep it under"):
         check("x = 1\n" * 1000)
+
+
+@pytest.mark.parametrize("far", [(1200, 64, -900), (3000, 300, -3000)])
+def test_absolute_and_relative_mixed_up_is_refused_before_any_grid(far):
+    # these two cells used to become a dense grid of hundreds of millions of cells in the brain
+    tracemalloc.start()
+    try:
+        with pytest.raises(ScriptError, match="spans .* blocks along x .*relative to the origin"):
+            to_build_args({(0, 0, 0): "stone", far: "stone"}, 0, 0, 0)
+        assert tracemalloc.get_traced_memory()[1] < 2**20
+    finally:
+        tracemalloc.stop()
+
+
+def test_a_long_diagonal_stays_a_few_rows_of_text():
+    cells = {(i, i, i): "stone" for i in range(256)}
+    args = to_build_args(cells, 0, 0, 0)
+    assert len(args["layers"]) == 256
+    assert sum(len(row) for layer in args["layers"] for row in layer) == sum(range(1, 257))
+    assert expand(args).cells == {c: "stone" for c in cells}
+
+
+def test_the_script_gets_none_of_the_brains_environment(monkeypatch):
+    monkeypatch.setattr(buildscript.sys, "platform", "darwin")
+    assert buildscript._child_env() == {}
+    monkeypatch.setattr(buildscript.sys, "platform", "win32")
+    monkeypatch.setenv("SYSTEMROOT", "C:\\Windows")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    assert buildscript._child_env() == {"SYSTEMROOT": "C:\\Windows"}
+
+
+def test_a_parser_that_runs_out_of_stack_is_a_script_error(monkeypatch):
+    def overflow(source):
+        raise RecursionError("maximum recursion depth exceeded during compilation")
+
+    monkeypatch.setattr(buildscript.ast, "parse", overflow)
+    with pytest.raises(ScriptError, match="nested too deeply"):
+        check("x = 1")

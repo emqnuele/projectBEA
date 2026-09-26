@@ -9,6 +9,7 @@ the mod never sees code and never needs to change for it.
 
 import ast
 import json
+import os
 import re
 import subprocess
 import sys
@@ -18,7 +19,15 @@ from typing import Any, Dict, List, Tuple
 
 import psutil
 
-from src.core.skills.minecraft.blueprint import MAX_CELLS, Blueprint, expand, rotate, shortfall
+from src.core.skills.minecraft.blueprint import (
+    MAX_CELLS,
+    Blueprint,
+    BlueprintError,
+    check_span,
+    expand,
+    rotate,
+    shortfall,
+)
 
 TIMEOUT_S = 3.0
 MAX_MEMORY = 512 * 2**20   # bytes the script's process may hold
@@ -51,6 +60,9 @@ def check(source: str) -> None:
         tree = ast.parse(source)
     except SyntaxError as e:
         raise ScriptError(f"line {e.lineno}: {e.msg}") from None
+    except (RecursionError, MemoryError):
+        # thousands of nested operators overflow the parser itself, before anything runs
+        raise ScriptError("the script is nested too deeply") from None
     for node in ast.walk(tree):
         line = getattr(node, "lineno", "?")
         if not isinstance(node, ALLOWED):
@@ -190,13 +202,21 @@ def _supervise(proc: "subprocess.Popen[str]", source: str) -> str:
     return out[0] if out else ""
 
 
+def _child_env() -> Dict[str, str]:
+    """Nothing of the brain's environment (its API keys least of all) reaches the script;
+    Windows needs SYSTEMROOT to start a Python at all."""
+    if sys.platform == "win32" and "SYSTEMROOT" in os.environ:
+        return {"SYSTEMROOT": os.environ["SYSTEMROOT"]}
+    return {}
+
+
 def run(source: str) -> Tuple[Dict[Tuple[int, int, int], str], List[str]]:
     """The cells a script draws, relative to its own (0, 0, 0)."""
     check(source)
     proc = subprocess.Popen(
         [sys.executable, "-I", "-S", "-c", RUNNER, str(MAX_CELLS)],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-        preexec_fn=_limits if sys.platform != "win32" else None,
+        preexec_fn=_limits if sys.platform != "win32" else None, env=_child_env(),
     )
     stdout = _supervise(proc, source)
     try:
@@ -218,26 +238,40 @@ def run(source: str) -> Tuple[Dict[Tuple[int, int, int], str], List[str]]:
 
 def to_build_args(cells: Dict[Tuple[int, int, int], str], x: int, y: int, z: int,
                   rotation: int = 0) -> Dict[str, Any]:
-    """Cells -> `build` arguments: one layer per y, the box shifted to start at 0."""
+    """Cells -> `build` arguments: one layer per y, the box shifted to start at 0.
+
+    The box is checked before anything is laid out, and the layers are built
+    row by row from the cells there are: two cells a thousand blocks apart
+    used to become a dense grid of hundreds of millions of spaces, in the
+    brain's own process, and took it out of memory.
+    """
     kinds = sorted(set(cells.values()))
     if len(kinds) > MAX_BLOCK_KINDS:
         raise ScriptError(f"{len(kinds)} different blocks; the most is {MAX_BLOCK_KINDS}")
+    try:
+        check_span(cells)
+    except BlueprintError as e:
+        raise ScriptError(str(e)) from None
     char = dict(zip(kinds, PALETTE_CHARS[: len(kinds)], strict=True))
-    xs = [c[0] for c in cells]
-    ys = [c[1] for c in cells]
-    zs = [c[2] for c in cells]
-    x0, y0, z0 = min(xs), min(ys), min(zs)
-    width, height, depth = max(xs) - x0 + 1, max(ys) - y0 + 1, max(zs) - z0 + 1
-    grid = [[[" "] * width for _ in range(depth)] for _ in range(height)]
+    x0 = min(c[0] for c in cells)
+    y0 = min(c[1] for c in cells)
+    z0 = min(c[2] for c in cells)
+    height = max(c[1] for c in cells) - y0 + 1
+    rows: Dict[Tuple[int, int], Dict[int, str]] = {}
     for (cx, cy, cz), block in cells.items():
-        grid[cy - y0][cz - z0][cx - x0] = char[block]
+        rows.setdefault((cy - y0, cz - z0), {})[cx - x0] = char[block]
+    layers: List[List[str]] = [[] for _ in range(height)]
+    for (ly, lz), row in sorted(rows.items()):
+        layer = layers[ly]
+        layer.extend([""] * (lz + 1 - len(layer)))
+        layer[lz] = "".join(row.get(i, " ") for i in range(max(row) + 1))
     # the script's (0,0,0) stays at (x, y, z): the offset of the box moves with the rotation
     ox, oy, oz = rotate(x0, y0, z0, rotation)
     return {
         "origin": {"x": x + ox, "y": y + oy, "z": z + oz},
         "rotation": rotation,
         "palette": {c: b for b, c in char.items()},
-        "layers": [["".join(row).rstrip() for row in layer] for layer in grid],
+        "layers": layers,
     }
 
 

@@ -2,13 +2,16 @@
 
 Kept per server (the address the mod announces in the state's `world.server`),
 so a place from one world is never walked to in another. They live in RAM and
-reach `data/minecraft/places.json` through `save()`, which callers run off the
-event loop.
+reach `data/minecraft/places.json` through `save()`: the text is taken on the
+event loop, where the places change, and written in a thread.
 """
 
+import asyncio
 import json
 import math
 import os
+import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -33,6 +36,12 @@ class Places:
     def __init__(self, path: Path = PLACES_FILE):
         self.path = path
         self._data: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        # two saves at once used to share one tmp file and serialise the places while the loop
+        # changed them: 646 of 1200 concurrent saves failed. Now each write has its own tmp file,
+        # one writes at a time, and an older snapshot never lands over a newer one
+        self._write_lock = threading.Lock()
+        self._taken = 0
+        self._written = 0
         if path.exists():
             try:
                 loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -77,9 +86,28 @@ class Places:
             parts.append(where)
         return ", ".join(parts)
 
-    def save(self) -> None:
-        """Write the file atomically; blocking, so run it off the event loop."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self._data, indent=1, sort_keys=True), encoding="utf-8")
-        os.replace(tmp, self.path)
+    def snapshot(self) -> Tuple[int, str]:
+        """The places as they are now, as the text to write, numbered in the order taken."""
+        self._taken += 1
+        return self._taken, json.dumps(self._data, indent=1, sort_keys=True)
+
+    def write(self, number: int, text: str) -> None:
+        """Write one snapshot atomically; blocking. A snapshot older than the one on disk is skipped."""
+        with self._write_lock:
+            if number <= self._written:
+                return
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name + ".", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+                os.replace(tmp, self.path)
+            except BaseException:
+                Path(tmp).unlink(missing_ok=True)
+                raise
+            self._written = number
+
+    async def save(self) -> None:
+        """Snapshot here, on the loop; write in a thread."""
+        number, text = self.snapshot()
+        await asyncio.to_thread(self.write, number, text)

@@ -1,4 +1,3 @@
-import asyncio
 from typing import Any, Dict, Optional, Tuple
 
 from src.core.agent.tools import ToolRegistry
@@ -155,7 +154,9 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
             "clear": {"type": "boolean",
                       "description": "Left out: only cells meant to be 'air' are emptied. "
                                      "true: also break blocks in the way of a different "
-                                     "block. false: break nothing."},
+                                     "block. false: break nothing. Doors, chests, beds, "
+                                     "furnaces, glass and torches are never broken by a build: "
+                                     "they are reported, and you mine one yourself if it must go."},
             "dry_run": {"type": "boolean"},
         },
         "required": ["origin"],
@@ -322,8 +323,10 @@ _TOOLS: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "re-paths as they go. FAILURE_NOT_FOUND, FAILURE_UNREACHABLE.",
         {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
     "follow_player": (
-        "Stay with a player, keeping a few blocks behind them, until you stop. "
-        "Stops on its own if you lose them (FAILURE_LOST).",
+        "Stay with a player, keeping a few blocks behind them. The answer comes as soon as "
+        "you are on your way (FAILURE_NOT_FOUND if they are not in sight); the following goes "
+        "on until your next action or stop_moving, and if you lose them you are told "
+        "(FAILURE_LOST) before your next move.",
         {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}),
     "look_at_player": (
         "Turn and look at a player. Staring at someone is communication — use it "
@@ -435,7 +438,7 @@ def register_place_tools(registry: ToolRegistry, client: MinecraftClient, places
         if not str(name or "").strip():
             return "ERROR: a place needs a name."
         key = places.remember(server, name, *here, dimension=dimension)
-        await asyncio.to_thread(places.save)
+        await places.save()
         p = places.get(server, key) or {}
         return f"remembered {key} at ({p.get('x')}, {p.get('y')}, {p.get('z')})."
 

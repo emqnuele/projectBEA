@@ -1,0 +1,18 @@
+{
+  "args": {
+    "layers": [
+      [
+        "#"
+      ]
+    ],
+    "origin": {
+      "x": 1e+20,
+      "y": 0,
+      "z": 0
+    },
+    "palette": {
+      "#": "stone"
+    }
+  },
+  "error": "origin needs x, y and z"
+}

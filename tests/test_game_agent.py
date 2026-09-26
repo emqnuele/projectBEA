@@ -419,6 +419,37 @@ async def test_going_to_a_player_names_them(surface):
     assert surface.client.calls == [("goto_player", {"name": "Marco"})]
 
 
+async def test_following_holds_the_goal_until_the_following_ends(surface):
+    """The mod answers follow_player as soon as she is on her way; the goal must not resume
+    then, or its next step would replace the following at once."""
+    surface.client.results["follow_player"] = "SUCCESS: following Marco, a few blocks behind"
+    surface.agent.set_goal("build a house")
+    await next(t for t in surface.tools() if t.name == "mc_follow_player").handler(name="Marco")
+    assert surface.agent.goal.status == SUSPENDED
+
+    surface._on_mod_event("activity", {"type": "activity", "action": "follow_player", "id": "r1",
+                                       "event": "ended", "result": "FAILURE_LOST",
+                                       "message": "lost Marco: not in sight for 10 s."})
+    assert surface.agent.goal.status == RUNNING
+    assert "follow player ended: lost Marco" in " ".join(surface.agent.behaviour_log)
+    assert any("stopped following" in p.content for p in surface.bus.items)
+
+
+async def test_a_following_that_never_started_gives_the_goal_straight_back(surface):
+    surface.client.results["follow_player"] = "FAILURE_NOT_FOUND: Can't see Marco anywhere nearby."
+    surface.agent.set_goal("build a house")
+    await next(t for t in surface.tools() if t.name == "mc_follow_player").handler(name="Marco")
+    assert surface.agent.goal.status == RUNNING
+
+
+async def test_a_dropped_connection_ends_the_following(surface):
+    surface.client.results["follow_player"] = "SUCCESS: following Marco"
+    surface.agent.set_goal("build a house")
+    await next(t for t in surface.tools() if t.name == "mc_follow_player").handler(name="Marco")
+    surface._on_mod_event("connection_lost", {})
+    assert surface.agent.goal.status == RUNNING
+
+
 async def test_looking_at_a_player_uses_the_look_skill(surface):
     """The mod's LookSkill takes `player`; the tool takes `name`."""
     tool = next(t for t in surface.tools() if t.name == "mc_look_at_player")

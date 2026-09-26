@@ -57,6 +57,8 @@ class MinecraftSurface(Skill):
         self.notebook = Notebook()
         self.places: Optional[Places] = None
         self._saving: set = set()
+        # her own mc_follow_player calls still going: each holds the body's goal until it ends
+        self._following = 0
         self._registry = None
         self.agent: Optional[GameAgent] = None
         self._poll_task: Optional[asyncio.Task] = None
@@ -292,6 +294,10 @@ class MinecraftSurface(Skill):
             self._on_reflex(data)
         elif kind == "progress":
             self._on_progress(data)
+        elif kind == "activity":
+            self._on_activity(data)
+        elif kind == "connection_lost":
+            self._on_connection_lost()
 
     def _on_chat(self, data: dict) -> None:
         """Someone talked in game.
@@ -430,6 +436,32 @@ class MinecraftSurface(Skill):
         if agent is not None and message:
             agent.note_progress(message)
 
+    def _on_activity(self, data: dict) -> None:
+        """Something answered when it started, following someone, has ended.
+
+        The body hears it before its next move. When it was her own
+        mc_follow_player, the goal it had put down is picked back up, and she
+        hears it too unless it was simply replaced or stopped (she knows that).
+        """
+        action = str(data.get("action") or "activity").replace("_", " ")
+        message = " ".join(str(data.get("message") or "").split())
+        agent = self.agent
+        if agent is not None and message:
+            agent.note_reflex(f"{action} ended: {message}")
+        if data.get("action") == "follow_player" and self._following > 0:
+            self._following -= 1
+            if agent is not None:
+                agent.give_back(f"she had you following someone; {message}")
+            if data.get("result") != "INTERRUPTED" and message:
+                self._emit_milestone(f"your body stopped following: {message}")
+
+    def _on_connection_lost(self) -> None:
+        """The game went away mid-follow: no end of it will ever arrive, so the goal comes back now."""
+        while self._following > 0:
+            self._following -= 1
+            if self.agent is not None:
+                self.agent.give_back("the connection to the game dropped")
+
     def _is_whisper(self, text: str, name: str) -> bool:
         """Vanilla renders a whisper as "Marco whispers to you: ..."."""
         low = text.lower()
@@ -464,7 +496,7 @@ class MinecraftSurface(Skill):
             return
         self.places.remember(server_of(self._latest_state()), DEATH, float(pos["x"]), float(pos["y"]),
                              float(pos["z"]), dimension=dimension)
-        task = asyncio.get_running_loop().create_task(asyncio.to_thread(self.places.save))
+        task = asyncio.get_running_loop().create_task(self.places.save())
         # a task nobody holds can be collected before it runs
         self._saving.add(task)
         task.add_done_callback(self._saving.discard)
@@ -566,10 +598,16 @@ class MinecraftSurface(Skill):
                 agent = self.agent
                 if agent is not None:
                     agent.borrow()
+                held = False
                 try:
-                    return await client.execute(action, args)
+                    answer = await client.execute(action, args)
+                    # following goes on after its answer: the goal waits until it ends (_on_activity)
+                    held = action == "follow_player" and answer.startswith("SUCCESS")
+                    if held:
+                        self._following += 1
+                    return answer
                 finally:
-                    if agent is not None:
+                    if agent is not None and not held:
                         agent.give_back(f"she had you {why}")
             return handler
 

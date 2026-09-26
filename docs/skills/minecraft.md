@@ -237,6 +237,9 @@ the problem to her. The loop itself keeps running.
 **She can borrow it.** `mc_goto_player` and friends suspend the goal, use the
 body, and hand it back with a line saying it was taken away. Turning to look at
 someone who said hello no longer costs her the house she was building.
+`mc_follow_player` is answered as soon as she is on her way, and the goal stays
+put down for as long as the following lasts: until she loses them, another
+action replaces it, or the connection drops. Losing them is told to her.
 
 **Milestones** are the only thing that *interrupts* the mind mid-goal — the
 commentary nudge waits its turn instead. Movement and looking are means, not
@@ -282,13 +285,28 @@ leaves out by name.
 Every description says what the tool does and what it answers when it fails.
 `use_block` walks into reach, clicks the face turned towards her and says what
 changed; a screen it opens is closed again. `mine_down` stops before lava, fire,
-water or a drop deeper than three.
+water or a drop deeper than three. `follow_player` answers as soon as she is on
+her way; the following goes on until her next action or `stop_moving`, and its
+end arrives as an `activity` event she reads before her next move.
+
+**Mining counts what the server keeps.** The client shows a broken block at
+once, as a prediction; `mine_block` counts it only once the server has answered
+for it. Water or lava flowing into the hole, or sand falling into it, is still a
+broken block; a block the server puts back three times is protected ground
+(`FAILURE_PROTECTED`). `find_block` counts what the blocks drop (stone gives
+cobblestone, grass gives dirt, iron ore raw iron), never a piece of a name; it
+stops with `FAILURE_NO_DROPS` after six blocks in a row that gave none of it
+(leaves without shears) and with `FAILURE_INVENTORY_FULL` when nothing more
+would be picked up.
 
 **Places** are kept per world, under the address the mod puts in `world.server`,
 in `data/minecraft/places.json`: `remember_place(name)` stores where she stands,
 `go_to_place(name)` walks there with `move_to`, a place in another dimension is
 refused, and the body reads them with every game state as *PLACES YOU REMEMBER*.
 Where she died is stored for her as `last_death` when the death event arrives.
+A save takes its text on the event loop, where the places change, and writes it
+in a thread to a file of its own before moving it into place; an older save
+never lands over a newer one.
 
 Every tool awaits the mod's answer to it, so the observation the model reasons
 on is what actually happened: `RESULT: sentence`, followed by the last lines of
@@ -323,11 +341,40 @@ around `origin`, and turns `facing` and `axis` in block states with it. At most
 2000 cells. Block names take vanilla's state syntax: `oak_door[facing=north]`,
 `oak_log[axis=x]`, `oak_stairs[facing=east,half=top]`.
 
+A build spans at most 256 blocks along any axis: more is nearly always an
+absolute coordinate among relative ones, and the answer asks exactly that.
+
 **Two expansions, one meaning.** `blueprint.py` expands the arguments in the
 brain, to cost a build before it starts (`plan_build`); BeaCraft's `Blueprint`
 expands them again to build. Both are held to the same vectors in
-`tests/fixtures/minecraft_blueprints/`, which the mod's tests read from a copy.
-Change one and the vectors say so.
+`tests/fixtures/minecraft_blueprints/`, which the mod's tests read from a copy;
+each side's tests also check the copy is byte for byte the other's when the two
+checkouts sit side by side. A malformed argument (a flattened `layers`, an op
+that is not an object, a `hollow` that is not true or false, a coordinate that
+is not a whole number) is refused with the same sentence on both sides; `null`
+for an optional argument means it was left out.
+
+**What gets cleared.** Cells meant to be `air` are emptied; with `clear: true`,
+blocks in the way of a different block are broken too. Doors, trapdoors, gates,
+beds, chests, barrels, furnaces, crafting tables, glass, torches and lanterns
+(the protected blocks) are never broken by a build: they are left where they
+are and named in the answer.
+
+**What it cannot reach from the ground.** After its two passes, a cell no
+standing spot reaches gets a pillar: she walks to a column beside it, outside
+the build where she can, towers up on spare blocks (never the ones the cells
+left still need), places everything the top reaches, and digs the pillar back
+down, picking its blocks up again.
+
+**How long.** A cell takes 0.6 to 0.9 s, walking included (measured), and the
+mod gives one build 600 s. `plan_build` and a script's preview say when a build
+is longer than that; when the time runs out the answer says so, and the same
+build sent again carries on, since cells already right are skipped.
+
+**A cell counts once the server keeps it.** The client shows a placed block the
+moment it is clicked; the check waits for the server's answer to that click, so
+a block a claim, spawn protection or an anticheat refuses is reported as not
+placed however much ping there is.
 
 **Templates** are mindcraft's `dirt_shelter`, `small_wood_house` and
 `small_stone_house`, in their own format (`blocks[y][z][x]`, generic names like
@@ -342,9 +389,12 @@ whatever stands in the way.
 whitelist of syntax (no imports, no attributes, no names starting with `_`),
 then run in a separate interpreter (`python -I -S`) with no builtins beyond
 arithmetic, a 3-second limit and a 512 MB memory watch, and all that comes back
-is a list of cells, turned into `layers` + `palette`. `confirm=false` returns the
-box it fills and what it costs; nothing is built until the same script comes back
-with `confirm=true`. The mod never sees code.
+is a list of cells, turned into `layers` + `palette` row by row from the cells
+there are (a script whose cells span more than 256 blocks is refused before
+anything is laid out). The interpreter starts with an empty environment: nothing
+of the brain's, its API keys least of all, is visible to it. `confirm=false`
+returns the box it fills and what it costs; nothing is built until the same
+script comes back with `confirm=true`. The mod never sees code.
 
 **While it builds** the mod sends `{"type": "progress", "done", "total",
 "message"}` every ten cells; it becomes the body's current thought, which is what
@@ -364,7 +414,11 @@ lanterns (`protectedBlocks` in `config/beacraft.json`; ids, `#tags` and
 she opens it when she reaches it, and one she walks into gets opened too. Fences
 and walls are 1.5 blocks high, so they are never taken for a step to jump onto.
 `range` up to 1.5 only forgives where she stops; a bigger one is where the plan
-aims, so she stops as soon as she is that close.
+aims, so she stops as soon as she is that close. A door she opened is shut
+behind her once she is two blocks past it and the path does not go back through
+it; one still open and out of reach when the walk ends is said to be left open.
+A long search is worked on 1,500 nodes a tick, so no frame of the stream waits
+on it; a short one is answered in the tick it is asked for.
 
 A walk that stops gaining ground steps aside once and plans again before it gives
 up, and the answer's log says so. `move_away(distance)` puts that many blocks
@@ -381,8 +435,37 @@ works the same on her own A*. `baritoneMode` in the mod's config (or `/beacraft
 baritone` in game) picks how: `full` plans and walks, `plan` plans while her
 own skills walk, `off` keeps the built-in A*. The protected blocks, door
 opening, `range` and the step aside are hers in every mode, whichever planner
-drew the route. A chat line starting with its command prefix is refused, so it
-never ends up in its command handler instead of the game.
+drew the route. Baritone's settings are global, so hers hold only while one of
+her routes is being planned or walked, and each goes back to what it was: the
+player using Baritone by hand on the same client finds it as they left it. A
+chat line starting with its command prefix is refused, so it never ends up in
+its command handler instead of the game.
+
+---
+
+## What the body does on its own
+
+The mod acts without being asked when waiting would hurt her, and says so with a
+`reflex` event every time:
+
+- **eat** at food 14 or less when idle, or when hurt and hungry at once; only
+  food worth eating (no rotten flesh, spider eyes, raw chicken…).
+- **defend** against a monster that hits her. A fight that ends with it alive
+  and out of reach (on a pillar, across lava: no blow landed in 10 s, or two
+  walks to it came up short) leaves that attacker alone for 30 s, and the queue
+  of attackers never takes the body from a request; the next blow does. A player
+  is someone, not a mob: she fights back only after three hits in ten seconds.
+- **flee** at under 6 health with nothing to fight with.
+- **clutch**: a fall of more than three blocks with a water bucket in the hotbar
+  is landed in water, and the water taken back. The clutch owns the body until
+  she lands: a request meanwhile is answered `FAILURE_BUSY`, and `stop_moving`
+  stops everything else.
+- **respawn** after a death; while she is dead a request is answered
+  `FAILURE_DEAD`.
+
+A glance (`look_at`) waits while a skill is aiming a click (placing, mining,
+fighting, landing a fall): the server orients a door, a stair or a bed by the
+last look it received.
 
 ---
 
@@ -470,7 +553,7 @@ protocol 2.
 **Brain → mod:**
 
 ```json
-{ "id": "r41", "action": "mine_block", "parameters": { "x": 100, "y": 64, "z": 100 } }
+{ "id": "r41-3fa2c1", "action": "mine_block", "parameters": { "x": 100, "y": 64, "z": 100 } }
 ```
 
 **Mod → brain.** Dispatch is on `type` first, then `status`:
@@ -478,20 +561,25 @@ protocol 2.
 | Field | Value | Meaning |
 |---|---|---|
 | `type` | `chat`, `player_event`, `combat`, `death_event` | a sense; handed to the surface |
-| `type` | `reflex` | the body acted on its own: `reflex` is `eat`, `defend`, `clutch`, `unstuck` or `respawn`, `event` is `started`/`finished`, `interrupted_id` names the request it cut short |
+| `type` | `reflex` | the body acted on its own: `reflex` is `eat`, `defend`, `flee`, `clutch`, `unstuck` or `respawn`, `event` is `started`/`finished`, `interrupted_id` names the request it cut short |
+| `type` | `activity` | something answered when it started (`follow_player`) has ended: `id` of that request, `result`, `message` |
 | `status` | `FINISHED` | the answer to request `id`: `result` (`SUCCESS`, `FAILURE_<CODE>`, `INTERRUPTED`), `message`, optional `log`, `details`, and `reason` when interrupted |
 | — | `type: game_state` | a game-state snapshot, once a second |
 
 ```json
-{"status": "FINISHED", "id": "r41", "action": "move_to", "result": "INTERRUPTED",
+{"status": "FINISHED", "id": "r41-3fa2c1", "action": "move_to", "result": "INTERRUPTED",
  "message": "interrupted (self_defence: Zombie)", "reason": "self_defence: Zombie"}
 {"type": "reflex", "reflex": "defend", "event": "started",
- "message": "defending against Zombie after taking 2.0 damage", "interrupted_id": "r41"}
+ "message": "defending against Zombie after taking 2.0 damage", "interrupted_id": "r41-3fa2c1"}
 ```
 
 Every request is answered exactly once, with its own `id`, however it ends:
 finished, replaced by a newer request, stopped by `stop_moving`, cut short by a
-reflex, by death, or by the agent disconnecting. An answer is matched to its
+reflex, by death, or by the agent disconnecting, and also when the skill itself
+fails with an exception (`FAILURE_EXCEPTION`): a skill that throws gives the
+body back instead of taking the game down with it. The brain's ids carry a mark
+of their own (`r41-3fa2c1`), since the mod answers every connection; a request
+that could not be sent fails at once instead of waiting out its timeout. An answer is matched to its
 caller by `id` only; one nobody is waiting for any more (the caller timed out, or
 the body was taken off the goal mid-swing) is discarded. What the body does
 without being asked never has a `status`, so it can never answer for anything:
