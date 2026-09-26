@@ -22,8 +22,11 @@ FILLER = [f"Paragraph {i} talks about harbours, boats and the sea." for i in ran
 
 
 def test_a_general_question_gets_the_start_of_the_page_not_fragments():
-    architecture = (Path(__file__).resolve().parents[1] / "docs" / "architecture.md").read_text(encoding="utf-8")
-    got = pick(architecture, "cosa c'è scritto, descrizione del progetto", 6000)
+    # frozen copy, not docs/: the live page once gained the word "progress" and
+    # the 4-letter stem read "progetto" as "prog", turning a general question
+    # into a match. The fixture keeps a "progress" paragraph so that stays fixed.
+    page_text = (Path(__file__).resolve().parents[0] / "fixtures" / "web_long_page.md").read_text(encoding="utf-8")
+    got = pick(page_text, "cosa c'è scritto, descrizione del progetto", 6000)
 
     assert got.text.startswith("# Architecture")
     assert "How ProjectBEA is actually put together" in got.text
@@ -57,6 +60,13 @@ def test_budget_the_matches_leave_carries_the_start_on():
 
 
 # --- the answer, when there is a question ------------------------------------------
+
+
+def test_progetto_does_not_match_progress():
+    text = page(INTRO, *FILLER, "The rollout tracks progress week by week across the team.", *FILLER)
+    got = pick(text, "descrizione del progetto", 600)
+    assert got.matched == 0
+    assert got.text.startswith(INTRO)
 
 
 def test_an_italian_question_finds_an_italian_answer_across_inflections():
