@@ -463,7 +463,7 @@ like a normal client — nothing is required server-side, and it works on vanill
 | Source | Link |
 |---|---|
 | Modrinth | [modrinth.com/project/projectbea](https://modrinth.com/project/projectbea/) |
-| GitHub | [BeaCraft 3.0.0 for 26.2](https://github.com/emqnuele/projectBEA/releases/tag/v3.0.0%2B26.2) |
+| GitHub | [BeaCraft 3.0.0 for 26.2](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B26.2) |
 
 1. Install [Fabric Loader](https://fabricmc.net/use/installer/).
 2. Drop the jar into `.minecraft/mods/`.
