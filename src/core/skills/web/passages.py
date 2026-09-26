@@ -50,8 +50,19 @@ _STOP = {
 
 
 def _stem(word: str) -> str:
-    # a crude stem is enough to match "opening" with "open" and "piove" with "piovere"
-    return word[:4]
+    # Suffix stripping instead of a fixed 4-letter prefix: "progetto" and
+    # "progress" share "prog" but are different words, while "open"/"opening",
+    # "lion"/"lions" and "piove"/"piovere" still meet. Measured on docs/*.md
+    # (7 general-query hits with [:4], 5 with this): the two extra hits were
+    # exactly the prog collisions, and the remaining ones are stop-word gaps.
+    for suffix in ("ing", "ere", "are", "ire", "ed", "es"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[: -len(suffix)]
+    if word.endswith("s") and not word.endswith("ss") and len(word) - 1 >= 4:
+        return word[:-1]
+    if word[-1:] in ("e", "a", "i", "o") and len(word) - 1 >= 4:
+        return word[:-1]
+    return word
 
 
 def _terms(text: str) -> Set[str]:
