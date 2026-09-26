@@ -56,9 +56,22 @@ Every client on an event loop shares one connection pool
 `KEEPALIVE_SECONDS` (90) and addresses are cached for five minutes, so a turn
 does not pay dns, tcp and tls before its first token. A kept connection the
 provider closed while it sat idle fails before any of the answer exists; that
-request is sent once more on a fresh connection. A host that cannot be reached
-is not retried — that is the pool's failover. Shutdown closes the pool with
-`close_sessions()`.
+request is sent once more. A host that cannot be reached is not retried — that
+is the pool's failover. Shutdown closes the pool with `close_sessions()`.
+
+A connection the network drops without a word never reports being closed, so
+the pool would hand it to the next call, which then waits out
+`STREAM_HEADERS_TIMEOUT` for nothing. Every socket therefore has tcp keepalive
+on: the kernel probes it after `TCP_KEEPALIVE_IDLE` (10s) idle, every
+`TCP_KEEPALIVE_INTERVAL` (5s), and drops it after `TCP_KEEPALIVE_PROBES` (3)
+unanswered probes, so a dead idle connection is gone within about 25 seconds
+and is never reused. The probes cost nothing on the calls themselves. macOS
+names the idle option `TCP_KEEPALIVE`, Linux and Windows `TCP_KEEPIDLE`; an OS
+that refuses the tuning still probes on its own schedule.
+
+aiohttp reuses the oldest idle connection first. Each streamed call records
+whether it went out on a reused or a new connection, and at debug level how
+long the headers took; a stall names which of the two it was.
 
 Keys come from the environment first; `config.json` only fills a variable that
 is not set. `GET /config` never returns them.
@@ -238,9 +251,12 @@ off for two minutes, and she lost speaking-early for the next forty turns.
 A streamed call must get its response headers within 30 seconds
 (`STREAM_HEADERS_TIMEOUT`). A provider that streams sends them at once, and
 keeps the connection alive while it queues, so a silence that long is a
-stalled request, not a slow model. It is sent again once, on a fresh
-connection; a second stall raises `ProviderStalled`, which the pool fails over
-on. It is deliberately not a refusal, so no retry without reasoning and no
+stalled request, not a slow model. The pool it stalled on is set aside first:
+its other idle connections are as suspect as the one that stalled, and aiohttp
+would hand the oldest of them out next. The request is sent again once on a new
+pool, which the calls after it keep using; the old one is closed after
+`REQUEST_TIMEOUT`, once every call still running on it has ended one way or the
+other. A second stall raises `ProviderStalled`, which the pool fails over on. It is deliberately not a refusal, so no retry without reasoning and no
 non-streaming fallback: each of those would wait on the same stalled provider
 all over again.
 
