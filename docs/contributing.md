@@ -139,6 +139,9 @@ assertion than a call-count matcher.
 
 ## Pull requests
 
+- Fill in the pull request template (`.github/PULL_REQUEST_TEMPLATE.md`) and keep
+  its headings: the release draft is cut from the "What this changes" section,
+  and without that heading it takes the whole description.
 - One change per pull request. A refactor and a feature in the same diff means
   neither can be reviewed properly.
 - Say what breaks if the change is wrong. That is the most useful sentence in a
