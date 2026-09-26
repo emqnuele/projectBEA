@@ -258,6 +258,127 @@ async def test_a_real_provider_sees_one_connection_across_calls(monkeypatch):
         assert len(set(peers)) == 1, f"{len(set(peers))} connections for three calls"
         assert asked["keepalive_timeout"] == base.KEEPALIVE_SECONDS == 90.0
         assert asked["ttl_dns_cache"] == base.DNS_CACHE_SECONDS == 300
+        assert asked["socket_factory"] is base._keepalive_socket
     finally:
         await base.close_sessions()
         await runner.cleanup()
+
+
+# 26 september: a streamed call got no headers for 30s, and its resend went back
+# through the same pool — which hands out its oldest idle connection first —
+# and waited 30s more. The turn was lost after a minute of silence.
+
+
+async def test_a_stall_on_a_pooled_connection_is_resent_on_a_new_one(monkeypatch, caplog):
+    import json
+    import logging
+
+    from aiohttp import web
+
+    monkeypatch.setattr(base, "STREAM_HEADERS_TIMEOUT", 0.3)
+    monkeypatch.setattr(base, "_is_local", lambda url: False)
+    pooled = set()
+    streamed = []
+    release = asyncio.Event()
+    both_in = asyncio.Event()
+    chunk = {"choices": [{"index": 0, "delta": {"content": "eccomi"}}]}
+
+    async def completions(request):
+        peer = request.transport.get_extra_info("peername")
+        body = await request.json()
+        if not body.get("stream"):
+            # two calls at once leave two idle connections in the pool
+            pooled.add(peer)
+            if len(pooled) == 2:
+                both_in.set()
+            await both_in.wait()
+            return web.json_response(REPLY)
+        streamed.append(peer)
+        if peer in pooled:
+            # every connection the pool kept answers nothing, like dead ones
+            await release.wait()
+        response = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
+        await response.prepare(request)
+        await response.write(f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode())
+        return response
+
+    app = web.Application()
+    app.router.add_post("/v1/chat/completions", completions)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    try:
+        port = runner.addresses[0][1]
+        llm = ChatCompletionsClient(base_url=f"http://127.0.0.1:{port}/v1", model_name="m")
+        await asyncio.gather(*(llm.complete([{"role": "user", "content": "hi"}])
+                               for _ in range(2)))
+        assert len(pooled) == 2
+
+        with caplog.at_level(logging.WARNING, logger="bea.llm.base"):
+            reply = await asyncio.wait_for(llm.stream_complete(
+                [{"role": "user", "content": "hi"}], on_tool_delta=lambda *a: None), timeout=5)
+
+            # the other idle connection is as dead: the next call must not get it
+            again = await asyncio.wait_for(llm.stream_complete(
+                [{"role": "user", "content": "hi"}], on_tool_delta=lambda *a: None), timeout=5)
+
+        assert reply.content == again.content == "eccomi"
+        assert len(streamed) == 3
+        assert streamed[0] in pooled, "the stalled call did not go out on a pooled connection"
+        assert streamed[1] not in pooled, "the resend reused a pooled connection"
+        assert streamed[2] == streamed[1], "the call after a stall did not keep the new connection"
+        assert caplog.text.count("no answer within") == 1
+        assert "reused from the pool" in caplog.text
+        assert "on a new connection" in caplog.text
+    finally:
+        release.set()
+        await base.close_sessions()
+        await runner.cleanup()
+
+
+def test_sockets_probe_their_peer_while_idle():
+    import socket
+
+    sock = base._keepalive_socket((socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 0)))
+    try:
+        assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE)
+        idle = getattr(socket, "TCP_KEEPIDLE", None) or getattr(socket, "TCP_KEEPALIVE", None)
+        if idle is not None:
+            assert sock.getsockopt(socket.IPPROTO_TCP, idle) == base.TCP_KEEPALIVE_IDLE
+        if hasattr(socket, "TCP_KEEPINTVL"):
+            assert sock.getsockopt(socket.IPPROTO_TCP,
+                                   socket.TCP_KEEPINTVL) == base.TCP_KEEPALIVE_INTERVAL
+        if hasattr(socket, "TCP_KEEPCNT"):
+            assert sock.getsockopt(socket.IPPROTO_TCP,
+                                   socket.TCP_KEEPCNT) == base.TCP_KEEPALIVE_PROBES
+    finally:
+        sock.close()
+
+
+async def test_a_pool_set_aside_after_a_stall_lets_its_calls_finish(monkeypatch):
+    made = wire(monkeypatch, Attempt(REPLY), Attempt(REPLY))
+    monkeypatch.setattr(base, "REQUEST_TIMEOUT", 0.05)
+    llm = client()
+
+    await llm.complete([{"role": "user", "content": "hi"}])
+    base._retire_session()
+    # a call still running on the old pool would be cut by closing it now
+    assert not made[0].closed
+
+    await llm.complete([{"role": "user", "content": "hi"}])
+    assert len(made) == 2, "the call after a stall went back to the old pool"
+    await asyncio.sleep(0.1)
+    assert made[0].closed, "the old pool was never closed"
+    assert not made[1].closed
+
+
+async def test_shutdown_closes_a_pool_that_was_set_aside(monkeypatch):
+    made = wire(monkeypatch, Attempt(REPLY))
+
+    await client().complete([{"role": "user", "content": "hi"}])
+    base._retire_session()
+    await base.close_sessions()
+
+    assert made[0].closed
+    assert not base._retired

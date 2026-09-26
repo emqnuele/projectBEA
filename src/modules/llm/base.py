@@ -9,10 +9,12 @@ events.
 
 import asyncio
 import contextlib
+import contextvars
 import ipaddress
 import json
+import socket
 import time
-from typing import Any, AsyncIterator, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, AsyncIterator, Dict, Iterator, List, Optional, Set, Tuple, Union
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -62,9 +64,67 @@ KEEPALIVE_SECONDS = 90.0
 # a provider's address does not move between two turns
 DNS_CACHE_SECONDS = 300
 
+# the kernel probes idle sockets, so a connection the network dropped silently is discarded, not reused
+TCP_KEEPALIVE_IDLE = 10
+TCP_KEEPALIVE_INTERVAL = 5
+TCP_KEEPALIVE_PROBES = 3
+
 # one pool of connections per event loop, shared by every client on it. A
 # session belongs to the loop that made it, and the doctor runs on its own.
 _sessions: Dict[asyncio.AbstractEventLoop, aiohttp.ClientSession] = {}
+
+# pools set aside after a stall, each with the timer that closes it once its calls are done
+_retired: Dict[asyncio.AbstractEventLoop, List[Tuple[aiohttp.ClientSession, asyncio.TimerHandle]]] = {}
+
+# the loop only keeps weak references to tasks, so a closing pool is held here until it is shut
+_closing: Set["asyncio.Task[None]"] = set()
+
+
+# what the request in flight is riding on: "reused", "new", or "unknown" before aiohttp says
+_connection: contextvars.ContextVar[Optional[Dict[str, str]]] = contextvars.ContextVar(
+    "llm_connection", default=None)
+
+
+def _keepalive_socket(addr_info) -> socket.socket:
+    """a tcp socket that probes its peer while idle."""
+    family, type_, proto, _, _ = addr_info
+    sock = socket.socket(family=family, type=type_, proto=proto)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    # macos calls the idle option TCP_KEEPALIVE; linux and windows call it TCP_KEEPIDLE
+    idle = getattr(socket, "TCP_KEEPIDLE", None) or getattr(socket, "TCP_KEEPALIVE", None)
+    for option, value in ((idle, TCP_KEEPALIVE_IDLE),
+                          (getattr(socket, "TCP_KEEPINTVL", None), TCP_KEEPALIVE_INTERVAL),
+                          (getattr(socket, "TCP_KEEPCNT", None), TCP_KEEPALIVE_PROBES)):
+        if option is None:
+            continue
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, option, value)
+        except OSError:
+            # an os that refuses the tuning still probes, on its own schedule
+            pass
+    return sock
+
+
+def _note_connection(kind: str):
+    async def note(session, ctx, params) -> None:
+        seen = _connection.get()
+        if seen is not None:
+            seen["kind"] = kind
+    return note
+
+
+def _open_session() -> aiohttp.ClientSession:
+    """a pool on keepalive sockets that notes whether each request reused a connection."""
+    tracing = aiohttp.TraceConfig()
+    tracing.on_connection_reuseconn.append(_note_connection("reused"))
+    tracing.on_connection_create_end.append(_note_connection("new"))
+    return aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
+        connector=aiohttp.TCPConnector(keepalive_timeout=KEEPALIVE_SECONDS,
+                                       ttl_dns_cache=DNS_CACHE_SECONDS,
+                                       socket_factory=_keepalive_socket),
+        trace_configs=[tracing],
+    )
 
 
 def _session() -> aiohttp.ClientSession:
@@ -75,21 +135,42 @@ def _session() -> aiohttp.ClientSession:
         return session
     for gone in [other for other in _sessions if other.is_closed()]:
         del _sessions[gone]
-    session = aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
-        connector=aiohttp.TCPConnector(keepalive_timeout=KEEPALIVE_SECONDS,
-                                       ttl_dns_cache=DNS_CACHE_SECONDS),
-    )
+    for gone in [other for other in _retired if other.is_closed()]:
+        del _retired[gone]
+    session = _open_session()
     _sessions[loop] = session
     return session
 
 
+def _retire_session() -> None:
+    """sets this loop's pool aside after a stall; closed once its running calls have timed out."""
+    loop = asyncio.get_running_loop()
+    session = _sessions.pop(loop, None)
+    close = getattr(session, "close", None)
+    if session is None or close is None:
+        return
+    retired = _retired.setdefault(loop, [])
+
+    def close_now() -> None:
+        retired[:] = [(s, h) for s, h in retired if s is not session]
+        task = loop.create_task(close())
+        _closing.add(task)
+        task.add_done_callback(_closing.discard)
+
+    retired.append((session, loop.call_later(REQUEST_TIMEOUT, close_now)))
+
+
 async def close_sessions() -> None:
     """Closes this loop's connections. Shutdown calls it once the mind is quiet."""
-    session = _sessions.pop(asyncio.get_running_loop(), None)
-    close = getattr(session, "close", None)
-    if close is not None:
-        await close()
+    loop = asyncio.get_running_loop()
+    sessions = [_sessions.pop(loop, None)]
+    for session, timer in _retired.pop(loop, []):
+        timer.cancel()
+        sessions.append(session)
+    for session in sessions:
+        close = getattr(session, "close", None)
+        if close is not None:
+            await close()
 
 
 def _stale(error: BaseException) -> bool:
@@ -124,16 +205,28 @@ class ProviderStalled(RuntimeError):
     """
 
 
+_ON_CONNECTION = {"reused": " on a connection reused from the pool", "new": " on a new connection"}
+
+
 @contextlib.asynccontextmanager
-async def _answered_within(request, seconds: Optional[float], label: str):
-    """`async with request` whose response has to start within `seconds`."""
+async def _answered_within(request, seconds: Optional[float], label: str,
+                           seen: Optional[Dict[str, str]] = None):
+    """`async with request` whose response has to start within `seconds`.
+
+    `seen["kind"]` is filled in with the connection the request went out on.
+    """
+    seen = {"kind": "unknown"} if seen is None else seen
+    token = _connection.set(seen)
     try:
         if seconds is None:
             response = await request.__aenter__()
         else:
             response = await asyncio.wait_for(request.__aenter__(), seconds)
     except asyncio.TimeoutError as e:
-        raise ProviderStalled(f"{label}: no answer within {seconds:.0f}s") from e
+        raise ProviderStalled(f"{label}: no answer within {seconds:.0f}s"
+                              f"{_ON_CONNECTION.get(seen['kind'], '')}") from e
+    finally:
+        _connection.reset(token)
     failure = (None, None, None)
     try:
         yield response
@@ -293,9 +386,12 @@ class AsyncLLMClient(LLMClient):
             answered = False
             try:
                 started = time.monotonic()
+                seen = {"kind": "unknown"}
                 async with _answered_within(_session().post(url, headers=headers, json=payload),
-                                            limit, self.model_name) as response:
+                                            limit, self.model_name, seen) as response:
                     answered = True
+                    logger.debug(f"{self.model_name}: headers in {time.monotonic() - started:.2f}s"
+                                 f"{_ON_CONNECTION.get(seen['kind'], '')}")
                     if response.status >= 400:
                         body = await response.text()
                         raise ProviderError(
@@ -334,12 +430,13 @@ class AsyncLLMClient(LLMClient):
                                 yield event, item[1]
                     return
             except ProviderStalled as e:
-                # nothing of the answer exists yet: the same request on a fresh
-                # connection, once, and then it is the pool's to fail over
+                # nothing of the answer exists yet: the same request on a new
+                # pool, once, and then it is the pool's to fail over
                 if retried or delivered:
                     raise
                 retried = True
-                logger.warning(f"{e}; sending it again on a fresh connection.")
+                _retire_session()
+                logger.warning(f"{e}; sending it again on a new connection.")
             except Exception as e:
                 if answered or retried or not _stale(e):
                     raise
