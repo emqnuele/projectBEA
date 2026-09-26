@@ -157,7 +157,7 @@ Players who talk to her in game chat get an `Author` like anyone else, so the
 roster, the person cards and the attention gate all work in-game with no
 Minecraft-specific code.
 
-It runs on **[BeaCraft](https://github.com/emqnuele/projectBEA/releases)**, a
+It runs on **[BeaCraft](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B26.2)**, a
 client-side Fabric mod that simulates input and sends ordinary packets. The
 server sees a normal player. Nothing is needed server-side.
 
