@@ -541,6 +541,18 @@ like a normal client — nothing is required server-side, and it works on vanill
 > `config/beacraft.json` says otherwise, and has no authentication: only open it
 > to a trusted network.
 
+The body is on stream, so what she does on purpose looks like a person doing
+it. Turns ease in and out (a quarter turn takes about three quarters of a
+second) and she looks at a block, a face or a chest before she acts on it.
+Screens are worked at the pace of a hand: a look when the screen opens, a click
+every 0.2–0.4 s, a moment on the result before it closes (`humanPace` in
+`config/beacraft.json`, on by default). While nothing needs her aim exact, it
+drifts slowly, under a degree, a few seconds per swing (`aimSway`, 0.8 by
+default, 0 for none); never while she breaks or places a block, bridges,
+pillars, fights or falls, or has a screen open.
+Eating, fighting, clutching and fleeing are reflexes and never wait for any of
+this.
+
 ### Protocol
 
 The mod announces itself on connect: `protocol`, `mod_version`, `mc_version`,
