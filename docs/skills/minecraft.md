@@ -227,6 +227,12 @@ stops with `FAILURE_NO_DROPS` after six blocks in a row that gave none of it
 (leaves without shears) and with `FAILURE_INVENTORY_FULL` when nothing more
 would be picked up.
 
+**She mines only what she can see.** The mod casts the same ray a player's
+crosshair would: leaves, dirt or grass between her and the block are broken
+first, and a block she must not break in the way (a protected one, glass,
+bedrock) sends her to a side she can see it from. Clearing a path, a pillar or
+a build cell breaks only the cell asked for.
+
 **Places** are kept per world, under the address the mod puts in `world.server`,
 in `data/minecraft/places.json`: `remember_place(name)` stores where she stands,
 `go_to_place(name)` walks there with `move_to`, a place in another dimension is
