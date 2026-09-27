@@ -361,7 +361,8 @@ async def test_the_mouth_is_paced_here_because_vtube_studio_has_no_clock(tmp_pat
     avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
     avatar._connected = client_with(socket, tmp_path)
 
-    await avatar._run_mouth([[0.1, 0.5], [0.5, 0.5], [0.9, 0.5]], fps=50)
+    # 100 ms a frame: the pump skips a frame that is late by design, and windows' timer is ~15 ms coarse
+    await avatar._run_mouth([[0.1, 0.5], [0.5, 0.5], [0.9, 0.5]], fps=10)
 
     values = [m["data"]["parameterValues"][0]["value"]
               for m in socket.of_type("InjectParameterDataRequest")]
