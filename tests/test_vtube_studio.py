@@ -624,6 +624,27 @@ async def test_with_life_her_head_eyes_and_blinks_go_out_with_the_mouth(tmp_path
     await asyncio.sleep(0.05)
 
 
+async def test_a_refused_frame_does_not_stop_the_frames_after_it(tmp_path, caplog):
+    class Refusing(SlowClient):
+        async def inject(self, values, face_found=False):
+            if len(self.frames) < 2:
+                self.frames.append(None)
+                raise VTubeStudioError("ParameterNotFound: no such parameter")
+            await super().inject(values, face_found)
+
+    ranges = {"FaceAngleX": (-30, 30), "MouthOpen": (0, 1)}
+    avatar = VTubeStudioAvatar(config(vts_life=True), tmp_path / "token.json")
+    client = Refusing(ranges=ranges)
+    avatar._connected = client
+    avatar.mouth([[0.6, 0.5]] * 3, 30)
+    await asyncio.sleep(0.2)
+
+    assert len([f for f in client.frames if f is not None]) > 2, "the pump died on the first refusal"
+    assert sum("refused a frame" in r.message for r in caplog.records) == 1
+    avatar.close()
+    await asyncio.sleep(0.05)
+
+
 async def test_turning_life_off_stops_it(tmp_path):
     avatar = VTubeStudioAvatar(config(vts_life=True), tmp_path / "token.json")
     avatar.reload_config(config(vts_life=False))

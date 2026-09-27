@@ -369,6 +369,7 @@ class VTubeStudioAvatar(AvatarInterface):
         start = last = loop.time()
         tick = 0
         speaking = False
+        refused: set = set()
         try:
             if self._life is not None and not self._ranges:
                 self._ranges = await client.input_parameters()
@@ -391,7 +392,13 @@ class VTubeStudioAvatar(AvatarInterface):
                     values += life_values(signals, self._ranges, self._stage.get("vts_life_params") or None)
                 last = now
                 if values:
-                    await client.inject(values, face_found=life is not None)
+                    try:
+                        await client.inject(values, face_found=life is not None)
+                    except VTubeStudioError as e:
+                        # vtube studio answered, so the socket is fine: one refused frame must not end her life or the line
+                        if str(e) not in refused:
+                            refused.add(str(e))
+                            logger.warning(f"VTube Studio refused a frame: {e}")
                 # the next frame is due at a fixed time from the start; the ones already late are skipped
                 tick = max(tick + 1, int((loop.time() - start) / step) + 1)
                 await asyncio.sleep(max(0.0, start + tick * step - loop.time()))
