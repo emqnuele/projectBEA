@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { REST_POSE, baseClipName, baseClipNames, gestureWeight, reanchor, restPose } from '../src/stage/motion.js';
+import { REST_POSE, baseClipName, baseClipNames, clipFormat, gestureWeight, reanchor, restPose } from '../src/stage/motion.js';
 
 test('every state is carried by the idle clip unless it has its own', () => {
     const config = { idle_clip: 'idle_loop', state_clips: { thinking: 'ponder' } };
@@ -66,4 +66,12 @@ test('a full gesture is finite and leaves the base almost nothing', () => {
     assert.ok(Number.isFinite(w));
     assert.ok(1 / (1 + w) <= 0.001 + 1e-12);
     assert.equal(gestureWeight(-1), 0);
+});
+
+test('a clip is told apart by its first bytes, not its name', () => {
+    const bytes = (text, tail = []) => Uint8Array.from([...Array.from(text, (c) => c.charCodeAt(0)), ...tail]);
+    assert.equal(clipFormat(bytes('glTF', [2, 0, 0, 0])), 'vrma');
+    assert.equal(clipFormat(bytes('Kaydara FBX Binary  \0', [0x1a, 0])), 'fbx');
+    assert.equal(clipFormat(bytes('; FBX 7.4.0 project file')), null, 'an ascii fbx is not one mixamo sends');
+    assert.equal(clipFormat(new Uint8Array(0)), null);
 });

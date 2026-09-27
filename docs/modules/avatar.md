@@ -239,6 +239,18 @@ than kept. A file already at that path is never overwritten — it is yours.
 | `constraint-twist` | model | pixiv three-vrm sample, MIT |
 | `seed-san` | model | VirtualCast, Inc.: commercial use and redistribution allowed, **credit required** |
 
+### Mixamo clips
+
+A binary `.fbx` from Mixamo (FBX Binary, Without Skin) is a clip like a `.vrma`:
+drop it in `clips_dir` or upload it in the library, and it is listed, offered to
+`<do:…>` and usable as the idle motion. Where a `.vrma` and an `.fbx` share a
+name, the `.vrma` wins. The page tells the two apart by their first bytes and
+retargets an `.fbx` onto the model's normalized bones with pixiv's example loader
+(`src/web/frontend/src/stage/vendor/`, MIT, licence alongside), fetched only the
+first time a Mixamo clip plays. Mixamo's terms do not allow redistributing the
+files, so none ship with projectBEA. A clip with real root motion (a dance)
+moves the hips: its first key is put over her own hips, the rest is kept.
+
 ### The library
 
 Dashboard → **Settings → Stream**, with the 3D model chosen. The logic is
@@ -495,7 +507,7 @@ is what keeps the preview in the dashboard current.
 | `GET /stage/config` | backends, shot, lip sync rate, caption typography, `model_id` |
 | `GET /stage/model` | the configured `.vrm` |
 | `GET /stage/clips` | clips in `clips_dir`, each with `role`: `base` or `gesture` |
-| `GET /stage/clips/{name}` | one `.vrma`; a name that escapes the folder is a 404 |
+| `GET /stage/clips/{name}` | one `.vrma` or `.fbx`; a name that escapes the folder is a 404 |
 | `GET /stage/preview` | one avatar image, restricted to paths in `avatar_map` |
 | `GET /stage/moods` | every mood's expression weights, for the dashboard's preview |
 | `GET /stage/library` | models, catalog entries and clips, as the library shows them |

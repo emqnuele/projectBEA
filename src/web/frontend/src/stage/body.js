@@ -23,7 +23,7 @@ const BASE_SWAP = 0.5;
 
 /**
  * @param vrm            the loaded VRM
- * @param loadAnimation  name -> Promise of a VRMAnimation, from `/stage/clips/<name>`
+ * @param loadAnimation  (name, vrm) -> Promise of a VRMAnimation, or of a clip already retargeted to `vrm`
  * @param config         `idle_clip` and `state_clips`, as `/stage/config` sends them
  */
 export function createBody(vrm, loadAnimation, config = {}) {
@@ -77,23 +77,22 @@ export function createBody(vrm, loadAnimation, config = {}) {
         return clip;
     }
 
+    async function clipNamed(name) {
+        const loaded = await loadAnimation(name, vrm);
+        return loaded instanceof THREE.AnimationClip ? loaded : createVRMAnimationClip(loaded, vrm);
+    }
+
     async function baseClip(name) {
         if (name === REST_POSE) {
             if (!bases.has(REST_POSE)) bases.set(REST_POSE, new THREE.AnimationClip('rest-pose', 1, pose.map((t) => t.clone())));
             return bases.get(REST_POSE);
         }
-        if (!bases.has(name)) {
-            const animation = await loadAnimation(name);
-            bases.set(name, asBase(anchored(createVRMAnimationClip(animation, vrm))));
-        }
+        if (!bases.has(name)) bases.set(name, asBase(anchored(await clipNamed(name))));
         return bases.get(name);
     }
 
     async function gestureClip(name) {
-        if (!gestures.has(name)) {
-            const animation = await loadAnimation(name);
-            gestures.set(name, anchored(createVRMAnimationClip(animation, vrm)));
-        }
+        if (!gestures.has(name)) gestures.set(name, anchored(await clipNamed(name)));
         return gestures.get(name);
     }
 

@@ -9,7 +9,7 @@ connection gets one snapshot of how she looks *now*, and patches after that.
 
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from src.core.fanout import Fanout, offer
 from src.core.mind.moods import DEFAULT_MOOD
@@ -53,12 +53,30 @@ def base_clips(config) -> Set[str]:
     return names
 
 
+# a clip's formats, in the order a name is looked up when both exist
+CLIP_SUFFIXES = (".vrma", ".fbx")
+
+
 def clip_files(config) -> List[Path]:
-    """Every .vrma in the clips folder, bases and gestures alike."""
+    """Every clip in the folder, bases and gestures alike, one file per name."""
     folder = clips_dir(config)
     if not folder.is_dir():
         return []
-    return sorted(folder.glob("*.vrma"))
+    chosen: Dict[str, Path] = {}
+    for suffix in reversed(CLIP_SUFFIXES):
+        for path in folder.glob(f"*{suffix}"):
+            chosen[path.stem] = path
+    return sorted(chosen.values(), key=lambda p: p.stem)
+
+
+def clip_path(config, name: str) -> Optional[Path]:
+    """The file a clip name refers to, never outside the clips folder."""
+    folder = clips_dir(config).resolve()
+    for suffix in CLIP_SUFFIXES:
+        path = (folder / f"{name}{suffix}").resolve()
+        if path.is_relative_to(folder) and path.is_file():
+            return path
+    return None
 
 
 def installed_clips(config) -> List[str]:

@@ -29,6 +29,7 @@ import { createBody } from './body.js';
 import { EMOTIONS, faceTargets, mouthScale, resolveExpression } from './face.js';
 import { createLife } from './life.js';
 import { lightPreset } from './lights.js';
+import { clipFormat } from './motion.js';
 import { addSegment, emptyMouth, frameAt, startMouth, syncMouth } from './mouth.js';
 
 // The mouth shapes, dark to bright. This order is a contract with
@@ -96,8 +97,23 @@ export async function createAvatar(root, config = {}) {
     loader.register((parser) => new VRMLoaderPlugin(parser));
     loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
-    const loadAnimation = async (name) => {
-        const loaded = await loader.loadAsync(`/stage/clips/${encodeURIComponent(name)}`);
+    const loadAnimation = async (name, vrm) => {
+        const response = await fetch(`/stage/clips/${encodeURIComponent(name)}`);
+        if (!response.ok) throw new Error(`the engine answered ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        const format = clipFormat(new Uint8Array(buffer, 0, Math.min(32, buffer.byteLength)));
+        if (format === 'fbx') {
+            // fetched only when a mixamo clip is played, so a setup without one never downloads it
+            const { loadMixamoAnimation } = await import('./vendor/loadMixamoAnimation.js');
+            const url = URL.createObjectURL(new Blob([buffer]));
+            try {
+                return await loadMixamoAnimation(url, vrm);
+            } finally {
+                URL.revokeObjectURL(url);
+            }
+        }
+        if (format !== 'vrma') throw new Error('not a .vrma or a binary .fbx');
+        const loaded = await loader.parseAsync(buffer, '');
         const [animation] = loaded.userData.vrmAnimations || [];
         if (!animation) throw new Error('no animation inside it');
         return animation;

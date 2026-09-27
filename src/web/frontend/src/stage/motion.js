@@ -87,3 +87,14 @@ export function gestureWeight(share) {
     const s = Math.min(Math.max(share, 0), FULL_SHARE);
     return s / (1 - s);
 }
+
+const GLB = [0x67, 0x6c, 0x54, 0x46];
+const FBX = Array.from('Kaydara FBX Binary  \0', (c) => c.charCodeAt(0));
+
+/** What a clip file is, from its first bytes: 'vrma', 'fbx' or null. */
+export function clipFormat(bytes) {
+    const starts = (magic) => magic.every((b, i) => bytes[i] === b);
+    if (bytes.length >= GLB.length && starts(GLB)) return 'vrma';
+    if (bytes.length >= FBX.length && starts(FBX)) return 'fbx';
+    return null;
+}

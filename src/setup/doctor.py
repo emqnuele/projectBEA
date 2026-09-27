@@ -35,7 +35,7 @@ from src.core.agent.registry import BACKGROUND, MIND, looks_like_missing_tool_su
 from src.core.config import BrainConfig
 from src.core.expression.tags import DIRECTIONS
 from src.core.mind.operating import missing_tools
-from src.core.stage import clips_dir, installed_clips
+from src.core.stage import clip_path, installed_clips
 
 # the module itself is cheap; only the builders inside it import a backend
 from src.modules.STT.factory import LOCAL as STT_LOCAL
@@ -571,7 +571,7 @@ async def check_stage(config: BrainConfig) -> Finding:
             return warned(f"{Path(raw).name} has no 'aa' mouth shape: her mouth will not move",
                           "Use a model with the standard visemes, or add them in VRoid Studio or Blender.")
         idle = str(stage.get("idle_clip") or "").strip()
-        if idle and not (clips_dir(config) / f"{idle}.vrma").is_file():
+        if idle and clip_path(config, idle) is None:
             return warned(f"the idle clip {idle!r} is not installed: she stands in a still pose instead",
                           "uv run python tools/fetch_model.py fetches idle_loop, or pick another "
                           "idle motion in the dashboard.")

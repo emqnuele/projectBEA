@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from src.core.brain import AIVtuberBrain
-from src.core.stage import base_clips, clip_files, clips_dir, public_config
+from src.core.stage import base_clips, clip_files, clip_path, public_config
 from src.web.deps import frontend_path, get_brain
 
 router = APIRouter(tags=["stage"])
@@ -61,13 +61,13 @@ def stage_clips(brain: AIVtuberBrain = Depends(get_brain)):
 
 @router.get("/stage/clips/{name}")
 def stage_clip(name: str, brain: AIVtuberBrain = Depends(get_brain)):
-    """One .vrma behaviour, by the name `/stage/clips` listed."""
-    folder = clips_dir(brain.config).resolve()
-    path = (folder / f"{name}.vrma").resolve()
-    # the name comes from a page: it must not be able to walk out of the folder
-    if not path.is_relative_to(folder) or not path.is_file():
+    """One clip, .vrma or Mixamo .fbx, by the name `/stage/clips` listed."""
+    # the name comes from a page: `clip_path` never walks out of the folder
+    path = clip_path(brain.config, name)
+    if path is None:
         raise HTTPException(status_code=404, detail=f"No behaviour called {name!r}")
-    return FileResponse(path, media_type="model/gltf-binary")
+    media = "model/gltf-binary" if path.suffix == ".vrma" else "application/octet-stream"
+    return FileResponse(path, media_type=media)
 
 
 @router.get("/stage/stream")

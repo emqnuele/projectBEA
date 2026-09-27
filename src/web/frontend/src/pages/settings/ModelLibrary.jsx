@@ -133,8 +133,9 @@ function DropTile({ accept, kind, onUploaded, title, help, compact }) {
 
     const send = async (file) => {
         if (!file) return;
-        if (!file.name.toLowerCase().endsWith(accept)) {
-            toast.error('That file was not added', `The library takes ${accept} files.`);
+        const kinds = accept.split(',');
+        if (!kinds.some((suffix) => file.name.toLowerCase().endsWith(suffix))) {
+            toast.error('That file was not added', `The library takes ${kinds.join(' and ')} files.`);
             return;
         }
         setSending(file.name);
@@ -209,7 +210,9 @@ function ClipRow({ clip }) {
         <li className="flex items-center gap-3 border-b border-line py-2 last:border-b-0">
             <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-text" title={clip.file}>{clip.name}</span>
             <span className="shrink-0 text-[11px] text-faint">
-                {clip.error ? 'unreadable' : `${clip.duration?.toFixed(1)} s, ${clip.bones} bones${clip.drives_gaze ? ', moves her eyes' : ''}`}
+                {clip.error ? 'unreadable'
+                    : clip.format === 'mixamo' ? 'Mixamo, retargeted when it plays'
+                        : `${clip.duration?.toFixed(1)} s, ${clip.bones} bones${clip.drives_gaze ? ', moves her eyes' : ''}`}
             </span>
             <span
                 className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px]', clip.role === 'base' ? 'text-text' : 'border-line text-dim')}
@@ -373,12 +376,17 @@ export function ModelLibrary({ stage, adoptSaved, onPreview, previewId, onClipsC
                 )}
                 <DropTile
                     compact
-                    accept=".vrma"
+                    accept=".vrma,.fbx"
                     kind="clips"
                     onUploaded={() => { load(); onClipsChanged?.(); }}
                     title="Add a motion"
-                    help="Drop a .vrma. Name it for what it does: the name is what she matches when she picks a gesture."
+                    help="Drop a .vrma or a Mixamo .fbx. Name it for what it does: the name is what she matches when she picks a gesture."
                 />
+                <p className="text-[11px] leading-snug text-faint">
+                    From <a className="underline hover:text-dim" href="https://www.mixamo.com" target="_blank" rel="noreferrer">Mixamo</a>,
+                    download FBX Binary, Without Skin, and keep the file to yourself: Adobe&apos;s terms do not allow sharing it.
+                    An idle from Mixamo works as the idle motion too.
+                </p>
                 <p className="text-[11px] leading-snug text-faint">
                     VRoid&apos;s free motion pack (<a className="underline hover:text-dim" href="https://booth.pm/ja/items/5512385" target="_blank" rel="noreferrer">booth.pm</a>)
                     has seven clips. Its licence does not allow sharing the files, and a stream using them must credit

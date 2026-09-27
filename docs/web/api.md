@@ -791,7 +791,8 @@ the message names the path.
 
 #### `GET /stage/clips` · `GET /stage/clips/{name}`
 The clips installed, as `[{"name": "idle_loop", "role": "base"}, {"name": "wave", "role": "gesture"}]`,
-and one `.vrma` each. `base` is a clip named by `idle_clip` or `state_clips`: it
+and one clip file each, `.vrma` or a Mixamo `.fbx` (the `.vrma` when both exist).
+`base` is a clip named by `idle_clip` or `state_clips`: it
 loops under her and is never offered to `<do:…>`. A name that would walk out of
 the clips folder is a `404`.
 
@@ -823,7 +824,8 @@ the stage alone. Returns `{ model_path }`.
 
 #### `POST /stage/library/models/upload?name=…` · `POST /stage/library/clips/upload?name=…`
 The file is the request body. `201` with `{ file }`; `409` if that name exists,
-`413` over 200 MB, `422` if it is not a VRM (or a VRM animation).
+`413` over 200 MB, `422` if it is not a VRM, a VRM animation or, for clips, a
+binary FBX.
 
 #### `DELETE /stage/library/models/{id}`
 Deletes a model from `models_dir`. `409` for the model on stage or one outside

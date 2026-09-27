@@ -27,6 +27,9 @@ UPLOAD_LIMIT = 200 * 1024 * 1024
 
 _SAFE = re.compile(r"[^A-Za-z0-9._ -]+")
 
+# the first bytes of every binary fbx; the ascii flavour is not one mixamo sends
+FBX_MAGIC = b"Kaydara FBX Binary  \x00"
+
 
 def models_dir(config) -> Path:
     stage = getattr(config, "stage", None) or {}
@@ -156,7 +159,12 @@ def list_clips(config) -> List[Dict[str, Any]]:
     out = []
     for path in clip_files(config):
         entry: Dict[str, Any] = {"name": path.stem, "file": path.name, "size": path.stat().st_size,
-                                 "role": "base" if path.stem in bases else "gesture"}
+                                 "role": "base" if path.stem in bases else "gesture",
+                                 "format": "mixamo" if path.suffix == ".fbx" else "vrma"}
+        if path.suffix == ".fbx":
+            # retargeted in the page; reading an fbx here would buy only a length
+            out.append(entry)
+            continue
         try:
             doc = gltf_json(path)
             animation = doc.get("extensions", {}).get("VRMC_vrm_animation", {})
@@ -246,10 +254,10 @@ def save_upload(chunks: Iterable[bytes], name: str, folder: Path, kind: str,
     `kind` is "model" or "clip". Raises ValueError for anything that is not
     what it claims to be, and FileExistsError rather than replace a file.
     """
-    suffix = ".vrm" if kind == "model" else ".vrma"
-    clean = safe_name(name, suffix)
+    suffixes = (".vrm",) if kind == "model" else (".vrma", ".fbx")
+    clean = next((c for c in (safe_name(name, s) for s in suffixes) if c), "")
     if not clean:
-        raise ValueError(f"The file name has to end in {suffix}.")
+        raise ValueError(f"The file name has to end in {' or '.join(suffixes)}.")
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / clean
     if target.exists():
@@ -263,11 +271,16 @@ def save_upload(chunks: Iterable[bytes], name: str, folder: Path, kind: str,
                 if written > limit:
                     raise ValueError(f"That file is over {limit // (1024 * 1024)} MB.")
                 out.write(chunk)
-        doc = gltf_json(partial)
-        if kind == "model" and not is_vrm(doc):
-            raise ValueError("That is a glTF file, not a VRM: it has no humanoid bones to drive.")
-        if kind == "clip" and not is_clip(doc):
-            raise ValueError("That is not a VRM animation (.vrma).")
+        if clean.endswith(".fbx"):
+            with open(partial, "rb") as f:
+                if not f.read(len(FBX_MAGIC)) == FBX_MAGIC:
+                    raise ValueError("That is not a binary FBX. From Mixamo, download FBX Binary, Without Skin.")
+        else:
+            doc = gltf_json(partial)
+            if kind == "model" and not is_vrm(doc):
+                raise ValueError("That is a glTF file, not a VRM: it has no humanoid bones to drive.")
+            if kind == "clip" and not is_clip(doc):
+                raise ValueError("That is not a VRM animation (.vrma).")
         if target.exists():
             raise FileExistsError(clean)
         partial.rename(target)

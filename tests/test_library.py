@@ -323,3 +323,58 @@ async def test_a_slow_download_does_not_hold_the_loop(api, monkeypatch):
     await asyncio.to_thread(route.library_download, route.Pick(id="seed-san"), stub)
     assert time.perf_counter() - started < 0.1
     release.set()
+
+
+# --- mixamo clips ---------------------------------------------------------------
+
+FBX = b"Kaydara FBX Binary  \x00" + b"\x1a\x00" + b"rest of an fbx"
+
+
+def test_a_mixamo_fbx_is_a_clip_like_any_other(tmp_path):
+    from src.core.stage import clip_files, clip_path, installed_clips
+
+    cfg = config(tmp_path, avatar_backend="model", idle_clip="")
+    (tmp_path / "clips" / "wave.fbx").write_bytes(FBX)
+    (tmp_path / "clips" / "nod.vrma").write_bytes(vrma(tmp_path / "n.vrma").read_bytes())
+
+    assert [p.name for p in clip_files(cfg)] == ["nod.vrma", "wave.fbx"]
+    assert installed_clips(cfg) == ["nod", "wave"]
+    assert clip_path(cfg, "wave") == (tmp_path / "clips" / "wave.fbx").resolve()
+    clips = {c["name"]: c for c in library.list_clips(cfg)}
+    assert clips["wave"]["format"] == "mixamo" and clips["nod"]["format"] == "vrma"
+
+
+def test_a_name_with_both_formats_is_one_clip_and_the_vrma_wins(tmp_path):
+    from src.core.stage import clip_files, clip_path
+
+    cfg = config(tmp_path)
+    (tmp_path / "clips" / "wave.fbx").write_bytes(FBX)
+    vrma(tmp_path / "clips" / "wave.vrma")
+    assert [p.name for p in clip_files(cfg)] == ["wave.vrma"]
+    assert clip_path(cfg, "wave").suffix == ".vrma"
+
+
+def test_a_clip_name_cannot_walk_out_through_either_format(tmp_path):
+    from src.core.stage import clip_path
+
+    cfg = config(tmp_path)
+    (tmp_path / "secret.fbx").write_bytes(FBX)
+    assert clip_path(cfg, "../secret") is None
+
+
+def test_an_fbx_upload_must_be_a_binary_fbx(tmp_path):
+    folder = tmp_path / "clips"
+    assert library.save_upload([FBX], "Wave Hello.fbx", folder, "clip").name == "Wave Hello.fbx"
+    with pytest.raises(ValueError, match="binary FBX"):
+        library.save_upload([b"; FBX 7.4.0 project file"], "ascii.fbx", folder, "clip")
+    with pytest.raises(ValueError):
+        library.save_upload([FBX], "wave.exe", folder, "clip")
+
+
+def test_the_page_is_served_an_fbx_clip_by_name(api):
+    client, stub, tmp_path = api
+    stub.config.stage["avatar_backend"] = "model"
+    (tmp_path / "clips" / "wave.fbx").write_bytes(FBX)
+    response = client.get("/stage/clips/wave")
+    assert response.status_code == 200 and response.content == FBX
+    assert {"name": "wave", "role": "gesture"} in client.get("/stage/clips").json()
