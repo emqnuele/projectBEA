@@ -171,7 +171,8 @@ export function createBody(vrm, loadAnimation, config = {}) {
             action.play();
             let layer = layerOf(action);
             if (!layer) {
-                layer = { action, share: 0 };
+                const gaze = clip.tracks.some((track) => track.name.startsWith('VRMLookAtQuaternionProxy.'));
+                layer = { action, share: 0, gaze };
                 layers.push(layer);
             }
             layer.target = 1;
@@ -193,6 +194,11 @@ export function createBody(vrm, loadAnimation, config = {}) {
         /** How much of the body a gesture holds right now, 0 to 1. */
         busy() {
             return layers.reduce((most, layer) => Math.max(most, layer.share), 0);
+        },
+
+        /** How much of the gaze a gesture that drives the eyes holds, 0 to 1. */
+        gazeShare() {
+            return layers.reduce((most, layer) => (layer.gaze ? Math.max(most, layer.share) : most), 0);
         },
 
         update(dt) {

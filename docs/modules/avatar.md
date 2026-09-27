@@ -214,11 +214,44 @@ one side) and the shot is framed on the rest pose. The pure parts — which clip
 is the base, the re-anchoring, the procedural pose, the gesture weight — live in
 `motion.js` and are tested with `node --test`.
 
+### Life on top of the body
+
+`src/web/frontend/src/stage/life.js` adds what no clip carries: blinking,
+breathing, a weight shift, the eyes and the head. Every one of these is an
+**offset** multiplied onto the pose the mixer wrote this frame, never a pose of
+its own, so the idle clip underneath keeps playing. The mixer only writes a bone
+whose value changed, so the page takes last frame's offsets back off before the
+mixer runs (`life.undo()`), then lets the mixer write, then adds this frame's.
+
+Each frame, in order: `life.undo()` → `body.update()` → `life.update()` → face
+and mouth → `vrm.update()` → render. The step handed to everything after the
+mixer is capped at 1/20 s (or the `max_fps` frame, if slower): spring bones
+scale with the step, and a browser source that OBS stopped drawing for seconds
+would otherwise throw the hair in one frame.
+
+States are a table in `states.js`:
+
+| state | what it looks like |
+|---|---|
+| `idle` | the gaze drifts around the camera, the eyes jump at least 0.6 s apart, 1.6 s on average, the head follows at 16 % of the angle |
+| `listening` | eyes on the camera, a small nod every 2.5 s ± 0.7 s |
+| `thinking` | eyes up and to one side; the head follows further (30 %) and slower, so the eyes visibly lead; fewer blinks |
+| `talking` | the head dips with the loudness of her own voice |
+| `sleeping` | eyes shut, the head forward, only the breathing left |
+
+A new state's numbers are eased in over about a third of a second. Eye jumps
+are a minimum gap plus an exponential wait, a rate per second rather than a
+chance per frame, so they happen as often at 30 fps as at 144. While a gesture
+holds the body, the head's motion is halved so the two do not add up; a gesture
+whose clip drives the eyes takes the gaze once it holds more than half the body.
+
+On VRM 0.x, which `rotateVRM0` turns 180° about y, every offset about x and z is
+negated, so she nods down and looks up on both versions.
+
 ### Notes for the renderer
 
 `src/web/frontend/src/stage/avatar.js`:
 
-- **The Live Loop:** `src/web/frontend/src/stage/life.js` manages procedural animations. It adds natural breathing, blinking, and subtle look-around motions, so the avatar looks alive even when the engine is not actively sending expressions.
 - `frustumCulled` is off on every mesh: skinned bounding boxes do not follow the
   bones, so a raised arm could otherwise be culled at the edge of the frame. A
   `VRMLookAtQuaternionProxy` is created at load for clips that drive the gaze.

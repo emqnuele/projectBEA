@@ -187,6 +187,8 @@ export async function createAvatar(root, config = {}) {
     // a browser source has a whole stream to share a machine with, and nothing
     // here is worth more than the encoder. 0 means "as fast as the display".
     const minFrame = config.max_fps > 0 ? 1 / config.max_fps : 0;
+    // spring bones scale with the step, so a page stalled for seconds would throw the hair in one frame
+    const maxStep = Math.max(1 / 20, minFrame);
     const clock = new THREE.Clock();
     let owed = 0;
 
@@ -196,11 +198,13 @@ export async function createAvatar(root, config = {}) {
         if (owed < minFrame) return;
         const step = owed;
         owed = 0;
+        const dt = Math.min(step, maxStep);
 
+        life.undo();
         body.update(step);
-        life.update(step, body.busy() > 0);
-        drive(step);
-        vrm.update(step);
+        life.update(dt, { busy: body.busy(), loudness: jaw.open, gazeClip: body.gazeShare() });
+        drive(dt);
+        vrm.update(dt);
         renderer.render(scene, camera);
     });
 
