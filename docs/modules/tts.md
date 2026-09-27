@@ -47,7 +47,7 @@ Two routes go through the same code:
 
 | Route | What happens |
 |---|---|
-| `local` | `generate_audio()` per piece, played on the audio device, with the OBS avatar and text bubble animated alongside |
+| `local` | `generate_audio()` per piece, played on this machine's output through `LocalPlayer` (below), with the avatar and caption timed to what reaches the speaker |
 | `call` | `generate_stream()` per piece; every part is pushed into the Discord call the moment it exists, so the room hears the start of a sentence while the end of it is still being made |
 
 A line is cut into pieces as it is written (`expression/chunking.py`). An
@@ -59,6 +59,52 @@ a time, because a second synthesis takes the cores the first one needs.
 Parts of one piece are converted to the call's 48 kHz stereo by one
 `CallResampler` and lip-synced as one piece, so a streamed sentence sounds and
 moves exactly like one made whole.
+
+### Playing on this machine (`expression/player.py`)
+
+One output stream stays open while she talks, in PortAudio's blocking mode, and
+one thread of its own (`voice-out`) writes into it. The event loop never calls
+PortAudio: opening, writing, reopening and closing all happen on that thread.
+
+- **Written in 10 ms chunks, at most `audio_buffer_ms` ahead** of what the
+  device has taken (100 ms by default, and never more than the stream's own
+  buffer). `write()` releases the GIL while it waits, so other threads working
+  in the same process do not starve her voice the way a python callback asked
+  for every few hundred samples would. The stream asks PortAudio for its
+  default latency, the quickest to the speaker; `audio_latency_s` trades some
+  of that for a bigger buffer.
+- **Pieces follow each other in the same stream.** `play()` returns once less
+  than a buffer's worth of the piece is left to write, so the next piece is
+  queued while this one is still sounding and nothing is ever cut or gapped
+  between sentences.
+- **Timed by the speaker.** The moment a sample is heard is what is still queued
+  in the ring plus the device's own latency (`default_low_output_latency`, as
+  PortAudio reports it). The mouth, the caption of a sentence written as it
+  goes, a `<mood:…>` or `<do:…>` inside the line, and the end of the line all
+  fire at that moment, in the order they were queued. `is_speaking` stays true
+  until the end is heard.
+- **The stream opens before she speaks**: when a turn somebody waits on starts
+  (`Expression.warm_up`, skipped during a call and for her own idle thoughts),
+  and again when a line starts, while the model is still thinking and the
+  first piece is still being synthesised. A bluetooth output that has been
+  quiet takes a few hundred ms to open; this is where that time goes. It opens
+  in 24 kHz mono (what every bundled engine makes); a piece in another format
+  reopens it once, after the audio already queued has played.
+- **A barge-in** drops everything queued and fades out the chunk being written
+  over 12 ms. What is still heard is at most `audio_buffer_ms` plus the device's
+  latency. It never blocks.
+- **The output is chosen by name** (`audio_device`, empty for the system
+  default; `audio_device_id` as a position is still read when no name is set).
+  PortAudio lists devices only when it starts, so it is restarted each time the
+  stream is about to open: a headset plugged in while she runs is found. If the
+  chosen output is missing or refuses to open (a bluetooth headset in headset
+  mode does), the system default is tried, then any other output, with one
+  warning. With no output at all, each piece still takes as long as it lasts,
+  so everything timed on her voice keeps its pace.
+- **An output that disappears mid-sentence** is reopened once and the sentence
+  goes on; a second failure drops the rest of that piece.
+- **After `audio_idle_close_s` of silence** (30 s) the device is let go and the
+  thread ends; the next line starts both again.
 
 > `speak()` is also declared `@abstractmethod`, so a custom engine must define
 > it even though `Expression` never calls it. Omitting it raises `TypeError` at
