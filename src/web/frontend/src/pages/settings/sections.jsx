@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { Field, SecretInput, Select, TextInput, CheckRow } from '../../components/ui/fields';
 import { Button } from '../../components/ui/controls';
-import { CopyField, Group, ProviderChoice, SecretState, TestButton } from './parts';
+import { CopyField, Group, OutputDevice, ProviderChoice, SecretState, TestButton } from './parts';
 import { StagePreview } from './StagePreview';
 import { PromptEditor } from './PromptEditor';
 import { createSchemaSection } from './SchemaSection';
@@ -295,27 +295,7 @@ function VoiceSection({ config, update, secrets, devices }) {
                 title="Where the audio goes"
                 description="Point this at the virtual cable OBS is listening to, not at your speakers."
             >
-                <Field label="Output device">
-                    {devices.length > 0 ? (
-                        <Select
-                            value={config.audio_device_id ?? 0}
-                            onChange={(e) => update('audio_device_id', parseInt(e.target.value, 10))}
-                        >
-                            {devices.map((device) => (
-                                <option key={device.id} value={device.id}>
-                                    {device.id} — {device.name}
-                                </option>
-                            ))}
-                        </Select>
-                    ) : (
-                        <TextInput
-                            type="number"
-                            value={config.audio_device_id ?? 0}
-                            onChange={(e) => update('audio_device_id', parseInt(e.target.value, 10) || 0)}
-                            className="w-32"
-                        />
-                    )}
-                </Field>
+                <OutputDevice config={config} update={update} devices={devices} />
                 <TestButton label="Render a test line" run={api.testTts} />
             </Group>
         </>

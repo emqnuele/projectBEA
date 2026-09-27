@@ -4,6 +4,8 @@ import { Check, Copy, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { Glass } from '../../components/glass/Glass';
 import { Button } from '../../components/ui/controls';
+import { Field, Select, TextInput } from '../../components/ui/fields';
+import { chosenDevice, deviceChoices, deviceFor, latencyNote } from '../../lib/audioDevices';
 import { useToast } from '../../state/ToastProvider';
 
 export function Group({ title, description, children, className }) {
@@ -135,5 +137,44 @@ export function CopyField({ value, help }) {
             </div>
             {help && <p className="mt-1.5 text-[11px] leading-snug text-faint">{help}</p>}
         </div>
+    );
+}
+
+export function OutputDevice({ config, update, devices }) {
+    const choices = deviceChoices(devices);
+    const chosen = chosenDevice(config, devices);
+    const landing = deviceFor(chosen, choices);
+    const fallback = choices.find((device) => device.default);
+    // stored by name: a position moves whenever something is plugged in
+    const choose = (name) => {
+        update('audio_device', name);
+        update('audio_device_id', null);
+    };
+    const missing = chosen && !landing;
+    return (
+        <Field
+            label="Output device"
+            help={missing
+                ? `${chosen} is not plugged in right now: she speaks on the system default until it is.`
+                : latencyNote(landing)}
+        >
+            {choices.length > 0 ? (
+                <Select value={chosen} onChange={(e) => choose(e.target.value)}>
+                    <option value="">
+                        System default{fallback ? ` (${fallback.name})` : ''}
+                    </option>
+                    {missing && <option value={chosen}>{chosen} (not plugged in)</option>}
+                    {choices.map((device) => (
+                        <option key={device.name} value={device.name}>{device.name}</option>
+                    ))}
+                </Select>
+            ) : (
+                <TextInput
+                    value={config.audio_device ?? ''}
+                    placeholder="System default"
+                    onChange={(e) => choose(e.target.value)}
+                />
+            )}
+        </Field>
     );
 }

@@ -134,8 +134,10 @@ def parse_args(argv=None):
     parser.add_argument("--kokoro-voices", dest="kokoro_voices_file", metavar="KOKORO_VOICES", default=None,
                         help="Kokoro Voices File")
 
+    parser.add_argument("--device", dest="audio_device", metavar="NAME", default=None,
+                        help="Audio output device, by name (empty: the system default)")
     parser.add_argument("--device-id", dest="audio_device_id", metavar="DEVICE_ID", type=int, default=None,
-                        help="Audio Output Device ID")
+                        help="Audio output device, by position (used only without --device)")
 
     # text/typing
     parser.add_argument("--typing-delay", type=float, default=None, help="Typing animation delay")

@@ -194,16 +194,17 @@ def _test_key(console: Console, provider: str, key: str, base_url: str = "") -> 
                       "Setup continues — check the URL and whether it is running.")
 
 
-def _output_devices() -> List[Tuple[int, str]]:
-    """Output devices, or an empty list wherever portaudio cannot open."""
+def _output_devices() -> List[str]:
+    """Output device names, or an empty list wherever portaudio cannot open."""
     try:
-        import sounddevice as sd
+        from src.core.expression.player import output_devices
 
-        return [
-            (index, device["name"])
-            for index, device in enumerate(sd.query_devices())
-            if device.get("max_output_channels", 0) > 0
-        ]
+        names: List[str] = []
+        for device in output_devices():
+            # windows lists one device once per host api; the name is what is kept
+            if device["name"] not in names:
+                names.append(device["name"])
+        return names
     except Exception:
         return []
 
@@ -353,8 +354,10 @@ def _ask_voice(console: Console, answers: Dict[str, Any]) -> None:
         return
 
     console.print("  Where should she speak?\n")
-    options = [(str(index), name, "") for index, name in devices[:12]]
-    answers["audio_device_id"] = int(_choose(console, "Output device", options, options[0][0]))
+    # by name, and the system default first: it follows whatever is plugged in
+    options = [("", "System default", "follows the output the system uses")]
+    options += [(name, name, "") for name in devices[:12]]
+    answers["audio_device"] = _choose(console, "Output device", options, "")
 
 
 def _ask_ears(console: Console, answers: Dict[str, Any]) -> None:
