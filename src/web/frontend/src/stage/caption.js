@@ -13,15 +13,38 @@ const DEFAULTS = {
     text_font_size: 75,
 };
 
+// the height the configured font size is measured against, the canvas an OBS text source is usually laid out on
+export const REFERENCE_HEIGHT = 1080;
+
+/**
+ * The box a caption is drawn in, from the configured typography. Pure, so node can test it.
+ *
+ * The size scales with the frame, so a 1080p source and the dashboard's small
+ * preview show the same proportions; the width wraps where the OBS caption
+ * would, never wider than the frame; and only the last `text_lines` lines show.
+ */
+export function captionStyle(settings) {
+    const lines = Math.max(1, Math.round(Number(settings.text_lines) || DEFAULTS.text_lines));
+    return {
+        '--caption-size': String(Number(settings.text_font_size) || DEFAULTS.text_font_size),
+        '--caption-lines': String(lines),
+        maxWidth: `min(90vw, ${Number(settings.text_line_width) || DEFAULTS.text_line_width}ch)`,
+    };
+}
+
+function applyStyle(el, settings) {
+    const style = captionStyle(settings);
+    el.style.setProperty('--caption-size', style['--caption-size']);
+    el.style.setProperty('--caption-lines', style['--caption-lines']);
+    el.style.maxWidth = style.maxWidth;
+}
+
 export function createCaption(root, config = {}) {
     const settings = { ...DEFAULTS, ...config };
 
     const el = document.createElement('div');
     el.className = 'caption';
-    el.style.fontSize = `${settings.text_font_size}px`;
-    // the box is sized by the configured line width, so the OBS setup and this
-    // one wrap at the same place and moving between them changes nothing
-    el.style.maxWidth = `${settings.text_line_width}ch`;
+    applyStyle(el, settings);
     root.appendChild(el);
 
     let lastId = null;
@@ -75,8 +98,7 @@ export function createCaption(root, config = {}) {
 
         update(config) {
             Object.assign(settings, config);
-            el.style.fontSize = `${settings.text_font_size}px`;
-            el.style.maxWidth = `${settings.text_line_width}ch`;
+            applyStyle(el, settings);
         },
     };
 }

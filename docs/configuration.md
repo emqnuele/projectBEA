@@ -484,8 +484,8 @@ back to `neutral`. `png_dir` (`data/pngs`) is where they live.
 | Key | Default | Description |
 |---|---|---|
 | `text_line_width` | `40` | Characters per line before wrapping |
-| `text_lines` | `4` | Visible lines before paginating |
-| `text_font_size` | `75` | Starting font size |
+| `text_lines` | `4` | Visible lines before paginating; in the browser source, the newest lines kept on screen |
+| `text_font_size` | `75` | Starting font size; in the browser source, pixels on a 1080 px tall frame, scaled with the frame |
 | `text_min_font_size` | `55` | Floor when long text is shrunk to fit |
 | `text_font_step` | `2` | Shrink step |
 | `typing_delay` | `0.03` | Seconds per character |

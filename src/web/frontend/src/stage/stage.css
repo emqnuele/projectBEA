@@ -31,19 +31,31 @@ body {
     inset: 0;
 }
 
+/* above her: the renderer is added after the caption and would otherwise paint over it.
+   sized against a 1080 px tall frame, and only the newest lines kept, like subtitles */
 .caption {
     position: absolute;
+    z-index: 1;
     left: 50%;
     bottom: 6vh;
     transform: translateX(-50%);
     margin: 0;
     padding: 0.35em 0.6em;
+    font-size: calc(var(--caption-size, 75) * 100vh / 1080);
+    max-height: calc(var(--caption-lines, 4) * 1.25em + 0.7em);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
     text-align: center;
     font-family: "Bricolage Grotesque", "Inter", system-ui, -apple-system, sans-serif;
     font-weight: 700;
     line-height: 1.25;
     color: var(--caption-ink);
     text-shadow: var(--caption-shadow);
+    /* an outline under the fill keeps the words readable where they cross her */
+    -webkit-text-stroke: 0.14em rgba(0, 0, 0, 0.7);
+    paint-order: stroke fill;
     white-space: pre-wrap;
     opacity: 0;
     transition: opacity 140ms ease-out;
@@ -56,6 +68,7 @@ body {
 /* shown only when the page cannot reach the engine; never during a stream */
 .offline {
     position: absolute;
+    z-index: 2;
     left: 12px;
     top: 12px;
     padding: 6px 9px;
