@@ -12,9 +12,15 @@ and a state and never learns which backend is behind either.
 ```
 src/modules/avatar/                          src/modules/caption/
 ├── factory.py   build_avatar()              ├── factory.py   build_caption()
-├── png.py       PngAvatar                   ├── obs_text.py  ObsTextCaption
-├── model3d.py   Model3DAvatar               ├── stage.py     StageCaption
-└── vtube_studio.py  VTubeStudioAvatar       └── silent.py    SilentCaption
+├── png.py       PngAvatar (OBS source)      ├── obs_text.py  ObsTextCaption
+├── png_stage.py PngStageAvatar (page)       ├── stage.py     StageCaption
+├── model3d.py   Model3DAvatar               └── silent.py    SilentCaption
+├── vtube_studio.py  VTubeStudioAvatar
+├── mouth_timeline.py  the mouth's clock for VTube Studio
+├── vts_life.py  head, eyes and blinks for VTube Studio
+├── catalog.py   the pinned free models and clips
+├── vrm_file.py  licence, expressions and thumbnail, read from the file
+└── library.py   what the dashboard's library lists and does
 ```
 
 They are chosen independently: any avatar backend works with any caption
@@ -23,8 +29,8 @@ backend.
 | | Avatar backends | Caption backends |
 |---|---|---|
 | key | `png` · `model` · `vtube_studio` | `obs` · `stage` · `off` |
-| needs OBS WebSocket | `png` only | `obs` only |
-| needs a browser source | `model` | `stage` |
+| needs OBS WebSocket | `png` with `png_render: "obs"` | `obs` only |
+| needs a browser source | `model`, and `png` with `png_render: "stage"` | `stage` |
 
 ---
 
@@ -472,6 +478,13 @@ emotion, zeros included, so a face is never left wearing part of the last mood.
 
 VRM standardises five emotions; `MOODS` has seven. `disgusted` and `bored` are blends.
 
+These are full-strength weights. How strongly a face reads on a given model is
+scaled in the page (`expression_intensity`, neutral excepted), so the table
+keeps meaning what a mood is and the proportions between emotions survive. The
+page finds each emotion under the model's own name for it: a VRM 0.x exported by
+VRoid keeps `surprised` as a custom expression called "Surprised", and it is
+used as the preset.
+
 `tests/test_face.py` asserts that the weights agree with the valence/arousal
 vectors in `moods.py`: a mood below -0.2 valence must weigh `sad`/`angry` above
 `happy`/`relaxed`, and the reverse above +0.2. This catches the easy mistake with
@@ -493,9 +506,11 @@ The line is normalised against its own peak, but never against a peak below
 every other, so a whisper is drawn exactly like a shout; the floor keeps a quiet
 line quiet while any normal one still opens her mouth all the way.
 
-It is computed in `Expression._speak_local` between synthesis and playback, and
-on the call route it is accumulated per sentence as each one is synthesised. It
-runs on this machine because the audio is played here; the page never hears it.
+On the local route it is computed for each piece between synthesis and
+playback and published before the sound starts. On the call route it is computed
+for each piece right after the piece was sent to the bot and published with its
+offset in the utterance (see *In a call*). It runs on this machine because the
+audio is made here; the page never hears it.
 
 Cost for six seconds at 30 fps: 180 frames, ~0.2 ms, ~1.2 KB of JSON. Small
 enough to send in one message ahead of playback rather than streaming it.

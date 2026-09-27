@@ -58,10 +58,20 @@ network access, because every model client, surface and transport is faked.
 ```bash
 make test        # uv run pytest -q
 make lint        # uv run ruff check src tests
+uvx pyright      # types: src stays at zero errors
 ```
 
-Both have to pass before a pull request can merge. CI runs exactly these two
-commands, so green locally is green there.
+In `src/web/frontend`:
+
+```bash
+npm test         # the page's pure logic; needs no npm install
+npm run probe    # the 3D body on a real model, headless; needs npm ci and `make model`
+```
+
+All of these have to pass before a pull request can merge. CI
+(`.github/workflows/ci.yml`) runs every one of them, plus the Python suite again
+with `BEA_PERF=off`, the Discord bot's tests and a call end to end through the
+real bot.
 
 ---
 

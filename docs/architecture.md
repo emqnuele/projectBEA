@@ -61,8 +61,8 @@ ProjectBEA/
 │   ├── bea.db              # everything she remembers (gitignored)
 │   ├── conversations/      # session transcripts, one JSON per session
 │   ├── embeddings_cache/   # the local embedding model's cache
-│   ├── models/             # the .vrm you bring (gitignored, `make model`)
-│   ├── clips/              # .vrma behaviours (gitignored, `make model`)
+│   ├── models/             # .vrm models: the library, `make model`, yours (gitignored)
+│   ├── clips/              # .vrma and Mixamo .fbx clips (gitignored, `make model`)
 │   ├── pngs/               # avatars per mood (idle/talking)
 │   └── prompts/            # soul · operating · monologue · minecraft · chat
 ├── docs/                   # this documentation, rendered by the docs site
