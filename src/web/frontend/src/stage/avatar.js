@@ -27,6 +27,7 @@ import { VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy } from '@pixiv/three
 
 import { createBody } from './body.js';
 import { EMOTIONS, faceTargets, mouthScale, resolveExpression } from './face.js';
+import { latestOnly } from './latest.js';
 import { createLife } from './life.js';
 import { lightPreset } from './lights.js';
 import { clipFormat } from './motion.js';
@@ -252,6 +253,8 @@ export async function createAvatar(root, config = {}) {
     }
 
     rig = await buildRig(config.model_url || '/stage/model');
+    // two models picked in a row load side by side; only the last one picked may go on stage
+    const buildLatest = latestOnly(buildRig, (stale) => stale.dispose());
     scene.add(rig.vrm.scene);
     frame(config.shot || 'bust');
 
@@ -381,7 +384,8 @@ export async function createAvatar(root, config = {}) {
          * one stays and the error is thrown for the caller to report.
          */
         async swapModel(url) {
-            const next = await buildRig(url);
+            const next = await buildLatest(url);
+            if (!next) return;
             const previous = rig;
             rig = next;
             scene.add(next.vrm.scene);
