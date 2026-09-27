@@ -1,110 +1,88 @@
-"""Downloads the free sample model and the free sample clip.
+"""Downloads the free models and clips in the catalog, checked to the byte.
 
 No model ships with projectBEA, for the same reason no speech model does: it is
-11 MB of binary that most people will replace with their own, and a repository
-is a bad place to keep either. `.gitignore` already treats large models this way.
+tens of megabytes of binary that most people replace with their own. What
+ships is `src/modules/avatar/catalog.py` — where each file lives upstream and
+what it must hash to — and this tool and the dashboard's download button both
+fetch from it.
 
-The default is pixiv's VRM 1.0 sample, from the MIT-licensed `pixiv/three-vrm`
-repository. Its own embedded metadata allows redistribution, commercial use and
-requires no credit — run `tools/inspect_vrm.py` on it and it will tell you so
-itself.
+    uv run python tools/fetch_model.py              # the default model and idle clip
+    uv run python tools/fetch_model.py --all        # everything in the catalog
+    uv run python tools/fetch_model.py --id seed-san
+    uv run python tools/fetch_model.py --list
 """
 
 import argparse
-import hashlib
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
+from typing import List
 
-# pinned to the release the dashboard's own three-vrm is built against. A branch
-# is a moving target: `make model` would quietly fetch something else the day
-# upstream pushes, and the checksums below would be the first to know.
-TAG = "v3.5.5"
-RAW = f"https://raw.githubusercontent.com/pixiv/three-vrm/{TAG}/packages/three-vrm-animation/examples/models"
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-# name, where it goes, and what it must hash to
-DOWNLOADS = [
-    ("VRM1_Constraint_Twist_Sample.vrm", "models",
-     "12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2"),
-    ("test.vrma", "clips",
-     "38d0fd12d61e896f1a970b5e358ebb41a96c8d5ee8e284496ea18f0ba1f04e7b"),
-]
-
-
-def digest_of(path: Path) -> str:
-    sha = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            sha.update(chunk)
-    return sha.hexdigest()
+from src.modules.avatar.catalog import (  # noqa: E402
+    CATALOG,
+    Asset,
+    FetchError,
+    defaults,
+    fetch,
+    find,
+    folder_for,
+)
 
 
-def fetch(name: str, url: str, into: Path, digest: str, opener=urllib.request.urlopen) -> bool:
-    into.mkdir(parents=True, exist_ok=True)
-    target = into / name
-
-    if target.exists():
-        if digest_of(target) == digest:
-            print(f"  {target} is already here ({target.stat().st_size / 1e6:.2f} MB)")
-            return True
-        # never overwritten: at this path it is the user's file, whether they put
-        # a newer sample there or a download died halfway through
-        print(f"  {target} is not the file this pins. Delete it to fetch the pinned one.")
-        return False
-
-    print(f"  {name} -> {target}")
-    sha = hashlib.sha256()
-    # written next to the target and renamed, so an interrupted download
-    # never leaves a half a model behind for the engine to choke on
-    partial = target.with_suffix(target.suffix + ".part")
-    try:
-        with opener(url, timeout=120) as response:
-            total = int(response.headers.get("content-length") or 0)
-            written = 0
-            with open(partial, "wb") as out:
-                while True:
-                    chunk = response.read(1 << 16)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-                    sha.update(chunk)
-                    written += len(chunk)
-                    if total:
-                        print(f"\r    {written * 100 // total}%", end="", flush=True)
-        print("\r    done   ")
-    except (urllib.error.URLError, OSError) as e:
-        partial.unlink(missing_ok=True)
-        print(f"    failed: {e}")
-        return False
-
-    if sha.hexdigest() != digest:
-        # what arrived is not what was pinned. It is a model that will be loaded
-        # and executed by a renderer, so it is deleted rather than kept around.
-        partial.unlink(missing_ok=True)
-        print(f"    failed: {name} does not match its checksum and was thrown away")
-        return False
-
-    partial.rename(target)
-    return True
+def chosen(args) -> List[Asset]:
+    if args.all:
+        return list(CATALOG)
+    if args.id:
+        picked = []
+        for asset_id in args.id:
+            asset = find(asset_id)
+            if asset is None:
+                raise SystemExit(f"No asset called {asset_id!r}. Try --list.")
+            picked.append(asset)
+        return picked
+    return list(defaults())
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--models-dir", type=Path, default=Path("data/models"))
     parser.add_argument("--clips-dir", type=Path, default=Path("data/clips"))
+    parser.add_argument("--all", action="store_true", help="every model and clip in the catalog")
+    parser.add_argument("--id", action="append", help="one asset by id; may be repeated")
+    parser.add_argument("--list", action="store_true", help="show the catalog and exit")
     args = parser.parse_args()
 
-    folders = {"models": args.models_dir, "clips": args.clips_dir}
+    if args.list:
+        for asset in CATALOG:
+            mark = "*" if asset.default else " "
+            print(f" {mark} {asset.id:<18} {asset.kind:<5} {asset.size / 1e6:6.2f} MB  {asset.licence}")
+            if asset.credit:
+                print(f"   {'':<18} credit required: {asset.credit}")
+        return 0
 
-    print(f"Fetching the sample model and clip from three-vrm {TAG} "
-          f"(nothing is committed to the repo):")
+    print("Fetching from the pinned catalog (nothing is committed to the repo):")
     ok = True
-    for name, kind, digest in DOWNLOADS:
-        ok = fetch(name, f"{RAW}/{name}", folders[kind], digest) and ok
+    for asset in chosen(args):
+        into = folder_for(asset, args.models_dir, args.clips_dir)
+        print(f"  {asset.filename} -> {into / asset.filename}")
+
+        def progress(written: int, total: int) -> None:
+            print(f"\r    {written * 100 // max(1, total)}%", end="", flush=True)
+
+        try:
+            fetch(asset, into, progress=progress)
+            print("\r    done   ")
+            if asset.credit:
+                print(f"    credit required on stream: {asset.credit}")
+        except FetchError as e:
+            print(f"\r    failed: {e}")
+            ok = False
 
     if ok:
-        print("\nPoint `stage.model_path` at the .vrm in the dashboard, under Stream.")
+        print("\nPick the model in the dashboard, under Stream, or set `stage.model_path` to it.")
         print("Read what it allows:  uv run python tools/inspect_vrm.py data/models/*.vrm")
     return 0 if ok else 1
 

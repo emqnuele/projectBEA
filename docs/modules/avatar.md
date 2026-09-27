@@ -127,7 +127,7 @@ Source**. The backend publishes to the stage channel; the page owns three.js.
 ```json
 "stage": {
   "avatar_backend": "model",
-  "model_path": "data/models/VRM1_Constraint_Twist_Sample.vrm",
+  "model_path": "data/models/AvatarSample_B.vrm",
   "clips_dir": "data/clips",
   "shot": "bust",
   "mood_clips": { "angry": "lean_in" },
@@ -166,11 +166,22 @@ file. Use it to find out before going live whether a model is missing the `aa`
 viseme (her mouth cannot move) or the emotion presets (one face for every mood).
 It exits non-zero when something required is absent.
 
-`make model` downloads pixiv's VRM 1.0 sample and one clip into `data/models`
-and `data/clips`, both gitignored. Both are pinned to the `three-vrm` release the
-dashboard itself is built against and checked against a SHA-256: what arrives is
+`make model` downloads the default model (AvatarSample_B, VRM 1.0, by VRoid
+Project) and its idle motion (`idle_loop.vrma`, from pixiv/ChatVRM) into
+`data/models` and `data/clips`, both gitignored. `--all` fetches every entry of
+the catalog, `--id <id>` one of them and `--list` shows them with their licences.
+
+The catalog lives in `src/modules/avatar/catalog.py`. Every entry is pinned to a
+commit or a tag, never a branch, and checked against a SHA-256: what arrives is
 loaded and run by a renderer, so anything that does not match is deleted rather
 than kept. A file already at that path is never overwritten — it is yours.
+
+| id | kind | licence |
+|---|---|---|
+| `avatar-sample-b` (default) | model | VRoid Project (pixiv): commercial use, redistribution and changes allowed, no credit needed |
+| `idle-loop` (default) | clip | pixiv/ChatVRM, MIT |
+| `constraint-twist` | model | pixiv three-vrm sample, MIT |
+| `seed-san` | model | VirtualCast, Inc.: commercial use and redistribution allowed, **credit required** |
 
 ### Notes for the renderer
 

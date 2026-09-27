@@ -171,6 +171,7 @@ class BrainConfig:
         "clips_dir": "data/clips",     # .vrma behaviours, which are portable and are
         "shot": "bust",                # bust | half | full, framed off the head bone
         "mood_clips": {},              # mood -> clip name, all optional
+        "idle_clip": "idle_loop",      # the clip always playing under her; empty for a procedural pose
         "background": "",              # a colour behind her, or empty for transparent
         "max_fps": 0,                  # cap the browser source; 0 follows the display
 
