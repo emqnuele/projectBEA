@@ -91,7 +91,9 @@
         "vts_expressions": {},
         "vts_clips": {},
         "vts_mouth_param": "MouthOpen",
-        "vts_mouth_form_param": ""
+        "vts_mouth_form_param": "",
+        "vts_life": false,
+        "vts_life_params": {}
     },
     "text_line_width": 40,
     "text_lines": 4,

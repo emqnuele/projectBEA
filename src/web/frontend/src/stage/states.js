@@ -17,30 +17,10 @@
  *  droop     the head falling forward, asleep
  */
 
-export const STATES = {
-    idle: {
-        wander: 0.09, look: [0, 0], head: 0.16, headRate: 2.2, blink: [2.5, 6.5], breath: 1, sway: 1,
-        eyesShut: 0, saccade: { gap: 0.6, mean: 1.6, radius: 4 }, nod: null, voice: 0, droop: 0,
-    },
-    listening: {
-        wander: 0.05, look: [0, 0], head: 0.06, headRate: 2.6, blink: [2, 4.5], breath: 1, sway: 0.7,
-        eyesShut: 0, saccade: { gap: 0.8, mean: 2.2, radius: 2.5 },
-        nod: { every: 2.5, jitter: 0.7, depth: 0.05, length: 0.55 }, voice: 0, droop: 0,
-    },
-    thinking: {
-        // eyes up and to one side, the head following slowly behind them
-        wander: 0.05, look: [0.22, 0.2], head: 0.3, headRate: 1.1, blink: [4, 9], breath: 1, sway: 0.8,
-        eyesShut: 0, saccade: { gap: 0.4, mean: 1.0, radius: 3 }, nod: null, voice: 0, droop: 0,
-    },
-    talking: {
-        wander: 0.14, look: [0, 0], head: 0.1, headRate: 2.2, blink: [2.5, 6], breath: 1.15, sway: 1.15,
-        eyesShut: 0, saccade: { gap: 0.7, mean: 2.0, radius: 3 }, nod: null, voice: 0.07, droop: 0,
-    },
-    sleeping: {
-        wander: 0, look: [0, 0], head: 0, headRate: 1, blink: [99, 99], breath: 0.7, sway: 0.35,
-        eyesShut: 1, saccade: null, nod: null, voice: 0, droop: 0.12,
-    },
-};
+// one table for the page and for vtube studio (`src/modules/avatar/vts_life.py` reads the same file)
+import STATES from './states.json' with { type: 'json' };
+
+export { STATES };
 
 /** The state by name; anything the page does not know reads as idle. */
 export function stateNamed(name) {

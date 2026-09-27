@@ -190,6 +190,8 @@ class BrainConfig:
         "vts_clips": {},               # clip name -> hotkey id in the user's model
         "vts_mouth_param": "MouthOpen",
         "vts_mouth_form_param": "",    # a mouth that also changes shape, if yours has one
+        "vts_life": False,             # head, eyes and blinks injected when there is no webcam
+        "vts_life_params": {},         # signal -> vts input parameters, "-" inverts; replaces the default per signal
     })
 
     # typing animation

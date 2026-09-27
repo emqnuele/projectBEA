@@ -476,6 +476,12 @@ function VTubeStudioGroups({ stage, moods, updateStage, updateStageMap, model, s
                     the token is stored under <span className="font-mono">data/</span> and never leaves this machine.
                 </p>
                 <TestButton label="Test the connection" run={load} />
+                <CheckRow
+                    checked={Boolean(stage.vts_life)}
+                    onChange={(v) => updateStage('vts_life', v)}
+                    title="Keep her alive without a webcam"
+                    help="She moves her head, eyes and eyelids on her own, the way the 3D body does, and tells VTube Studio a face is found. Leave it off if you drive the model with face tracking."
+                />
             </Group>
 
             <Group title="A face per mood" description="Expressions come from your model, so pick from what it actually has.">

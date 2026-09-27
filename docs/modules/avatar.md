@@ -386,7 +386,7 @@ model and the software are the user's.
 |---|---|
 | `show(mood, state)` | `ExpressionActivationRequest`, file from `vts_expressions[mood]`; on `talking`, also `HotkeyTriggerRequest` from `vts_clips[mood]` |
 | `perform(clip)` | `HotkeyTriggerRequest`, id from `vts_clips[clip]`, falling back to the name itself |
-| `mouth(envelope, fps)` | `InjectParameterDataRequest` on `vts_mouth_param`, one per frame, `mode: "set"` |
+| `mouth(envelope, fps)` · `mouth_at` · `mouth_sync` | `InjectParameterDataRequest`, one per frame with every value in it, `mode: "set"` |
 
 **Authentication.** `AuthenticationTokenRequest` prompts the user inside VTube
 Studio; the token is written to `data/vtube_studio_token.json` and reused with
@@ -399,7 +399,7 @@ one send/recv pair, and the mouth writes to it 30 times a second while the worke
 may be setting an expression. `_run` owns one connection and drains a bounded queue over it,
 reconnecting with backoff from 3s to 30s. When the queue fills, the oldest
 command is dropped — the newest face is the correct one. The mouth runs in its
-own task so a new line cancels the previous one.
+own task, the pump, so a new line replaces the previous one.
 
 **A behaviour per mood.** `vts_clips` is keyed by mood, exactly like `mood_clips`
 on the 3D backend, and fires when she starts talking rather than on every change
@@ -408,8 +408,40 @@ in still works.
 
 **Two behaviours specific to this backend.** VTube Studio holds an expression
 until told otherwise, so the adapter deactivates the previous one before
-activating the next. And it has no clock shared with the engine, so this is the
-only backend that paces the envelope itself.
+activating the next. And it has no clock shared with the engine, so this
+backend keeps the mouth's time itself.
+
+**The pump.** One task sends one `InjectParameterDataRequest` per frame, at the
+lip sync rate, with every value that moves: `vts_mouth_param` and
+`vts_mouth_form_param` while there is a line, and the life below when it is on.
+Frame *i* is due at a fixed time from the start (`start + i / fps`); a frame
+that is already late when its turn comes is skipped, never sent late. A slow
+VTube Studio therefore costs frames, not time: the mouth ends when the voice does.
+The mouth runs off the same segment timeline as the browser source
+(`mouth_timeline.py`), so in a call it waits for the bot's first report and
+follows every one after it.
+
+**Life without a webcam** (`vts_life`). Without face tracking a VTube Studio
+model only moves with its idle motion. With this on, `vts_life.py` computes the
+life the 3D page gives her — the wandering gaze, eye jumps, a head that follows
+them late, nods while listening, a look up and away while thinking, a dip with
+her voice, the droop and closed eyes of sleep, and blinks — from the same state
+table the page reads (`src/web/frontend/src/stage/states.json`). It is sent in
+the same request as the mouth, with `faceFound: true` so VTube Studio does not
+play its tracking-lost animation, and is sent every frame, well inside the
+second after which VTube Studio lets go of an injected parameter.
+
+The input parameters and their ranges are read once per connection with
+`InputParameterListRequest`; only parameters it reports are written (an unknown
+one would be an API error), and every value is kept inside its range.
+
+| Signal | Default parameters | Value |
+|---|---|---|
+| `yaw` · `pitch` · `roll` | `FaceAngleX` · `-FaceAngleY` · `FaceAngleZ` | degrees; pitch is positive looking down, hence the `-` |
+| `eye_x` · `eye_y` | `EyeLeftX`, `EyeRightX` · `EyeLeftY`, `EyeRightY` | -1…1 across the parameter's range |
+| `blink` | `EyeOpenLeft`, `EyeOpenRight` | shut at the bottom of the range, open at the top |
+
+`vts_life_params` replaces the list for any signal; a leading `-` inverts it.
 
 **Discovery.** Expression files and hotkey ids are defined by whoever rigged the
 model. `GET /vts/model` returns both from the connected instance so the dashboard

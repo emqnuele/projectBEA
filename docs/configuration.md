@@ -463,6 +463,9 @@ Two independent choices, plus the settings each one needs.
 | `vts_expressions` | `{}` | mood → expression file in **your** model. The dashboard reads the list from the connected model. |
 | `vts_clips` | `{}` | mood → hotkey id or name, triggered when she starts talking. |
 | `vts_mouth_param` | `"MouthOpen"` | The parameter the lip sync writes to. |
+| `vts_mouth_form_param` | `""` | A second mouth parameter for its shape, if the model has one. |
+| `vts_life` | `false` | Inject head, eyes and blinks every frame, the same life as the 3D body, for a model with no webcam tracking. Sends `faceFound: true`. |
+| `vts_life_params` | `{}` | Replaces the input parameters one signal writes to, e.g. `{"pitch": ["FaceAngleY"]}`. Signals: `yaw`, `pitch`, `roll`, `eye_x`, `eye_y`, `blink`; a leading `-` inverts. |
 
 The token VTube Studio issues is **not** kept here. It lives in
 `data/vtube_studio_token.json`, gitignored, because `GET /config` is
