@@ -13,7 +13,8 @@ different sources still update in the order they were asked for.
 
 The library matches a reply to whatever it reads next, not by id, so after a
 timeout the late reply would answer the next request. The worker drops the
-socket on any failure and opens a new one.
+socket on any failure but an answer from OBS, opens a new one, and sends the
+failed request once more unless a newer one for the same field replaced it.
 """
 
 import asyncio
@@ -44,6 +45,9 @@ RETRY_CEILING = 30.0
 
 Job = Callable[[Any], None]
 
+# how long a shutdown waits for what was already asked to reach obs
+FLUSH_CEILING = 1.0
+
 
 def _refused(error: Exception) -> bool:
     return isinstance(error, ConnectionRefusedError) or "WinError 10061" in str(error)
@@ -62,6 +66,12 @@ class OBSController(OBSInterface):
         self.client: Optional[Any] = None
         self._font_cache: Dict[str, Dict[str, Any]] = {}
         self._jobs: "OrderedDict[Hashable, Job]" = OrderedDict()
+        # a request the worker has taken off the table and not finished yet
+        self._busy = False
+        # requests that failed once and were sent again: a second failure drops them
+        self._retried: set = set()
+        # sources obs said it has no way to take, warned about once each
+        self._refusals: set = set()
         self._wake = threading.Condition()
         self._thread: Optional[threading.Thread] = None
         # bumped by disconnect: a worker from an older generation stops
@@ -77,6 +87,8 @@ class OBSController(OBSInterface):
         self.timeout = float(getattr(config, "obs_timeout", self.timeout) or DEFAULT_TIMEOUT)
         if config.obs_avatar_source != self.source_name:
             self.source_name = config.obs_avatar_source
+        # a source renamed or created since deserves its own warning if obs still refuses it
+        self._refusals.clear()
         if changed and self._running():
             logger.info("Connection details changed. Reconnecting...")
             self._drop_client()
@@ -92,6 +104,8 @@ class OBSController(OBSInterface):
         self._thread.start()
 
     def disconnect(self) -> None:
+        # what the shutdown just asked for, the picture taken down and the caption cleared, goes out first
+        self._flush(min(self.timeout, FLUSH_CEILING))
         # dropped here, not merely closed: a caption still in flight afterwards
         # must find no socket rather than raise on one nobody is reading
         with self._wake:
@@ -197,6 +211,16 @@ class OBSController(OBSInterface):
     def _running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    def _flush(self, seconds: float) -> None:
+        """Waits up to `seconds` for the requests already on the table, while there is a socket to send them on."""
+        deadline = time.monotonic() + seconds
+        with self._wake:
+            while (self._jobs or self._busy) and self.client is not None and self._running():
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                self._wake.wait(left)
+
     def _submit(self, key: Hashable, job: Job) -> None:
         with self._wake:
             # the newest value wins, the oldest request keeps its place in line
@@ -254,18 +278,43 @@ class OBSController(OBSInterface):
                     self._wake.wait()
                 if generation != self._generation or self.client is None or not self._jobs:
                     continue
-                _key, job = self._jobs.popitem(last=False)
+                key, job = self._jobs.popitem(last=False)
+                self._busy = True
 
             client = self.client
-            if client is None:
-                continue
             started = time.perf_counter()
             try:
+                if client is None:
+                    raise ConnectionError("the socket was dropped under the request")
                 job(client)
+                self._retried.discard(key)
+            except OBSSDKRequestError as e:
+                # obs answered, so the socket is still in step; a missing source would otherwise reconnect per character
+                if key not in self._refusals:
+                    self._refusals.add(key)
+                    logger.warning(f"OBS refused a request for {key[0] if isinstance(key, tuple) else key!r}: {e}")
             except Exception as e:
                 logger.warning(f"OBS request failed after {(time.perf_counter() - started) * 1000:.0f} ms "
                                f"({type(e).__name__}: {e}); reconnecting.")
-                self._drop_client()
+                self._retry(key, job, generation)
+                if self.client is client:
+                    self._drop_client()
+            finally:
+                with self._wake:
+                    self._busy = False
+                    self._wake.notify_all()
+
+    def _retry(self, key: Hashable, job: Job, generation: int) -> None:
+        """Puts a failed request back at the front, once, unless a newer one for its field is already waiting."""
+        with self._wake:
+            if generation != self._generation:
+                return
+            if key in self._retried or key in self._jobs:
+                self._retried.discard(key)
+                return
+            self._retried.add(key)
+            self._jobs[key] = job
+            self._jobs.move_to_end(key, last=False)
 
     def _text_font(self, client, source: str) -> Dict[str, Any]:
         """The font the text source already has, read once, so resizing keeps its face."""

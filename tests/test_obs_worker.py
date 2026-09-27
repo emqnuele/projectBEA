@@ -113,7 +113,7 @@ def test_the_text_font_is_read_once_per_source_on_the_worker():
         obs.disconnect()
 
 
-def test_a_failed_request_drops_the_socket_and_the_next_one_reconnects():
+def test_a_failed_request_is_sent_once_more_on_a_new_socket():
     class Flaky(SlowClient):
         def set_input_settings(self, name, settings, overlay):
             raise TimeoutError("obs went quiet")
@@ -130,22 +130,125 @@ def test_a_failed_request_drops_the_socket_and_the_next_one_reconnects():
     previous, module.RETRY_SECONDS = module.RETRY_SECONDS, 0.01
     try:
         obs.connect()
-        obs.set_image("lost.png")
-        assert wait_until(lambda: len(opened) == 2 and obs.connected)
-        obs.set_image("kept.png")
-        assert wait_until(lambda: opened[1].calls == [("avatar", {"file": "kept.png"})])
+        obs.set_image("retried.png")
+        assert wait_until(lambda: opened[1:] and opened[1].calls == [("avatar", {"file": "retried.png"})])
+        obs.set_image("next.png")
+        assert wait_until(lambda: opened[1].calls[-1] == ("avatar", {"file": "next.png"}))
+        assert len(opened) == 2
     finally:
         module.RETRY_SECONDS = previous
         obs.disconnect()
 
 
-def test_nothing_is_sent_after_a_disconnect():
+def test_a_request_that_fails_twice_is_given_up():
+    class Dead(SlowClient):
+        def set_input_settings(self, name, settings, overlay):
+            raise TimeoutError("obs went quiet")
+
+    opened = []
+
+    def factory(**_):
+        opened.append(Dead() if len(opened) < 2 else SlowClient())
+        return opened[-1]
+
+    obs = OBSController("127.0.0.1", 4455, "", "avatar", client_factory=factory)
+    try:
+        obs.connect()
+        obs.set_image("doomed.png")
+        assert wait_until(lambda: len(opened) == 3 and obs.connected)
+        time.sleep(0.05)
+        assert opened[2].calls == []
+    finally:
+        obs.disconnect()
+
+
+def test_a_newer_request_replaces_a_failed_one_instead_of_a_retry():
+    class Held(SlowClient):
+        def set_input_settings(self, name, settings, overlay):
+            self.gate.wait()
+            raise TimeoutError("obs went quiet")
+
+    first = Held()
+    first.gate.clear()
+    opened = [first]
+
+    def factory(**_):
+        if len(opened) == 1 and not getattr(factory, "used", False):
+            factory.used = True
+            return first
+        opened.append(SlowClient())
+        return opened[-1]
+
+    obs = OBSController("127.0.0.1", 4455, "", "avatar", client_factory=factory)
+    try:
+        obs.connect()
+        obs.set_image("stale.png")
+        time.sleep(0.05)
+        obs.set_image("fresh.png")
+        first.gate.set()
+        assert wait_until(lambda: len(opened) == 2 and opened[1].calls)
+        time.sleep(0.05)
+        assert opened[1].calls == [("avatar", {"file": "fresh.png"})]
+    finally:
+        obs.disconnect()
+
+
+def test_a_source_obs_does_not_have_keeps_the_socket_and_warns_once(caplog):
+    from obsws_python.error import OBSSDKRequestError
+
+    class Missing(SlowClient):
+        def set_input_settings(self, name, settings, overlay):
+            raise OBSSDKRequestError("SetInputSettings", 600, f"No source was found by the name of `{name}`.")
+
+    opened = []
+
+    def factory(**_):
+        opened.append(Missing())
+        return opened[-1]
+
+    obs = OBSController("127.0.0.1", 4455, "", "avatar", client_factory=factory)
+    try:
+        obs.connect()
+        assert wait_until(lambda: obs.connected)
+        asyncio.run(obs.type_text("Ciao a tutti, come va?", "caption", typing_delay=0.002))
+        time.sleep(0.05)
+        assert len(opened) == 1
+        assert sum("OBS refused" in r.message for r in caplog.records) == 1
+    finally:
+        obs.disconnect()
+
+
+def test_a_disconnect_first_sends_what_was_already_asked():
+    client = SlowClient(delay=0.01)
+    obs = controller(client)
+    # what a shutdown asks right before it disconnects
+    obs.set_text("", "caption")
+    obs.set_image("")
+    obs.disconnect()
+    assert ("avatar", {"file": ""}) in client.calls
+    assert any(name == "caption" and settings["text"] == "" for name, settings in client.calls)
+
+
+def test_a_disconnect_waits_for_obs_only_while_it_is_connected():
+    obs = OBSController("127.0.0.1", free_port(), "", "avatar", timeout=0.5)
+    obs.connect()
+    obs.set_image("never.png")
+    started = time.monotonic()
+    obs.disconnect()
+    assert time.monotonic() - started < 0.1
+
+
+def test_nothing_is_sent_after_a_disconnect_that_obs_held_up():
     client = SlowClient()
     client.gate.clear()
-    obs = controller(client)
+    obs = controller(client, timeout=0.1)
     obs.set_image("in-flight.png")
+    # the same field: sent together they would collapse into one request
+    time.sleep(0.05)
     obs.set_image("queued.png")
+    started = time.monotonic()
     obs.disconnect()
+    assert time.monotonic() - started < 0.3, "the flush waited past the timeout"
     client.gate.set()
     time.sleep(0.1)
     assert ("avatar", {"file": "queued.png"}) not in client.calls
