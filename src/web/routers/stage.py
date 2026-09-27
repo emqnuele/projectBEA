@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from src.core.brain import AIVtuberBrain
-from src.core.stage import clips_dir, public_config
+from src.core.stage import base_clips, clip_files, clips_dir, public_config
 from src.web.deps import frontend_path, get_brain
 
 router = APIRouter(tags=["stage"])
@@ -53,11 +53,10 @@ def stage_model(brain: AIVtuberBrain = Depends(get_brain)):
 
 @router.get("/stage/clips")
 def stage_clips(brain: AIVtuberBrain = Depends(get_brain)):
-    """The behaviours installed, by name — what the dashboard offers you."""
-    folder = clips_dir(brain.config)
-    if not folder.is_dir():
-        return []
-    return sorted(p.stem for p in folder.glob("*.vrma"))
+    """The clips installed, by name, and whether each carries her or is a gesture."""
+    bases = base_clips(brain.config)
+    return [{"name": p.stem, "role": "base" if p.stem in bases else "gesture"}
+            for p in clip_files(brain.config)]
 
 
 @router.get("/stage/clips/{name}")

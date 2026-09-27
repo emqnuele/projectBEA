@@ -243,3 +243,16 @@ def test_warming_twice_costs_nothing_the_second_time():
 
     assert len(embedder.calls) == 1
     assert picker.ready is True
+
+
+def test_the_idle_clip_is_never_offered_as_a_gesture(tmp_path):
+    """`<do:relax>` must not start the clip already carrying her on top of itself."""
+    for name in ("idle_loop", "wave", "ponder"):
+        (tmp_path / f"{name}.vrma").write_bytes(b"")
+    config = Config(clips_dir=str(tmp_path), idle_clip="idle_loop", state_clips={"thinking": "ponder"})
+    assert installed_clips(config) == ["wave"]
+
+
+def test_without_an_idle_clip_every_clip_is_a_gesture(tmp_path):
+    (tmp_path / "idle_loop.vrma").write_bytes(b"")
+    assert installed_clips(Config(clips_dir=str(tmp_path), idle_clip="")) == ["idle_loop"]

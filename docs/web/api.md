@@ -790,8 +790,10 @@ The configured `.vrm`. `404` when none is set, or when it is set and missing —
 the message names the path.
 
 #### `GET /stage/clips` · `GET /stage/clips/{name}`
-The behaviours installed, by name, and one `.vrma` each. A name that would walk
-out of the clips folder is a `404`.
+The clips installed, as `[{"name": "idle_loop", "role": "base"}, {"name": "wave", "role": "gesture"}]`,
+and one `.vrma` each. `base` is a clip named by `idle_clip` or `state_clips`: it
+loops under her and is never offered to `<do:…>`. A name that would walk out of
+the clips folder is a `404`.
 
 #### `GET /stage/preview`
 **Query:** `mood`, `state` (`idle` by default). One avatar image, for the

@@ -19,8 +19,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
-import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
+import { VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy } from '@pixiv/three-vrm-animation';
 
+import { createBody } from './body.js';
 import { createLife } from './life.js';
 
 const EMOTIONS = ['happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral'];
@@ -75,21 +76,25 @@ export async function createAvatar(root, config = {}) {
 
     VRMUtils.combineSkeletons(gltf.scene);
     VRMUtils.rotateVRM0(vrm);             // only 0.x needs turning; 1.0 already faces us
+    // skinned bounds do not follow the bones, so an arm raised past them would be culled
+    vrm.scene.traverse((object) => { object.frustumCulled = false; });
+    if (vrm.lookAt) {
+        // clips that drive the gaze need it, and without one each clip built creates its own
+        const proxy = new VRMLookAtQuaternionProxy(vrm.lookAt);
+        proxy.name = 'VRMLookAtQuaternionProxy';
+        vrm.scene.add(proxy);
+    }
     scene.add(vrm.scene);
 
-    const mixer = new THREE.AnimationMixer(vrm.scene);
-    const clips = new Map();
-    let current = null;
-    let playGeneration = 0;
-
-    mixer.addEventListener('finished', (event) => {
-        // the body is handed back the moment the gesture ends; the clip fades
-        // out under the idle motion easing in over it, so neither one snaps
-        event.action.fadeOut(0.3);
-        if (current === event.action) current = null;
-    });
-
     frame(config.shot || 'bust');
+
+    const loadAnimation = async (name) => {
+        const loaded = await loader.loadAsync(`/stage/clips/${encodeURIComponent(name)}`);
+        const [animation] = loaded.userData.vrmAnimations || [];
+        if (!animation) throw new Error('no animation inside it');
+        return animation;
+    };
+    const body = createBody(vrm, loadAnimation, config);
     const life = createLife(vrm, camera, scene);
 
     function frame(shot) {
@@ -124,36 +129,6 @@ export async function createAvatar(root, config = {}) {
         const distance = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
         camera.position.set(0, centre, distance);
         camera.lookAt(0, centre, 0);
-    }
-
-    async function play(name) {
-        if (!name) return;
-        // two behaviours asked for fifty milliseconds apart race through the
-        // loader; the one that finishes second is the newer one, but the one
-        // that *started* second is what belongs on stage
-        const generation = ++playGeneration;
-        try {
-            if (!clips.has(name)) {
-                const loaded = await loader.loadAsync(`/stage/clips/${encodeURIComponent(name)}`);
-                const [animation] = loaded.userData.vrmAnimations || [];
-                if (!animation) throw new Error('no animation inside it');
-                clips.set(name, createVRMAnimationClip(animation, vrm));
-            }
-            // a newer request won the race while this one was loading: cached
-            // for next time, but not played on top of it
-            if (generation !== playGeneration) return;
-            const action = mixer.clipAction(clips.get(name));
-            // a behaviour is a gesture, not a loop. Left on the default the
-            // first shrug of the stream repeats until the page is reloaded —
-            // and the body never goes back to breathing on its own.
-            action.setLoop(THREE.LoopOnce, 1);
-            action.clampWhenFinished = true;
-            current?.fadeOut(0.25);
-            action.reset().fadeIn(0.25).play();
-            current = action;
-        } catch (error) {
-            console.warn(`[stage] behaviour "${name}" did not play:`, error.message);
-        }
     }
 
     // what the engine last said she is
@@ -222,8 +197,8 @@ export async function createAvatar(root, config = {}) {
         const step = owed;
         owed = 0;
 
-        mixer.update(step);
-        life.update(step, Boolean(current?.isRunning()));
+        body.update(step);
+        life.update(step, body.busy() > 0);
         drive(step);
         vrm.update(step);
         renderer.render(scene, camera);
@@ -247,6 +222,7 @@ export async function createAvatar(root, config = {}) {
             if ('state' in patch) {
                 speaking = patch.state === 'talking';
                 life.setState(patch.state);
+                body.setState(patch.state);
             }
 
             if (!animate) {
@@ -266,13 +242,14 @@ export async function createAvatar(root, config = {}) {
                     startedAt: performance.now(),
                 };
             }
-            if (patch.perform) play(patch.perform);
+            if (patch.perform) body.play(patch.perform);
         },
 
         /** Settings changed under a running page: shot and background apply live. */
         setLook(next = {}) {
             setBackground(renderer, next.background);
             frame(next.shot || 'bust');
+            body.setConfig(next);
         },
     };
 }

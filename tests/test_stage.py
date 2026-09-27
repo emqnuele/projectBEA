@@ -361,3 +361,23 @@ def test_the_transparent_background_is_the_default():
     from src.core.stage import public_config
 
     assert public_config(BrainConfig())["background"] == ""
+
+
+def test_the_clip_list_says_which_clips_carry_her(client, tmp_path):
+    """The picker never sees a base clip, but the dashboard still lists it."""
+    api, stub = client
+    for name in ("idle_loop", "wave"):
+        (tmp_path / f"{name}.vrma").write_bytes(b"")
+    stub.config.stage = {**stub.config.stage, "clips_dir": str(tmp_path), "idle_clip": "idle_loop"}
+    assert api.get("/stage/clips").json() == [
+        {"name": "idle_loop", "role": "base"},
+        {"name": "wave", "role": "gesture"},
+    ]
+
+
+def test_the_page_is_told_which_clip_carries_her(client):
+    api, stub = client
+    stub.config.stage = {**stub.config.stage, "idle_clip": "idle_loop", "state_clips": {"thinking": "ponder"}}
+    config = api.get("/stage/config").json()
+    assert config["idle_clip"] == "idle_loop"
+    assert config["state_clips"] == {"thinking": "ponder"}

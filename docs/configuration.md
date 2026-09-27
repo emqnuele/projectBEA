@@ -443,6 +443,8 @@ Two independent choices, plus the settings each one needs.
 | `clips_dir` | `"data/clips"` | Where `.vrma` behaviours live. They appear by name in the dashboard. |
 | `shot` | `"bust"` | `bust`, `half` or `full`. Framed off the head bone, so any model is framed alike. |
 | `mood_clips` | `{}` | mood → clip name. Optional; a mood without one just changes expression. |
+| `idle_clip` | `"idle_loop"` | The clip always playing under her. Empty, or a clip that fails to load, means a still pose with the arms down. Never offered to `<do:…>`. |
+| `state_clips` | `{}` | state (`idle`, `listening`, `thinking`, `talking`, `sleeping`) → clip carrying her in that state instead of `idle_clip`. Changing state crossfades over 0.5 s. |
 | `background` | `""` | A colour behind her, or empty for transparent. |
 
 **The `vtube_studio` backend** — nothing is bundled; it drives the VTube Studio you already run.

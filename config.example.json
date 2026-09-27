@@ -76,6 +76,7 @@
         "shot": "bust",
         "mood_clips": {},
         "idle_clip": "idle_loop",
+        "state_clips": {},
         "background": "",
         "max_fps": 0,
         "vts_host": "127.0.0.1",

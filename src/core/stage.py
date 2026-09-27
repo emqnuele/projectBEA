@@ -9,7 +9,7 @@ connection gets one snapshot of how she looks *now*, and patches after that.
 
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 from src.core.fanout import Fanout, offer
 from src.core.mind.moods import DEFAULT_MOOD
@@ -39,6 +39,28 @@ def clips_dir(config) -> Path:
     return Path(stage.get("clips_dir") or "data/clips")
 
 
+def base_clips(config) -> Set[str]:
+    """The clips that carry her body underneath everything else.
+
+    Played in a loop by the page, never as a one-shot: `<do:relax>` landing on
+    the idle clip would start it a second time on top of itself.
+    """
+    stage = getattr(config, "stage", None) or {}
+    names = {str(stage.get("idle_clip") or "").strip()}
+    for name in (stage.get("state_clips") or {}).values():
+        names.add(str(name or "").strip())
+    names.discard("")
+    return names
+
+
+def clip_files(config) -> List[Path]:
+    """Every .vrma in the clips folder, bases and gestures alike."""
+    folder = clips_dir(config)
+    if not folder.is_dir():
+        return []
+    return sorted(folder.glob("*.vrma"))
+
+
 def installed_clips(config) -> List[str]:
     """Every behaviour she can actually play, by name.
 
@@ -54,10 +76,8 @@ def installed_clips(config) -> List[str]:
         return sorted(name for name in (stage.get("vts_clips") or {}) if name)
     if backend != "model":
         return []
-    folder = clips_dir(config)
-    if not folder.is_dir():
-        return []
-    return sorted(path.stem for path in folder.glob("*.vrma"))
+    bases = base_clips(config)
+    return sorted(path.stem for path in clip_files(config) if path.stem not in bases)
 
 
 def public_config(config) -> Dict[str, Any]:
@@ -73,6 +93,8 @@ def public_config(config) -> Dict[str, Any]:
         "background": stage.get("background", ""),
         "lipsync_fps": stage.get("lipsync_fps", 30),
         "max_fps": stage.get("max_fps", 0),
+        "idle_clip": stage.get("idle_clip", ""),
+        "state_clips": dict(stage.get("state_clips") or {}),
         "has_model": bool(stage.get("model_path")),
         "model_id": _model_id(stage.get("model_path") or ""),
         "typing_delay": config.typing_delay,

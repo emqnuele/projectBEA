@@ -531,6 +531,8 @@ function StreamSection({ config, update, setConfig }) {
     }));
 
     const needsObs = avatarBackend === 'png' || captionBackend === 'obs';
+    // read from the settings being edited, not the saved ones, so the lists agree before saving
+    const baseClips = new Set([stage.idle_clip, ...Object.values(stage.state_clips || {})].filter(Boolean));
     const moods = Object.keys(config.avatar_map || {});
     const stageUrl = `${window.location.origin}/stage`;
 
@@ -542,7 +544,9 @@ function StreamSection({ config, update, setConfig }) {
     const [vtsModel, setVtsModel] = useState(null);
     useEffect(() => {
         if (avatarBackend !== 'model') return;
-        api.stageClips().then(setClips).catch(() => setClips([]));
+        api.stageClips()
+            .then((list) => setClips(Array.isArray(list) ? list : []))
+            .catch(() => setClips([]));
     }, [avatarBackend, stage.clips_dir]);
 
     return (
@@ -684,6 +688,17 @@ function StreamSection({ config, update, setConfig }) {
                                 <TextInput type="number" value={stage.lipsync_fps ?? 30} onChange={(e) => updateStage('lipsync_fps', parseInt(e.target.value, 10) || 30)} />
                             </Field>
                         </div>
+                        <Field label="Idle motion" help="The clip always playing under her, so she never stands in a T-pose. Without one she holds a still pose with her arms down.">
+                            <Select value={stage.idle_clip || ''} onChange={(e) => updateStage('idle_clip', e.target.value)}>
+                                <option value="">— still pose —</option>
+                                {stage.idle_clip && !clips.some((c) => c.name === stage.idle_clip) && (
+                                    <option value={stage.idle_clip}>{stage.idle_clip} (not installed)</option>
+                                )}
+                                {clips.map((c) => (
+                                    <option key={c.name} value={c.name}>{c.name}</option>
+                                ))}
+                            </Select>
+                        </Field>
                     </Group>
 
                     <Group title="A behaviour per mood" description="Optional. Leave one empty and she just changes expression.">
@@ -692,7 +707,7 @@ function StreamSection({ config, update, setConfig }) {
                             values={stage.mood_clips || {}}
                             onChange={(mood, value) => updateStageMap('mood_clips', mood, value)}
                             placeholder="wave"
-                            options={(clips || []).map((name) => ({ id: name, label: name }))}
+                            options={clips.filter((c) => !baseClips.has(c.name)).map((c) => ({ id: c.name, label: c.name }))}
                         />
                     </Group>
                 </>

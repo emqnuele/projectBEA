@@ -141,6 +141,8 @@ Source**. The backend publishes to the stage channel; the page owns three.js.
 | `clips_dir` | `.vrma` files, listed by `GET /stage/clips` and offered in the dashboard. |
 | `shot` | `bust`, `half` or `full`. Computed from the `head` and `hips` bones, so it frames any model the same way regardless of its height. |
 | `mood_clips` | mood → clip name. A mood without one changes expression only. |
+| `idle_clip` | The clip that loops under her (`idle_loop` from `make model`). Empty means a still procedural pose. |
+| `state_clips` | state → clip that loops under her in that state instead of `idle_clip`. |
 | `background` | A CSS colour behind her. Empty is transparent, which is what OBS composites over your scene. |
 
 ### Why the format matters
@@ -183,11 +185,43 @@ than kept. A file already at that path is never overwritten — it is yours.
 | `constraint-twist` | model | pixiv three-vrm sample, MIT |
 | `seed-san` | model | VirtualCast, Inc.: commercial use and redistribution allowed, **credit required** |
 
+### The body: a base layer and gestures
+
+`src/web/frontend/src/stage/body.js` owns the animation mixer.
+
+three.js averages the actions on each bone by weight and gives any weight left
+below one to the bone's original value, which on a VRM is the T-pose. Two rules
+follow from that:
+
+- **A base action always holds weight one.** It is the clip for the current
+  state (`state_clips`, else `idle_clip`), or, with no clip or a clip that fails
+  to load, a procedural pose with the arms 21° from vertical and the elbows
+  slightly bent. The procedural pose is built synchronously, so the model is
+  never drawn in the T-pose while the idle clip downloads. Every base clip gets
+  the procedural arm tracks merged in for any arm bone it does not animate.
+  Changing base crossfades over 0.5 s.
+- **A gesture is layered, not crossfaded.** A gesture usually animates a few
+  bones; crossfading it against the base would fade the base out on every bone
+  and drop the rest to the T-pose. Instead a gesture at fade fraction `f` gets
+  weight `f / (1 - f)`: against the base at weight 1 that is exactly a share `f`
+  of the bones it animates, and every other bone stays on the base. It fades in
+  over 0.25 s and out over 0.3 s once it ends; a newer gesture fades the older
+  one out.
+
+The hips position track of every clip is moved so its first key sits over the
+model's own hips: clips are authored on another body (`idle_loop` stands 15 cm to
+one side) and the shot is framed on the rest pose. The pure parts — which clip
+is the base, the re-anchoring, the procedural pose, the gesture weight — live in
+`motion.js` and are tested with `node --test`.
+
 ### Notes for the renderer
 
 `src/web/frontend/src/stage/avatar.js`:
 
 - **The Live Loop:** `src/web/frontend/src/stage/life.js` manages procedural animations. It adds natural breathing, blinking, and subtle look-around motions, so the avatar looks alive even when the engine is not actively sending expressions.
+- `frustumCulled` is off on every mesh: skinned bounding boxes do not follow the
+  bones, so a raised arm could otherwise be culled at the edge of the frame. A
+  `VRMLookAtQuaternionProxy` is created at load for clips that drive the gaze.
 - Turning the model 180° is correct for **VRM 0.x only**. `VRMUtils.rotateVRM0`
   applies it conditionally; an unconditional `rotation.y = Math.PI` faces every
   VRM 1.0 model away from the camera.
@@ -338,7 +372,7 @@ same push is what keeps the preview in the dashboard current.
 | `GET /stage/stream` | SSE: one `snapshot`, then `patch` messages |
 | `GET /stage/config` | backends, shot, lip sync rate, caption typography, `model_id` |
 | `GET /stage/model` | the configured `.vrm` |
-| `GET /stage/clips` | clip names in `clips_dir` |
+| `GET /stage/clips` | clips in `clips_dir`, each with `role`: `base` or `gesture` |
 | `GET /stage/clips/{name}` | one `.vrma`; a name that escapes the folder is a 404 |
 | `GET /stage/preview` | one avatar image, restricted to paths in `avatar_map` |
 | `POST /test/vts` · `GET /vts/model` | VTube Studio reachability and model contents |
