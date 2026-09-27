@@ -7,6 +7,8 @@ becomes an assertion.
 
 import asyncio
 import json
+import time
+import types
 from typing import Any, Dict, List, Optional, Union
 
 from src.core.agent.llm_client import LLMClient
@@ -156,6 +158,11 @@ class FakeExpression:
         self.opens_lines = True
         # a line that meets the model's own scaffolding before a word is heard
         self.spoils_lines = False
+        # turns that opened the sound card ahead of her first word
+        self.warm_ups = 0
+
+    def warm_up(self):
+        self.warm_ups += 1
 
     def set_call(self, call):
         self.call = call
@@ -278,3 +285,107 @@ async def settle(loops: int = 8) -> None:
     """Yields long enough for the consciousness loop to make progress."""
     for _ in range(loops):
         await asyncio.sleep(0)
+
+
+# --- the sound card ------------------------------------------------------------
+
+
+class FakeOutputStream:
+    """A device that plays in real time and hears nothing: a ring of `capacity` frames drained by the clock."""
+
+    def __init__(self, samplerate=24000, device=None, channels=1, dtype="float32",
+                 capacity_ms=60, fail_open=False, latency=None, **_):
+        if fail_open:
+            raise OSError("the device refused to open")
+        self.latency_asked = latency
+        self.samplerate = int(samplerate)
+        self.device = device
+        self.channels = channels
+        self.capacity = self.samplerate * capacity_ms // 1000
+        self.frames = 0
+        self.started_at = None
+        self.written = []
+        self.peak = 0.0
+        self.underflows = 0
+        self.closed = False
+
+    def _played(self):
+        if self.started_at is None:
+            return 0
+        return int((time.monotonic() - self.started_at) * self.samplerate)
+
+    def _queued(self):
+        return max(0, self.frames - self._played())
+
+    def start(self):
+        self.started_at = time.monotonic()
+
+    @property
+    def write_available(self):
+        return self.capacity - self._queued()
+
+    def write(self, data):
+        underflow = self._queued() == 0 and self.frames > 0
+        if underflow:
+            self.underflows += 1
+            # the clock kept running over the hole; the next frame starts from now
+            self.frames = self._played()
+        while self.capacity - self._queued() < len(data):
+            time.sleep(0.001)
+        self.frames += len(data)
+        self.written.append(len(data))
+        if len(data):
+            self.peak = max(self.peak, float(abs(data).max()))
+        return underflow
+
+    def abort(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+class SilentDevice:
+    """Stands in for PortAudio so the suite never reaches the sound card.
+
+    The player imports sounddevice where it is used and hands it whatever the
+    TTS produced. A test that returns real samples rather than zeros would
+    play them — out loud, on the machine running the tests — and a headless
+    box has no PortAudio to import in the first place.
+    """
+
+    def __init__(self):
+        self.streams = []
+        self.restarts = 0
+        self.default = types.SimpleNamespace(device=(0, 0))
+        self.devices = [{"name": "silent", "max_output_channels": 2, "max_input_channels": 2,
+                         "default_low_output_latency": 0.0}]
+        # device names that refuse to open, like a bluetooth headset stuck in headset mode
+        self.refuse = set()
+        # seconds opening a stream takes, like a real device does
+        self.open_delay = 0.0
+        # the size of each stream's ring; a test about holes gives a shared ci runner room to hiccup
+        self.capacity_ms = 60
+
+    def output(self, name, latency=0.0, channels=2):
+        """Adds an output device and returns its position."""
+        self.devices.append({"name": name, "max_output_channels": channels, "max_input_channels": 0,
+                             "default_low_output_latency": latency})
+        return len(self.devices) - 1
+
+    def OutputStream(self, **kwargs):
+        if self.open_delay:
+            time.sleep(self.open_delay)
+        name = self.devices[kwargs.get("device", 0)]["name"]
+        stream = FakeOutputStream(fail_open=name in self.refuse, capacity_ms=self.capacity_ms, **kwargs)
+        self.streams.append(stream)
+        return stream
+
+    def query_devices(self, index=None):
+        return self.devices[index] if index is not None else list(self.devices)
+
+    def _terminate(self):
+        self.restarts += 1
+
+    def _initialize(self):
+        pass

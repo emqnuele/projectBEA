@@ -74,7 +74,8 @@ class ScriptedAvatar:
         self.script.add("perform", clip)
 
     def mouth(self, envelope, fps):
-        pass
+        # the mouth starts when a piece is heard: its place in the script is when the room hears it
+        self.script.add("heard", len(envelope))
 
     def reload_config(self, config):
         pass
@@ -118,14 +119,15 @@ async def test_her_face_changes_on_the_word_she_wrote_it_on():
         "neutral",
         "Ma certo, hai proprio ragione tu. <mood:angry> Anzi no, non hai ragione affatto.")
 
-    heard = [(k, v) for k, v in script.entries if k in ("play", "show")]
+    heard = [(k, v if k == "show" else None) for k, v in script.entries if k in ("heard", "show")]
     assert heard == [
         ("show", ("neutral", "talking")),
-        ("play", "Ma certo, hai proprio ragione tu."),
+        ("heard", None),
         ("show", ("angry", "talking")),
-        ("play", "Anzi no, non hai ragione affatto."),
+        ("heard", None),
         ("show", ("angry", "idle")),
     ]
+    assert script.of("play") == ["Ma certo, hai proprio ragione tu.", "Anzi no, non hai ragione affatto."]
 
 
 async def test_a_behaviour_lands_between_the_sentences_it_sits_between():
@@ -133,8 +135,8 @@ async def test_a_behaviour_lands_between_the_sentences_it_sits_between():
     await expression(script).speak(
         "neutral", "Guarda un po' qua che roba. <do:shrug> Comunque non mi interessa niente.")
 
-    order = [k for k, _ in script.entries if k in ("play", "perform")]
-    assert order == ["play", "perform", "play"]
+    order = [k for k, _ in script.entries if k in ("heard", "perform")]
+    assert order == ["heard", "perform", "heard"]
     assert script.of("perform") == ["shrug"]
 
 
@@ -196,7 +198,7 @@ async def test_the_next_piece_is_made_while_the_current_one_is_playing():
 
     e = expression(script)
 
-    async def slow_play(audio, rate, device):
+    async def slow_play(audio, rate, device=None, **_):
         playing.set()
         await released.wait()
 
@@ -232,7 +234,7 @@ async def test_being_talked_over_stops_the_rest_of_the_line():
     released = asyncio.Event()
     e = expression(script)
 
-    async def slow_play(audio, rate, device):
+    async def slow_play(audio, rate, device=None, **_):
         await released.wait()
 
     e._play_audio = slow_play

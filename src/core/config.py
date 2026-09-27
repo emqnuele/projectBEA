@@ -132,7 +132,17 @@ class BrainConfig:
     obs_host: str = "localhost"
     obs_port: int = 4455
     obs_password: str = ""
-    audio_device_id: int = 0
+    # the output her voice plays on, by name; empty follows the system default
+    audio_device: str = ""
+    # the old way to pick it, by position: used only when `audio_device` is empty
+    audio_device_id: Optional[int] = None
+    # how much of her voice is written ahead of the speaker: more survives a busier machine,
+    # less stops sooner when she is talked over
+    audio_buffer_ms: int = 100
+    # seconds of silence before the sound card is let go; 0 keeps it open
+    audio_idle_close_s: float = 30.0
+    # the latency asked of portaudio; 0 is its default, the quickest to the speaker
+    audio_latency_s: float = 0.0
 
     tts_provider: str = "edge" # edge or kokoro or orpheus
     tts_voice: str = "en-US-AvaNeural"

@@ -65,7 +65,10 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "obs_host": "localhost",
     "obs_port": 4455,
     "obs_password": "",
-    "audio_device_id": 0,
+    "audio_device": "",
+    "audio_buffer_ms": 100,
+    "audio_idle_close_s": 30.0,
+    "audio_latency_s": 0.0,
     "tts_provider": "edge",
     "tts_voice": "it-IT-IsabellaNeural",
     "tts_pitch": "+13Hz",
@@ -391,7 +394,11 @@ continues. [OBS module →](modules/obs.md)
 
 | Key | Default | Description |
 |---|---|---|
-| `audio_device_id` | `0` | Output device index. `python -c "import sounddevice; print(sounddevice.query_devices())"` |
+| `audio_device` | `""` | The output her voice plays on, **by name** (Settings → Voice lists them). Empty follows the system default. A name that is not plugged in falls back to the default until it is; a Windows name cut short by the MME api still matches |
+| `audio_device_id` | `null` | The old way: a position in the device list, used only when `audio_device` is empty. Positions move whenever a monitor or a headset is plugged in, so the doctor warns about it |
+| `audio_buffer_ms` | `100` | Settings → Voice → Advanced, like the two below. The most of her voice written ahead of the speaker. Less stops sooner when she is talked over (a barge-in is heard within this plus the device's latency). It is a ceiling: the stream's own buffer can be smaller (about 85 ms on MacBook speakers, about 300 ms on a bluetooth headset). Floor 20 |
+| `audio_idle_close_s` | `30` | Seconds of silence before the sound card is let go. `0` keeps it open |
+| `audio_latency_s` | `0` | The latency asked of PortAudio. `0` is its default, the quickest to the speaker. A larger value gives the stream a bigger buffer, for a machine busy enough that her voice breaks up, at the price of a later first sound: on MacBook speakers `0.1` measured 40 ms to the speaker instead of 5 |
 | `tts_provider` | `"edge"` | `edge`, `kokoro` or `orpheus`. **Changing it needs a restart** |
 | `tts_voice` / `tts_pitch` / `tts_rate` / `tts_volume` | `en-US-AvaNeural`, `+5Hz`, `+10%`, `+33%` | EdgeTTS |
 | `orpheus_voice` | `"zoe"` | Orpheus. Key and endpoint come from the environment |

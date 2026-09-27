@@ -267,33 +267,37 @@ async def check_manual(config: BrainConfig) -> Finding:
 
 async def check_speakers(config: BrainConfig) -> Finding:
     try:
-        import sounddevice as sd
-    except Exception as e:
+        from src.core.expression.player import output_devices, resolve, selector_of
+        devices = output_devices()
+    except ImportError as e:
         return failed(f"no audio library on this machine ({e})",
                       "uv sync — and on Linux, install libportaudio2.")
-
-    try:
-        outputs = [d for d in sd.query_devices() if d.get("max_output_channels", 0) > 0]
     except Exception as e:
         return failed(f"no audio device could be listed ({e})",
                       "On Linux check that PulseAudio or PipeWire is running.")
 
-    if not outputs:
+    if not devices:
         return failed("this machine has no audio output at all",
                       "Plug something in, or run her with the stage backends only.")
 
-    wanted = config.audio_device_id
-    try:
-        info = sd.query_devices(wanted)
-        if info.get("max_output_channels", 0) > 0:
-            return passed(f"device {wanted}: {info.get('name', wanted)}")
-    except Exception:
-        pass
-    return warned(
-        f"audio_device_id {wanted} is not an output; she will fall back to another",
-        "Set `audio_device_id` in config.json to one of: "
-        + ", ".join(f"{i} ({d['name']})" for i, d in enumerate(sd.query_devices())
-                    if d.get("max_output_channels", 0) > 0))
+    selector = selector_of(config)
+    device = resolve(selector, devices)
+    names = ", ".join(sorted({d["name"] for d in devices}))
+    if device is None:
+        fallback = resolve(None, devices)
+        return warned(
+            f"the audio output {selector!r} is not there; she speaks on "
+            f"{fallback['name'] if fallback else 'another output'} instead",
+            f"Plug it in, or pick one in Settings → Voice. Outputs now: {names}.")
+    latency = f", about {device['latency_ms']} ms to the speaker" if device["latency_ms"] else ""
+    if isinstance(selector, int):
+        return warned(
+            f"the audio output is picked by position ({selector}: {device['name']}{latency}); "
+            "positions move whenever a monitor or a headset is plugged in",
+            "Pick it by name in Settings → Voice, or set `audio_device` in config.json "
+            "to the name (empty follows the system default).")
+    how = "the system default" if selector is None else "by name"
+    return passed(f"{device['name']} ({how}{latency})")
 
 
 async def check_voice(config: BrainConfig) -> Finding:

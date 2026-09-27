@@ -81,7 +81,7 @@ ProjectBEA/
     │   ├── mind/           # routing, handoff, single_context, token_budget, tools
     │   ├── memory/         # sqlite, rag, embedder, profiler, plan
     │   ├── social/         # the roster, reach and agenda
-    │   ├── expression/     # the single output sink + humanizer + the face
+    │   ├── expression/     # the single output sink, the local player, humanizer, the face
     │   ├── stage.py        # fan-out to the OBS browser source
     │   ├── agent/          # LLMClient, role pools, tools, runner
     │   ├── update/         # the in-place updater: git, three-way merge, backups
