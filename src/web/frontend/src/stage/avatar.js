@@ -28,6 +28,7 @@ import { VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy } from '@pixiv/three
 import { createBody } from './body.js';
 import { EMOTIONS, faceTargets, mouthScale, resolveExpression } from './face.js';
 import { createLife } from './life.js';
+import { lightPreset } from './lights.js';
 import { addSegment, emptyMouth, frameAt, startMouth, syncMouth } from './mouth.js';
 
 // The mouth shapes, dark to bright. This order is a contract with
@@ -66,9 +67,30 @@ export async function createAvatar(root, config = {}) {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20);
 
-    const key = new THREE.DirectionalLight(0xffffff, 2.0);
-    key.position.set(1, 2, 1.5);          // from the camera side, or the face goes dark
-    scene.add(key, new THREE.AmbientLight(0xffffff, 1.1));
+    const lights = new THREE.Group();
+    scene.add(lights);
+    let lighting = null;
+    function light(name) {
+        const preset = lightPreset(name);
+        if (preset === lighting) return;
+        lighting = preset;
+        lights.clear();
+        for (const spec of preset.lights) {
+            let made;
+            if (spec.type === 'directional') {
+                made = new THREE.DirectionalLight(spec.color, spec.intensity);
+                made.position.set(...spec.position);
+            } else if (spec.type === 'hemisphere') {
+                made = new THREE.HemisphereLight(spec.color, spec.ground, spec.intensity);
+            } else {
+                made = new THREE.AmbientLight(spec.color, spec.intensity);
+            }
+            lights.add(made);
+        }
+        if (rig) rig.setRim(preset.rim);
+    }
+    let rig = null;
+    light(config.light_preset);
 
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
@@ -124,14 +146,32 @@ export async function createAvatar(root, config = {}) {
             if (expression && name !== 'neutral') declaredBlink.set(expression, expression.overrideBlink);
         }
 
-        const rig = {
+        // what each mtoon material declared, so a preset without a rim puts it back
+        const rims = [];
+        vrm.scene.traverse((object) => {
+            for (const material of [object.material].flat()) {
+                if (material?.isMToonMaterial) {
+                    rims.push([material, material.parametricRimColorFactor.clone(),
+                        material.parametricRimFresnelPowerFactor, material.parametricRimLiftFactor]);
+                }
+            }
+        });
+
+        const built = {
             vrm,
             names,
             face: {},
+            setRim(rim) {
+                for (const [material, colour, power, lift] of rims) {
+                    material.parametricRimColorFactor.copy(rim ? new THREE.Color(rim.color) : colour);
+                    material.parametricRimFresnelPowerFactor = rim ? rim.power : power;
+                    material.parametricRimLiftFactor = rim ? rim.lift : lift;
+                }
+            },
             body: createBody(vrm, loadAnimation, settings),
             life: createLife(vrm, camera, scene),
             setFace(next) {
-                rig.face = {
+                built.face = {
                     intensity: Number(next.expression_intensity ?? 1),
                     underEmotion: Number(next.mouth_under_emotion ?? 1),
                 };
@@ -142,14 +182,15 @@ export async function createAvatar(root, config = {}) {
                 }
             },
             dispose() {
-                rig.body.mixer.stopAllAction();
-                rig.life.dispose();
+                built.body.mixer.stopAllAction();
+                built.life.dispose();
                 scene.remove(vrm.scene);
                 VRMUtils.deepDispose(vrm.scene);
             },
         };
-        rig.setFace(settings);
-        return rig;
+        built.setFace(settings);
+        built.setRim(lighting.rim);
+        return built;
     }
 
     function frame(shot) {
@@ -194,7 +235,7 @@ export async function createAvatar(root, config = {}) {
         for (const name of EMOTIONS) if (rig.names[name]) manager?.setValue(rig.names[name], goal[name]);
     }
 
-    let rig = await buildRig(config.model_url || '/stage/model');
+    rig = await buildRig(config.model_url || '/stage/model');
     scene.add(rig.vrm.scene);
     frame(config.shot || 'bust');
 
@@ -311,6 +352,7 @@ export async function createAvatar(root, config = {}) {
         setLook(next = {}) {
             settings = next;
             setBackground(renderer, next.background);
+            light(next.light_preset);
             frame(next.shot || 'bust');
             rig.body.setConfig(next);
             rig.setFace(next);

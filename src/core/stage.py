@@ -92,6 +92,7 @@ def public_config(config) -> Dict[str, Any]:
         "caption_backend": stage.get("caption_backend", "obs"),
         "shot": stage.get("shot", "bust"),
         "background": stage.get("background", ""),
+        "light_preset": stage.get("light_preset", "flat"),
         "lipsync_fps": stage.get("lipsync_fps", 30),
         "max_fps": stage.get("max_fps", 0),
         "idle_clip": stage.get("idle_clip", ""),

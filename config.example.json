@@ -84,6 +84,7 @@
         "face_blend_blink": true,
         "mouth_under_emotion": 0.5,
         "background": "",
+        "light_preset": "flat",
         "max_fps": 0,
         "vts_host": "127.0.0.1",
         "vts_port": 8001,

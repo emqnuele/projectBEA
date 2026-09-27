@@ -112,7 +112,7 @@ const TRY_STATES = [
 ];
 
 // the settings the preview wears before they are saved, so a slider can be judged by eye
-const LOOK_KEYS = ['shot', 'background', 'idle_clip', 'state_clips', 'expression_intensity',
+const LOOK_KEYS = ['shot', 'background', 'light_preset', 'idle_clip', 'state_clips', 'expression_intensity',
     'face_blend_blink', 'mouth_under_emotion'];
 
 function TryPanel({ frame, stage, gestures }) {

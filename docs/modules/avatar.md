@@ -197,6 +197,7 @@ Source**. The backend publishes to the stage channel; the page owns three.js.
 | `face_blend_blink` | Turns `overrideBlink: none` into `blend` on the emotions, so a blink fades out under a face whose eyes are already shut. |
 | `mouth_under_emotion` | The lip sync is scaled towards this as the emotions on her face add up to one. |
 | `background` | A CSS colour behind her. Empty is transparent, which is what OBS composites over your scene. |
+| `light_preset` | `flat`, `soft` or `studio`, from `src/web/frontend/src/stage/lights.js`. `studio` also sets the parametric rim of every MToon material; any other preset puts back what the file declared. |
 
 ### Why the format matters
 

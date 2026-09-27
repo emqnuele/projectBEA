@@ -452,6 +452,7 @@ Two independent choices, plus the settings each one needs.
 | `mouth_under_emotion` | `0.5` | How much of the lip sync survives under a full emotion, 0–1. VRoid emotion shapes already move the mouth, and the visemes add on top of them. |
 | `state_clips` | `{}` | state (`idle`, `listening`, `thinking`, `talking`, `sleeping`) → clip carrying her in that state instead of `idle_clip`. Changing state crossfades over 0.5 s. |
 | `background` | `""` | A colour behind her, or empty for transparent. |
+| `light_preset` | `"flat"` | `flat` (one key light and an even ambient), `soft` (a warm key, a cool fill and sky light) or `studio` (key, fill, a light from behind and a rim on MToon materials). Applies live. |
 
 **The `vtube_studio` backend** — nothing is bundled; it drives the VTube Studio you already run.
 

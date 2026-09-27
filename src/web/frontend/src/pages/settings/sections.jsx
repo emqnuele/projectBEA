@@ -712,6 +712,18 @@ function StreamSection({ config, update, setConfig, adoptSaved }) {
                         <Field label="Model file" help="Set by choosing a model above. Type a path only for a .vrm kept outside the library.">
                             <TextInput value={stage.model_path || ''} onChange={(e) => updateStage('model_path', e.target.value)} placeholder="data/models/AvatarSample_B.vrm" className="font-mono" />
                         </Field>
+                        <Field label="Light" help="Judge it in the preview: saving applies it to the browser source live.">
+                            <ProviderChoice
+                                value={stage.light_preset || 'flat'}
+                                onChange={(id) => updateStage('light_preset', id)}
+                                options={[
+                                    { id: 'flat', label: 'Flat', blurb: 'One light from the camera side and an even fill. The original look.' },
+                                    { id: 'soft', label: 'Soft', blurb: 'A warm key, a cool fill and sky light: gentler shadows.' },
+                                    { id: 'studio', label: 'Studio', blurb: 'Key, fill and a light from behind that outlines her.' },
+                                ]}
+                                columns={3}
+                            />
+                        </Field>
                         <Field label="Framing" help="Computed from the head bone, so any model is framed the same way.">
                             <ProviderChoice
                                 value={stage.shot || 'bust'}

@@ -180,6 +180,7 @@ class BrainConfig:
         "face_blend_blink": True,      # a blink softens under a face whose eyes are already shut
         "mouth_under_emotion": 0.5,    # how much lip sync survives under a full emotion, 0-1
         "background": "",              # a colour behind her, or empty for transparent
+        "light_preset": "flat",        # flat | soft | studio; flat is the original two-light rig
         "max_fps": 0,                  # cap the browser source; 0 follows the display
 
         # the `vtube_studio` backend: nothing is bundled, it talks to yours
