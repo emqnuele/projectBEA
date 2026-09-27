@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { Field, SecretInput, Select, TextInput, CheckRow } from '../../components/ui/fields';
 import { Button } from '../../components/ui/controls';
-import { CopyField, Group, OutputDevice, ProviderChoice, SecretState, TestButton } from './parts';
+import { AudioTuning, CopyField, Group, OutputDevice, ProviderChoice, SecretState, TestButton } from './parts';
 import { StagePreview } from './StagePreview';
 import { PromptEditor } from './PromptEditor';
 import { createSchemaSection } from './SchemaSection';
@@ -296,6 +296,7 @@ function VoiceSection({ config, update, secrets, devices }) {
                 description="Point this at the virtual cable OBS is listening to, not at your speakers."
             >
                 <OutputDevice config={config} update={update} devices={devices} />
+                <AudioTuning config={config} update={update} />
                 <TestButton label="Render a test line" run={api.testTts} />
             </Group>
         </>

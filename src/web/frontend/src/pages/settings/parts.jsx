@@ -178,3 +178,51 @@ export function OutputDevice({ config, update, devices }) {
         </Field>
     );
 }
+
+/** The player's three dials, folded away: the defaults are right for almost everyone. */
+export function AudioTuning({ config, update }) {
+    // an emptied field keeps the value it had rather than saving a zero nobody typed
+    const set = (key, parse) => (e) => {
+        const value = parse(e.target.value);
+        if (Number.isFinite(value)) update(key, value);
+    };
+    return (
+        <details className="group mt-2.5">
+            <summary className="cursor-pointer list-none px-1 text-[11px] font-semibold uppercase tracking-wider text-faint transition-colors hover:text-dim">
+                Advanced — 3 more
+            </summary>
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-3">
+                <Field
+                    label="Written ahead (ms)"
+                    help="How much of her voice waits in the device. Less stops her sooner when she is talked over; the device's own buffer can be smaller. At least 20."
+                >
+                    <TextInput
+                        type="number" min="20" step="10"
+                        value={config.audio_buffer_ms ?? 100}
+                        onChange={set('audio_buffer_ms', (v) => parseInt(v, 10))}
+                    />
+                </Field>
+                <Field
+                    label="Asked latency (s)"
+                    help="0 is the quickest to the speaker. Raise it (0.1) only if her voice breaks up on a busy machine: it makes the first sound later."
+                >
+                    <TextInput
+                        type="number" min="0" step="0.05"
+                        value={config.audio_latency_s ?? 0}
+                        onChange={set('audio_latency_s', parseFloat)}
+                    />
+                </Field>
+                <Field
+                    label="Let go after (s)"
+                    help="Seconds of silence before the sound card is released. 0 keeps it open."
+                >
+                    <TextInput
+                        type="number" min="0" step="5"
+                        value={config.audio_idle_close_s ?? 30}
+                        onChange={set('audio_idle_close_s', parseFloat)}
+                    />
+                </Field>
+            </div>
+        </details>
+    );
+}

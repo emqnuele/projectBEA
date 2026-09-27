@@ -243,6 +243,19 @@ def test_the_dashboard_can_store_a_name_and_clear_the_old_position():
     assert config.audio_device == "CMF Buds 2" and config.audio_device_id is None
 
 
+async def test_the_dashboard_dials_reach_the_player_without_a_restart(card):
+    config = BrainConfig()
+    apply_config(config, {"audio_buffer_ms": 150, "audio_latency_s": 0.1, "audio_idle_close_s": 60})
+    assert (config.audio_buffer_ms, config.audio_latency_s, config.audio_idle_close_s) == (150, 0.1, 60)
+
+    e, _, _ = expression(0.05)
+    e.reload_config(config)
+    await e.speak("neutral", "Una frase.")
+    assert card.streams[-1].latency_asked == 0.1
+    assert e.player._buffer_ms == 150 and e.player._idle_close_s == 60
+    e.close()
+
+
 def test_the_command_line_takes_the_output_by_name():
     from src import cli
     config = BrainConfig()
