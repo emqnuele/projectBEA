@@ -279,7 +279,7 @@ Dashboard → **Settings → Stream**, with the 3D model chosen. The logic is
   polled every half second while one is running. With no model at all, one
   button fetches the default model and its idle motion and puts it on stage.
 - **Add your own model** takes a `.vrm` by drag and drop. The file is the request
-  body, written to a `.part` beside its target and renamed into place only once
+  body, written to a `.part` of its own beside its target and moved into place only once
   it is a GLB with a VRM extension. Names are reduced to letters, digits, spaces,
   dots and dashes; an existing file is never replaced; the limit is 200 MB.
 - **Motions** lists the clips in `clips_dir` with their length, the bones they

@@ -10,8 +10,10 @@ A model is addressed by its file name inside the models folder, never by a
 path from the page: the page can only name what this module listed.
 """
 
+import os
 import re
 import threading
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
@@ -262,7 +264,8 @@ def save_upload(chunks: Iterable[bytes], name: str, folder: Path, kind: str,
     target = folder / clean
     if target.exists():
         raise FileExistsError(clean)
-    partial = target.with_suffix(target.suffix + ".part")
+    # one partial file per upload: two of the same name at once must not write into each other
+    partial = folder / f".{clean}.{uuid.uuid4().hex}.part"
     written = 0
     try:
         with open(partial, "wb") as out:
@@ -281,9 +284,15 @@ def save_upload(chunks: Iterable[bytes], name: str, folder: Path, kind: str,
                 raise ValueError("That is a glTF file, not a VRM: it has no humanoid bones to drive.")
             if kind == "clip" and not is_clip(doc):
                 raise ValueError("That is not a VRM animation (.vrma).")
-        if target.exists():
-            raise FileExistsError(clean)
-        partial.rename(target)
+        try:
+            # a link fails if the name was taken meanwhile; a rename would replace it on posix
+            os.link(partial, target)
+        except FileExistsError:
+            raise FileExistsError(clean) from None
+        except OSError:
+            if target.exists():
+                raise FileExistsError(clean) from None
+            partial.rename(target)
         return target
     finally:
         partial.unlink(missing_ok=True)

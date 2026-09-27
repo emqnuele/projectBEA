@@ -184,6 +184,24 @@ def test_an_upload_never_replaces_a_file(tmp_path):
     assert (folder / "bea.vrm").read_bytes() == good
 
 
+def test_two_uploads_of_the_same_name_at_once_never_mix(tmp_path):
+    folder = tmp_path / "models"
+    first = vrm1(tmp_path / "a.vrm").read_bytes()
+    second = vrm1(tmp_path / "b.vrm", name="Other").read_bytes()
+    assert second != first
+
+    def chunks():
+        yield first[:100]
+        # the other upload starts and finishes while this one is half written
+        library.save_upload([second], "bea.vrm", folder, "model")
+        yield first[100:]
+
+    with pytest.raises(FileExistsError):
+        library.save_upload(chunks(), "bea.vrm", folder, "model")
+    assert (folder / "bea.vrm").read_bytes() == second
+    assert [p.name for p in folder.iterdir()] == ["bea.vrm"]
+
+
 def test_an_upload_over_the_limit_is_refused_and_leaves_nothing(tmp_path):
     folder = tmp_path / "models"
     with pytest.raises(ValueError, match="over"):
