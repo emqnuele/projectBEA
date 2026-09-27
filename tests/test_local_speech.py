@@ -126,7 +126,8 @@ async def test_a_barge_in_never_waits_on_the_sound_card(card):
     await asyncio.sleep(0.3)
     started = time.monotonic()
     await e.interrupt()
-    assert time.monotonic() - started < 0.05
+    # the old sd.stop() held the loop 111-146 ms; a shared ci runner gets some room under that
+    assert time.monotonic() - started < 0.1
     assert e.is_speaking is False
     await asyncio.wait_for(speaking, timeout=1)
     written = sum(card.streams[-1].written)

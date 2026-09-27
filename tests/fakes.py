@@ -364,6 +364,8 @@ class SilentDevice:
         self.refuse = set()
         # seconds opening a stream takes, like a real device does
         self.open_delay = 0.0
+        # the size of each stream's ring; a test about holes gives a shared ci runner room to hiccup
+        self.capacity_ms = 60
 
     def output(self, name, latency=0.0, channels=2):
         """Adds an output device and returns its position."""
@@ -375,7 +377,7 @@ class SilentDevice:
         if self.open_delay:
             time.sleep(self.open_delay)
         name = self.devices[kwargs.get("device", 0)]["name"]
-        stream = FakeOutputStream(fail_open=name in self.refuse, **kwargs)
+        stream = FakeOutputStream(fail_open=name in self.refuse, capacity_ms=self.capacity_ms, **kwargs)
         self.streams.append(stream)
         return stream
 

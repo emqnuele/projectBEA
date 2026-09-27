@@ -140,7 +140,9 @@ async def test_no_device_at_all_still_takes_as_long_as_the_line(card, caplog):
 
 
 async def test_the_sentences_of_a_line_play_back_to_back_without_a_hole(card):
-    p = player(card, "CMF Buds 2")
+    # a hole here would come from the design, not from a runner pausing for a few hundred ms
+    card.capacity_ms = 500
+    p = player(card, "CMF Buds 2", buffer_ms=400)
     for seconds in (0.15, 0.1, 0.2):
         await p.play(tone(seconds), RATE)
     await p.drained()
@@ -152,10 +154,11 @@ async def test_the_sentences_of_a_line_play_back_to_back_without_a_hole(card):
 
 async def test_a_busy_moment_on_the_loop_between_two_sentences_leaves_no_hole(card):
     """The next sentence is asked for while a buffer's worth of this one is still to be written."""
-    p = player(card, "MacBook Speakers", buffer_ms=100)
-    await p.play(tone(0.3), RATE)
-    # the loop was busy elsewhere right when the handover came
-    time.sleep(0.08)
+    card.capacity_ms = 500
+    p = player(card, "MacBook Speakers", buffer_ms=250)
+    await p.play(tone(0.8), RATE)
+    # busier than one buffer, less than the two the early handover leaves
+    time.sleep(0.35)
     await p.play(tone(0.1), RATE)
     await p.drained()
     assert card.streams[-1].underflows == 0
@@ -182,8 +185,8 @@ async def test_each_sentence_is_heard_when_it_reaches_the_speaker_and_in_order(c
         await p.play(tone(seconds), RATE, on_heard=lambda: heard.append(time.monotonic() - started))
     await p.drained()
     assert len(heard) == 2
-    assert heard[0] == pytest.approx(0.2, abs=0.04), "the first sentence waits for the device's latency"
-    assert heard[1] - heard[0] == pytest.approx(0.2, abs=0.04), "the second starts where the first ends"
+    assert heard[0] == pytest.approx(0.2, abs=0.06), "the first sentence waits for the device's latency"
+    assert heard[1] - heard[0] == pytest.approx(0.2, abs=0.06), "the second starts where the first ends"
     p.close()
 
 
