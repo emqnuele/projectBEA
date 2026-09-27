@@ -22,7 +22,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from src.core.expression.voice import Expression
+from src.core.expression.voice import REPORT_WAIT_S, Expression
 from src.core.skills.voice.channel import VoiceChannel
 from src.interfaces.base_interfaces import TTSInterface
 from tests.fakes import FakeAvatar, FakeCaption
@@ -255,3 +255,64 @@ async def test_a_pause_in_the_middle_of_a_sentence_does_not_get_answered(monkeyp
     last_end = [at for state, at in heard if state == "end"][-1]
     assert len(brain.turns) == 2, "the sentence was not split, so this proves nothing"
     assert played and played[0] >= last_end, "she talked over the second half of the sentence"
+
+
+class Instant(TTSInterface):
+    """Half a second of voice per piece, made at once: the line closes as fast as it can."""
+
+    async def generate_audio(self, text, prosody=None):
+        return (np.sin(np.arange(12000) / 7) * 0.2).astype(np.float32), 24000
+
+    def reload_config(self, config):
+        pass
+
+
+class Timeline(FakeAvatar):
+    supports_timeline = True
+
+    def __init__(self):
+        super().__init__()
+        self.segments = []
+        self.syncs = []
+
+    def mouth_at(self, frames, fps, utterance_id, offset_ms):
+        self.segments.append(offset_ms)
+
+    def mouth_sync(self, utterance_id, played_ms):
+        self.syncs.append(played_ms)
+
+
+@pytest.mark.parametrize("text", [
+    "Una frase sola, abbastanza lunga.",
+    "Prima frase, abbastanza lunga. Seconda frase, altrettanto lunga. Terza frase, lunga uguale.",
+])
+async def test_the_real_bot_reports_the_first_sound_before_the_line_closes(call, text):
+    """The bot reports an utterance playing when its first frame arrives. A short
+    line has been pushed whole by then, so the report lands just after the close:
+    the close waits `REPORT_WAIT_S` for it before miming the line without one."""
+    avatar = Timeline()
+    e = Expression(Config(), Instant(), avatar, FakeCaption(), Events())
+    e.set_call(call)
+    reports = []
+
+    def progress(utterance_id, played_ms, state):
+        reports.append((time.monotonic(), played_ms, state))
+        e.call_progress(utterance_id, played_ms, state)
+
+    call.on_progress = progress
+    e.set_state("listening")
+    avatar.shown.clear()
+    line = e.open_line("neutral", route="call", caption=text)
+    line.say(text)
+    utterance = await asyncio.wait_for(line.close(), timeout=10)
+    closed_at = time.monotonic()
+    await asyncio.wait_for(utterance.done.wait(), timeout=10)
+
+    assert reports, "the bot never reported the line"
+    late = reports[0][0] - closed_at
+    assert late < REPORT_WAIT_S, f"the first report came {late * 1000:.0f} ms after the close"
+    assert avatar.states[0] == "talking", "the face did not follow the first report"
+    assert avatar.syncs[0] == 0 and avatar.syncs == sorted(avatar.syncs)
+    assert reports[-1][2] == "done"
+    assert avatar.shown[-1] == ("neutral", "listening"), "the face stayed on after the room heard the end"
+    assert avatar.envelopes == [], "a reported line was mimed a second time"

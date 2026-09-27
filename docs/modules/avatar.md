@@ -44,6 +44,8 @@ class AvatarInterface(ABC):
 | `show` | before and after every spoken line, and on a state change | `mood` is one of `MOODS`; `state` is `idle`, `talking`, `listening`, `thinking` or `sleeping` |
 | `perform` | when a mood maps to a behaviour | a clip name, resolved by the backend |
 | `mouth` | once per line, **before playback starts** | the whole envelope, so the backend can pace it against its own clock |
+| `mouth_at` | in a call, once per piece, **after** the piece was sent — only if `supports_timeline` | one piece's envelope, the utterance id and the piece's offset into it in ms |
+| `mouth_sync` | in a call, on every playback report of the bot — only if `supports_timeline` | the utterance id and how many ms of it the room has heard |
 | `close` | when the backend is swapped out, and on shutdown | — |
 
 **The state she rests in.** `talking` is the only state the speech path chooses
@@ -67,6 +69,32 @@ Three rules a backend has to hold to:
 - **`mouth` receives the whole utterance.** Do not expect a call per frame.
 - **Ignore what you cannot do.** `perform` and `mouth` are no-ops on `PngAvatar`.
   Callers never branch on the backend.
+
+### In a call
+
+The room hears her through the Discord bot, not through this machine, and a
+line reaches the bot a piece at a time while the rest is still being made. So
+her face and mouth follow the bot's own reports of what it is playing:
+
+- Each piece's envelope is computed after the piece has been sent, never before,
+  and published with its offset in the utterance: the audio sent so far, which
+  is exact, rather than a count of frames. Pieces therefore lay end to end
+  without drifting, and each is normalised on its own, as a local line is.
+- The bot reports an utterance as playing when its first frame arrives, then
+  every ~250 ms of audio actually played. The first report puts the talking face
+  on and starts the mouth; every report moves the page's clock to what was heard
+  (a correction under 50 ms is ignored as jitter); `done` takes the face off.
+- A short line is usually pushed whole before the first report comes back: on
+  this machine the real bot's first report lands 17–19 ms after the close. The
+  close waits up to 250 ms for it. A line with no report by then is mimed the
+  old way: the talking face at once and the whole envelope through `mouth`.
+- The caption and `is_speaking` are timed from the close exactly as before. The
+  reports never touch `is_speaking`, which barge-in reads.
+
+A backend without `supports_timeline` (the OBS PNG, VTube Studio) still gets the
+talking face on the first report, and the whole line's envelope through `mouth`.
+The page logs every patch with its wall-clock time under `/stage?debug=1`, and
+the engine logs the first report of each line at debug level, to compare the two.
 
 `CaptionInterface` is `say(text)` and `clear()`. `say` is awaitable because the
 OBS backend animates over time and barge-in cancels it mid-sentence.

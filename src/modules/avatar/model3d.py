@@ -8,7 +8,7 @@ engine noticing, and what keeps this testable without a browser.
 
 from src.core.expression.face import weights_for
 from src.core.expression.pcm import ENVELOPE_FPS
-from src.core.stage import StageChannel
+from src.core.stage import StageChannel, publish_segment, publish_sync
 from src.interfaces.base_interfaces import AvatarInterface, MouthFrames
 from src.utils.logger import get_logger
 
@@ -17,6 +17,8 @@ logger = get_logger("bea.avatar.model")
 
 class Model3DAvatar(AvatarInterface):
     """Publishes what she is; the browser source turns it into pixels."""
+
+    supports_timeline = True
 
     def __init__(self, config, channel: StageChannel):
         self.config = config
@@ -65,6 +67,12 @@ class Model3DAvatar(AvatarInterface):
         if not len(envelope):
             return
         self.channel.publish({"envelope": list(envelope), "envelope_fps": int(fps)})
+
+    def mouth_at(self, envelope: MouthFrames, fps: int, utterance_id: str, offset_ms: int) -> None:
+        publish_segment(self.channel, envelope, fps, utterance_id, offset_ms)
+
+    def mouth_sync(self, utterance_id: str, played_ms: int) -> None:
+        publish_sync(self.channel, utterance_id, played_ms)
 
     def close(self) -> None:
         """The channel outlives the backend; the brain closes it."""

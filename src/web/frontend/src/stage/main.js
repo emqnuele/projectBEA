@@ -15,6 +15,8 @@ const params = new URLSearchParams(window.location.search);
 
 // ?hud=0 hides the connection warning, for the preview inside the dashboard
 const quiet = params.get('hud') === '0';
+// ?debug=1 logs when each patch lands, in wall-clock ms, to line up with the engine's log
+const debug = params.get('debug') === '1';
 
 const config = await stageConfig();
 const caption = createCaption(root, config);
@@ -80,6 +82,7 @@ connect({
     },
 
     onPatch: (patch) => {
+        if (debug) console.debug(`[stage] ${Date.now()} patch`, Object.keys(patch).join(','), patch.mouth_sync || patch.state || '');
         if (patch.config) applyConfig(patch.config);
         if ('caption' in patch) caption.say(patch.caption, patch.caption_id);
         avatar?.apply(patch, { animate: true });

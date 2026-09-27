@@ -111,6 +111,8 @@ class VoiceChannel:
         self.on_call_change: Optional[Callable[[Optional[str], int], None]] = None
         # the bot heard-it-first report: the only honest end of the latency clock
         self.on_first_sound: Optional[Callable[[], None]] = None
+        # every playback report, (utterance id, ms heard, state): what the mouth keeps time by
+        self.on_progress: Optional[Callable[[str, int, str], None]] = None
         # who is talking right now, and since when
         self.talking: Dict[str, float] = {}
         # turns that left the bot and have not been transcribed yet, oldest first
@@ -336,6 +338,11 @@ class VoiceChannel:
             utterance.done.set()
             if self.current is utterance:
                 self.current = None
+        if self.on_progress is not None:
+            try:
+                self.on_progress(utterance.id, utterance.played_ms, state)
+            except Exception as e:  # a listener must never break the socket loop
+                logger.debug(f"progress listener failed: {e}")
 
     # --- internals ----------------------------------------------------------
 

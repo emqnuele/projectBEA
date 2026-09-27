@@ -24,7 +24,7 @@ import { VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy } from '@pixiv/three
 import { createBody } from './body.js';
 import { EMOTIONS, faceTargets, mouthScale, resolveExpression } from './face.js';
 import { createLife } from './life.js';
-import { emptyMouth, frameAt, startMouth } from './mouth.js';
+import { addSegment, emptyMouth, frameAt, startMouth, syncMouth } from './mouth.js';
 
 // The mouth shapes, dark to bright. This order is a contract with
 // `src/core/expression/face.py`, which places every frame of a line on the same
@@ -269,6 +269,11 @@ export async function createAvatar(root, config = {}) {
             }
 
             if (patch.envelope) mouth = startMouth(patch.envelope, patch.envelope_fps, performance.now());
+            if (patch.mouth_segment) {
+                const { id, frames, fps, offset_ms: offset } = patch.mouth_segment;
+                mouth = addSegment(mouth, id, frames, fps, offset);
+            }
+            if (patch.mouth_sync) mouth = syncMouth(mouth, patch.mouth_sync.id, patch.mouth_sync.played_ms, performance.now());
             if (patch.perform) body.play(patch.perform);
         },
 

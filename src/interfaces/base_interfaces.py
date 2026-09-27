@@ -126,6 +126,21 @@ class AvatarInterface(ABC):
         """
         pass
 
+    # whether this backend can place the pieces of a call line on the room's own clock
+    supports_timeline: bool = False
+
+    def mouth_at(self, envelope: MouthFrames, fps: int, utterance_id: str, offset_ms: int) -> None:
+        """One piece of a call line, `offset_ms` into it, published as soon as the piece is sent.
+
+        Only asked of a backend with `supports_timeline`; the others get the
+        whole line through `mouth()` when it closes.
+        """
+        return None
+
+    def mouth_sync(self, utterance_id: str, played_ms: int) -> None:
+        """The call reports `played_ms` of this utterance heard: the mouth runs from there."""
+        return None
+
     @abstractmethod
     def reload_config(self, config) -> None:
         pass

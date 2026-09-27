@@ -385,3 +385,18 @@ def test_the_page_is_told_how_strong_her_face_is(client):
                          "face_blend_blink": False, "mouth_under_emotion": 0.3}
     config = api.get("/stage/config").json()
     assert (config["expression_intensity"], config["face_blend_blink"], config["mouth_under_emotion"]) == (0.6, False, 0.3)
+
+
+def test_a_call_line_mouth_is_a_moment_not_a_state():
+    """A page that reconnects must not mouth pieces of a line that is already over."""
+    from src.modules.avatar.model3d import Model3DAvatar
+
+    channel = StageChannel()
+    queue = channel.subscribe()
+    avatar = Model3DAvatar(BrainConfig(), channel)
+    avatar.mouth_at([[0.4, 0.5]], 30, "u1", 300)
+    avatar.mouth_sync("u1", 120)
+
+    assert queue.get_nowait() == {"mouth_segment": {"id": "u1", "frames": [[0.4, 0.5]], "fps": 30, "offset_ms": 300}}
+    assert queue.get_nowait() == {"mouth_sync": {"id": "u1", "played_ms": 120}}
+    assert "mouth_segment" not in channel.snapshot() and "mouth_sync" not in channel.snapshot()

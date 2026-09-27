@@ -19,7 +19,7 @@ QUEUE_LIMIT = 200
 
 # things that describe a moment rather than a state. Storing the envelope would
 # make a page that reconnects mouth a sentence nobody is saying any more.
-TRANSIENT = frozenset({"envelope", "perform"})
+TRANSIENT = frozenset({"envelope", "perform", "mouth_segment", "mouth_sync"})
 
 
 def _model_id(raw: str) -> str:
@@ -106,6 +106,17 @@ def public_config(config) -> Dict[str, Any]:
         "text_lines": config.text_lines,
         "text_font_size": config.text_font_size,
     }
+
+
+def publish_segment(channel: "StageChannel", envelope, fps: int, utterance_id: str, offset_ms: int) -> None:
+    if not len(envelope):
+        return
+    channel.publish({"mouth_segment": {"id": utterance_id, "frames": list(envelope),
+                                       "fps": int(fps), "offset_ms": int(offset_ms)}})
+
+
+def publish_sync(channel: "StageChannel", utterance_id: str, played_ms: int) -> None:
+    channel.publish({"mouth_sync": {"id": utterance_id, "played_ms": int(played_ms)}})
 
 
 class StageChannel:
