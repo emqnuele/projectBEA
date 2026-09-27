@@ -381,3 +381,11 @@ def test_the_page_is_told_which_clip_carries_her(client):
     config = api.get("/stage/config").json()
     assert config["idle_clip"] == "idle_loop"
     assert config["state_clips"] == {"thinking": "ponder"}
+
+
+def test_the_page_is_told_how_strong_her_face_is(client):
+    api, stub = client
+    stub.config.stage = {**stub.config.stage, "expression_intensity": 0.6,
+                         "face_blend_blink": False, "mouth_under_emotion": 0.3}
+    config = api.get("/stage/config").json()
+    assert (config["expression_intensity"], config["face_blend_blink"], config["mouth_under_emotion"]) == (0.6, False, 0.3)

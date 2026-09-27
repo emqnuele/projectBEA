@@ -444,6 +444,9 @@ Two independent choices, plus the settings each one needs.
 | `shot` | `"bust"` | `bust`, `half` or `full`. Framed off the head bone, so any model is framed alike. |
 | `mood_clips` | `{}` | mood → clip name. Optional; a mood without one just changes expression. |
 | `idle_clip` | `"idle_loop"` | The clip always playing under her. Empty, or a clip that fails to load, means a still pose with the arms down. Never offered to `<do:…>`. |
+| `expression_intensity` | `0.7` | How strongly a mood shows on her face, 0–1. Scales every emotion weight the engine sends; the proportions between them stay. |
+| `face_blend_blink` | `true` | A blink blends under an emotion instead of adding to it, so a smile whose eyes are already shut does not close them twice. Only emotions the model declares with `overrideBlink: none` are changed. |
+| `mouth_under_emotion` | `0.5` | How much of the lip sync survives under a full emotion, 0–1. VRoid emotion shapes already move the mouth, and the visemes add on top of them. |
 | `state_clips` | `{}` | state (`idle`, `listening`, `thinking`, `talking`, `sleeping`) → clip carrying her in that state instead of `idle_clip`. Changing state crossfades over 0.5 s. |
 | `background` | `""` | A colour behind her, or empty for transparent. |
 

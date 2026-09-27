@@ -173,6 +173,9 @@ class BrainConfig:
         "mood_clips": {},              # mood -> clip name, all optional
         "idle_clip": "idle_loop",      # the clip always playing under her; empty for a procedural pose
         "state_clips": {},             # state -> clip carrying her in it, instead of idle_clip
+        "expression_intensity": 0.7,   # how strongly a mood shows on the face, 0-1
+        "face_blend_blink": True,      # a blink softens under a face whose eyes are already shut
+        "mouth_under_emotion": 0.5,    # how much lip sync survives under a full emotion, 0-1
         "background": "",              # a colour behind her, or empty for transparent
         "max_fps": 0,                  # cap the browser source; 0 follows the display
 

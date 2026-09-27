@@ -22,9 +22,8 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy } from '@pixiv/three-vrm-animation';
 
 import { createBody } from './body.js';
+import { EMOTIONS, faceTargets, mouthScale, resolveExpression } from './face.js';
 import { createLife } from './life.js';
-
-const EMOTIONS = ['happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral'];
 
 // The mouth shapes, dark to bright. This order is a contract with
 // `src/core/expression/face.py`, which places every frame of a line on the same
@@ -97,6 +96,33 @@ export async function createAvatar(root, config = {}) {
     const body = createBody(vrm, loadAnimation, config);
     const life = createLife(vrm, camera, scene);
 
+    // the model's own names for the emotions: a vrm 0.x keeps surprised as a custom "Surprised"
+    const available = (vrm.expressionManager?.expressions || []).map((e) => e.expressionName);
+    const names = {};
+    for (const name of EMOTIONS) {
+        const found = resolveExpression(available, name);
+        if (found) names[name] = found;
+    }
+    // what the file declared, so turning the setting off puts it back
+    const declaredBlink = new Map();
+    for (const name of EMOTIONS) {
+        const expression = names[name] && vrm.expressionManager?.getExpression(names[name]);
+        if (expression && name !== 'neutral') declaredBlink.set(expression, expression.overrideBlink);
+    }
+    let face = {};
+    function setFace(next) {
+        face = {
+            intensity: Number(next.expression_intensity ?? 1),
+            underEmotion: Number(next.mouth_under_emotion ?? 1),
+        };
+        // 'none' adds a blink on top of a face whose eyes are already shut in a smile
+        const blend = next.face_blend_blink !== false;
+        for (const [expression, declared] of declaredBlink) {
+            expression.overrideBlink = blend && declared === 'none' ? 'blend' : declared;
+        }
+    }
+    setFace(config);
+
     function frame(shot) {
         const bone = (name) => vrm.humanoid?.getNormalizedBoneNode(name)
             || vrm.humanoid?.getRawBoneNode(name);
@@ -146,9 +172,13 @@ export async function createAvatar(root, config = {}) {
         if (!manager) return;
 
         const k = 1 - Math.exp(-EASING * delta);
+        const goal = faceTargets(target, face.intensity);
+        const worn = {};
         for (const name of EMOTIONS) {
-            const now = manager.getValue(name) ?? 0;
-            manager.setValue(name, THREE.MathUtils.lerp(now, target[name] ?? 0, k));
+            const actual = names[name];
+            if (!actual) continue;
+            worn[name] = THREE.MathUtils.lerp(manager.getValue(actual) ?? 0, goal[name], k);
+            manager.setValue(actual, worn[name]);
         }
 
         let frame = null;
@@ -158,7 +188,8 @@ export async function createAvatar(root, config = {}) {
         }
 
         const m = 1 - Math.exp(-MOUTH_EASING * delta);
-        jaw.open = THREE.MathUtils.lerp(jaw.open, frame ? frame[0] : 0, m);
+        const wanted = frame ? frame[0] * mouthScale(worn, face.underEmotion) : 0;
+        jaw.open = THREE.MathUtils.lerp(jaw.open, wanted, m);
         // the shape is only chased while there is something to say: easing it
         // back to the middle between two words makes the mouth chew
         if (frame) jaw.shape = THREE.MathUtils.lerp(jaw.shape, frame[1], m);
@@ -232,7 +263,8 @@ export async function createAvatar(root, config = {}) {
             if (!animate) {
                 // snap rather than ease, so a reconnect is invisible on stream
                 const manager = vrm.expressionManager;
-                for (const name of EMOTIONS) manager?.setValue(name, target[name] ?? 0);
+                const goal = faceTargets(target, face.intensity);
+                for (const name of EMOTIONS) if (names[name]) manager?.setValue(names[name], goal[name]);
                 mouth = { frames: [], fps: 30, startedAt: 0 };
                 silence(manager);
                 life.settle();
@@ -254,6 +286,7 @@ export async function createAvatar(root, config = {}) {
             setBackground(renderer, next.background);
             frame(next.shot || 'bust');
             body.setConfig(next);
+            setFace(next);
         },
     };
 }

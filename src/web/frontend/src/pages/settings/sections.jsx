@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
-import { Field, SecretInput, Select, TextInput, CheckRow } from '../../components/ui/fields';
+import { Field, SecretInput, Select, Slider, TextInput, CheckRow } from '../../components/ui/fields';
 import { Button } from '../../components/ui/controls';
 import { CopyField, Group, ProviderChoice, SecretState, TestButton } from './parts';
 import { StagePreview } from './StagePreview';
@@ -699,6 +699,29 @@ function StreamSection({ config, update, setConfig }) {
                                 ))}
                             </Select>
                         </Field>
+                    </Group>
+
+                    <Group title="Her face" description="How strongly a mood reads on this model. Saving applies it to the browser source live.">
+                        <Slider
+                            label="Expression strength"
+                            value={Number(stage.expression_intensity ?? 0.7)}
+                            onChange={(v) => updateStage('expression_intensity', v)}
+                            step={0.05}
+                            format={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <Slider
+                            label="Lip sync under a strong emotion"
+                            value={Number(stage.mouth_under_emotion ?? 0.5)}
+                            onChange={(v) => updateStage('mouth_under_emotion', v)}
+                            step={0.05}
+                            format={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <CheckRow
+                            checked={stage.face_blend_blink ?? true}
+                            onChange={(v) => updateStage('face_blend_blink', v)}
+                            title="Soften blinks under a smile"
+                            help="A face whose eyes are already shut does not close them a second time when she blinks."
+                        />
                     </Group>
 
                     <Group title="A behaviour per mood" description="Optional. Leave one empty and she just changes expression.">

@@ -156,12 +156,16 @@ class FakeExpression:
         self.opens_lines = True
         # a line that meets the model's own scaffolding before a word is heard
         self.spoils_lines = False
+        self.thinking: List[bool] = []
 
     def set_call(self, call):
         self.call = call
 
     def set_affect(self, affect):
         self.affect = affect
+
+    def show_thinking(self, active):
+        self.thinking.append(active)
 
     def open_line(self, mood, *, route="local", feeling=None, caption=None):
         if not self.opens_lines:

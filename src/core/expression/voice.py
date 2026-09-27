@@ -101,6 +101,21 @@ class Expression:
             return
         self.avatar.show(self._mood, state)
 
+    def show_thinking(self, active: bool) -> None:
+        """Her face while a turn is being thought through, and back when it is over.
+
+        Only between lines: once she is saying something the talking face owns
+        the avatar. Never touches where she rests or whether she is speaking —
+        barge-in reads those — and never waits on anything.
+        """
+        if self.is_speaking or self._line is not None or self._resting == "sleeping":
+            return
+        try:
+            self.avatar.show(self._mood, "thinking" if active else self._resting)
+        except Exception as e:
+            # a face that fails must never cost her the turn
+            logger.debug(f"showing the thinking face failed: {e}")
+
     def set_ports(self, avatar: AvatarInterface, caption: CaptionInterface) -> None:
         """Swaps the backends under her, mid-run, without dropping the mood."""
         self.avatar = avatar

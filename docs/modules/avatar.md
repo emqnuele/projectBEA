@@ -41,7 +41,7 @@ class AvatarInterface(ABC):
 
 | Method | Called | Argument |
 |---|---|---|
-| `show` | before and after every spoken line, and on a state change | `mood` is one of `MOODS`; `state` is `idle`, `talking`, `listening` or `sleeping` |
+| `show` | before and after every spoken line, and on a state change | `mood` is one of `MOODS`; `state` is `idle`, `talking`, `listening`, `thinking` or `sleeping` |
 | `perform` | when a mood maps to a behaviour | a clip name, resolved by the backend |
 | `mouth` | once per line, **before playback starts** | the whole envelope, so the backend can pace it against its own clock |
 | `close` | when the backend is swapped out, and on shutdown | — |
@@ -53,6 +53,12 @@ consciousness, `listening` by the voice surface while she sits in a call — and
 hardcoded `idle`. A state that arrives mid-line is recorded and applied when she
 stops talking, so someone walking into the call cannot take her talking face off
 her halfway through a word.
+
+`thinking` is shown by the consciousness for the length of a turn somebody is
+waiting on (not her own idle ticks), through `Expression.show_thinking`. It is a
+face, not a place she rests: it is never stored as the resting state, it is
+skipped while she speaks or sleeps, and it never touches `is_speaking`, which
+barge-in reads. A backend that has nothing to show for it draws the mood's `idle`.
 
 Three rules a backend has to hold to:
 
@@ -143,6 +149,9 @@ Source**. The backend publishes to the stage channel; the page owns three.js.
 | `mood_clips` | mood → clip name. A mood without one changes expression only. |
 | `idle_clip` | The clip that loops under her (`idle_loop` from `make model`). Empty means a still procedural pose. |
 | `state_clips` | state → clip that loops under her in that state instead of `idle_clip`. |
+| `expression_intensity` | Scales every emotion weight on the page (neutral excepted). |
+| `face_blend_blink` | Turns `overrideBlink: none` into `blend` on the emotions, so a blink fades out under a face whose eyes are already shut. |
+| `mouth_under_emotion` | The lip sync is scaled towards this as the emotions on her face add up to one. |
 | `background` | A CSS colour behind her. Empty is transparent, which is what OBS composites over your scene. |
 
 ### Why the format matters

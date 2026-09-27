@@ -407,6 +407,10 @@ class Consciousness:
         self._thought, self._acted, self._said, self._sent = [], [], None, []
         self._owed = set()
         self._start_over = False
+        # an idle tick is her own mind wandering, not somebody waiting on an answer
+        thinking = not all(p.kind == PerceptionKind.IDLE for p in batch)
+        if thinking:
+            self.expression.show_thinking(True)
         task = asyncio.create_task(self._turn(batch))
         self._turn_task = task
         try:
@@ -417,6 +421,8 @@ class Consciousness:
             raise
         finally:
             self._turn_task = None
+            if thinking:
+                self.expression.show_thinking(False)
         if task.cancelled():
             if not self._start_over:
                 raise asyncio.CancelledError()

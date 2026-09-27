@@ -223,13 +223,15 @@ def describe(path: Path) -> Dict[str, Any]:
         out.update(vrm="0.x", title=meta.get("title") or "", authors=[author] if author else [],
                    licence=_licence_v0(meta),
                    bones=len((vrm0 or {}).get("humanoid", {}).get("humanBones", [])))
-    out["emotions"] = [n for n in EMOTIONS if n in names]
+    # the page falls back to a custom expression of the same name in any case, as vroid's 0.x "Surprised"
+    lowered = {n.lower() for n in names}
+    out["emotions"] = [n for n in EMOTIONS if n in names or n in lowered]
     out["visemes"] = [n for n in VISEMES if n in names]
     out["has_thumbnail"] = thumbnail(path) is not None
     warnings = []
     if "aa" not in names:
         warnings.append("No 'aa' mouth shape: her mouth will not move while she talks.")
-    missing = [n for n in EMOTIONS if n != "neutral" and n not in names]
+    missing = [n for n in EMOTIONS if n != "neutral" and n not in out["emotions"]]
     if missing:
         warnings.append(f"No {', '.join(missing)} expression: those moods will not show on her face.")
     out["warnings"] = warnings

@@ -33,6 +33,12 @@ def test_a_vrm_0_is_described_under_the_names_the_renderer_uses(tmp_path):
     assert "surprised" not in names
 
 
+def test_a_custom_surprised_counts_because_the_page_falls_back_to_it(tmp_path):
+    info = describe(vrm0(tmp_path / "old.vrm"))
+    assert "surprised" in info["emotions"]
+    assert info["warnings"] == []
+
+
 def test_a_vrm_0_licence_is_read_from_its_permission_url(tmp_path):
     info = describe(vrm0(tmp_path / "old.vrm"))
     assert info["vrm"] == "0.x"
