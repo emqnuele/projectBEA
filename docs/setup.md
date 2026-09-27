@@ -146,6 +146,24 @@ Then map the files in `config.json` under the `avatar_map` key:
 }
 ```
 
+With `stage.png_render: "stage"` the same pictures are drawn in the browser source
+at `http://127.0.0.1:8000/stage` instead of an OBS image source: the mouth follows
+her voice, and each mood may add a `talking_closed` and a `blink` picture.
+
+### A 3D model instead
+
+Choose **3D model** under Settings → Stream and add `http://127.0.0.1:8000/stage`
+to OBS as a Browser Source. The library on that page downloads the free default
+model and its idle motion in one click, or takes your own `.vrm` by drag and drop
+(VRoid Studio exports work, VRM 1.0 or 0.x). From a terminal:
+
+```bash
+make model                                    # the default model and idle motion
+uv run python tools/fetch_model.py --list     # everything in the catalog, with licences
+```
+
+Models live in `data/models/` and motions in `data/clips/`; both are gitignored.
+
 ---
 
 ## 5. Audio Device Setup

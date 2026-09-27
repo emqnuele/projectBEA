@@ -74,6 +74,7 @@
         "caption_backend": "obs",
         "lipsync_fps": 30,
         "model_path": "",
+        "models_dir": "data/models",
         "clips_dir": "data/clips",
         "shot": "bust",
         "mood_clips": {},

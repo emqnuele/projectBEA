@@ -4,6 +4,7 @@ import { Field, SecretInput, Select, Slider, TextInput, CheckRow } from '../../c
 import { Button } from '../../components/ui/controls';
 import { CopyField, Group, ProviderChoice, SecretState, TestButton } from './parts';
 import { StagePreview } from './StagePreview';
+import { ModelLibrary } from './ModelLibrary';
 import { PromptEditor } from './PromptEditor';
 import { createSchemaSection } from './SchemaSection';
 import GamePanel from '../../components/console/GamePanel';
@@ -512,7 +513,7 @@ const CAPTION_BACKENDS = [
     { id: 'off', label: 'Off', blurb: 'She speaks, nothing is written.' },
 ];
 
-function StreamSection({ config, update, setConfig }) {
+function StreamSection({ config, update, setConfig, adoptSaved }) {
     const stage = config.stage || {};
     const avatarBackend = stage.avatar_backend || 'png';
     const captionBackend = stage.caption_backend || 'obs';
@@ -540,6 +541,9 @@ function StreamSection({ config, update, setConfig }) {
     // what is actually installed in the clips folder, so the picker offers real
     // names instead of a text box where a typo is silent until you are live
     const [clips, setClips] = useState([]);
+    const [clipsVersion, setClipsVersion] = useState(0);
+    // a model shown in the preview without being put on stage
+    const [previewId, setPreviewId] = useState(null);
     // what VTube Studio answered, held here so the preview and the pickers are
     // looking at the same connection instead of each asking on their own
     const [vtsModel, setVtsModel] = useState(null);
@@ -548,7 +552,7 @@ function StreamSection({ config, update, setConfig }) {
         api.stageClips()
             .then((list) => setClips(Array.isArray(list) ? list : []))
             .catch(() => setClips([]));
-    }, [avatarBackend, stage.clips_dir]);
+    }, [avatarBackend, stage.clips_dir, clipsVersion]);
 
     return (
         <>
@@ -576,7 +580,13 @@ function StreamSection({ config, update, setConfig }) {
                 </Field>
             </Group>
 
-            <StagePreview config={config} vtsStatus={vtsModel} />
+            <StagePreview
+                config={config}
+                vtsStatus={vtsModel}
+                previewId={previewId}
+                onStopPreview={() => setPreviewId(null)}
+                gestures={clips.filter((c) => !baseClips.has(c.name)).map((c) => c.name)}
+            />
 
             {(avatarBackend === 'model' || pngInPage || captionBackend === 'stage') && (
                 <Group title="The browser source" description="Add this URL to OBS as a Browser Source. Tick 'Shutdown source when not visible' off, so she keeps her pose.">
@@ -690,9 +700,17 @@ function StreamSection({ config, update, setConfig }) {
 
             {avatarBackend === 'model' && (
                 <>
-                    <Group title="The model" description="A .vrm file on this machine. Nothing is bundled: the model is yours.">
-                        <Field label="Model file" help="Run `make model` to download the free sample, or point this at your own.">
-                            <TextInput value={stage.model_path || ''} onChange={(e) => updateStage('model_path', e.target.value)} placeholder="data/models/bea.vrm" className="font-mono" />
+                    <ModelLibrary
+                        stage={stage}
+                        adoptSaved={adoptSaved}
+                        previewId={previewId}
+                        onPreview={setPreviewId}
+                        onClipsChanged={() => setClipsVersion((v) => v + 1)}
+                    />
+
+                    <Group title="How she is shown" description="Framing, motion and the clips folder.">
+                        <Field label="Model file" help="Set by choosing a model above. Type a path only for a .vrm kept outside the library.">
+                            <TextInput value={stage.model_path || ''} onChange={(e) => updateStage('model_path', e.target.value)} placeholder="data/models/AvatarSample_B.vrm" className="font-mono" />
                         </Field>
                         <Field label="Framing" help="Computed from the head bone, so any model is framed the same way.">
                             <ProviderChoice

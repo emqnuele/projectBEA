@@ -442,6 +442,7 @@ Two independent choices, plus the settings each one needs.
 | Key | Default | What it does |
 |---|---|---|
 | `model_path` | `""` | The `.vrm` on this machine. Nothing ships with the repo; `make model` fetches a free one. |
+| `models_dir` | `"data/models"` | Where the dashboard's library lists, downloads and uploads models. A `model_path` outside it still works and shows as external. |
 | `clips_dir` | `"data/clips"` | Where `.vrma` behaviours live. They appear by name in the dashboard. |
 | `shot` | `"bust"` | `bust`, `half` or `full`. Framed off the head bone, so any model is framed alike. |
 | `mood_clips` | `{}` | mood → clip name. Optional; a mood without one just changes expression. |

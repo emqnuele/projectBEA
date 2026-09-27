@@ -170,6 +170,7 @@ class BrainConfig:
 
         # the `model` backend
         "model_path": "",              # the .vrm you bring; never shipped with the repo
+        "models_dir": "data/models",   # where the dashboard's library keeps and downloads models
         "clips_dir": "data/clips",     # .vrma behaviours, which are portable and are
         "shot": "bust",                # bust | half | full, framed off the head bone
         "mood_clips": {},              # mood -> clip name, all optional

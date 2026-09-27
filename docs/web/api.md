@@ -795,6 +795,40 @@ and one `.vrma` each. `base` is a clip named by `idle_clip` or `state_clips`: it
 loops under her and is never offered to `<do:…>`. A name that would walk out of
 the clips folder is a `404`.
 
+#### `GET /stage/moods`
+Every mood's expression weights (`weights_for`), so the dashboard's preview can
+wear a mood without the engine.
+
+#### `GET /stage/library`
+`{ models, catalog, clips, models_dir, clips_dir, upload_limit }`. A model is
+`{ id, file, name, authors, vrm, size, licence, credit, emotions, warnings,
+has_thumbnail, version, active, external }`; `id` is its file name in
+`models_dir`, or `external` for a configured model outside it. A catalog entry
+carries `installed` and, while one runs, its `download`. A clip is
+`{ name, file, size, role, duration, bones, drives_gaze }`.
+
+#### `POST /stage/library/download` · `GET /stage/library/downloads`
+**Body:** `{ "id": "avatar-sample-b" }`. Starts fetching a catalog entry on a
+thread and answers `202` at once; `404` for an unknown id, `409` while that entry
+is already downloading. `downloads` maps each id to
+`{ state: running|done|failed, written, total, error }`.
+
+#### `GET /stage/library/models/{id}/thumbnail` · `GET /stage/library/models/{id}/file`
+The picture the model embeds, and the `.vrm` itself for the preview. Only ids
+the library lists; anything else is a `404`.
+
+#### `POST /stage/library/select`
+**Body:** `{ "id": "AvatarSample_B.vrm" }`. Saves `stage.model_path` and rebuilds
+the stage alone. Returns `{ model_path }`.
+
+#### `POST /stage/library/models/upload?name=…` · `POST /stage/library/clips/upload?name=…`
+The file is the request body. `201` with `{ file }`; `409` if that name exists,
+`413` over 200 MB, `422` if it is not a VRM (or a VRM animation).
+
+#### `DELETE /stage/library/models/{id}`
+Deletes a model from `models_dir`. `409` for the model on stage or one outside
+the folder.
+
 #### `GET /stage/preview`
 **Query:** `mood`, `state` (`idle` by default). One avatar image, for the
 preview in the dashboard. Only paths that appear in `avatar_map` are served —

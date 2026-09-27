@@ -14,6 +14,10 @@
  *    makes the same code frame a 1.4 m model and a 1.8 m one the same way.
  *  - This page runs inside OBS for hours at a time, so the loop does the least
  *    it can get away with and the frame rate can be capped from config.
+ *
+ * Everything that belongs to one model — the VRM, its body and its life — is a
+ * rig. A new model is loaded into a second rig while the first one keeps being
+ * drawn, and swapped in on a single frame: OBS never shows an empty source.
  */
 
 import * as THREE from 'three';
@@ -70,61 +74,86 @@ export async function createAvatar(root, config = {}) {
     loader.register((parser) => new VRMLoaderPlugin(parser));
     loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
-    const gltf = await loader.loadAsync('/stage/model');
-    const vrm = gltf.userData.vrm;
-    if (!vrm) throw new Error('that file loaded, but it is not a VRM');
-
-    VRMUtils.combineSkeletons(gltf.scene);
-    VRMUtils.rotateVRM0(vrm);             // only 0.x needs turning; 1.0 already faces us
-    // skinned bounds do not follow the bones, so an arm raised past them would be culled
-    vrm.scene.traverse((object) => { object.frustumCulled = false; });
-    if (vrm.lookAt) {
-        // clips that drive the gaze need it, and without one each clip built creates its own
-        const proxy = new VRMLookAtQuaternionProxy(vrm.lookAt);
-        proxy.name = 'VRMLookAtQuaternionProxy';
-        vrm.scene.add(proxy);
-    }
-    scene.add(vrm.scene);
-
-    frame(config.shot || 'bust');
-
     const loadAnimation = async (name) => {
         const loaded = await loader.loadAsync(`/stage/clips/${encodeURIComponent(name)}`);
         const [animation] = loaded.userData.vrmAnimations || [];
         if (!animation) throw new Error('no animation inside it');
         return animation;
     };
-    const body = createBody(vrm, loadAnimation, config);
-    const life = createLife(vrm, camera, scene);
 
-    // the model's own names for the emotions: a vrm 0.x keeps surprised as a custom "Surprised"
-    const available = (vrm.expressionManager?.expressions || []).map((e) => e.expressionName);
-    const names = {};
-    for (const name of EMOTIONS) {
-        const found = resolveExpression(available, name);
-        if (found) names[name] = found;
-    }
-    // what the file declared, so turning the setting off puts it back
-    const declaredBlink = new Map();
-    for (const name of EMOTIONS) {
-        const expression = names[name] && vrm.expressionManager?.getExpression(names[name]);
-        if (expression && name !== 'neutral') declaredBlink.set(expression, expression.overrideBlink);
-    }
-    let face = {};
-    function setFace(next) {
-        face = {
-            intensity: Number(next.expression_intensity ?? 1),
-            underEmotion: Number(next.mouth_under_emotion ?? 1),
-        };
-        // 'none' adds a blink on top of a face whose eyes are already shut in a smile
-        const blend = next.face_blend_blink !== false;
-        for (const [expression, declared] of declaredBlink) {
-            expression.overrideBlink = blend && declared === 'none' ? 'blend' : declared;
+    let settings = config;
+
+    // what the engine last said she is, whichever model is wearing it
+    const target = Object.fromEntries(EMOTIONS.map((name) => [name, 0]));
+    target.neutral = 1;
+    let state = 'idle';
+    let mouth = emptyMouth();
+    let speaking = false;
+
+    // where the mouth is right now, as opposed to where the line says it should
+    // be: eased, so 30 frames a second do not arrive as 30 steps
+    const jaw = { open: 0, shape: 0.5 };
+
+    async function buildRig(url) {
+        const gltf = await loader.loadAsync(url);
+        const vrm = gltf.userData.vrm;
+        if (!vrm) throw new Error('that file loaded, but it is not a VRM');
+
+        VRMUtils.combineSkeletons(gltf.scene);
+        VRMUtils.rotateVRM0(vrm);             // only 0.x needs turning; 1.0 already faces us
+        // skinned bounds do not follow the bones, so an arm raised past them would be culled
+        vrm.scene.traverse((object) => { object.frustumCulled = false; });
+        if (vrm.lookAt) {
+            // clips that drive the gaze need it, and without one each clip built creates its own
+            const proxy = new VRMLookAtQuaternionProxy(vrm.lookAt);
+            proxy.name = 'VRMLookAtQuaternionProxy';
+            vrm.scene.add(proxy);
         }
+
+        // the model's own names for the emotions: a vrm 0.x keeps surprised as a custom "Surprised"
+        const available = (vrm.expressionManager?.expressions || []).map((e) => e.expressionName);
+        const names = {};
+        for (const name of EMOTIONS) {
+            const found = resolveExpression(available, name);
+            if (found) names[name] = found;
+        }
+        // what the file declared, so turning the setting off puts it back
+        const declaredBlink = new Map();
+        for (const name of EMOTIONS) {
+            const expression = names[name] && vrm.expressionManager?.getExpression(names[name]);
+            if (expression && name !== 'neutral') declaredBlink.set(expression, expression.overrideBlink);
+        }
+
+        const rig = {
+            vrm,
+            names,
+            face: {},
+            body: createBody(vrm, loadAnimation, settings),
+            life: createLife(vrm, camera, scene),
+            setFace(next) {
+                rig.face = {
+                    intensity: Number(next.expression_intensity ?? 1),
+                    underEmotion: Number(next.mouth_under_emotion ?? 1),
+                };
+                // 'none' adds a blink on top of a face whose eyes are already shut in a smile
+                const blend = next.face_blend_blink !== false;
+                for (const [expression, declared] of declaredBlink) {
+                    expression.overrideBlink = blend && declared === 'none' ? 'blend' : declared;
+                }
+            },
+            dispose() {
+                rig.body.mixer.stopAllAction();
+                rig.life.dispose();
+                scene.remove(vrm.scene);
+                VRMUtils.deepDispose(vrm.scene);
+            },
+        };
+        rig.setFace(settings);
+        return rig;
     }
-    setFace(config);
 
     function frame(shot) {
+        const { vrm } = rig;
         const bone = (name) => vrm.humanoid?.getNormalizedBoneNode(name)
             || vrm.humanoid?.getRawBoneNode(name);
         const head = bone('head');
@@ -158,38 +187,39 @@ export async function createAvatar(root, config = {}) {
         camera.lookAt(0, centre, 0);
     }
 
-    // what the engine last said she is
-    const target = Object.fromEntries(EMOTIONS.map((name) => [name, 0]));
-    target.neutral = 1;
-    let mouth = emptyMouth();
-    let speaking = false;
+    /** The face the engine last asked for, put on at once: a reconnect or a new model shows no ease. */
+    function snapFace() {
+        const manager = rig.vrm.expressionManager;
+        const goal = faceTargets(target, rig.face.intensity);
+        for (const name of EMOTIONS) if (rig.names[name]) manager?.setValue(rig.names[name], goal[name]);
+    }
 
-    // where the mouth is right now, as opposed to where the line says it should
-    // be: eased, so 30 frames a second do not arrive as 30 steps
-    const jaw = { open: 0, shape: 0.5 };
+    let rig = await buildRig(config.model_url || '/stage/model');
+    scene.add(rig.vrm.scene);
+    frame(config.shot || 'bust');
 
     function drive(delta) {
-        const manager = vrm.expressionManager;
+        const manager = rig.vrm.expressionManager;
         if (!manager) return;
 
         const k = 1 - Math.exp(-EASING * delta);
-        const goal = faceTargets(target, face.intensity);
+        const goal = faceTargets(target, rig.face.intensity);
         const worn = {};
         for (const name of EMOTIONS) {
-            const actual = names[name];
+            const actual = rig.names[name];
             if (!actual) continue;
             worn[name] = THREE.MathUtils.lerp(manager.getValue(actual) ?? 0, goal[name], k);
             manager.setValue(actual, worn[name]);
         }
 
-        const frame = speaking ? frameAt(mouth, performance.now()) : null;
+        const frameNow = speaking ? frameAt(mouth, performance.now()) : null;
 
         const m = 1 - Math.exp(-MOUTH_EASING * delta);
-        const wanted = frame ? frame[0] * mouthScale(worn, face.underEmotion) : 0;
+        const wanted = frameNow ? frameNow[0] * mouthScale(worn, rig.face.underEmotion) : 0;
         jaw.open = THREE.MathUtils.lerp(jaw.open, wanted, m);
         // the shape is only chased while there is something to say: easing it
         // back to the middle between two words makes the mouth chew
-        if (frame) jaw.shape = THREE.MathUtils.lerp(jaw.shape, frame[1], m);
+        if (frameNow) jaw.shape = THREE.MathUtils.lerp(jaw.shape, frameNow[1], m);
         shapeMouth(manager, jaw.open, jaw.shape);
     }
 
@@ -228,6 +258,7 @@ export async function createAvatar(root, config = {}) {
         owed = 0;
         const dt = Math.min(step, maxStep);
 
+        const { body, life, vrm } = rig;
         life.undo();
         body.update(step);
         life.update(dt, { busy: body.busy(), loudness: jaw.open, gazeClip: body.gazeShare() });
@@ -252,19 +283,18 @@ export async function createAvatar(root, config = {}) {
         apply(patch, { animate = true } = {}) {
             if (patch.expressions) Object.assign(target, patch.expressions);
             if ('state' in patch) {
-                speaking = patch.state === 'talking';
-                life.setState(patch.state);
-                body.setState(patch.state);
+                state = patch.state;
+                speaking = state === 'talking';
+                rig.life.setState(state);
+                rig.body.setState(state);
             }
 
             if (!animate) {
                 // snap rather than ease, so a reconnect is invisible on stream
-                const manager = vrm.expressionManager;
-                const goal = faceTargets(target, face.intensity);
-                for (const name of EMOTIONS) if (names[name]) manager?.setValue(names[name], goal[name]);
+                snapFace();
                 mouth = emptyMouth();
-                silence(manager);
-                life.settle();
+                silence(rig.vrm.expressionManager);
+                rig.life.settle();
                 return;
             }
 
@@ -274,15 +304,35 @@ export async function createAvatar(root, config = {}) {
                 mouth = addSegment(mouth, id, frames, fps, offset);
             }
             if (patch.mouth_sync) mouth = syncMouth(mouth, patch.mouth_sync.id, patch.mouth_sync.played_ms, performance.now());
-            if (patch.perform) body.play(patch.perform);
+            if (patch.perform) rig.body.play(patch.perform);
         },
 
         /** Settings changed under a running page: shot and background apply live. */
         setLook(next = {}) {
+            settings = next;
             setBackground(renderer, next.background);
             frame(next.shot || 'bust');
-            body.setConfig(next);
-            setFace(next);
+            rig.body.setConfig(next);
+            rig.setFace(next);
+        },
+
+        /**
+         * Puts a different model on stage without an empty frame.
+         *
+         * The new one loads while the old one is still drawn; if it fails the old
+         * one stays and the error is thrown for the caller to report.
+         */
+        async swapModel(url) {
+            const next = await buildRig(url);
+            const previous = rig;
+            rig = next;
+            scene.add(next.vrm.scene);
+            frame(settings.shot || 'bust');
+            next.body.setState(state);
+            next.life.setState(state);
+            next.life.settle();
+            snapFace();
+            previous.dispose();
         },
     };
 }

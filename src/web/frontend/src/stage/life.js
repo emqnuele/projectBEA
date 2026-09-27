@@ -247,6 +247,12 @@ export function createLife(vrm, camera, scene) {
             breathe();
         },
 
+        /** Lets go of what this file added to the scene. */
+        dispose() {
+            scene.remove(target);
+            if (vrm.lookAt) vrm.lookAt.target = null;
+        },
+
         /** The eyes at rest, on the frame a reconnecting page draws first. */
         settle() {
             aimFocus();

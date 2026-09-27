@@ -411,7 +411,7 @@ class AIVtuberBrain:
             self.consciousness.apply_budget()
         self.tts.reload_config(self.config)
         self.obs.reload_config(self.config)
-        self._reload_stage()
+        self.reload_stage()
         if self.stt:
             self.stt.reload_config(self.config)
         self._reload_language()
@@ -433,7 +433,7 @@ class AIVtuberBrain:
             if holder is not None:
                 holder.language = self.config.language
 
-    def _reload_stage(self) -> None:
+    def reload_stage(self) -> None:
         """Re-points the avatar and caption, rebuilding only what changed.
 
         Picking a different backend in the dashboard has to take effect without

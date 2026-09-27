@@ -238,6 +238,39 @@ than kept. A file already at that path is never overwritten — it is yours.
 | `constraint-twist` | model | pixiv three-vrm sample, MIT |
 | `seed-san` | model | VirtualCast, Inc.: commercial use and redistribution allowed, **credit required** |
 
+### The library
+
+Dashboard → **Settings → Stream**, with the 3D model chosen. The logic is
+`src/modules/avatar/library.py`; the routes are `src/web/routers/library.py`.
+
+- **Models** lists every `.vrm` in `models_dir`, and the configured model if it
+  lives elsewhere (marked as outside the library). Each card shows the picture
+  the file embeds of itself, its name and authors, VRM version, size, what its
+  licence allows and what it cannot do (no `aa`, a missing emotion). A file is
+  read once per version: the description is cached against its mtime and size.
+- **Use** saves `stage.model_path` and rebuilds the stage alone
+  (`brain.reload_stage()`), never the whole configuration, which would reload
+  the language model, the voice and the ears.
+- **Preview** loads a model into the preview without putting it on stage. The
+  page opens with `?preview=<id>`, never subscribes to `/stage/stream`, and is
+  driven by the dashboard over `postMessage`: states, moods, gestures and a
+  made-up test line for the mouth. Unsaved face and framing settings apply to it
+  as they are moved. **Try things on** does the same with the model on stage.
+- **Free models** are the catalog. A download runs on its own thread and is
+  polled every half second while one is running. With no model at all, one
+  button fetches the default model and its idle motion and puts it on stage.
+- **Add your own model** takes a `.vrm` by drag and drop. The file is the request
+  body, written to a `.part` beside its target and renamed into place only once
+  it is a GLB with a VRM extension. Names are reduced to letters, digits, spaces,
+  dots and dashes; an existing file is never replaced; the limit is 200 MB.
+- **Motions** lists the clips in `clips_dir` with their length, the bones they
+  drive and their role, and takes `.vrma` uploads the same way.
+
+Every model is addressed by its file name inside `models_dir`, never by a path
+from the page, and delete refuses the model on stage and anything outside the
+folder. Like the rest of the stage the routes are unauthenticated; the server
+listens on loopback and CORS is closed.
+
 ### The body: a base layer and gestures
 
 `src/web/frontend/src/stage/body.js` owns the animation mixer.
@@ -438,7 +471,7 @@ channel.publish({"envelope": [...], "envelope_fps": 30}) # sent, not stored
 channel.snapshot()                                       # what a new page receives
 ```
 
-Keys in `TRANSIENT` (`envelope`, `perform`) describe a moment and are fanned out
+Keys in `TRANSIENT` (`envelope`, `perform`, `mouth_segment`, `mouth_sync`) describe a moment and are fanned out
 without being stored. A page connecting mid-utterance is not made to mouth a
 sentence that has already ended.
 
@@ -447,10 +480,12 @@ subscriber that received a replay would act the last minute out again. A queue
 that fills is dropped rather than awaited.
 
 Saving settings publishes `{"config": public_config(...)}`, so a running page
-picks up a new shot or background without being reloaded by hand. The page
-reloads itself only when the change is structural — a different backend, or a
-different model, which `model_id` (the file name and its mtime) detects. That
-same push is what keeps the preview in the dashboard current.
+picks up a new shot or background without being reloaded by hand. A different
+model, which `model_id` (the file name and its mtime) detects, is loaded in the
+background while the old one is still drawn and swapped in on one frame, so the
+source is never empty; if it fails to load, the old one stays and the page shows
+the error. The page reloads itself only for a different backend. That same push
+is what keeps the preview in the dashboard current.
 
 | Endpoint | Returns |
 |---|---|
@@ -461,6 +496,13 @@ same push is what keeps the preview in the dashboard current.
 | `GET /stage/clips` | clips in `clips_dir`, each with `role`: `base` or `gesture` |
 | `GET /stage/clips/{name}` | one `.vrma`; a name that escapes the folder is a 404 |
 | `GET /stage/preview` | one avatar image, restricted to paths in `avatar_map` |
+| `GET /stage/moods` | every mood's expression weights, for the dashboard's preview |
+| `GET /stage/library` | models, catalog entries and clips, as the library shows them |
+| `POST /stage/library/download` · `GET /stage/library/downloads` | fetch a catalog entry on a thread; its progress |
+| `GET /stage/library/models/{id}/thumbnail` · `…/file` | a model's embedded picture; the model itself, for the preview |
+| `POST /stage/library/select` | put a model on stage |
+| `POST /stage/library/models/upload` · `…/clips/upload` | add a `.vrm` or `.vrma` |
+| `DELETE /stage/library/models/{id}` | delete a model from the models folder |
 | `POST /test/vts` · `GET /vts/model` | VTube Studio reachability and model contents |
 
 None of these are authenticated, so none of them return a secret.
