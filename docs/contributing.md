@@ -139,6 +139,10 @@ assertion than a call-count matcher.
 
 ## Pull requests
 
+- **Every pull request must use the repository's template**
+  (`.github/PULL_REQUEST_TEMPLATE.md`), with its headings kept as they are. A
+  pull request that does not is not reviewed. The release draft is cut from its
+  "What this changes" section.
 - One change per pull request. A refactor and a feature in the same diff means
   neither can be reviewed properly.
 - Say what breaks if the change is wrong. That is the most useful sentence in a
@@ -147,6 +151,10 @@ assertion than a call-count matcher.
   raise the version in `pyproject.toml` and run `uv lock`: a fix is `2.6.1`,
   something new `2.7.0`. CI refuses the pull request otherwise
   (`tools/version_bumped.py`); tests, CI and docs alone need no bump.
+- Write "What this changes" for the people who will read the release: once a
+  pull request that raised the version is merged, `tools/release_draft.py`
+  drafts the release `bea-vX.Y.Z` from it. A maintainer edits the draft and
+  publishes it as the latest release.
 - If it changes behaviour someone might be relying on, update the docs in the
   same pull request. `docs/` is what the documentation site renders, so a stale
   page there is a stale page in public.
