@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
-from release_draft import notes, previous_tag, tag_of, what_changes  # noqa: E402
+from release_draft import notes, pr_numbers, previous_tag, tag_of, what_changes  # noqa: E402
 
 TEMPLATE_BODY = """## What this changes
 
@@ -60,3 +60,17 @@ def test_a_push_without_a_pull_request_still_gets_a_draft():
 
 def test_the_tag_is_the_apps():
     assert tag_of((2, 6, 1)) == "bea-v2.6.1"
+
+
+def test_every_pull_request_merged_since_the_last_version_is_found():
+    subjects = ["Merge pull request #64 from someone/docs", "fix a typo on main",
+                "Merge pull request #65 from someone/ci", "Merge pull request #64 from x/y"]
+    assert pr_numbers(subjects) == [64, 65]
+
+
+def test_the_draft_lists_every_pull_request_of_the_version():
+    pr = {"number": 66, "title": "Bump", "body": TEMPLATE_BODY}
+    merged = [(64, "Link the mod jar by version"), (65, "Draft a release"), (66, "Bump")]
+    _, text = notes((2, 6, 2), "owner/repo", pr, "bea-v2.6.1", "abc1234", merged)
+    assert "**Pull requests in this version:**" in text
+    assert "- #64 Link the mod jar by version" in text and "- #66 Bump" in text

@@ -28,6 +28,7 @@ from version_bumped import Version, parse  # noqa: E402
 TAG_PREFIX = "bea-v"
 TAG = re.compile(r"^bea-v(\d+)\.(\d+)\.(\d+)$")
 COMMENT = re.compile(r"<!--.*?-->", re.S)
+MERGE = re.compile(r"^Merge pull request #(\d+) ")
 
 
 def tag_of(version: Version) -> str:
@@ -54,8 +55,14 @@ def what_changes(body: str) -> str:
     return section.strip()
 
 
+def pr_numbers(subjects: List[str]) -> List[int]:
+    """The pull requests merged in these first-parent commit subjects, oldest first."""
+    found = [int(m[1]) for m in (MERGE.match(s) for s in subjects) if m]
+    return sorted(set(found), key=found.index)
+
+
 def notes(version: Version, repo: str, pr: Optional[dict], previous: Optional[str],
-          sha: str) -> Tuple[str, str]:
+          sha: str, merged: Optional[List[Tuple[int, str]]] = None) -> Tuple[str, str]:
     """The title and the markdown of the draft."""
     number = f"v{'.'.join(map(str, version))}"
     if pr:
@@ -67,6 +74,10 @@ def notes(version: Version, repo: str, pr: Optional[dict], previous: Optional[st
         body = "(no pull request: pushed straight to main)"
         source = f"From commit {sha[:7]}."
     lines = [body, "", "---", source]
+    if merged:
+        lines += ["", "**Pull requests in this version:**"]
+        lines += [f"- #{number} {title}" for number, title in merged]
+        lines.append("")
     if previous:
         lines.append(f"**Full changelog:** https://github.com/{repo}/compare/"
                      f"{previous}...{tag_of(version)}")
@@ -86,6 +97,17 @@ def _merged_pr(repo: str, sha: str) -> Optional[dict]:
     return merged[0] if merged else None
 
 
+def _merged_since(repo: str, previous: Optional[str], sha: str) -> List[Tuple[int, str]]:
+    if previous is None:
+        return []
+    log = _run("git", "log", "--first-parent", "--reverse", "--format=%s", f"{previous}..{sha}")
+    merged = []
+    for number in pr_numbers(log.stdout.splitlines()):
+        out = _run("gh", "pr", "view", str(number), "-R", repo, "--json", "title", "--jq", ".title")
+        merged.append((number, out.stdout.strip() if out.returncode == 0 else ""))
+    return merged
+
+
 def main() -> int:
     repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
     if not repo or not sha:
@@ -98,7 +120,8 @@ def main() -> int:
         print(f"{tag} already has a release or a draft: nothing to do.")
         return 0
     previous = previous_tag(_run("git", "tag", "-l", f"{TAG_PREFIX}*").stdout.split(), version)
-    title, text = notes(version, repo, _merged_pr(repo, sha), previous, sha)
+    title, text = notes(version, repo, _merged_pr(repo, sha), previous, sha,
+                        _merged_since(repo, previous, sha))
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(text)
     out = _run("gh", "release", "create", tag, "-R", repo, "--draft", "--target", sha,
