@@ -270,7 +270,8 @@ async def main(args=None):
         host=config.obs_host,
         port=config.obs_port,
         password=config.obs_password,
-        source_name=config.obs_avatar_source
+        source_name=config.obs_avatar_source,
+        timeout=config.obs_timeout,
     )
 
     # 3. Brain

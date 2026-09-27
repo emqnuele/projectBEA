@@ -378,6 +378,7 @@ soul's job, and the soul is a file you write.
 |---|---|---|
 | `obs_host` / `obs_port` | `localhost` / `4455` | obs-websocket 5.x |
 | `obs_password` | `""` | Empty if authentication is disabled |
+| `obs_timeout` | `2.0` | Seconds one request may take. Past it the socket is closed and reopened, so an OBS that hangs is never waited on for longer. |
 | `obs_avatar_source` | `"BeaPNG"` | Source name for the avatar |
 | `obs_source_type` | `"image"` | `image` for PNG, `media` for MP4/GIF/WebM |
 | `obs_text_source` | `"AIText"` | Source name for the speech bubble |
@@ -432,6 +433,7 @@ Two independent choices, plus the settings each one needs.
 | Key | Default | What it does |
 |---|---|---|
 | `avatar_backend` | `"png"` | `png`, `model` or `vtube_studio`. An unknown name falls back to `png` with a warning. |
+| `png_render` | `"obs"` | Where the `png` avatar is drawn: `obs` swaps a file in an OBS source, `stage` draws it in the browser source with a mouth that follows her voice. |
 | `caption_backend` | `"obs"` | `obs`, `stage` (the browser source) or `off`. |
 | `lipsync_fps` | `30` | How many times a second her mouth is told what to do. |
 

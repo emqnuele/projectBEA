@@ -474,9 +474,9 @@ def _ask_downloads(console: Console, answers: Dict[str, Any]) -> None:
                       "missing the first time she needs it.[/dim]")
 
 
-def needs_obs(avatar: str, caption: str) -> bool:
+def needs_obs(avatar: str, caption: str, png_render: str = "obs") -> bool:
     """Whether anything she shows still goes through the OBS WebSocket."""
-    return avatar == "png" or caption == "obs"
+    return (avatar == "png" and png_render != "stage") or caption == "obs"
 
 
 def needs_browser_source(avatar: str, caption: str) -> bool:

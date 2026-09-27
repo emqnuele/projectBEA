@@ -132,6 +132,7 @@ class BrainConfig:
     obs_host: str = "localhost"
     obs_port: int = 4455
     obs_password: str = ""
+    obs_timeout: float = 2.0  # seconds one request may take before the socket is dropped and reopened
     audio_device_id: int = 0
 
     tts_provider: str = "edge" # edge or kokoro or orpheus
@@ -163,6 +164,7 @@ class BrainConfig:
     # both setups people actually want.
     stage: Dict[str, Any] = field(default_factory=lambda: {
         "avatar_backend": "png",       # png | model | vtube_studio
+        "png_render": "obs",           # png avatar drawn in an obs source, or in the browser source
         "caption_backend": "obs",      # obs | stage | off
         "lipsync_fps": 30,             # how often the mouth is told what to do
 

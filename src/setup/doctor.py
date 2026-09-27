@@ -612,7 +612,8 @@ async def check_obs(config: BrainConfig) -> Finding:
 
     stage = config.stage or {}
     if not needs_obs(stage.get("avatar_backend", "png"),
-                     stage.get("caption_backend", "obs")):
+                     stage.get("caption_backend", "obs"),
+                     stage.get("png_render", "obs")):
         return passed("not needed by the backends she is set to")
 
     if not _reachable(config.obs_host, config.obs_port):
@@ -625,6 +626,7 @@ async def check_dashboard(config: BrainConfig) -> Finding:
     """The page is built, and something is not already sitting on her port."""
     stage = config.stage or {}
     needs_page = (stage.get("avatar_backend") == "model"
+                  or (stage.get("avatar_backend") == "png" and stage.get("png_render") == "stage")
                   or stage.get("caption_backend") == "stage")
 
     if not DASHBOARD.is_file():

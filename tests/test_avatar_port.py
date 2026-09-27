@@ -400,3 +400,25 @@ def test_thinking_is_synchronous_and_survives_a_failing_avatar():
 
     e = Expression(Config(), SilentTTS(), Broken(), FakeCaption(), Events())
     assert e.show_thinking(True) is None
+
+
+def test_the_same_picture_is_never_sent_twice():
+    """Thinking, then back to idle, is two shows of one image: one request."""
+    obs = RecordingObs()
+    avatar = PngAvatar(Config(), obs)
+
+    avatar.show("neutral", "idle")
+    avatar.show("neutral", "thinking")
+    avatar.show("neutral", "idle")
+    avatar.show("neutral", "talking")
+    avatar.show("neutral", "idle")
+
+    assert [name_of(p) for p in obs.images] == ["n/idle.png", "n/talk.png", "n/idle.png"]
+
+
+def test_closing_takes_the_picture_down_even_if_it_was_already_blank():
+    obs = RecordingObs()
+    avatar = PngAvatar(Config(), obs)
+    avatar.close()
+    avatar.close()
+    assert obs.images == ["", ""]

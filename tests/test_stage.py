@@ -99,22 +99,19 @@ def test_closing_the_channel_lets_go_of_every_page():
 async def test_a_caption_crosses_the_wire_once_instead_of_once_per_character():
     """The measurement that justified the whole browser source.
 
-    `OBSController.type_text` calls `set_input_settings` for every character of
-    every page, re-sending the font block each time.
+    `OBSController.type_text` asks for a new text on every character of every
+    page, re-sending the font block each time. The worker coalesces what OBS is
+    too slow to take, but the asking is still per character.
     """
     line = ("Ok allora sentite questa, perche' e' veramente assurda: "
             "ieri sera uno in chat mi ha detto che non sono una vera vtuber "
             "solo perche' non ho un corpo. Ridicolo.")
 
-    class CountingClient:
-        def __init__(self):
-            self.calls = 0
+    class Counting(OBSController):
+        asked = 0
 
-        def set_input_settings(self, name, settings, overlay):
-            self.calls += 1
-
-        def send(self, *a, **k):
-            return {"inputSettings": {"font": {"face": "Arial", "size": 75}}}
+        def set_text(self, text, source_name, font_size=None):
+            Counting.asked += 1
 
     class Config:
         obs_text_source = "AIText"
@@ -126,15 +123,14 @@ async def test_a_caption_crosses_the_wire_once_instead_of_once_per_character():
         typing_delay = 0.0
         text_min_duration = 0.0
 
-    obs = OBSController("localhost", 4455, "", "BeaPNG")
-    obs.client = CountingClient()
+    obs = Counting("localhost", 4455, "", "BeaPNG")
     await ObsTextCaption(Config(), obs).say(line)
 
     channel = StageChannel()
     queue = channel.subscribe()
     await StageCaption(Config(), channel).say(line)
 
-    assert obs.client.calls > len(line), "the OBS path is one request per character"
+    assert Counting.asked > len(line), "the OBS path asks once per character"
     assert queue.qsize() == 1, "the stage path is one message per line"
 
 

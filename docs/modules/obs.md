@@ -26,11 +26,31 @@ Which of the two are in use depends on the backends in `stage` — see the
 ## Connection
 
 ```python
-obs = OBSController(host="localhost", port=4455, password="...", source_name="BeaPNG")
+obs = OBSController(host="localhost", port=4455, password="...", source_name="BeaPNG", timeout=2.0)
 obs.connect()
 ```
 
-If OBS is not running, the connection fails gracefully with a warning. The rest of the engine continues normally without OBS output.
+`obsws-python` is synchronous: every request is a send and a blocking receive.
+The engine, the voice, the call and the dashboard share one event loop, so
+`OBSController` never makes a request on it. One worker thread owns the socket;
+`connect()` starts it and returns at once, and `set_image`, `set_media` and
+`set_text` put a request on a table and return.
+
+- **Latest wins.** The table holds one request per (source, field). A caption
+  typed faster than OBS answers only sends its newest text; the first request
+  for a key keeps its place in line, so different sources still update in the
+  order they were asked for.
+- **Timeout.** A request that takes longer than `obs_timeout` (2 s) is given up
+  on. The library matches a reply to whatever it reads next rather than by id,
+  so the socket is dropped and a new one opened; the requests still on the table
+  go out on it.
+- **Reconnection.** A closed or unreachable OBS is retried every 3 s, doubling
+  up to 30 s, with one warning per outage. Requests left on the table are sent
+  once it answers, so the avatar shows the current picture when OBS comes up.
+- `disconnect()` stops the worker and drops the table.
+- `check()` opens a separate connection and reports whether OBS accepts it. It
+  blocks up to the timeout, so only the dashboard's test endpoint (a threadpool
+  handler) calls it.
 
 ---
 
@@ -59,10 +79,11 @@ obs.set_media("data/pngs/angry/talking.mp4")
 
 `type_text()` writes a message character-by-character into the OBS text source, paginating if the message exceeds the visible area.
 
-Cost: one `SetInputSettings` request per character, each carrying the font block.
-A 158-character line is 159 requests and ~30 KB of JSON. The `stage` caption
-backend sends the line in one message and animates it in the page;
-`tests/test_stage.py` asserts the difference.
+Cost: one `set_text` per character, each carrying the font block. The worker
+collapses the ones OBS was too slow to take, but a fast OBS still receives one
+request per character. The `stage` caption backend sends the line in one message
+and animates it in the page; `tests/test_stage.py` asserts the difference. The
+font of a text source is read once, on the worker, and cached.
 
 **Parameters:**
 

@@ -24,6 +24,7 @@ import { VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy } from '@pixiv/three
 import { createBody } from './body.js';
 import { EMOTIONS, faceTargets, mouthScale, resolveExpression } from './face.js';
 import { createLife } from './life.js';
+import { emptyMouth, frameAt, startMouth } from './mouth.js';
 
 // The mouth shapes, dark to bright. This order is a contract with
 // `src/core/expression/face.py`, which places every frame of a line on the same
@@ -160,7 +161,7 @@ export async function createAvatar(root, config = {}) {
     // what the engine last said she is
     const target = Object.fromEntries(EMOTIONS.map((name) => [name, 0]));
     target.neutral = 1;
-    let mouth = { frames: [], fps: 30, startedAt: 0 };
+    let mouth = emptyMouth();
     let speaking = false;
 
     // where the mouth is right now, as opposed to where the line says it should
@@ -181,11 +182,7 @@ export async function createAvatar(root, config = {}) {
             manager.setValue(actual, worn[name]);
         }
 
-        let frame = null;
-        if (speaking && mouth.frames.length) {
-            const index = Math.floor((performance.now() - mouth.startedAt) / 1000 * mouth.fps);
-            frame = index < mouth.frames.length ? mouth.frames[index] : null;
-        }
+        const frame = speaking ? frameAt(mouth, performance.now()) : null;
 
         const m = 1 - Math.exp(-MOUTH_EASING * delta);
         const wanted = frame ? frame[0] * mouthScale(worn, face.underEmotion) : 0;
@@ -265,19 +262,13 @@ export async function createAvatar(root, config = {}) {
                 const manager = vrm.expressionManager;
                 const goal = faceTargets(target, face.intensity);
                 for (const name of EMOTIONS) if (names[name]) manager?.setValue(names[name], goal[name]);
-                mouth = { frames: [], fps: 30, startedAt: 0 };
+                mouth = emptyMouth();
                 silence(manager);
                 life.settle();
                 return;
             }
 
-            if (patch.envelope) {
-                mouth = {
-                    frames: patch.envelope,
-                    fps: patch.envelope_fps || 30,
-                    startedAt: performance.now(),
-                };
-            }
+            if (patch.envelope) mouth = startMouth(patch.envelope, patch.envelope_fps, performance.now());
             if (patch.perform) body.play(patch.perform);
         },
 

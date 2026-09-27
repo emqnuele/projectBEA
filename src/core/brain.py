@@ -39,7 +39,7 @@ from src.core.social.rhythm import RhythmTick
 from src.core.stage import StageChannel, installed_clips, public_config
 from src.interfaces.base_interfaces import OBSInterface, STTInterface, TTSInterface
 from src.modules.avatar import build_avatar
-from src.modules.avatar.factory import backend_name as avatar_backend
+from src.modules.avatar.factory import backend_key as avatar_backend
 from src.modules.caption import build_caption
 from src.modules.caption.factory import backend_name as caption_backend
 from src.utils.history_manager import HistoryManager

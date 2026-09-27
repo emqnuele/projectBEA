@@ -100,7 +100,18 @@ an authenticated socket.
 
 ## `png`
 
-Swaps a file in an OBS image or media source. `obs_source_type` decides which.
+One picture per mood. `stage.png_render` decides where it is drawn:
+
+- `"obs"` (default) swaps a file in an OBS image or media source;
+  `obs_source_type` decides which. The same picture is never sent twice in a
+  row, so a state change that lands on the image already showing (thinking,
+  then back to idle) costs no request.
+- `"stage"` draws it in the browser source at `/stage`. The page flaps the
+  mouth from the same envelope the 3D body gets, lets her breathe with a slow
+  bob and a small hop on loud syllables, and blinks if the mood has a `blink`
+  picture. Nothing crosses the OBS socket. The engine publishes picture keys
+  (`mood/slot`), never paths; the page loads them from `/stage/preview`, which
+  only serves what `avatar_map` names.
 
 ```json
 "avatar_map": {
@@ -118,6 +129,11 @@ Keys are moods, plus optionally the two non-speech **states**, `sleeping` and
 4. any entry at all
 
 A missing state entry logs one warning per state, not per frame.
+
+Two more pictures per mood are optional and only drawn by `png_render: "stage"`:
+`talking_closed` (the mouth shut mid-sentence; without it the mouth flaps
+between `idle` and `talking`) and `blink`. The mouth opens when the envelope
+passes 0.22 and closes below 0.12, so a syllable at the edge does not flicker.
 
 `close()` blanks the source. The image is the only thing this backend leaves
 behind, and another backend taking over mid-stream would otherwise be drawn on

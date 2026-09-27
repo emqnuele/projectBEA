@@ -88,6 +88,7 @@ def public_config(config) -> Dict[str, Any]:
     stage = dict(getattr(config, "stage", None) or {})
     return {
         "avatar_backend": stage.get("avatar_backend", "png"),
+        "png_render": stage.get("png_render", "obs"),
         "caption_backend": stage.get("caption_backend", "obs"),
         "shot": stage.get("shot", "bust"),
         "background": stage.get("background", ""),

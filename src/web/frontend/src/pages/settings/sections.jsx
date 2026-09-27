@@ -530,7 +530,8 @@ function StreamSection({ config, update, setConfig }) {
         avatar_map: { ...prev.avatar_map, [mood]: { ...prev.avatar_map[mood], [state]: value } },
     }));
 
-    const needsObs = avatarBackend === 'png' || captionBackend === 'obs';
+    const pngInPage = avatarBackend === 'png' && stage.png_render === 'stage';
+    const needsObs = (avatarBackend === 'png' && !pngInPage) || captionBackend === 'obs';
     // read from the settings being edited, not the saved ones, so the lists agree before saving
     const baseClips = new Set([stage.idle_clip, ...Object.values(stage.state_clips || {})].filter(Boolean));
     const moods = Object.keys(config.avatar_map || {});
@@ -560,7 +561,12 @@ function StreamSection({ config, update, setConfig }) {
                         columns={3}
                     />
                 </Field>
-                <Field label="Speech bubble" help="How her words are shown while she talks.">
+                <Field
+                    label="Speech bubble"
+                    help={(avatarBackend === 'model' || pngInPage) && captionBackend === 'obs'
+                        ? 'She is already in the browser source: typing her words there too sends one message per line instead of one OBS request per letter.'
+                        : 'How her words are shown while she talks.'}
+                >
                     <ProviderChoice
                         value={captionBackend}
                         onChange={(id) => updateStage('caption_backend', id)}
@@ -572,7 +578,7 @@ function StreamSection({ config, update, setConfig }) {
 
             <StagePreview config={config} vtsStatus={vtsModel} />
 
-            {(avatarBackend === 'model' || captionBackend === 'stage') && (
+            {(avatarBackend === 'model' || pngInPage || captionBackend === 'stage') && (
                 <Group title="The browser source" description="Add this URL to OBS as a Browser Source. Tick 'Shutdown source when not visible' off, so she keeps her pose.">
                     <CopyField value={stageUrl} />
                 </Group>
@@ -597,9 +603,9 @@ function StreamSection({ config, update, setConfig }) {
                 </Group>
             )}
 
-            {(avatarBackend === 'png' || captionBackend === 'obs') && (
+            {((avatarBackend === 'png' && !pngInPage) || captionBackend === 'obs') && (
                 <Group title="Sources" description="The names exactly as they appear in your OBS scene.">
-                    {avatarBackend === 'png' && (
+                    {avatarBackend === 'png' && !pngInPage && (
                         <>
                             <ProviderChoice
                                 value={config.obs_source_type}
@@ -643,6 +649,16 @@ function StreamSection({ config, update, setConfig }) {
 
             {avatarBackend === 'png' && (
                 <Group title="Avatar" description="One image per mood, one for idle and one for talking.">
+                    <Field label="Drawn in" help="In the browser source the mouth follows her voice and nothing waits on OBS.">
+                        <ProviderChoice
+                            value={stage.png_render || 'obs'}
+                            onChange={(id) => updateStage('png_render', id)}
+                            options={[
+                                { id: 'obs', label: 'OBS source', blurb: 'The picture is swapped in an image or media source.' },
+                                { id: 'stage', label: 'Browser source', blurb: 'The page draws her: the mouth flaps with her voice, she breathes and blinks.' },
+                            ]}
+                        />
+                    </Field>
                     <Field label="Image folder">
                         <TextInput value={config.png_dir || ''} onChange={(e) => update('png_dir', e.target.value)} className="font-mono" />
                     </Field>
@@ -656,6 +672,16 @@ function StreamSection({ config, update, setConfig }) {
                                 <Field label="Talking">
                                     <TextInput value={paths.talking || ''} onChange={(e) => updateAvatar(mood, 'talking', e.target.value)} className="font-mono text-[11px]" />
                                 </Field>
+                                {pngInPage && (
+                                    <>
+                                        <Field label="Mouth shut, mid-line" help="Optional. Without it the mouth flaps between idle and talking.">
+                                            <TextInput value={paths.talking_closed || ''} onChange={(e) => updateAvatar(mood, 'talking_closed', e.target.value)} className="font-mono text-[11px]" />
+                                        </Field>
+                                        <Field label="Blinking" help="Optional. Shown for a moment every few seconds.">
+                                            <TextInput value={paths.blink || ''} onChange={(e) => updateAvatar(mood, 'blink', e.target.value)} className="font-mono text-[11px]" />
+                                        </Field>
+                                    </>
+                                )}
                             </div>
                         </div>
                     ))}

@@ -36,7 +36,10 @@ function clearWarning() {
 }
 
 let avatar = null;
-if (config.avatar_backend === 'model' && config.has_model) {
+if (config.avatar_backend === 'png' && config.png_render === 'stage') {
+    const { createPngTuber } = await import('./pngtuber.js');
+    avatar = createPngTuber(root, config);
+} else if (config.avatar_backend === 'model' && config.has_model) {
     try {
         const { createAvatar } = await import('./avatar.js');
         avatar = await createAvatar(root, config);
@@ -56,6 +59,7 @@ function applyConfig(next) {
     // a different backend, or a different model, changes what the page *is*
     // rather than how it draws, and a reload is both correct and cheap
     if (next.avatar_backend !== before.avatar_backend
+        || next.png_render !== before.png_render
         || next.has_model !== before.has_model
         || next.model_id !== before.model_id) {
         window.location.reload();
