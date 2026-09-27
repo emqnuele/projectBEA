@@ -183,8 +183,11 @@ preview of what the stream will see.
 Her speech bubble is a separate choice — an OBS text source, the same browser
 source, or nothing — so you can mix them however you like.
 
-For the 3D route, `make model` downloads a free model to start from. If you go
-looking for your own, run it through the inspector first:
+For the 3D route, the dashboard's library (Settings → Stream) downloads a free
+model and its idle motion in one click — `make model` fetches the same files —
+takes your own `.vrm` by drag and drop, shows what each model's licence allows,
+and lets you try one on in the preview before putting it on stage. From a
+terminal, the inspector reads the same things out of a file:
 
 ```bash
 uv run python tools/inspect_vrm.py your-model.vrm

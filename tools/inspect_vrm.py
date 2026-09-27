@@ -9,66 +9,24 @@ format that lets you.
 """
 
 import argparse
-import json
-import struct
 import sys
 from pathlib import Path
 from typing import Any, Dict
 
-GLB_MAGIC = 0x46546C67
-CHUNK_JSON = 0x4E4F534A
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-# the five emotions and the five mouth shapes VRM 1.0 standardises
-EMOTIONS = ("happy", "angry", "sad", "relaxed", "surprised", "neutral")
-VISEMES = ("aa", "ih", "ou", "ee", "oh")
+from src.modules.avatar.vrm_file import (  # noqa: E402
+    EMOTIONS,
+    MEANING,
+    VISEMES,
+    describe,
+    gltf_json,
+    triangles,
+)
 
-# what the licence fields mean, in words rather than enum values
-MEANING = {
-    "avatarPermission": {
-        "onlyAuthor": "only the author may use this avatar",
-        "onlySeparatelyLicensedPerson": "only people licensed separately by the author",
-        "everyone": "anyone may use this avatar",
-    },
-    "commercialUsage": {
-        "personalNonProfit": "personal, non-profit use only",
-        "personalProfit": "an individual may use it commercially",
-        "corporation": "companies may use it commercially",
-    },
-    "creditNotation": {
-        "required": "you must credit the author",
-        "unnecessary": "no credit required",
-    },
-}
-
-
-def gltf_json(path: Path) -> Dict[str, Any]:
-    """The JSON chunk of a GLB container. Both .vrm and .vrma are GLB files."""
-    raw = path.read_bytes()
-    if len(raw) < 12:
-        raise ValueError(f"{path.name} is too small to be a glTF binary")
-    magic, _version, total = struct.unpack_from("<III", raw, 0)
-    if magic != GLB_MAGIC:
-        raise ValueError(f"{path.name} is not a glTF binary (.vrm/.vrma/.glb)")
-
-    offset = 12
-    while offset < min(total, len(raw)):
-        length, kind = struct.unpack_from("<II", raw, offset)
-        offset += 8
-        if kind == CHUNK_JSON:
-            return json.loads(raw[offset:offset + length].decode("utf-8"))
-        offset += length
-    raise ValueError(f"{path.name} has no JSON chunk")
-
-
-def triangles(gltf: Dict[str, Any]) -> int:
-    accessors = gltf.get("accessors", [])
-    total = 0
-    for mesh in gltf.get("meshes", []):
-        for primitive in mesh.get("primitives", []):
-            index = primitive.get("indices")
-            if index is not None and index < len(accessors):
-                total += accessors[index].get("count", 0) // 3
-    return total
+__all__ = ["EMOTIONS", "MEANING", "VISEMES", "gltf_json", "triangles", "inspect"]
 
 
 def report_model(path: Path, gltf: Dict[str, Any]) -> int:
@@ -86,10 +44,24 @@ def report_model(path: Path, gltf: Dict[str, Any]) -> int:
 
     if vrm0:
         print("  VRM 0.x — supported, and turned to face the camera automatically.")
-        groups = vrm0.get("blendShapeMaster", {}).get("blendShapeGroups", [])
-        names = [g.get("presetName") or g.get("name") for g in groups]
-        print(f"  blend shape groups: {', '.join(n for n in names if n) or 'NONE'}")
-        return problems
+        info = describe(path)
+        licence = info["licence"]
+        print("\n  Licence, as the file itself declares it")
+        print(f"    name:     {info['title'] or '(unnamed)'}")
+        print(f"    authors:  {', '.join(info['authors']) or '(none)'}")
+        print(f"    allowedUserName: {licence['avatar_permission']}")
+        print(f"    commercialUssageName: {licence['commercial']}")
+        print(f"    credit required: {'yes' if licence['credit_required'] else 'no'}")
+        if licence["redistribution"] is not None:
+            print(f"    redistribution: {'yes' if licence['redistribution'] else 'NO'}")
+        if licence["url"]:
+            print(f"    licenceUrl: {licence['url']}")
+        print("\n  Expressions, under the names the renderer uses")
+        print(f"    emotions: {', '.join(info['emotions']) or 'NONE'}")
+        print(f"    visemes:  {', '.join(info['visemes']) or 'NONE'}")
+        for warning in info["warnings"]:
+            print(f"    {warning}")
+        return problems + (0 if "aa" in info["visemes"] else 1)
 
     print(f"  VRM {vrm1.get('specVersion', '1.0')}")
 

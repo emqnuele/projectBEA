@@ -121,6 +121,48 @@ jobs:
         working-directory: src/web/frontend
         run: npm test
 
+  stage-probes:
+    # the body on a real model, headless: a t-pose or offsets piling up show here
+    # and nowhere else. The model is fetched by the catalog, pinned and checked,
+    # and cached until the catalog changes.
+    name: body on a real model (ubuntu)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Cache the model
+        uses: actions/cache@v4
+        with:
+          path: probe-assets
+          key: probe-assets-${{ hashFiles('src/modules/avatar/catalog.py') }}
+
+      - name: Fetch the default model and idle clip
+        run: uv run python tools/fetch_model.py --models-dir probe-assets --clips-dir probe-assets
+
+      - name: Install three.js
+        working-directory: src/web/frontend
+        run: npm ci
+
+      - name: Probes
+        working-directory: src/web/frontend
+        env:
+          BEA_PROBE_ASSETS: ${{ github.workspace }}/probe-assets
+        run: npm run probe
+
   bot:
     name: discord bot tests
     runs-on: ubuntu-latest

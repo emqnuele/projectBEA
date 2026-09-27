@@ -99,6 +99,20 @@ def test_a_png_avatar_ignores_the_behaviours_it_cannot_perform():
     assert obs.media == []
 
 
+def test_the_same_picture_is_sent_once_per_socket():
+    """A repeat is skipped, unless obs was reconnected since: the first request may have died with the old socket."""
+    obs = RecordingObs()
+    obs.connections = 1
+    avatar = PngAvatar(Config(), obs)
+    avatar.show("angry", "talking")
+    avatar.show("angry", "talking")
+    assert len(obs.images) == 1
+
+    obs.connections = 2
+    avatar.show("angry", "talking")
+    assert len(obs.images) == 2
+
+
 def test_closing_the_png_backend_takes_her_picture_down():
     """Switching to the 3D body mid-stream used to leave the old PNG on screen."""
     obs = RecordingObs()
@@ -345,3 +359,80 @@ def test_swapping_the_backend_mid_run_keeps_the_face_she_was_wearing():
     e.set_ports(replacement, FakeCaption())
 
     assert replacement.shown == [("angry", "idle")]
+
+
+# --- thinking ------------------------------------------------------------------
+
+
+def test_thinking_shows_between_lines_and_puts_her_back_where_she_rests():
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), SilentTTS(), avatar, caption, Events())
+    e.set_state("listening")
+
+    e.show_thinking(True)
+    e.show_thinking(False)
+
+    assert avatar.states == ["listening", "thinking", "listening"]
+
+
+def test_thinking_never_changes_where_she_rests_or_whether_she_speaks():
+    """Barge-in reads `is_speaking`; a face must not be able to move it."""
+    e = Expression(Config(), SilentTTS(), FakeAvatar(), FakeCaption(), Events())
+    e.set_state("listening")
+
+    e.show_thinking(True)
+
+    assert e._resting == "listening"
+    assert e.is_speaking is False
+
+
+def test_thinking_does_not_take_her_talking_face():
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), SilentTTS(), avatar, caption, Events())
+    e.is_speaking = True
+
+    e.show_thinking(True)
+    e.show_thinking(False)
+
+    assert avatar.shown == []
+
+
+def test_thinking_does_not_open_her_eyes_while_she_sleeps():
+    avatar, caption = FakeAvatar(), FakeCaption()
+    e = Expression(Config(), SilentTTS(), avatar, caption, Events())
+    e.set_state("sleeping")
+
+    e.show_thinking(True)
+
+    assert avatar.states == ["sleeping"]
+
+
+def test_thinking_is_synchronous_and_survives_a_failing_avatar():
+    class Broken(FakeAvatar):
+        def show(self, mood, state):
+            raise RuntimeError("the socket went away")
+
+    e = Expression(Config(), SilentTTS(), Broken(), FakeCaption(), Events())
+    assert e.show_thinking(True) is None
+
+
+def test_the_same_picture_is_never_sent_twice():
+    """Thinking, then back to idle, is two shows of one image: one request."""
+    obs = RecordingObs()
+    avatar = PngAvatar(Config(), obs)
+
+    avatar.show("neutral", "idle")
+    avatar.show("neutral", "thinking")
+    avatar.show("neutral", "idle")
+    avatar.show("neutral", "talking")
+    avatar.show("neutral", "idle")
+
+    assert [name_of(p) for p in obs.images] == ["n/idle.png", "n/talk.png", "n/idle.png"]
+
+
+def test_closing_takes_the_picture_down_even_if_it_was_already_blank():
+    obs = RecordingObs()
+    avatar = PngAvatar(Config(), obs)
+    avatar.close()
+    avatar.close()
+    assert obs.images == ["", ""]

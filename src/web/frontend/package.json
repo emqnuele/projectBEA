@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "probe": "node --test probe/*.probe.mjs"
   },
   "dependencies": {
     "@pixiv/three-vrm": "^3.5.5",

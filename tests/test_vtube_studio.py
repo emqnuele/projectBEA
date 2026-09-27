@@ -218,12 +218,16 @@ async def test_the_mouth_and_the_face_share_one_socket_without_colliding(tmp_pat
     client = client_with(socket, tmp_path)
     avatar._connected = client
 
-    mouth = asyncio.get_running_loop().create_task(avatar._run_mouth([[0.2, 0.5]] * 20, fps=1000))
+    # 50 fps: the pump skips frames that are already late, and at 1000 fps a slow runner would
+    mouth = asyncio.get_running_loop().create_task(avatar._run_mouth([[0.2, 0.5]] * 20, fps=50))
     await avatar._apply_expression(client, "furious.exp3.json")
     await mouth
 
     assert socket.of_type("ExpressionActivationRequest"), "her face never arrived"
-    assert len(socket.of_type("InjectParameterDataRequest")) == 21
+    # how many frames land depends on the runner's clock; what matters is that none collided and the mouth closed
+    values = [m["data"]["parameterValues"][0]["value"] for m in socket.of_type("InjectParameterDataRequest")]
+    assert 0.2 in values and set(values) <= {0.2, 0.0}
+    assert values[-1] == 0.0, "her mouth must close when the line ends"
 
 
 # --- the port's promises -----------------------------------------------------
@@ -360,7 +364,8 @@ async def test_the_mouth_is_paced_here_because_vtube_studio_has_no_clock(tmp_pat
     avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
     avatar._connected = client_with(socket, tmp_path)
 
-    await avatar._run_mouth([[0.1, 0.5], [0.5, 0.5], [0.9, 0.5]], fps=1000)
+    # 100 ms a frame: the pump skips a frame that is late by design, and windows' timer is ~15 ms coarse
+    await avatar._run_mouth([[0.1, 0.5], [0.5, 0.5], [0.9, 0.5]], fps=10)
 
     values = [m["data"]["parameterValues"][0]["value"]
               for m in socket.of_type("InjectParameterDataRequest")]
@@ -535,7 +540,118 @@ async def test_a_model_with_a_mouth_that_changes_shape_is_given_the_shape(tmp_pa
 
     await avatar._run_mouth([[0.4, 0.8]], fps=1000)
 
-    written = [(m["data"]["parameterValues"][0]["id"],
-                m["data"]["parameterValues"][0]["value"])
-               for m in socket.of_type("InjectParameterDataRequest")]
+    written = [(v["id"], v["value"])
+               for m in socket.of_type("InjectParameterDataRequest")
+               for v in m["data"]["parameterValues"]]
     assert ("MouthOpen", 0.4) in written and ("MouthForm", 0.8) in written
+    # both in one request: one round-trip per frame, not one per parameter
+    assert socket.of_type("InjectParameterDataRequest")[0]["data"]["parameterValues"] == [
+        {"id": "MouthOpen", "value": 0.4}, {"id": "MouthForm", "value": 0.8}]
+
+
+# --- the pump: one clock, one request per frame ----------------------------------
+
+
+class SlowClient:
+    """A VTube Studio that takes `rtt` to answer every request."""
+
+    connected = True
+
+    def __init__(self, rtt=0.0, ranges=None):
+        self.rtt = rtt
+        self.frames = []
+        self.ranges = ranges or {}
+
+    async def inject(self, values, face_found=False):
+        await asyncio.sleep(self.rtt)
+        self.frames.append((asyncio.get_running_loop().time(), dict(values), face_found))
+
+    async def input_parameters(self):
+        return self.ranges
+
+    async def close(self):
+        self.connected = False
+
+
+async def test_a_slow_vtube_studio_does_not_make_the_mouth_run_long(tmp_path):
+    """Frames are due at fixed times; one that is late is skipped, never played late."""
+    avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
+    avatar._connected = SlowClient(rtt=0.03)
+    loop = asyncio.get_running_loop()
+
+    started = loop.time()
+    await avatar._run_mouth([[0.5, 0.5]] * 30, fps=30)
+
+    assert abs((loop.time() - started) - 1.0) < 0.1, "a 1 s line took longer than 1 s"
+
+
+async def test_a_call_line_waits_for_the_room_and_follows_it(tmp_path):
+    avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
+    client = SlowClient()
+    avatar._connected = client
+
+    avatar.mouth_at([[0.7, 0.5]] * 6, 30, "u1", 0)
+    await asyncio.sleep(0.05)
+    assert all(frame[1]["MouthOpen"] == 0.0 for frame in client.frames), "the mouth moved before the room heard her"
+    avatar.mouth_sync("u1", 0)
+    await asyncio.sleep(0.1)
+    assert any(frame[1]["MouthOpen"] == 0.7 for frame in client.frames)
+    avatar.show("neutral", "listening")
+    await asyncio.sleep(0.05)
+
+
+async def test_without_life_nothing_but_the_mouth_is_sent(tmp_path):
+    avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
+    client = SlowClient(ranges={"FaceAngleX": (-30, 30)})
+    avatar._connected = client
+    await avatar._run_mouth([[0.3, 0.5]] * 3, fps=50)
+    assert {name for _, values, _ in client.frames for name in values} == {"MouthOpen"}
+    assert not any(found for _, _, found in client.frames)
+
+
+async def test_with_life_her_head_eyes_and_blinks_go_out_with_the_mouth(tmp_path):
+    ranges = {"FaceAngleX": (-30, 30), "FaceAngleY": (-30, 30), "EyeOpenLeft": (0, 1), "MouthOpen": (0, 1)}
+    avatar = VTubeStudioAvatar(config(vts_life=True), tmp_path / "token.json")
+    client = SlowClient(ranges=ranges)
+    avatar._connected = client
+    avatar.mouth([[0.6, 0.5]] * 3, 30)
+    await asyncio.sleep(0.2)
+
+    sent = {name for _, values, _ in client.frames for name in values}
+    assert {"FaceAngleX", "FaceAngleY", "EyeOpenLeft", "MouthOpen"} <= sent
+    assert "EyeLeftX" not in sent, "a parameter vtube studio does not have would be an api error"
+    assert all(found for _, _, found in client.frames), "without faceFound vtube studio plays its tracking-lost animation"
+    # every parameter is re-sent well inside the second after which vtube studio lets go of it
+    times = [t for t, values, _ in client.frames if "FaceAngleX" in values]
+    assert max(b - a for a, b in zip(times, times[1:], strict=False)) < 0.5
+    avatar.close()
+    await asyncio.sleep(0.05)
+
+
+async def test_a_refused_frame_does_not_stop_the_frames_after_it(tmp_path, caplog):
+    class Refusing(SlowClient):
+        async def inject(self, values, face_found=False):
+            if len(self.frames) < 2:
+                self.frames.append(None)
+                raise VTubeStudioError("ParameterNotFound: no such parameter")
+            await super().inject(values, face_found)
+
+    ranges = {"FaceAngleX": (-30, 30), "MouthOpen": (0, 1)}
+    avatar = VTubeStudioAvatar(config(vts_life=True), tmp_path / "token.json")
+    client = Refusing(ranges=ranges)
+    avatar._connected = client
+    avatar.mouth([[0.6, 0.5]] * 3, 30)
+    await asyncio.sleep(0.2)
+
+    assert len([f for f in client.frames if f is not None]) > 2, "the pump died on the first refusal"
+    assert sum("refused a frame" in r.message for r in caplog.records) == 1
+    avatar.close()
+    await asyncio.sleep(0.05)
+
+
+async def test_turning_life_off_stops_it(tmp_path):
+    avatar = VTubeStudioAvatar(config(vts_life=True), tmp_path / "token.json")
+    avatar.reload_config(config(vts_life=False))
+    assert avatar._life is None
+    avatar.reload_config(config(vts_life=True))
+    assert avatar._life is not None

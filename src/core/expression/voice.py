@@ -1,6 +1,9 @@
 import asyncio
 import contextlib
+import time
 import uuid
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
 import numpy as np
@@ -21,6 +24,27 @@ logger = get_logger("bea.expression")
 # The longest turn the bot sends: past it they are not pausing, they are giving
 # a speech, and she may start while they go on.
 FLOOR_HOLD_MAX_S = 30.0
+
+# call lines whose face is remembered; only the newest is ever current
+CALL_VISUALS_KEPT = 4
+
+# how long a closed call line waits for the bot's first report before it is mimed
+# without one. the real bot's first report lands 17-19 ms after a short line closes
+# (tests/test_voice_call_e2e.py), because the whole line was pushed before it came back
+REPORT_WAIT_S = 0.25
+
+
+@dataclass
+class CallVisual:
+    """What her face is doing for one line the room hears, apart from `is_speaking`."""
+
+    mood: str
+    # the bot reported playing it, so the face and mouth follow the room's clock
+    started: bool = False
+    begun: asyncio.Event = field(default_factory=asyncio.Event)
+    # no report came before the line closed, so it is mimed the old way instead
+    fell_back: bool = False
+    ended: bool = False
 
 
 class Expression:
@@ -87,6 +111,8 @@ class Expression:
         # a call line's visuals run in their own task; it must be held onto, or
         # the garbage collector can cancel it between two sentences
         self._visual_tasks = set()
+        # the face of each recent call line, by utterance id
+        self._call_visuals: "OrderedDict[str, CallVisual]" = OrderedDict()
 
     def set_state(self, state: str, mood: Optional[str] = None) -> None:
         """A visible state that is not speech: sleeping, listening, idle.
@@ -102,6 +128,21 @@ class Expression:
             # not a reason to take the talking face off her halfway through a word
             return
         self.avatar.show(self._mood, state)
+
+    def show_thinking(self, active: bool) -> None:
+        """Her face while a turn is being thought through, and back when it is over.
+
+        Only between lines: once she is saying something the talking face owns
+        the avatar. Never touches where she rests or whether she is speaking —
+        barge-in reads those — and never waits on anything.
+        """
+        if self.is_speaking or self._line is not None or self._resting == "sleeping":
+            return
+        try:
+            self.avatar.show(self._mood, "thinking" if active else self._resting)
+        except Exception as e:
+            # a face that fails must never cost her the turn
+            logger.debug(f"showing the thinking face failed: {e}")
 
     def set_ports(self, avatar: AvatarInterface, caption: CaptionInterface) -> None:
         """Swaps the backends under her, mid-run, without dropping the mood."""
@@ -267,6 +308,9 @@ class Expression:
 
         if line.route == "call":
             line.state = {"id": uuid.uuid4().hex, "seq": 0, "spoken_ms": 0, "frames": []}
+            self._call_visuals[line.state["id"]] = CallVisual(line.mood)
+            while len(self._call_visuals) > CALL_VISUALS_KEPT:
+                self._call_visuals.popitem(last=False)
             self.event_manager.publish(
                 EventCategory.OUTPUT, "tts", f"Speaking in the call: {preview}...",
                 metadata={"utterance_id": line.state["id"]},
@@ -373,6 +417,8 @@ class Expression:
             await self.wait_for_floor()
             if line.abandoned or line.cancelled or self._call_moved_on(state["id"], state["seq"]):
                 return
+        # where this piece starts in the utterance, on the clock the room hears it by
+        offset_ms = state["spoken_ms"]
         # one conversion across the whole piece, so its parts meet exactly
         # where they would have in one piece
         resampler = CallResampler()
@@ -406,7 +452,10 @@ class Expression:
         pieces = [audio for audio, _ in item.parts if getattr(audio, "size", 0)]
         if pieces:
             whole = pieces[0] if len(pieces) == 1 else np.concatenate(pieces)
-            state["frames"].extend(envelope(whole, item.parts[0][1], self._lipsync_fps))
+            frames = envelope(whole, item.parts[0][1], self._lipsync_fps)
+            state["frames"].extend(frames)
+            # after the send, never before it: the mouth must not cost the voice a millisecond
+            self._publish_segment(state["id"], frames, offset_ms)
 
     async def _send(self, call, line: LiveLine, pcm: bytes) -> None:
         if not pcm:
@@ -422,6 +471,10 @@ class Expression:
         mood = self.match_mood(word)
         line.mood = mood
         self._mood = mood
+        if line.route == "call":
+            visual = self._call_visuals.get(line.state.get("id", ""))
+            if visual is not None:
+                visual.mood = mood
         self._on_the_word(line, lambda: self.avatar.show(mood, "talking"))
 
     def behave(self, line: LiveLine, word: str) -> None:
@@ -459,10 +512,10 @@ class Expression:
                 return self.call.utterances.get(state["id"]) if self.call else None
             await self.call.end(state["id"])
             # the call cuts an older line when this one starts, so its visuals go too
-            self._stop_visuals()
+            self._stop_visuals(keep=state["id"])
             task = asyncio.create_task(self._visual_only(
                 line.mood, line.caption or line.spoken,
-                state["spoken_ms"] / 1000.0, state["frames"],
+                state["spoken_ms"] / 1000.0, state["frames"], state["id"],
             ))
             self._visual_tasks.add(task)
             task.add_done_callback(self._visual_tasks.discard)
@@ -543,32 +596,103 @@ class Expression:
             self.current_typing_task.cancel()
         self.current_typing_task = asyncio.create_task(self.caption.say(text))
 
+    def _publish_segment(self, utterance_id: str, frames, offset_ms: int) -> None:
+        """One piece's mouth, placed where it falls in the utterance, for a backend that keeps time."""
+        if not len(frames) or not getattr(self.avatar, "supports_timeline", False):
+            return
+        try:
+            self.avatar.mouth_at(frames, self._lipsync_fps, utterance_id, offset_ms)
+        except Exception as e:
+            # a mouth that fails must never stop her from speaking
+            logger.error(f"Lip sync failed: {e}")
+
+    def call_progress(self, utterance_id: str, played_ms: int, state: str) -> None:
+        """The bot reported how much of a line the room has heard. Called on the socket loop: O(1), never raises.
+
+        The first report puts the talking face on and starts the mouth; every
+        one after re-anchors the mouth to what was actually heard; the last
+        takes the face off. `is_speaking` is not touched: barge-in reads it,
+        and it keeps the timing it always had.
+        """
+        visual = self._call_visuals.get(utterance_id)
+        if visual is None or visual.ended or visual.fell_back:
+            return
+        try:
+            if state in ("done", "stopped"):
+                visual.ended = True
+                # a stop was somebody's barge-in, and the barge-in settles the stage itself
+                if state == "done" and visual.started:
+                    self.avatar.show(visual.mood, self._resting)
+                return
+            if not visual.started:
+                visual.started = True
+                visual.begun.set()
+                # wall-clock ms, to line up with the page's ?debug=1 log on the same machine
+                logger.debug(f"call line {utterance_id[:8]} heard at {time.time() * 1000:.0f}")
+                self.avatar.show(visual.mood, "talking")
+            if getattr(self.avatar, "supports_timeline", False):
+                self.avatar.mouth_sync(utterance_id, played_ms)
+        except Exception as e:
+            logger.debug(f"following the call's playback failed: {e}")
+
     async def _visual_only(self, mood: str, message: str, duration: float,
-                           frames=None):
-        """Drives the visuals for a line the room hears, without playing it here."""
+                           frames=None, utterance_id: str = ""):
+        """Drives the visuals for a line the room hears, without playing it here.
+
+        The face and mouth follow the bot's reports once one arrives; a line
+        with none within `REPORT_WAIT_S` of closing is mimed from here, the
+        whole line at once. The caption and `is_speaking` are timed from the
+        close either way, exactly as they always were.
+        """
         self.is_speaking = True
         self._mood = mood
+        loop = asyncio.get_running_loop()
+        closed_at = loop.time()
+        visual = self._call_visuals.get(utterance_id)
         try:
-            self.avatar.show(mood, "talking")
-            if frames:
-                self.avatar.mouth(frames, self._lipsync_fps)
-
             # held where barge-in can reach it: the caption for a line the room
             # hears is typed here, and an interruption has to stop it mid-word
             self.current_typing_task = asyncio.create_task(self.caption.say(message))
+
+            if visual is not None and not visual.started:
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(visual.begun.wait(), REPORT_WAIT_S)
+            following = visual is not None and visual.started
+            if not following:
+                if visual is not None:
+                    visual.fell_back = True
+                self.avatar.show(mood, "talking")
+            # a backend that keeps time already has every piece; the others get the line whole
+            if frames and not (following and getattr(self.avatar, "supports_timeline", False)):
+                self.avatar.mouth(frames, self._lipsync_fps)
+
             # a caption backend that shows nothing returns at once, and the
             # visuals would snap back before the room finished hearing her
-            await asyncio.gather(self.current_typing_task, asyncio.sleep(duration))
+            left = max(0.0, duration - (loop.time() - closed_at))
+            await asyncio.gather(self.current_typing_task, asyncio.sleep(left))
 
-            self.avatar.show(mood, self._resting)
+            # a newer line the room is already hearing owns the face; resting it here would still its mouth
+            if not self._newer_line_heard(utterance_id):
+                self.avatar.show(mood, self._resting)
             self.caption.clear()
         finally:
             self.is_speaking = False
 
-    def _stop_visuals(self) -> None:
-        """Stops miming lines the call is no longer playing."""
+    def _newer_line_heard(self, utterance_id: str) -> bool:
+        """Whether a call line opened after `utterance_id` is playing in the room right now."""
+        ids = list(self._call_visuals)
+        if utterance_id not in ids:
+            return False
+        return any(self._call_visuals[i].started and not self._call_visuals[i].ended
+                   for i in ids[ids.index(utterance_id) + 1:])
+
+    def _stop_visuals(self, keep: str = "") -> None:
+        """Stops miming lines the call is no longer playing, all but `keep`."""
         for task in list(self._visual_tasks):
             task.cancel()
+        for utterance_id, visual in self._call_visuals.items():
+            if utterance_id != keep:
+                visual.ended = True
 
     # --- barge-in -----------------------------------------------------------
 

@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { AlertTriangle, Eye } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Eye, MessageCircle, X } from 'lucide-react';
+import { api } from '../../api';
+import { testEnvelope } from '../../lib/testLine';
 import { Group } from './parts';
-import { Segmented } from '../../components/ui/controls';
+import { Button, IconButton, Segmented } from '../../components/ui/controls';
 
 /**
  * What the audience will actually see, without opening OBS.
@@ -101,36 +103,151 @@ function PngPreview({ map }) {
     );
 }
 
-function ModelPreview({ hasModel, modelPath }) {
-    if (!hasModel) {
+const TRY_STATES = [
+    { value: 'idle', label: 'Idle' },
+    { value: 'listening', label: 'Listening' },
+    { value: 'thinking', label: 'Thinking' },
+    { value: 'talking', label: 'Talking' },
+    { value: 'sleeping', label: 'Asleep' },
+];
+
+// the settings the preview wears before they are saved, so a slider can be judged by eye
+const LOOK_KEYS = ['shot', 'background', 'light_preset', 'idle_clip', 'state_clips', 'expression_intensity',
+    'face_blend_blink', 'mouth_under_emotion'];
+
+function TryPanel({ frame, stage, gestures }) {
+    const [ready, setReady] = useState(false);
+    const [moods, setMoods] = useState({});
+    const [mood, setMood] = useState('neutral');
+    const [state, setState] = useState('idle');
+    const lineTimer = useRef(null);
+
+    const post = (message) => {
+        frame.current?.contentWindow?.postMessage({ type: 'bea-preview', ...message }, window.location.origin);
+    };
+
+    useEffect(() => {
+        api.stageMoods().then(setMoods).catch(() => setMoods({}));
+        const onMessage = (event) => {
+            if (event.origin === window.location.origin && event.data?.type === 'bea-preview-ready') setReady(Boolean(event.data.ok));
+        };
+        window.addEventListener('message', onMessage);
+        return () => {
+            window.removeEventListener('message', onMessage);
+            clearTimeout(lineTimer.current);
+        };
+    }, []);
+
+    const look = JSON.stringify(Object.fromEntries(LOOK_KEYS.map((k) => [k, stage[k]])));
+    useEffect(() => {
+        if (!ready) return;
+        frame.current?.contentWindow?.postMessage({ type: 'bea-preview', look: JSON.parse(look) }, window.location.origin);
+    }, [ready, look, frame]);
+
+    const wear = (name) => {
+        setMood(name);
+        post({ patch: { mood: name, expressions: moods[name] } });
+    };
+    const become = (name) => {
+        setState(name);
+        post({ patch: { state: name } });
+    };
+    const sayTestLine = () => {
+        const fps = 30;
+        const frames = testEnvelope(3, fps);
+        clearTimeout(lineTimer.current);
+        post({ patch: { state: 'talking' } });
+        post({ patch: { envelope: frames, envelope_fps: fps } });
+        lineTimer.current = setTimeout(() => post({ patch: { state } }), (frames.length / fps) * 1000);
+    };
+
+    if (!ready) return <p className="text-[11px] text-faint">Loading the model into the preview…</p>;
+    return (
+        <div className="space-y-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+                <Segmented value={state} onChange={become} options={TRY_STATES} size="sm" />
+                <Button size="sm" variant="outline" onClick={sayTestLine}>
+                    <MessageCircle size={13} /> Say a test line
+                </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+                {Object.keys(moods).map((name) => (
+                    <Button key={name} size="sm" variant={name === mood ? 'vital' : 'ghost'} onClick={() => wear(name)}>
+                        {name}
+                    </Button>
+                ))}
+            </div>
+            {gestures.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                    {gestures.map((name) => (
+                        <Button key={name} size="sm" variant="outline" onClick={() => post({ patch: { perform: name } })}>
+                            {name}
+                        </Button>
+                    ))}
+                </div>
+            )}
+            <p className="text-[11px] leading-snug text-faint">
+                Only this preview changes: the stream keeps what the engine sends. Unsaved face and framing
+                settings show here as you move them.
+            </p>
+        </div>
+    );
+}
+
+function ModelPreview({ hasModel, modelPath, previewId, onStopPreview, stage, gestures }) {
+    const [trying, setTrying] = useState(false);
+    const frame = useRef(null);
+    const target = previewId || (trying ? 'active' : null);
+
+    if (!hasModel && !previewId) {
         return (
             <Frame>
                 <Empty>
-                    Point <span className="font-mono text-text">Model file</span> at a .vrm below.
-                    No model ships with projectBEA — run <span className="font-mono text-text">make model</span> for
-                    the free sample, or bring your own.
+                    Choose a model in the library below, or get the free one. No model ships with
+                    projectBEA, and <span className="font-mono text-text">make model</span> fetches the same free one.
                 </Empty>
             </Frame>
         );
     }
     return (
         <>
-            {/* the page paints nothing but her, so the iframe must not lay its
-                own opaque white underneath it */}
+            <div className="flex flex-wrap items-center gap-2">
+                {previewId ? (
+                    <>
+                        <p className="min-w-0 flex-1 truncate text-[12px] text-dim">
+                            Previewing <span className="font-mono text-text">{previewId}</span>, not on stage
+                        </p>
+                        <IconButton size="sm" label="Close the preview" onClick={onStopPreview}><X size={14} /></IconButton>
+                    </>
+                ) : (
+                    <Segmented
+                        value={trying ? 'try' : 'live'}
+                        onChange={(v) => setTrying(v === 'try')}
+                        options={[{ value: 'live', label: 'What the stream sees' }, { value: 'try', label: 'Try things on' }]}
+                        size="sm"
+                    />
+                )}
+            </div>
+            {/* the page paints nothing but her, so the iframe must not lay its own opaque white underneath it */}
             <div className="overflow-hidden rounded-b2 border border-line" style={CHECKS}>
                 <iframe
-                    key={modelPath}
-                    title="The browser source"
-                    src="/stage?hud=0"
+                    ref={frame}
+                    key={`${target || 'live'}:${modelPath}`}
+                    title={target ? 'Model preview' : 'The browser source'}
+                    src={target ? `/stage?hud=0&preview=${encodeURIComponent(target)}` : '/stage?hud=0'}
                     className="block h-[420px] w-full border-0"
                     style={{ background: 'transparent', colorScheme: 'normal' }}
                 />
             </div>
-            <p className="text-[11px] leading-snug text-faint">
-                This is the browser source itself, not a mock-up. The chequerboard is this
-                panel showing through — OBS composites her over your scene instead.
-                Saving a change here updates it live.
-            </p>
+            {target ? (
+                <TryPanel key={target} frame={frame} stage={stage} gestures={gestures} />
+            ) : (
+                <p className="text-[11px] leading-snug text-faint">
+                    This is the browser source itself, not a mock-up. The chequerboard is this
+                    panel showing through — OBS composites her over your scene instead.
+                    Saving a change here updates it live.
+                </p>
+            )}
         </>
     );
 }
@@ -149,14 +266,23 @@ function VtsPreview({ status }) {
     );
 }
 
-export function StagePreview({ config, vtsStatus }) {
+export function StagePreview({ config, vtsStatus, previewId, onStopPreview, gestures = [] }) {
     const stage = config.stage || {};
     const backend = stage.avatar_backend || 'png';
 
     return (
         <Group title="Preview" description="What the stream sees, before you go looking in OBS.">
             {backend === 'png' && <PngPreview map={config.avatar_map || {}} />}
-            {backend === 'model' && <ModelPreview hasModel={Boolean(stage.model_path)} modelPath={stage.model_path} />}
+            {backend === 'model' && (
+                <ModelPreview
+                    hasModel={Boolean(stage.model_path)}
+                    modelPath={stage.model_path}
+                    previewId={previewId}
+                    onStopPreview={onStopPreview}
+                    stage={stage}
+                    gestures={gestures}
+                />
+            )}
             {backend === 'vtube_studio' && <VtsPreview status={vtsStatus} />}
         </Group>
     );

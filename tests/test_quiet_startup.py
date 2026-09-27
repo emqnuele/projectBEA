@@ -3,6 +3,7 @@
 import logging
 import subprocess
 import sys
+import time
 
 from src.modules.obs.obs_websocket import OBSController
 
@@ -28,6 +29,13 @@ def test_obs_closed_is_one_warning_not_a_traceback(caplog):
     caplog.set_level(logging.DEBUG)
     obs = OBSController("127.0.0.1", 1, "", "avatar")
     obs.connect()
-
-    assert obs.client is None
-    assert not any(record.exc_info for record in caplog.records)
+    try:
+        # the socket is opened on the obs worker, so its warning arrives from there
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and not any("OBS not connected" in r.message for r in caplog.records):
+            time.sleep(0.01)
+        assert obs.client is None
+        assert [r for r in caplog.records if "OBS not connected" in r.message], "no warning at all"
+        assert not any(record.exc_info for record in caplog.records)
+    finally:
+        obs.disconnect()

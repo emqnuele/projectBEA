@@ -54,7 +54,7 @@ lint: ## static checks
 bench: ## measure this machine: retrieval, memory, startup, models
 	uv run python tools/bench.py
 
-model: ## download the free sample 3d model and clip into data/
+model: ## download the free 3d model and its idle motion into data/ (--all: the whole catalog)
 	uv run python tools/fetch_model.py
 
 lock: ## refresh uv.lock after changing dependencies

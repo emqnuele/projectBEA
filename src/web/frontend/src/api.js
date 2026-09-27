@@ -49,6 +49,26 @@ export async function request(path, { method = 'GET', body, signal, raw } = {}) 
     return res.json();
 }
 
+// the file is the body: no multipart parser between the browser and the disk
+async function upload(path, file) {
+    const url = `${API_BASE}${path}`;
+    let res;
+    try {
+        res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    } catch {
+        throw new ApiError('The brain is not answering', { url });
+    }
+    if (!res.ok) {
+        let detail = `${res.status} ${res.statusText}`;
+        try {
+            const payload = await res.json();
+            if (payload?.detail) detail = payload.detail;
+        } catch { /* a non-JSON error body is still an error */ }
+        throw new ApiError(detail, { status: res.status, url });
+    }
+    return res.json();
+}
+
 export const api = {
     health: () => request('/health'),
     status: (signal) => request('/status', { signal }),
@@ -140,6 +160,13 @@ export const api = {
 
     // the stage: what she is drawn with
     stageClips: () => request('/stage/clips'),
+    library: () => request('/stage/library'),
+    libraryDownloads: () => request('/stage/library/downloads'),
+    libraryDownload: (id) => request('/stage/library/download', { method: 'POST', body: { id } }),
+    librarySelect: (id) => request('/stage/library/select', { method: 'POST', body: { id } }),
+    libraryDelete: (id) => request(`/stage/library/models/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    libraryUpload: (kind, file) => upload(`/stage/library/${kind}/upload?name=${encodeURIComponent(file.name)}`, file),
+    stageMoods: () => request('/stage/moods'),
     voices: () => request('/voices'),
     vtsModel: () => request('/vts/model'),
 };

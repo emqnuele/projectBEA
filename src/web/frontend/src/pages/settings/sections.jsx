@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api';
-import { Field, SecretInput, Select, TextInput, CheckRow } from '../../components/ui/fields';
+import { Field, SecretInput, Select, Slider, TextInput, CheckRow } from '../../components/ui/fields';
 import { Button } from '../../components/ui/controls';
 import { AudioTuning, CopyField, Group, OutputDevice, ProviderChoice, SecretState, TestButton } from './parts';
 import { StagePreview } from './StagePreview';
+import { ModelLibrary } from './ModelLibrary';
 import { PromptEditor } from './PromptEditor';
 import { createSchemaSection } from './SchemaSection';
 import GamePanel from '../../components/console/GamePanel';
@@ -456,6 +457,12 @@ function VTubeStudioGroups({ stage, moods, updateStage, updateStageMap, model, s
                     the token is stored under <span className="font-mono">data/</span> and never leaves this machine.
                 </p>
                 <TestButton label="Test the connection" run={load} />
+                <CheckRow
+                    checked={Boolean(stage.vts_life)}
+                    onChange={(v) => updateStage('vts_life', v)}
+                    title="Keep her alive without a webcam"
+                    help="She moves her head, eyes and eyelids on her own, the way the 3D body does, and tells VTube Studio a face is found. Leave it off if you drive the model with face tracking."
+                />
             </Group>
 
             <Group title="A face per mood" description="Expressions come from your model, so pick from what it actually has.">
@@ -493,7 +500,7 @@ const CAPTION_BACKENDS = [
     { id: 'off', label: 'Off', blurb: 'She speaks, nothing is written.' },
 ];
 
-function StreamSection({ config, update, setConfig }) {
+function StreamSection({ config, update, setConfig, adoptSaved }) {
     const stage = config.stage || {};
     const avatarBackend = stage.avatar_backend || 'png';
     const captionBackend = stage.caption_backend || 'obs';
@@ -511,20 +518,28 @@ function StreamSection({ config, update, setConfig }) {
         avatar_map: { ...prev.avatar_map, [mood]: { ...prev.avatar_map[mood], [state]: value } },
     }));
 
-    const needsObs = avatarBackend === 'png' || captionBackend === 'obs';
+    const pngInPage = avatarBackend === 'png' && stage.png_render === 'stage';
+    const needsObs = (avatarBackend === 'png' && !pngInPage) || captionBackend === 'obs';
+    // read from the settings being edited, not the saved ones, so the lists agree before saving
+    const baseClips = new Set([stage.idle_clip, ...Object.values(stage.state_clips || {})].filter(Boolean));
     const moods = Object.keys(config.avatar_map || {});
     const stageUrl = `${window.location.origin}/stage`;
 
     // what is actually installed in the clips folder, so the picker offers real
     // names instead of a text box where a typo is silent until you are live
     const [clips, setClips] = useState([]);
+    const [clipsVersion, setClipsVersion] = useState(0);
+    // a model shown in the preview without being put on stage
+    const [previewId, setPreviewId] = useState(null);
     // what VTube Studio answered, held here so the preview and the pickers are
     // looking at the same connection instead of each asking on their own
     const [vtsModel, setVtsModel] = useState(null);
     useEffect(() => {
         if (avatarBackend !== 'model') return;
-        api.stageClips().then(setClips).catch(() => setClips([]));
-    }, [avatarBackend, stage.clips_dir]);
+        api.stageClips()
+            .then((list) => setClips(Array.isArray(list) ? list : []))
+            .catch(() => setClips([]));
+    }, [avatarBackend, stage.clips_dir, clipsVersion]);
 
     return (
         <>
@@ -537,7 +552,12 @@ function StreamSection({ config, update, setConfig }) {
                         columns={3}
                     />
                 </Field>
-                <Field label="Speech bubble" help="How her words are shown while she talks.">
+                <Field
+                    label="Speech bubble"
+                    help={(avatarBackend === 'model' || pngInPage) && captionBackend === 'obs'
+                        ? 'She is already in the browser source: typing her words there too sends one message per line instead of one OBS request per letter.'
+                        : 'How her words are shown while she talks.'}
+                >
                     <ProviderChoice
                         value={captionBackend}
                         onChange={(id) => updateStage('caption_backend', id)}
@@ -547,9 +567,15 @@ function StreamSection({ config, update, setConfig }) {
                 </Field>
             </Group>
 
-            <StagePreview config={config} vtsStatus={vtsModel} />
+            <StagePreview
+                config={config}
+                vtsStatus={vtsModel}
+                previewId={previewId}
+                onStopPreview={() => setPreviewId(null)}
+                gestures={clips.filter((c) => !baseClips.has(c.name)).map((c) => c.name)}
+            />
 
-            {(avatarBackend === 'model' || captionBackend === 'stage') && (
+            {(avatarBackend === 'model' || pngInPage || captionBackend === 'stage') && (
                 <Group title="The browser source" description="Add this URL to OBS as a Browser Source. Tick 'Shutdown source when not visible' off, so she keeps her pose.">
                     <CopyField value={stageUrl} />
                 </Group>
@@ -574,9 +600,9 @@ function StreamSection({ config, update, setConfig }) {
                 </Group>
             )}
 
-            {(avatarBackend === 'png' || captionBackend === 'obs') && (
+            {((avatarBackend === 'png' && !pngInPage) || captionBackend === 'obs') && (
                 <Group title="Sources" description="The names exactly as they appear in your OBS scene.">
-                    {avatarBackend === 'png' && (
+                    {avatarBackend === 'png' && !pngInPage && (
                         <>
                             <ProviderChoice
                                 value={config.obs_source_type}
@@ -620,6 +646,16 @@ function StreamSection({ config, update, setConfig }) {
 
             {avatarBackend === 'png' && (
                 <Group title="Avatar" description="One image per mood, one for idle and one for talking.">
+                    <Field label="Drawn in" help="In the browser source the mouth follows her voice and nothing waits on OBS.">
+                        <ProviderChoice
+                            value={stage.png_render || 'obs'}
+                            onChange={(id) => updateStage('png_render', id)}
+                            options={[
+                                { id: 'obs', label: 'OBS source', blurb: 'The picture is swapped in an image or media source.' },
+                                { id: 'stage', label: 'Browser source', blurb: 'The page draws her: the mouth flaps with her voice, she breathes and blinks.' },
+                            ]}
+                        />
+                    </Field>
                     <Field label="Image folder">
                         <TextInput value={config.png_dir || ''} onChange={(e) => update('png_dir', e.target.value)} className="font-mono" />
                     </Field>
@@ -633,6 +669,16 @@ function StreamSection({ config, update, setConfig }) {
                                 <Field label="Talking">
                                     <TextInput value={paths.talking || ''} onChange={(e) => updateAvatar(mood, 'talking', e.target.value)} className="font-mono text-[11px]" />
                                 </Field>
+                                {pngInPage && (
+                                    <>
+                                        <Field label="Mouth shut, mid-line" help="Optional. Without it the mouth flaps between idle and talking.">
+                                            <TextInput value={paths.talking_closed || ''} onChange={(e) => updateAvatar(mood, 'talking_closed', e.target.value)} className="font-mono text-[11px]" />
+                                        </Field>
+                                        <Field label="Blinking" help="Optional. Shown for a moment every few seconds.">
+                                            <TextInput value={paths.blink || ''} onChange={(e) => updateAvatar(mood, 'blink', e.target.value)} className="font-mono text-[11px]" />
+                                        </Field>
+                                    </>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -641,9 +687,29 @@ function StreamSection({ config, update, setConfig }) {
 
             {avatarBackend === 'model' && (
                 <>
-                    <Group title="The model" description="A .vrm file on this machine. Nothing is bundled: the model is yours.">
-                        <Field label="Model file" help="Run `make model` to download the free sample, or point this at your own.">
-                            <TextInput value={stage.model_path || ''} onChange={(e) => updateStage('model_path', e.target.value)} placeholder="data/models/bea.vrm" className="font-mono" />
+                    <ModelLibrary
+                        stage={stage}
+                        adoptSaved={adoptSaved}
+                        previewId={previewId}
+                        onPreview={setPreviewId}
+                        onClipsChanged={() => setClipsVersion((v) => v + 1)}
+                    />
+
+                    <Group title="How she is shown" description="Framing, motion and the clips folder.">
+                        <Field label="Model file" help="Set by choosing a model above. Type a path only for a .vrm kept outside the library.">
+                            <TextInput value={stage.model_path || ''} onChange={(e) => updateStage('model_path', e.target.value)} placeholder="data/models/AvatarSample_B.vrm" className="font-mono" />
+                        </Field>
+                        <Field label="Light" help="Judge it in the preview: saving applies it to the browser source live.">
+                            <ProviderChoice
+                                value={stage.light_preset || 'flat'}
+                                onChange={(id) => updateStage('light_preset', id)}
+                                options={[
+                                    { id: 'flat', label: 'Flat', blurb: 'One light from the camera side and an even fill. The original look.' },
+                                    { id: 'soft', label: 'Soft', blurb: 'A warm key, a cool fill and sky light: gentler shadows.' },
+                                    { id: 'studio', label: 'Studio', blurb: 'Key, fill and a light from behind that outlines her.' },
+                                ]}
+                                columns={3}
+                            />
                         </Field>
                         <Field label="Framing" help="Computed from the head bone, so any model is framed the same way.">
                             <ProviderChoice
@@ -665,6 +731,40 @@ function StreamSection({ config, update, setConfig }) {
                                 <TextInput type="number" value={stage.lipsync_fps ?? 30} onChange={(e) => updateStage('lipsync_fps', parseInt(e.target.value, 10) || 30)} />
                             </Field>
                         </div>
+                        <Field label="Idle motion" help="The clip always playing under her, so she never stands in a T-pose. Without one she holds a still pose with her arms down.">
+                            <Select value={stage.idle_clip || ''} onChange={(e) => updateStage('idle_clip', e.target.value)}>
+                                <option value="">— still pose —</option>
+                                {stage.idle_clip && !clips.some((c) => c.name === stage.idle_clip) && (
+                                    <option value={stage.idle_clip}>{stage.idle_clip} (not installed)</option>
+                                )}
+                                {clips.map((c) => (
+                                    <option key={c.name} value={c.name}>{c.name}</option>
+                                ))}
+                            </Select>
+                        </Field>
+                    </Group>
+
+                    <Group title="Her face" description="How strongly a mood reads on this model. Saving applies it to the browser source live.">
+                        <Slider
+                            label="Expression strength"
+                            value={Number(stage.expression_intensity ?? 0.7)}
+                            onChange={(v) => updateStage('expression_intensity', v)}
+                            step={0.05}
+                            format={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <Slider
+                            label="Lip sync under a strong emotion"
+                            value={Number(stage.mouth_under_emotion ?? 0.5)}
+                            onChange={(v) => updateStage('mouth_under_emotion', v)}
+                            step={0.05}
+                            format={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <CheckRow
+                            checked={stage.face_blend_blink ?? true}
+                            onChange={(v) => updateStage('face_blend_blink', v)}
+                            title="Soften blinks under a smile"
+                            help="A face whose eyes are already shut does not close them a second time when she blinks."
+                        />
                     </Group>
 
                     <Group title="A behaviour per mood" description="Optional. Leave one empty and she just changes expression.">
@@ -673,7 +773,7 @@ function StreamSection({ config, update, setConfig }) {
                             values={stage.mood_clips || {}}
                             onChange={(mood, value) => updateStageMap('mood_clips', mood, value)}
                             placeholder="wave"
-                            options={(clips || []).map((name) => ({ id: name, label: name }))}
+                            options={clips.filter((c) => !baseClips.has(c.name)).map((c) => ({ id: c.name, label: c.name }))}
                         />
                     </Group>
                 </>

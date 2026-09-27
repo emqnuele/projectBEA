@@ -381,6 +381,7 @@ soul's job, and the soul is a file you write.
 |---|---|---|
 | `obs_host` / `obs_port` | `localhost` / `4455` | obs-websocket 5.x |
 | `obs_password` | `""` | Empty if authentication is disabled |
+| `obs_timeout` | `2.0` | Seconds one request may take. Past it the socket is closed and reopened, so an OBS that hangs is never waited on for longer. |
 | `obs_avatar_source` | `"BeaPNG"` | Source name for the avatar |
 | `obs_source_type` | `"image"` | `image` for PNG, `media` for MP4/GIF/WebM |
 | `obs_text_source` | `"AIText"` | Source name for the speech bubble |
@@ -439,6 +440,7 @@ Two independent choices, plus the settings each one needs.
 | Key | Default | What it does |
 |---|---|---|
 | `avatar_backend` | `"png"` | `png`, `model` or `vtube_studio`. An unknown name falls back to `png` with a warning. |
+| `png_render` | `"obs"` | Where the `png` avatar is drawn: `obs` swaps a file in an OBS source, `stage` draws it in the browser source with a mouth that follows her voice. |
 | `caption_backend` | `"obs"` | `obs`, `stage` (the browser source) or `off`. |
 | `lipsync_fps` | `30` | How many times a second her mouth is told what to do. |
 
@@ -447,10 +449,17 @@ Two independent choices, plus the settings each one needs.
 | Key | Default | What it does |
 |---|---|---|
 | `model_path` | `""` | The `.vrm` on this machine. Nothing ships with the repo; `make model` fetches a free one. |
-| `clips_dir` | `"data/clips"` | Where `.vrma` behaviours live. They appear by name in the dashboard. |
+| `models_dir` | `"data/models"` | Where the dashboard's library lists, downloads and uploads models. A `model_path` outside it still works and shows as external. |
+| `clips_dir` | `"data/clips"` | Where `.vrma` and Mixamo `.fbx` clips live. They appear by name in the dashboard. |
 | `shot` | `"bust"` | `bust`, `half` or `full`. Framed off the head bone, so any model is framed alike. |
 | `mood_clips` | `{}` | mood → clip name. Optional; a mood without one just changes expression. |
+| `idle_clip` | `"idle_loop"` | The clip always playing under her. Empty, or a clip that fails to load, means a still pose with the arms down. Never offered to `<do:…>`. |
+| `expression_intensity` | `0.7` | How strongly a mood shows on her face, 0–1. Scales every emotion weight the engine sends; the proportions between them stay. |
+| `face_blend_blink` | `true` | A blink blends under an emotion instead of adding to it, so a smile whose eyes are already shut does not close them twice. Only emotions the model declares with `overrideBlink: none` are changed. |
+| `mouth_under_emotion` | `0.5` | How much of the lip sync survives under a full emotion, 0–1. VRoid emotion shapes already move the mouth, and the visemes add on top of them. |
+| `state_clips` | `{}` | state (`idle`, `listening`, `thinking`, `talking`, `sleeping`) → clip carrying her in that state instead of `idle_clip`. Changing state crossfades over 0.5 s. |
 | `background` | `""` | A colour behind her, or empty for transparent. |
+| `light_preset` | `"flat"` | `flat` (one key light and an even ambient), `soft` (a warm key, a cool fill and sky light) or `studio` (key, fill, a light from behind and a rim on MToon materials). Applies live. |
 
 **The `vtube_studio` backend** — nothing is bundled; it drives the VTube Studio you already run.
 
@@ -461,6 +470,9 @@ Two independent choices, plus the settings each one needs.
 | `vts_expressions` | `{}` | mood → expression file in **your** model. The dashboard reads the list from the connected model. |
 | `vts_clips` | `{}` | mood → hotkey id or name, triggered when she starts talking. |
 | `vts_mouth_param` | `"MouthOpen"` | The parameter the lip sync writes to. |
+| `vts_mouth_form_param` | `""` | A second mouth parameter for its shape, if the model has one. |
+| `vts_life` | `false` | Inject head, eyes and blinks every frame, the same life as the 3D body, for a model with no webcam tracking. Sends `faceFound: true`. |
+| `vts_life_params` | `{}` | Replaces the input parameters one signal writes to, e.g. `{"pitch": ["FaceAngleY"]}`. Signals: `yaw`, `pitch`, `roll`, `eye_x`, `eye_y`, `blink`; a leading `-` inverts. |
 
 The token VTube Studio issues is **not** kept here. It lives in
 `data/vtube_studio_token.json`, gitignored, because `GET /config` is
@@ -479,8 +491,8 @@ back to `neutral`. `png_dir` (`data/pngs`) is where they live.
 | Key | Default | Description |
 |---|---|---|
 | `text_line_width` | `40` | Characters per line before wrapping |
-| `text_lines` | `4` | Visible lines before paginating |
-| `text_font_size` | `75` | Starting font size |
+| `text_lines` | `4` | Visible lines before paginating; in the browser source, the newest lines kept on screen |
+| `text_font_size` | `75` | Starting font size; in the browser source, pixels on a 1080 px tall frame, scaled with the frame |
 | `text_min_font_size` | `55` | Floor when long text is shrunk to fit |
 | `text_font_step` | `2` | Shrink step |
 | `typing_delay` | `0.03` | Seconds per character |

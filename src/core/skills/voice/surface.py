@@ -67,6 +67,8 @@ class VoiceSurface(PlatformSkill):
         self.channel.on_first_sound = self._on_first_sound
         if self.expression is not None:
             self.expression.set_call(self.channel)
+            # her face and mouth keep time by what the room has actually heard
+            self.channel.on_progress = getattr(self.expression, "call_progress", None)
 
         # the reflex: it decides when the door opens, never what comes through it
         self.floor = FloorController(

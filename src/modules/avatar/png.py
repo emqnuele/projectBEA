@@ -5,7 +5,7 @@ source, so nothing above the port has to ask.
 """
 
 from pathlib import Path
-from typing import Dict, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 from src.core.mind.moods import DEFAULT_MOOD
 from src.core.resources import load_avatar_resources, resolve_mood_paths
@@ -26,6 +26,8 @@ class PngAvatar(AvatarInterface):
         self.config = config
         self.png_map: Dict[str, Tuple[Path, Path]] = {}
         self._warned: set = set()
+        # what the source holds now, so the same picture is never sent twice on the same socket
+        self._shown: Optional[Tuple[str, str, int]] = None
         self._load()
 
     def _load(self) -> None:
@@ -35,6 +37,7 @@ class PngAvatar(AvatarInterface):
 
     def reload_config(self, config) -> None:
         self.config = config
+        self._shown = None
         self._load()
 
     # --- the port -----------------------------------------------------------
@@ -64,7 +67,7 @@ class PngAvatar(AvatarInterface):
         does not: another backend taking over mid-stream, or the engine stopping,
         would otherwise leave a face on screen with nothing behind it.
         """
-        self._swap("")
+        self._swap("", force=True)
 
     # --- internals ----------------------------------------------------------
 
@@ -75,8 +78,14 @@ class PngAvatar(AvatarInterface):
             logger.warning(f"Could not resolve mood {mood}, falling back to '{DEFAULT_MOOD}'.")
             return self.png_map.get(DEFAULT_MOOD, (Path("placeholder.png"), Path("placeholder.png")))
 
-    def _swap(self, path: Union[str, Path]) -> None:
-        if self.config.obs_source_type == "media":
+    def _swap(self, path: Union[str, Path], force: bool = False) -> None:
+        kind = "media" if self.config.obs_source_type == "media" else "image"
+        # a request that failed was lost with its socket, so a new socket gets the picture again
+        wanted = (kind, str(path), int(getattr(self.obs, "connections", 0) or 0))
+        if wanted == self._shown and not force:
+            return
+        self._shown = wanted
+        if kind == "media":
             self.obs.set_media(path)
         else:
             self.obs.set_image(path)

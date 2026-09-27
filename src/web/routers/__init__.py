@@ -16,6 +16,7 @@ from src.web.routers import (
     chat,
     donations,
     health,
+    library,
     memory,
     minecraft,
     persona,
@@ -40,6 +41,7 @@ ALL: Tuple[APIRouter, ...] = (
     memory.router,
     probes.router,
     stage.router,
+    library.router,
     updates.router,
     health.router,
 )

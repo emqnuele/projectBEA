@@ -407,8 +407,11 @@ class Consciousness:
         self._thought, self._acted, self._said, self._sent = [], [], None, []
         self._owed = set()
         self._start_over = False
-        # somebody is waiting on an answer: the sound card opens while the model thinks, not when she speaks
-        if not all(p.kind == PerceptionKind.IDLE for p in batch):
+        # an idle tick is her own mind wandering, not somebody waiting on an answer
+        thinking = not all(p.kind == PerceptionKind.IDLE for p in batch)
+        if thinking:
+            self.expression.show_thinking(True)
+            # somebody is waiting on an answer: the sound card opens while the model thinks, not when she speaks
             warm_up = getattr(self.expression, "warm_up", None)
             if warm_up is not None:
                 warm_up()
@@ -422,6 +425,8 @@ class Consciousness:
             raise
         finally:
             self._turn_task = None
+            if thinking:
+                self.expression.show_thinking(False)
         if task.cancelled():
             if not self._start_over:
                 raise asyncio.CancelledError()

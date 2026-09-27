@@ -55,7 +55,9 @@ def test_obs(brain: AIVtuberBrain = Depends(get_brain)):
         return TestResult(ok=False, message="OBS is not configured")
     try:
         brain.obs.connect()
-        connected = bool(getattr(brain.obs, "client", None))
+        # a def handler runs on the threadpool, so a blocking check here never holds the loop
+        check = getattr(brain.obs, "check", None)
+        connected = check() if check is not None else bool(getattr(brain.obs, "client", None))
         return TestResult(
             ok=connected,
             message="Connected to OBS" if connected else "OBS refused the connection",

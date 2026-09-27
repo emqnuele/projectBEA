@@ -267,16 +267,44 @@ async def test_a_model_path_that_is_not_on_disk_is_named(tmp_path):
 
 
 async def test_a_3d_body_that_is_there_counts_what_it_can_do(tmp_path):
-    model = tmp_path / "her.vrm"
-    model.write_bytes(b"not really a vrm, but it is on disk")
+    from tests.glb import vrm1
+
+    model = vrm1(tmp_path / "her.vrm")
     clips = tmp_path / "clips"
     clips.mkdir()
     (clips / "wave.vrma").write_bytes(b"")
+    (clips / "idle_loop.vrma").write_bytes(b"")
 
     found = await check_stage(config(stage={"avatar_backend": "model",
                                             "model_path": str(model),
-                                            "clips_dir": str(clips)}))
+                                            "clips_dir": str(clips),
+                                            "idle_clip": "idle_loop"}))
     assert found.ok and "1 behaviour" in found.detail
+
+
+async def test_a_file_the_renderer_could_not_load_is_named(tmp_path):
+    model = tmp_path / "her.vrm"
+    model.write_bytes(b"not really a vrm, but it is on disk")
+    found = await check_stage(config(stage={"avatar_backend": "model", "model_path": str(model)}))
+    assert found.stops and "her.vrm" in found.detail
+
+
+async def test_a_body_whose_mouth_cannot_move_is_a_warning(tmp_path):
+    from tests.glb import vrm1
+
+    model = vrm1(tmp_path / "her.vrm", presets=("happy", "neutral"))
+    found = await check_stage(config(stage={"avatar_backend": "model", "model_path": str(model)}))
+    assert not found.stops and "'aa'" in found.detail
+
+
+async def test_a_missing_idle_clip_is_a_warning_with_the_way_to_get_it(tmp_path):
+    from tests.glb import vrm1
+
+    model = vrm1(tmp_path / "her.vrm")
+    found = await check_stage(config(stage={"avatar_backend": "model", "model_path": str(model),
+                                            "clips_dir": str(tmp_path / "clips"), "idle_clip": "idle_loop"}))
+    assert not found.stops and "idle_loop" in found.detail
+    assert "fetch_model.py" in found.fix
 
 
 async def test_an_avatar_image_that_was_moved_is_named(tmp_path):

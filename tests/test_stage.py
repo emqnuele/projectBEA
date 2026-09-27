@@ -99,22 +99,19 @@ def test_closing_the_channel_lets_go_of_every_page():
 async def test_a_caption_crosses_the_wire_once_instead_of_once_per_character():
     """The measurement that justified the whole browser source.
 
-    `OBSController.type_text` calls `set_input_settings` for every character of
-    every page, re-sending the font block each time.
+    `OBSController.type_text` asks for a new text on every character of every
+    page, re-sending the font block each time. The worker coalesces what OBS is
+    too slow to take, but the asking is still per character.
     """
     line = ("Ok allora sentite questa, perche' e' veramente assurda: "
             "ieri sera uno in chat mi ha detto che non sono una vera vtuber "
             "solo perche' non ho un corpo. Ridicolo.")
 
-    class CountingClient:
-        def __init__(self):
-            self.calls = 0
+    class Counting(OBSController):
+        asked = 0
 
-        def set_input_settings(self, name, settings, overlay):
-            self.calls += 1
-
-        def send(self, *a, **k):
-            return {"inputSettings": {"font": {"face": "Arial", "size": 75}}}
+        def set_text(self, text, source_name, font_size=None):
+            Counting.asked += 1
 
     class Config:
         obs_text_source = "AIText"
@@ -126,15 +123,14 @@ async def test_a_caption_crosses_the_wire_once_instead_of_once_per_character():
         typing_delay = 0.0
         text_min_duration = 0.0
 
-    obs = OBSController("localhost", 4455, "", "BeaPNG")
-    obs.client = CountingClient()
+    obs = Counting("localhost", 4455, "", "BeaPNG")
     await ObsTextCaption(Config(), obs).say(line)
 
     channel = StageChannel()
     queue = channel.subscribe()
     await StageCaption(Config(), channel).say(line)
 
-    assert obs.client.calls > len(line), "the OBS path is one request per character"
+    assert Counting.asked > len(line), "the OBS path asks once per character"
     assert queue.qsize() == 1, "the stage path is one message per line"
 
 
@@ -361,3 +357,46 @@ def test_the_transparent_background_is_the_default():
     from src.core.stage import public_config
 
     assert public_config(BrainConfig())["background"] == ""
+
+
+def test_the_clip_list_says_which_clips_carry_her(client, tmp_path):
+    """The picker never sees a base clip, but the dashboard still lists it."""
+    api, stub = client
+    for name in ("idle_loop", "wave"):
+        (tmp_path / f"{name}.vrma").write_bytes(b"")
+    stub.config.stage = {**stub.config.stage, "clips_dir": str(tmp_path), "idle_clip": "idle_loop"}
+    assert api.get("/stage/clips").json() == [
+        {"name": "idle_loop", "role": "base"},
+        {"name": "wave", "role": "gesture"},
+    ]
+
+
+def test_the_page_is_told_which_clip_carries_her(client):
+    api, stub = client
+    stub.config.stage = {**stub.config.stage, "idle_clip": "idle_loop", "state_clips": {"thinking": "ponder"}}
+    config = api.get("/stage/config").json()
+    assert config["idle_clip"] == "idle_loop"
+    assert config["state_clips"] == {"thinking": "ponder"}
+
+
+def test_the_page_is_told_how_strong_her_face_is(client):
+    api, stub = client
+    stub.config.stage = {**stub.config.stage, "expression_intensity": 0.6,
+                         "face_blend_blink": False, "mouth_under_emotion": 0.3}
+    config = api.get("/stage/config").json()
+    assert (config["expression_intensity"], config["face_blend_blink"], config["mouth_under_emotion"]) == (0.6, False, 0.3)
+
+
+def test_a_call_line_mouth_is_a_moment_not_a_state():
+    """A page that reconnects must not mouth pieces of a line that is already over."""
+    from src.modules.avatar.model3d import Model3DAvatar
+
+    channel = StageChannel()
+    queue = channel.subscribe()
+    avatar = Model3DAvatar(BrainConfig(), channel)
+    avatar.mouth_at([[0.4, 0.5]], 30, "u1", 300)
+    avatar.mouth_sync("u1", 120)
+
+    assert queue.get_nowait() == {"mouth_segment": {"id": "u1", "frames": [[0.4, 0.5]], "fps": 30, "offset_ms": 300}}
+    assert queue.get_nowait() == {"mouth_sync": {"id": "u1", "played_ms": 120}}
+    assert "mouth_segment" not in channel.snapshot() and "mouth_sync" not in channel.snapshot()

@@ -102,6 +102,13 @@ export default function SettingsPage() {
         }
     };
 
+    // a change the server already saved on its own (choosing a model): both copies take it,
+    // so it neither reads as unsaved nor gets written back over by the next save
+    const adoptSaved = useCallback((mutate) => {
+        setConfig((prev) => mutate(prev));
+        setSaved((prev) => (prev ? JSON.stringify(mutate(JSON.parse(prev))) : prev));
+    }, []);
+
     const discard = () => {
         setConfig(JSON.parse(saved));
         toast.info('Changes discarded');
@@ -167,6 +174,7 @@ export default function SettingsPage() {
                                 secrets={secrets}
                                 devices={devices}
                                 setConfig={setConfig}
+                                adoptSaved={adoptSaved}
                             />
                         ) : (
                             <p className="text-[13px] text-faint">That section does not exist.</p>

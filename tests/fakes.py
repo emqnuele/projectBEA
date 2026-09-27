@@ -160,6 +160,7 @@ class FakeExpression:
         self.spoils_lines = False
         # turns that opened the sound card ahead of her first word
         self.warm_ups = 0
+        self.thinking: List[bool] = []
 
     def warm_up(self):
         self.warm_ups += 1
@@ -169,6 +170,9 @@ class FakeExpression:
 
     def set_affect(self, affect):
         self.affect = affect
+
+    def show_thinking(self, active):
+        self.thinking.append(active)
 
     def open_line(self, mood, *, route="local", feeling=None, caption=None):
         if not self.opens_lines:

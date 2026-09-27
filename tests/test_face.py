@@ -16,7 +16,7 @@ from src.core.expression.face import VRM_EMOTIONS, VRM_VISEMES, WEIGHTS, weights
 from src.core.mind.moods import MOODS, VECTORS
 
 # fetched by `make model`, gitignored: present on a developer's machine, absent in CI
-SAMPLE = Path("data/models/VRM1_Constraint_Twist_Sample.vrm")
+SAMPLE = Path("data/models/AvatarSample_B.vrm")
 
 
 def positive(weights) -> float:

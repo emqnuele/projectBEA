@@ -477,9 +477,9 @@ def _ask_downloads(console: Console, answers: Dict[str, Any]) -> None:
                       "missing the first time she needs it.[/dim]")
 
 
-def needs_obs(avatar: str, caption: str) -> bool:
+def needs_obs(avatar: str, caption: str, png_render: str = "obs") -> bool:
     """Whether anything she shows still goes through the OBS WebSocket."""
-    return avatar == "png" or caption == "obs"
+    return (avatar == "png" and png_render != "stage") or caption == "obs"
 
 
 def needs_browser_source(avatar: str, caption: str) -> bool:
@@ -502,8 +502,8 @@ def _ask_stage(console: Console, answers: Dict[str, Any]) -> None:
     if avatar == "model":
         console.print("  No model ships with projectBEA. Run "
                       "`uv run python tools/fetch_model.py` afterwards for\n  the free "
-                      "sample, or point this at your own .vrm.\n")
-        stage["model_path"] = Prompt.ask("  Model file", default="data/models/VRM1_Constraint_Twist_Sample.vrm")
+                      "model and its idle motion, or point this at your own .vrm.\n")
+        stage["model_path"] = Prompt.ask("  Model file", default="data/models/AvatarSample_B.vrm")
         console.print()
     elif avatar == "vtube_studio":
         console.print("  Turn the plugin API on first: VTube Studio → Settings → "

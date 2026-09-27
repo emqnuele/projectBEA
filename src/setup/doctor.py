@@ -35,7 +35,7 @@ from src.core.agent.registry import BACKGROUND, MIND, looks_like_missing_tool_su
 from src.core.config import BrainConfig
 from src.core.expression.tags import DIRECTIONS
 from src.core.mind.operating import missing_tools
-from src.core.stage import installed_clips
+from src.core.stage import clip_path, installed_clips
 
 # the module itself is cheap; only the builders inside it import a backend
 from src.modules.STT.factory import LOCAL as STT_LOCAL
@@ -559,12 +559,26 @@ async def check_stage(config: BrainConfig) -> Finding:
         raw = stage.get("model_path") or ""
         if not raw:
             return failed("the 3D body has no model",
-                          "uv run python tools/fetch_model.py — or set `stage.model_path` "
-                          "to your own .vrm.")
+                          "uv run python tools/fetch_model.py — or download one in the dashboard "
+                          "(Settings → Stream → Library), or set `stage.model_path` to your own .vrm.")
         if not Path(raw).is_file():
             return failed(f"{raw} is not on disk",
-                          "uv run python tools/fetch_model.py — or correct `stage.model_path`.")
+                          "uv run python tools/fetch_model.py — or pick another model in the "
+                          "dashboard's library, or correct `stage.model_path`.")
         clips = installed_clips(config)
+        from src.modules.avatar.vrm_file import describe
+        try:
+            info = describe(Path(raw))
+        except (OSError, ValueError) as e:
+            return failed(f"{Path(raw).name} cannot be read: {e}", "Export it again as VRM 1.0 or 0.x.")
+        if "aa" not in info.get("visemes", []):
+            return warned(f"{Path(raw).name} has no 'aa' mouth shape: her mouth will not move",
+                          "Use a model with the standard visemes, or add them in VRoid Studio or Blender.")
+        idle = str(stage.get("idle_clip") or "").strip()
+        if idle and clip_path(config, idle) is None:
+            return warned(f"the idle clip {idle!r} is not installed: she stands in a still pose instead",
+                          "uv run python tools/fetch_model.py fetches idle_loop, or pick another "
+                          "idle motion in the dashboard.")
         return passed(f"{Path(raw).name}, {len(clips)} behaviour(s) installed")
 
     if backend == "vtube_studio":
@@ -616,7 +630,8 @@ async def check_obs(config: BrainConfig) -> Finding:
 
     stage = config.stage or {}
     if not needs_obs(stage.get("avatar_backend", "png"),
-                     stage.get("caption_backend", "obs")):
+                     stage.get("caption_backend", "obs"),
+                     stage.get("png_render", "obs")):
         return passed("not needed by the backends she is set to")
 
     if not _reachable(config.obs_host, config.obs_port):
@@ -629,6 +644,7 @@ async def check_dashboard(config: BrainConfig) -> Finding:
     """The page is built, and something is not already sitting on her port."""
     stage = config.stage or {}
     needs_page = (stage.get("avatar_backend") == "model"
+                  or (stage.get("avatar_backend") == "png" and stage.get("png_render") == "stage")
                   or stage.get("caption_backend") == "stage")
 
     if not DASHBOARD.is_file():

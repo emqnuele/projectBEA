@@ -16,10 +16,12 @@ import contextlib
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.core.expression.pcm import ENVELOPE_FPS
 from src.interfaces.base_interfaces import AvatarInterface, MouthFrames
+from src.modules.avatar.mouth_timeline import MouthTimeline
+from src.modules.avatar.vts_life import LifeSignals, life_values
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.avatar.vts")
@@ -176,9 +178,36 @@ class VTubeStudioClient:
     async def set_parameter(self, param: str, value: float) -> None:
         await self._send("InjectParameterDataRequest", _envelope_message(param, value))
 
+    async def inject(self, values: Sequence[Tuple[str, float]], face_found: bool = False) -> None:
+        """Every parameter of one frame in one request: one round-trip, not one per parameter."""
+        await self._send("InjectParameterDataRequest", {
+            "faceFound": face_found,
+            "mode": "set",
+            "parameterValues": [{"id": name, "value": round(float(value), 3)} for name, value in values],
+        })
+
+    async def input_parameters(self) -> Dict[str, Tuple[float, float]]:
+        """The input parameters this vtube studio has, with their ranges. Asked once, never per frame."""
+        data = await self._send("InputParameterListRequest")
+        out: Dict[str, Tuple[float, float]] = {}
+        for param in data.get("defaultParameters", []) + data.get("customParameters", []):
+            name = param.get("name")
+            if name is not None:
+                out[name] = (float(param.get("min", -1.0)), float(param.get("max", 1.0)))
+        return out
+
 
 class VTubeStudioAvatar(AvatarInterface):
-    """The port, backed by a queue and one background task."""
+    """The port, backed by a queue and one background task, and a pump for what moves every frame.
+
+    The pump sends one request per frame with everything that moves: the mouth
+    while there is a line, and, with `stage.vts_life`, the head, eyes and blinks
+    the 3D page gives her. Each frame is due at a fixed time from the start, and
+    a frame that is late is skipped rather than played late, so the mouth keeps
+    the voice's time however slowly VTube Studio answers.
+    """
+
+    supports_timeline = True
 
     def __init__(self, config, token_file: Path = TOKEN_FILE):
         self.config = config
@@ -190,6 +219,11 @@ class VTubeStudioAvatar(AvatarInterface):
         # the live connection, owned by the worker task and read by the mouth
         self._connected: Optional[VTubeStudioClient] = None
         self.model: Dict[str, Any] = {}
+        self._timeline = MouthTimeline()
+        self._fps = ENVELOPE_FPS
+        self._life: Optional[LifeSignals] = LifeSignals() if self._stage.get("vts_life") else None
+        # the input parameters vtube studio reported, asked once per connection
+        self._ranges: Dict[str, Tuple[float, float]] = {}
 
     @property
     def _stage(self) -> dict:
@@ -197,6 +231,12 @@ class VTubeStudioAvatar(AvatarInterface):
 
     def reload_config(self, config) -> None:
         self.config = config
+        wanted = bool(self._stage.get("vts_life"))
+        if wanted and self._life is None:
+            self._life = LifeSignals()
+            self._ensure_pump()
+        elif not wanted and self._life is not None:
+            self._life = None
 
     # --- the port -----------------------------------------------------------
 
@@ -208,6 +248,8 @@ class VTubeStudioAvatar(AvatarInterface):
         hotkey = (self._stage.get("vts_clips") or {}).get(mood)
         if hotkey and state == "talking":
             self._enqueue(("hotkey", hotkey))
+        if self._life is not None:
+            self._life.set_state(state)
         if state != "talking":
             self._stop_mouth()
 
@@ -218,22 +260,35 @@ class VTubeStudioAvatar(AvatarInterface):
             self._enqueue(("hotkey", hotkey))
 
     def mouth(self, envelope: MouthFrames, fps: int = ENVELOPE_FPS) -> None:
-        """Replays the envelope frame by frame.
-
-        The browser source is handed the whole line and runs it off its own
-        clock; VTube Studio has no clock of ours, so this is the one backend
-        that has to pace the mouth itself.
-        """
+        """A whole line, from now: VTube Studio has no clock of ours, so this backend keeps it."""
         if not len(envelope):
             return
-        self._stop_mouth()
         loop = self._loop()
         if loop is None:
             return
-        self._mouth = loop.create_task(self._run_mouth(list(envelope), max(1, int(fps))))
+        self._stop_mouth()
+        self._fps = max(1, int(fps))
+        self._timeline.whole(list(envelope), self._fps, loop.time())
+        self._ensure_pump()
+
+    def mouth_at(self, envelope: MouthFrames, fps: int, utterance_id: str, offset_ms: int) -> None:
+        loop = self._loop()
+        if loop is None or not len(envelope):
+            return
+        self._fps = max(1, int(fps))
+        self._timeline.add(utterance_id, list(envelope), self._fps, offset_ms)
+        self._ensure_pump()
+
+    def mouth_sync(self, utterance_id: str, played_ms: int) -> None:
+        loop = self._loop()
+        if loop is None:
+            return
+        self._timeline.sync(utterance_id, played_ms, loop.time())
+        self._ensure_pump()
 
     def close(self) -> None:
         self._stop_mouth()
+        self._life = None
         worker, self._worker = self._worker, None
         if worker is not None:
             worker.cancel()
@@ -273,33 +328,88 @@ class VTubeStudioAvatar(AvatarInterface):
             with contextlib.suppress(asyncio.QueueFull):
                 self._commands.put_nowait(command)
 
-    def _stop_mouth(self) -> None:
-        if self._mouth is not None and not self._mouth.done():
-            self._mouth.cancel()
-        self._mouth = None
-
-    async def _run_mouth(self, frames: MouthFrames, fps: int) -> None:
-        client = self._connected
-        if client is None or not client.connected:
+    def _ensure_pump(self) -> None:
+        loop = self._loop()
+        if loop is None or self._connected is None:
             return
+        if self._mouth is None or self._mouth.done():
+            self._mouth = loop.create_task(self._run_pump())
+
+    def _stop_mouth(self) -> None:
+        self._timeline.clear()
+        # with life on the pump keeps running and closes the mouth on its next frame
+        if self._life is None and self._mouth is not None and not self._mouth.done():
+            self._mouth.cancel()
+            self._mouth = None
+
+    def _mouth_values(self, frame: Optional[Sequence[float]]) -> List[Tuple[str, float]]:
         param = self._stage.get("vts_mouth_param") or "MouthOpen"
         # optional and off by default: every VTS model has a mouth that opens,
         # and only some have one that changes shape
         form = self._stage.get("vts_mouth_form_param") or ""
-        step = 1.0 / fps
+        how_open, shape = (frame[0], frame[1]) if frame is not None else (0.0, 0.5)
+        values = [(param, how_open)]
+        if form and frame is not None:
+            values.append((form, shape))
+        return values
+
+    async def _run_mouth(self, frames: MouthFrames, fps: int) -> None:
+        """One whole line through the pump, returning when it has been mouthed."""
+        loop = asyncio.get_running_loop()
+        self._fps = max(1, int(fps))
+        self._timeline.whole(list(frames), self._fps, loop.time())
+        await self._run_pump()
+
+    async def _run_pump(self) -> None:
+        client = self._connected
+        if client is None or not client.connected:
+            return
+        loop = asyncio.get_running_loop()
+        step = 1.0 / self._fps
+        start = last = loop.time()
+        tick = 0
+        speaking = False
+        refused: set = set()
         try:
-            for how_open, shape in frames:
-                await client.set_parameter(param, how_open)
-                if form:
-                    await client.set_parameter(form, shape)
-                await asyncio.sleep(step)
-            await client.set_parameter(param, 0.0)
+            if self._life is not None and not self._ranges:
+                self._ranges = await client.input_parameters()
+                missing = [n for n in ("FaceAngleX", "EyeLeftX", "EyeOpenLeft") if n not in self._ranges]
+                if missing:
+                    logger.info(f"VTube Studio has no {', '.join(missing)}; that part of her life is left out.")
+            while self._connected is client:
+                now = loop.time()
+                if self._life is None and self._timeline.over(now):
+                    break
+                values: List[Tuple[str, float]] = []
+                frame = self._timeline.frame_at(now)
+                mouthing = bool(self._timeline.segments)
+                if mouthing or speaking:
+                    values += self._mouth_values(frame)
+                speaking = mouthing
+                life = self._life
+                if life is not None:
+                    signals = life.step(now - last, frame[0] if frame is not None else 0.0)
+                    values += life_values(signals, self._ranges, self._stage.get("vts_life_params") or None)
+                last = now
+                if values:
+                    try:
+                        await client.inject(values, face_found=life is not None)
+                    except VTubeStudioError as e:
+                        # vtube studio answered, so the socket is fine: one refused frame must not end her life or the line
+                        if str(e) not in refused:
+                            refused.add(str(e))
+                            logger.warning(f"VTube Studio refused a frame: {e}")
+                # the next frame is due at a fixed time from the start; the ones already late are skipped
+                tick = max(tick + 1, int((loop.time() - start) / step) + 1)
+                await asyncio.sleep(max(0.0, start + tick * step - loop.time()))
+            if speaking or self._life is None:
+                await client.inject(self._mouth_values(None))
         except asyncio.CancelledError:
             with contextlib.suppress(Exception):
-                await client.set_parameter(param, 0.0)
+                await client.inject(self._mouth_values(None))
             raise
         except Exception as e:
-            logger.debug(f"Lip sync to VTube Studio stopped: {e}")
+            logger.debug(f"Driving VTube Studio stopped: {e}")
 
     async def _run(self) -> None:
         """Keeps one connection alive and drains the queue over it."""
@@ -313,8 +423,11 @@ class VTubeStudioAvatar(AvatarInterface):
             try:
                 await client.connect()
                 self._connected = client
+                self._ranges = {}
                 self.model = await client.current_model()
                 delay = RETRY_SECONDS
+                if self._life is not None:
+                    self._ensure_pump()
                 await self._drain(client)
             except asyncio.CancelledError:
                 await client.close()

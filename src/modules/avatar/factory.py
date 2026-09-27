@@ -15,7 +15,18 @@ logger = get_logger("bea.avatar.factory")
 DEFAULT_BACKEND = "png"
 
 
+def png_render(config) -> str:
+    """Where the png avatar is drawn: an OBS source, or the browser source."""
+    render = (getattr(config, "stage", None) or {}).get("png_render", "obs")
+    return render if render in ("obs", "stage") else "obs"
+
+
 def _png(config, obs, publisher):
+    if png_render(config) == "stage":
+        if publisher is not None:
+            from src.modules.avatar.png_stage import PngStageAvatar
+            return PngStageAvatar(config, publisher)
+        logger.warning("The browser-source png avatar needs a stage channel; drawing it in OBS instead.")
     from src.modules.avatar.png import PngAvatar
     return PngAvatar(config, obs)
 
@@ -53,6 +64,14 @@ def backend_name(config) -> str:
         f"Valid: {', '.join(sorted(BUILDERS))}."
     )
     return DEFAULT_BACKEND
+
+
+def backend_key(config) -> str:
+    """The backend plus the choice that changes which class draws it, so a switch rebuilds it."""
+    name = backend_name(config)
+    if name == "png" and png_render(config) == "stage":
+        return "png:stage"
+    return name
 
 
 def build_avatar(config, obs: OBSInterface, publisher=None) -> AvatarInterface:

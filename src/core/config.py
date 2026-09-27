@@ -132,6 +132,7 @@ class BrainConfig:
     obs_host: str = "localhost"
     obs_port: int = 4455
     obs_password: str = ""
+    obs_timeout: float = 2.0  # seconds one request may take before the socket is dropped and reopened
     # the output her voice plays on, by name; empty follows the system default
     audio_device: str = ""
     # the old way to pick it, by position: used only when `audio_device` is empty
@@ -173,15 +174,23 @@ class BrainConfig:
     # both setups people actually want.
     stage: Dict[str, Any] = field(default_factory=lambda: {
         "avatar_backend": "png",       # png | model | vtube_studio
+        "png_render": "obs",           # png avatar drawn in an obs source, or in the browser source
         "caption_backend": "obs",      # obs | stage | off
         "lipsync_fps": 30,             # how often the mouth is told what to do
 
         # the `model` backend
         "model_path": "",              # the .vrm you bring; never shipped with the repo
+        "models_dir": "data/models",   # where the dashboard's library keeps and downloads models
         "clips_dir": "data/clips",     # .vrma behaviours, which are portable and are
         "shot": "bust",                # bust | half | full, framed off the head bone
         "mood_clips": {},              # mood -> clip name, all optional
+        "idle_clip": "idle_loop",      # the clip always playing under her; empty for a procedural pose
+        "state_clips": {},             # state -> clip carrying her in it, instead of idle_clip
+        "expression_intensity": 0.7,   # how strongly a mood shows on the face, 0-1
+        "face_blend_blink": True,      # a blink softens under a face whose eyes are already shut
+        "mouth_under_emotion": 0.5,    # how much lip sync survives under a full emotion, 0-1
         "background": "",              # a colour behind her, or empty for transparent
+        "light_preset": "flat",        # flat | soft | studio; flat is the original two-light rig
         "max_fps": 0,                  # cap the browser source; 0 follows the display
 
         # the `vtube_studio` backend: nothing is bundled, it talks to yours
@@ -191,6 +200,8 @@ class BrainConfig:
         "vts_clips": {},               # clip name -> hotkey id in the user's model
         "vts_mouth_param": "MouthOpen",
         "vts_mouth_form_param": "",    # a mouth that also changes shape, if yours has one
+        "vts_life": False,             # head, eyes and blinks injected when there is no webcam
+        "vts_life_params": {},         # signal -> vts input parameters, "-" inverts; replaces the default per signal
     })
 
     # typing animation
