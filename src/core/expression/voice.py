@@ -695,10 +695,20 @@ class Expression:
             left = max(0.0, duration - (loop.time() - closed_at))
             await asyncio.gather(self.current_typing_task, asyncio.sleep(left))
 
-            self.avatar.show(mood, self._resting)
+            # a newer line the room is already hearing owns the face; resting it here would still its mouth
+            if not self._newer_line_heard(utterance_id):
+                self.avatar.show(mood, self._resting)
             self.caption.clear()
         finally:
             self.is_speaking = False
+
+    def _newer_line_heard(self, utterance_id: str) -> bool:
+        """Whether a call line opened after `utterance_id` is playing in the room right now."""
+        ids = list(self._call_visuals)
+        if utterance_id not in ids:
+            return False
+        return any(self._call_visuals[i].started and not self._call_visuals[i].ended
+                   for i in ids[ids.index(utterance_id) + 1:])
 
     def _stop_visuals(self, keep: str = "") -> None:
         """Stops miming lines the call is no longer playing, all but `keep`."""

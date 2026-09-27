@@ -266,6 +266,44 @@ async def test_a_backend_that_cannot_keep_time_still_gets_the_face_early():
     assert avatar.envelopes and avatar.envelopes[0][0] == line.state["frames"]
 
 
+async def test_an_older_line_ending_does_not_still_the_line_the_room_now_hears():
+    """A line started while the last one is still mimed: the old one's end must not rest her face."""
+    e, channel, avatar, log = setup()
+    await speak_with_reports(e, channel)
+
+    # a real tts takes a while per sentence, so the second line is still being made when the first one's visuals end
+    quick = e.tts.generate_audio
+
+    async def slow(text, prosody=None):
+        await asyncio.sleep(0.6)
+        return await quick(text, prosody)
+
+    e.tts.generate_audio = slow
+    original = channel.play
+    first = next(iter(channel.utterances))
+
+    async def play(pcm, **kwargs):
+        await original(pcm, **kwargs)
+        uid = kwargs["utterance_id"]
+        if channel.utterances[first].state != "stopped":
+            # what the bot does: the new line cuts the old one and is heard from its first frame
+            channel.on_message({"type": "playback", "utterance_id": first, "played_ms": 300, "state": "stopped"})
+            channel.on_message({"type": "playback", "utterance_id": uid, "played_ms": 0, "state": "playing"})
+
+    channel.play = play
+    await asyncio.sleep(0.3)
+    line = e.open_line("neutral", route="call", caption=LINE)
+    line.start()
+    line.say(LINE)
+    closing = asyncio.create_task(line.close())
+    # the first line's visuals end 1.2 s after it closed, while this one is still being made
+    await asyncio.sleep(1.3)
+    assert not closing.done()
+    assert avatar.states[-1] == "talking"
+    await closing
+    assert avatar.states[-1] == "talking"
+
+
 def test_a_report_for_a_line_nobody_knows_is_ignored():
     e = Expression(Config(), Speech(), Timeline([]), FakeCaption(), Events())
     assert e.call_progress("nobody", 0, "playing") is None
