@@ -43,11 +43,20 @@ The engine, the voice, the call and the dashboard share one event loop, so
 - **Timeout.** A request that takes longer than `obs_timeout` (2 s) is given up
   on. The library matches a reply to whatever it reads next rather than by id,
   so the socket is dropped and a new one opened; the requests still on the table
-  go out on it.
+  go out on it. The failed request is sent once more on the new socket, unless a
+  newer one for the same field replaced it; a second failure drops it.
+- **Refusals.** When OBS answers with an error (a source that does not exist,
+  say), the socket is still in step and is kept. The first refusal per source
+  and field is logged as a warning, the rest are silent until the config reloads.
 - **Reconnection.** A closed or unreachable OBS is retried every 3 s, doubling
   up to 30 s, with one warning per outage. Requests left on the table are sent
   once it answers, so the avatar shows the current picture when OBS comes up.
-- `disconnect()` stops the worker and drops the table.
+- `disconnect()` first waits up to `obs_timeout` (at most 1 s), while connected,
+  for the requests already on the table, so the picture taken down and the
+  caption cleared at shutdown reach OBS; then it stops the worker and drops the
+  table.
+- `connections` counts the sockets opened so far. The PNG avatar skips sending
+  the picture OBS already has, and sends it again once this number changes.
 - `check()` opens a separate connection and reports whether OBS accepts it. It
   blocks up to the timeout, so only the dashboard's test endpoint (a threadpool
   handler) calls it.
