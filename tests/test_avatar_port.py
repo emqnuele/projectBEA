@@ -99,6 +99,20 @@ def test_a_png_avatar_ignores_the_behaviours_it_cannot_perform():
     assert obs.media == []
 
 
+def test_the_same_picture_is_sent_once_per_socket():
+    """A repeat is skipped, unless obs was reconnected since: the first request may have died with the old socket."""
+    obs = RecordingObs()
+    obs.connections = 1
+    avatar = PngAvatar(Config(), obs)
+    avatar.show("angry", "talking")
+    avatar.show("angry", "talking")
+    assert len(obs.images) == 1
+
+    obs.connections = 2
+    avatar.show("angry", "talking")
+    assert len(obs.images) == 2
+
+
 def test_closing_the_png_backend_takes_her_picture_down():
     """Switching to the 3D body mid-stream used to leave the old PNG on screen."""
     obs = RecordingObs()

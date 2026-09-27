@@ -26,8 +26,8 @@ class PngAvatar(AvatarInterface):
         self.config = config
         self.png_map: Dict[str, Tuple[Path, Path]] = {}
         self._warned: set = set()
-        # what the source holds now, so the same picture is never sent twice
-        self._shown: Optional[Tuple[str, str]] = None
+        # what the source holds now, so the same picture is never sent twice on the same socket
+        self._shown: Optional[Tuple[str, str, int]] = None
         self._load()
 
     def _load(self) -> None:
@@ -80,7 +80,8 @@ class PngAvatar(AvatarInterface):
 
     def _swap(self, path: Union[str, Path], force: bool = False) -> None:
         kind = "media" if self.config.obs_source_type == "media" else "image"
-        wanted = (kind, str(path))
+        # a request that failed was lost with its socket, so a new socket gets the picture again
+        wanted = (kind, str(path), int(getattr(self.obs, "connections", 0) or 0))
         if wanted == self._shown and not force:
             return
         self._shown = wanted

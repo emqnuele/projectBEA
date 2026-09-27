@@ -76,6 +76,8 @@ class OBSController(OBSInterface):
         self._thread: Optional[threading.Thread] = None
         # bumped by disconnect: a worker from an older generation stops
         self._generation = 0
+        # sockets opened so far: a caller that skips repeats knows a new one may have missed its last request
+        self.connections = 0
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -269,6 +271,7 @@ class OBSController(OBSInterface):
                     self._close(client)
                     return
                 self.client = client
+                self.connections += 1
                 delay = RETRY_SECONDS
                 warned = False
                 logger.info(f"Connected to OBS WebSocket at {self.host}:{self.port}")
