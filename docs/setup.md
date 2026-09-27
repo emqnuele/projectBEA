@@ -168,13 +168,25 @@ Models live in `data/models/` and motions in `data/clips/`; both are gitignored.
 
 ## 5. Audio Device Setup
 
-ProjectBEA outputs audio to a specific device ID. To list available devices:
+Her voice plays on the system default output unless you pick one. For a
+stream, pick the virtual cable OBS listens to (e.g. *CABLE Input* on Windows)
+in **Settings → Voice → Output device**, or set its name in `config.json`:
 
-```bash
-uv run python -c "import sounddevice; print(sounddevice.query_devices())"
+```json
+"audio_device": "CABLE Input (VB-Audio Virtual Cable)"
 ```
 
-Find the ID of your virtual cable (e.g. *CABLE Input* on Windows) and set `audio_device_id` in `config.json`.
+The choice is stored by name, so plugging in a monitor or a headset later does
+not move her to another device. To list the names from a terminal:
+
+```bash
+uv run python -c "from src.core.expression.player import output_devices; print(*[d['name'] for d in output_devices()], sep='\\n')"
+```
+
+A bluetooth headset adds roughly 150-250 ms before the room hears her; the
+mouth and the face wait for it. If the same headset is also the microphone the
+dashboard listens on, many headsets drop to call quality while it is open —
+pick another microphone in the browser, or a wired output.
 
 ---
 
@@ -478,7 +490,8 @@ costs a handful of provider requests and never runs on its own.
 | Problem | Solution |
 |---|---|
 | `OBS not connected` warning on start | OBS is not running or WebSocket creds are wrong — the engine continues without it |
-| `No audio device` error | Run the sounddevice query above and update `audio_device_id` |
+| `no usable audio output device found` | No output is visible to PortAudio. Plug one in, check `uv run bea --doctor`, and on Linux that PulseAudio or PipeWire is running |
+| Her voice comes out of the wrong device | Pick it by name in Settings → Voice; the doctor warns when it is still picked by position |
 | Local Whisper: `Could not load local whisper` | `stt_model` is not a size it knows or a Hugging Face repo that exists, or `faster_whisper_download_root` is not writable. She keeps running; only voice input is lost |
 | Local Whisper: the first voice line takes minutes | The weights are being downloaded, once. Watch `data/models/whisper` grow |
 | Local Whisper on a GPU fails to load | `faster_whisper_device: "cuda"` needs the CUDA and cuDNN runtimes, which `uv sync` does not install. Set it back to `auto` |

@@ -629,8 +629,10 @@ for one word and reports the round trip, the TTS probe renders a line without
 playing it, and the OBS probe reconnects.
 
 #### `GET /audio/devices`
-Output devices as `{ id, name, channels }`, so picking one is not guesswork about
-an integer. Returns `[]` if `sounddevice` cannot enumerate them.
+Output devices as `{ id, name, channels, latency_ms, default }`. `name` is what
+`audio_device` stores; `id` is only today's position. `latency_ms` is the
+device's own delay as PortAudio reports it, and `default` marks the system
+default output. Returns `[]` if `sounddevice` cannot enumerate them.
 
 ---
 

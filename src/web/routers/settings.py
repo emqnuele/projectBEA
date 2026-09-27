@@ -174,16 +174,11 @@ def secrets_state(brain: AIVtuberBrain = Depends(get_brain)):
 
 @router.get("/audio/devices")
 def audio_devices():
-    """Output devices, so picking one is not guesswork about an integer."""
+    """Output devices by name, which is what the choice is stored as: positions move when things are plugged in."""
     try:
-        import sounddevice as sd
+        from src.core.expression.player import output_devices
 
-        return [
-            {"id": index, "name": device.get("name", f"Device {index}"),
-             "channels": device.get("max_output_channels", 0)}
-            for index, device in enumerate(sd.query_devices())
-            if device.get("max_output_channels", 0) > 0
-        ]
+        return output_devices()
     except Exception as e:
         logger.warning(f"Could not enumerate audio devices: {e}")
         return []

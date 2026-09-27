@@ -49,7 +49,7 @@ class AvatarInterface(ABC):
 |---|---|---|
 | `show` | before and after every spoken line, and on a state change | `mood` is one of `MOODS`; `state` is `idle`, `talking`, `listening`, `thinking` or `sleeping` |
 | `perform` | when a mood maps to a behaviour | a clip name, resolved by the backend |
-| `mouth` | once per line, **before playback starts** | the whole envelope, so the backend can pace it against its own clock |
+| `mouth` | once per piece, **when it reaches the speaker** | the whole envelope of the piece, so the backend can pace it against its own clock |
 | `mouth_at` | in a call, once per piece, **after** the piece was sent — only if `supports_timeline` | one piece's envelope, the utterance id and the piece's offset into it in ms |
 | `mouth_sync` | in a call, on every playback report of the bot — only if `supports_timeline` | the utterance id and how many ms of it the room has heard |
 | `close` | when the backend is swapped out, and on shutdown | — |
@@ -506,16 +506,16 @@ The line is normalised against its own peak, but never against a peak below
 every other, so a whisper is drawn exactly like a shout; the floor keeps a quiet
 line quiet while any normal one still opens her mouth all the way.
 
-On the local route it is computed for each piece between synthesis and
-playback and published before the sound starts. On the call route it is computed
-for each piece right after the piece was sent to the bot and published with its
-offset in the utterance (see *In a call*). It runs on this machine because the
-audio is made here; the page never hears it.
+On this machine it is computed per piece as the piece is queued, and handed to
+the avatar when the piece reaches the speaker (see `docs/modules/tts.md`); on
+the call route it is computed for each piece right after the piece was sent
+to the bot and published with its offset in the utterance (see *In a call*). It
+runs on this machine because the audio is played here; the page never hears it.
 
 Cost for six seconds at 30 fps: 180 frames, ~0.2 ms, ~1.2 KB of JSON. Small
 enough to send in one message ahead of playback rather than streaming it.
 
-`Expression._move_mouth` catches and logs any failure. A broken mouth must not
+`Expression._send_mouth` catches and logs any failure. A broken mouth must not
 stop her from speaking.
 
 ---

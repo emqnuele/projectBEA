@@ -411,6 +411,10 @@ class Consciousness:
         thinking = not all(p.kind == PerceptionKind.IDLE for p in batch)
         if thinking:
             self.expression.show_thinking(True)
+            # somebody is waiting on an answer: the sound card opens while the model thinks, not when she speaks
+            warm_up = getattr(self.expression, "warm_up", None)
+            if warm_up is not None:
+                warm_up()
         task = asyncio.create_task(self._turn(batch))
         self._turn_task = task
         try:

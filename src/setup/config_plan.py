@@ -117,8 +117,10 @@ def apply_answers(config, answers: Dict[str, Any]):
         config.orpheus_endpoint = answers["orpheus_endpoint"]
     if answers.get("orpheus_voice"):
         config.orpheus_voice = answers["orpheus_voice"]
-    if answers.get("audio_device_id") is not None:
-        config.audio_device_id = answers["audio_device_id"]
+    if answers.get("audio_device") is not None:
+        # by name: a monitor or a headset plugged in later moves every position along
+        config.audio_device = answers["audio_device"]
+        config.audio_device_id = None
 
     stage = answers.get("stage")
     if stage:

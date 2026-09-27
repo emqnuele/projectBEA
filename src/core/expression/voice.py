@@ -12,6 +12,7 @@ from src.core.config import BrainConfig
 from src.core.events import EventCategory, EventManager
 from src.core.expression.live import LiveLine, Rendered
 from src.core.expression.pcm import ENVELOPE_FPS, CallResampler, duration_ms, envelope
+from src.core.expression.player import DEFAULT_BUFFER_MS, DEFAULT_IDLE_CLOSE_S, LocalPlayer, selector_of
 from src.core.expression.prosody import for_mood
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.interfaces.base_interfaces import AvatarInterface, CaptionInterface, TTSInterface
@@ -90,7 +91,8 @@ class Expression:
         self.current_speech_task: Optional[asyncio.Task] = None
         self.audio_lock = asyncio.Lock()
 
-        self._playback_device_id = None
+        # the sound card: one stream kept open, fed off the loop, timed by what reaches the speaker
+        self.player = LocalPlayer(**self._player_settings(config))
 
         # the live call, when there is one; the voice skill hands it over
         self.call = None
@@ -150,8 +152,18 @@ class Expression:
 
     def reload_config(self, config: BrainConfig) -> None:
         self.config = config
+        self.player.configure(**self._player_settings(config))
         self.avatar.reload_config(config)
         self.caption.reload_config(config)
+
+    @staticmethod
+    def _player_settings(config) -> dict:
+        return {
+            "selector": selector_of(config),
+            "buffer_ms": int(getattr(config, "audio_buffer_ms", DEFAULT_BUFFER_MS) or DEFAULT_BUFFER_MS),
+            "idle_close_s": float(getattr(config, "audio_idle_close_s", DEFAULT_IDLE_CLOSE_S)),
+            "latency_s": float(getattr(config, "audio_latency_s", 0.0) or 0.0),
+        }
 
     # --- VOICE actuator -----------------------------------------------------
 
@@ -206,6 +218,20 @@ class Expression:
             return None
         return for_mood(mood, self.affect.current if feeling is None else feeling)
 
+    def warm_up(self) -> None:
+        """A turn is starting: open the sound card now, while the model is still thinking.
+
+        A bluetooth output that has been quiet takes a few hundred ms to open.
+        Nothing is opened while she is in a call, where she is heard through the bot.
+        """
+        if self.call_is_live:
+            return
+        try:
+            self.player.prepare()
+        except Exception as e:
+            # an output that will not open is found out again when she speaks
+            logger.debug(f"warming up the sound card failed: {e}")
+
     @property
     def pieces_in_flight(self) -> int:
         """How many pieces of a line the engine may be making at once."""
@@ -251,108 +277,18 @@ class Expression:
         line.caption = caption
         return line
 
-    async def _play_audio(self, audio_data, sample_rate, device_id):
-        """Plays audio via sounddevice while tracking playback for barge-in."""
+    async def _play_audio(self, audio_data, sample_rate, device_id=None, on_heard=None):
+        """One piece out of the local sound card; returns once the next can follow it seamlessly.
+
+        `device_id` is kept for callers and tests that pass it; the player
+        already knows which output the config means. `on_heard` runs when the
+        piece's first sample reaches the speaker.
+        """
         # nothing to play needs no audio library: a failed synthesis hands back
-        # an empty array, and on a headless box importing this raises
+        # an empty array, and on a headless box importing it raises
         if len(audio_data) == 0:
             return
-
-        import sounddevice as sd
-
-        self._safe_play(sd, audio_data, sample_rate, device_id)
-
-        duration = len(audio_data) / sample_rate
-        try:
-            await asyncio.sleep(duration)
-        except asyncio.CancelledError:
-            sd.stop()
-            raise
-
-    def _safe_play(self, sd, audio_data, sample_rate, device_id):
-        """Plays on the first device that actually accepts the audio.
-
-        The configured id may not be an output at all (on CoreAudio the mic and the
-        speakers of one headset are separate devices), or may be an output that
-        portaudio still refuses to open — a bluetooth headset switched to headset
-        mode raises -9986. So walk the candidates instead of trusting the config.
-        """
-        for candidate in self._output_candidates(sd, device_id):
-            try:
-                data = self._fit_channels(audio_data, self._device_channels(sd, candidate))
-                sd.play(data, samplerate=sample_rate, device=candidate, blocking=False)
-                if candidate != device_id:
-                    logger.warning(
-                        f"audio device {device_id} unusable; playing on "
-                        f"{self._device_name(sd, candidate)} (id {candidate}) instead"
-                    )
-                self._playback_device_id = candidate
-                return
-            except Exception as e:
-                logger.debug(f"audio device {candidate} failed ({e})")
-
-        logger.error("no usable audio output device found; speech is silent")
-
-    def _output_candidates(self, sd, device_id) -> list:
-        """Configured device first, then the system default, then any real output."""
-        candidates = []
-
-        def add(index) -> None:
-            if index is None or index in candidates:
-                return
-            if self._device_channels(sd, index) > 0:
-                candidates.append(index)
-
-        add(device_id)
-
-        try:
-            default = sd.default.device
-            add(default[1] if isinstance(default, (list, tuple)) else default)
-        except Exception:
-            pass
-
-        try:
-            for index in range(len(sd.query_devices())):
-                add(index)
-        except Exception:
-            pass
-
-        # a cached working device beats the config order on later turns
-        cached = self._playback_device_id
-        if cached in candidates:
-            candidates.remove(cached)
-            candidates.insert(0, cached)
-
-        return candidates
-
-    @staticmethod
-    def _device_name(sd, device_id) -> str:
-        try:
-            return sd.query_devices(device_id).get("name", str(device_id))
-        except Exception:
-            return str(device_id)
-
-    @staticmethod
-    def _device_channels(sd, device_id) -> int:
-        """Output channels of a device, or 0 when it cannot play anything."""
-        try:
-            info = sd.query_devices(device_id)
-            return max(0, int(info.get("max_output_channels", 0)))
-        except Exception:
-            return 0
-
-    @staticmethod
-    def _fit_channels(audio_data, channels: int):
-        """Reshapes mono/stereo audio to at most `channels` columns."""
-
-        if getattr(audio_data, "ndim", 1) == 1:
-            return audio_data
-        cols = audio_data.shape[1]
-        if cols <= channels:
-            return audio_data
-        if channels == 1:
-            return audio_data.mean(axis=1)
-        return audio_data[:, :channels]
+        await self.player.play(audio_data, sample_rate, on_heard=on_heard)
 
     # --- the sink one live line drives --------------------------------------
     #
@@ -391,11 +327,13 @@ class Expression:
             logger.info("Interrupting previous speech task...")
             self.current_speech_task.cancel()
 
+        # opened while the first piece is still being made, so it never waits on the device
+        self.player.prepare()
         self.caption.clear()
         self.avatar.show(line.mood, "talking")
         self.event_manager.publish(
             EventCategory.OUTPUT, "tts", f"Speaking: {preview}...",
-            metadata={"device_id": self.config.audio_device_id},
+            metadata={"device": self.player.device_name or selector_of(self.config)},
         )
         if line.caption:
             self.current_typing_task = asyncio.create_task(self.caption.say(line.caption))
@@ -445,21 +383,25 @@ class Expression:
             await self._push(line, item)
             return
 
-        if line.caption is None:
-            # a line still being written has no whole caption to type, so the
-            # words follow the voice one sentence at a time
-            if self.current_typing_task and not self.current_typing_task.done():
-                self.current_typing_task.cancel()
-            self.current_typing_task = asyncio.create_task(self.caption.say(item.beat.value))
-
+        typed = line.caption is not None
         for audio, rate in item.parts:
-            # the mouth is told before playback starts, so the page has the whole
-            # shape of the piece and can run it off its own clock
-            self._move_mouth(audio, rate)
+            if not len(audio):
+                continue
+            frames = self._mouth_frames(audio, rate)
+
+            def heard(frames=frames, typed=typed, text=item.beat.value) -> None:
+                # the page runs the mouth off its own clock from here, so here is when the room hears it
+                self._send_mouth(frames)
+                if not typed:
+                    # a line still being written has no whole caption to type, so the
+                    # words follow the voice one sentence at a time
+                    self._type_sentence(text)
+
             self.current_speech_task = asyncio.create_task(
-                self._play_audio(audio, rate, self.config.audio_device_id)
+                self._play_audio(audio, rate, on_heard=heard)
             )
             await self.current_speech_task
+            typed = True
 
     async def _push(self, line: LiveLine, item: Rendered) -> None:
         """One rendered piece into the live call, part by part as it is made."""
@@ -533,13 +475,27 @@ class Expression:
             visual = self._call_visuals.get(line.state.get("id", ""))
             if visual is not None:
                 visual.mood = mood
-        self.avatar.show(mood, "talking")
+        self._on_the_word(line, lambda: self.avatar.show(mood, "talking"))
 
     def behave(self, line: LiveLine, word: str) -> None:
         """Direction inside the line: she does something while she says it."""
         clip = self.match_clip(word)
         if clip:
-            self.avatar.perform(clip)
+            self._on_the_word(line, lambda: self.avatar.perform(clip))
+
+    def _on_the_word(self, line: LiveLine, act) -> None:
+        """Acts when the room reaches this point of the line, not when the queue does.
+
+        Locally the words before it are still in the speaker's pipe when the
+        direction is read, so it waits for them; a call line is timed by the call.
+        """
+        if line.route == "call":
+            act()
+            return
+        try:
+            self.player.mark(act)
+        except RuntimeError:
+            act()
 
     async def line_closed(self, line: LiveLine):
         """The line is over. Returns the Utterance when it went to a call."""
@@ -564,6 +520,10 @@ class Expression:
             self._visual_tasks.add(task)
             task.add_done_callback(self._visual_tasks.discard)
             return self.call.utterances.get(state["id"])
+
+        if not line.cancelled:
+            # the last piece handed over before it finished: the line ends when the room hears it end
+            await self.player.drained()
 
         if self.current_typing_task and not self.current_typing_task.done():
             try:
@@ -613,12 +573,28 @@ class Expression:
 
     def _move_mouth(self, audio_data, sample_rate: int) -> None:
         """Hands the avatar the loudness of the line she is about to say."""
-        fps = self._lipsync_fps
+        self._send_mouth(self._mouth_frames(audio_data, sample_rate))
+
+    def _mouth_frames(self, audio_data, sample_rate: int):
         try:
-            self.avatar.mouth(envelope(audio_data, sample_rate, fps), fps)
+            return envelope(audio_data, sample_rate, self._lipsync_fps)
         except Exception as e:
             # a mouth that fails must never stop her from speaking
             logger.error(f"Lip sync failed: {e}")
+            return None
+
+    def _send_mouth(self, frames) -> None:
+        if frames is None:
+            return
+        try:
+            self.avatar.mouth(frames, self._lipsync_fps)
+        except Exception as e:
+            logger.error(f"Lip sync failed: {e}")
+
+    def _type_sentence(self, text: str) -> None:
+        if self.current_typing_task and not self.current_typing_task.done():
+            self.current_typing_task.cancel()
+        self.current_typing_task = asyncio.create_task(self.caption.say(text))
 
     def _publish_segment(self, utterance_id: str, frames, offset_ms: int) -> None:
         """One piece's mouth, placed where it falls in the utterance, for a backend that keeps time."""
@@ -738,11 +714,8 @@ class Expression:
         if call is not None and call.live:
             self.interrupted = await call.stop(ramp_ms=ramp_ms)
 
-        try:
-            import sounddevice as sd
-            sd.stop()
-        except Exception as e:
-            logger.debug(f"Error stopping sounddevice: {e}")
+        # never blocks: the chunk being written fades out and the rest is dropped
+        self.player.flush()
 
         if self.current_speech_task and not self.current_speech_task.done():
             self.current_speech_task.cancel()
@@ -778,10 +751,9 @@ class Expression:
         if line is not None:
             line.abandoned = True
         try:
-            import sounddevice as sd
-            sd.stop()
+            self.player.close()
         except Exception as e:
-            logger.debug(f"Error stopping sounddevice: {e}")
+            logger.debug(f"Letting go of the sound card failed: {e}")
         try:
             self.caption.clear()
         except Exception as e:
