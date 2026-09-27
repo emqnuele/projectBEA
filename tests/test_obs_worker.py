@@ -340,12 +340,13 @@ async def test_the_loop_keeps_turning_while_a_slow_obs_answers(slow_obs):
         caption.clear()
         avatar.show("neutral", "talking")
         both = time.perf_counter() - started
-        await asyncio.sleep(0.5)
+        # obs answers each request in 200 ms and the caption reads its font first: waited for, not guessed
+        told = await asyncio.to_thread(wait_until, lambda: state["requests"] >= 2, 5.0)
         tick.cancel()
 
         assert both < 0.005, f"the two calls took {both * 1000:.1f} ms on the loop"
         assert max(stalls) < 0.05, f"the loop stalled {max(stalls) * 1000:.1f} ms"
-        assert state["requests"] >= 2, "and obs was still told"
+        assert told, "and obs was still told"
     finally:
         obs.disconnect()
 

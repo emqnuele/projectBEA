@@ -224,7 +224,10 @@ async def test_the_mouth_and_the_face_share_one_socket_without_colliding(tmp_pat
     await mouth
 
     assert socket.of_type("ExpressionActivationRequest"), "her face never arrived"
-    assert len(socket.of_type("InjectParameterDataRequest")) == 21
+    # how many frames land depends on the runner's clock; what matters is that none collided and the mouth closed
+    values = [m["data"]["parameterValues"][0]["value"] for m in socket.of_type("InjectParameterDataRequest")]
+    assert 0.2 in values and set(values) <= {0.2, 0.0}
+    assert values[-1] == 0.0, "her mouth must close when the line ends"
 
 
 # --- the port's promises -----------------------------------------------------
