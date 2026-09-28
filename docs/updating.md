@@ -190,7 +190,10 @@ Two narrower races are handled in the run itself:
 * **A torn read.** `persona_store.SoulFile.write` and every write the updater
   makes go through `src/utils/files.py:atomic_write_text` (temp file in the same
   directory, `os.replace`), so a reader sees the old file or the new one, never
-  a truncated one.
+  a truncated one. Windows refuses the swap while another handle has the file
+  open, and refuses readers while the swap lands, so on Windows both sides retry
+  a `PermissionError` for up to a second: the write in `atomic_write_text`, the
+  read in `files.read_text`, which every reader of these files goes through.
 
 A check that runs while the lock is held skips the fetch rather than reading
 refs another process is rewriting.

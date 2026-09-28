@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional
 
-from src.utils.files import atomic_write_text
+from src.utils.files import atomic_write_text, read_text
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.update.state")
@@ -55,7 +55,7 @@ class BaseMap:
 def load(root: Path) -> BaseMap:
     path = Path(root) / STATE_FILE
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(read_text(path))
     except FileNotFoundError:
         return BaseMap()
     except (OSError, json.JSONDecodeError) as e:

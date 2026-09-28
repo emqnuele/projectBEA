@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.core import language as language_module
 from src.core.mind.moods import default_avatar_map, rename_legacy
 from src.core.persona import DEFAULT_NAME, DEFAULT_PRONOUNS
-from src.utils.files import atomic_write_text
+from src.utils.files import atomic_write_text, read_text
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.config")
@@ -413,8 +413,7 @@ class BrainConfig:
         """Loads configuration from config.json if it exists."""
         if os.path.exists(CONFIG_FILE):
             try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                data = json.loads(read_text(Path(CONFIG_FILE)))
 
                 # migration: a config written before `language` was a policy
                 # carries the old default, and the old default is a pin. An
