@@ -329,10 +329,11 @@ class FakeOutputStream:
         return self.capacity - self._queued()
 
     def write(self, data):
+        # an empty ring plays the next write from now, the first too: a stream opened early banks no time
         underflow = self._queued() == 0 and self.frames > 0
         if underflow:
             self.underflows += 1
-            # the clock kept running over the hole; the next frame starts from now
+        if self._queued() == 0:
             self.frames = self._played()
         while self.capacity - self._queued() < len(data):
             time.sleep(0.001)
