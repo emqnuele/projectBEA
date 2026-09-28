@@ -9,6 +9,7 @@ Protocol reference: https://github.com/DenchiSoft/VTubeStudio
 
 import asyncio
 import json
+import time
 
 import pytest
 
@@ -373,6 +374,24 @@ async def test_the_mouth_is_paced_here_because_vtube_studio_has_no_clock(tmp_pat
     assert values[-1] == 0.0, "her mouth must close when the line ends"
 
 
+async def test_a_frame_the_loop_wakes_early_is_still_that_frame(tmp_path, monkeypatch):
+    """asyncio runs a timer up to its clock's resolution early; on windows that is 15.6 ms."""
+    socket = FakeSocket()
+    avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
+    avatar._connected = client_with(socket, tmp_path)
+    on_time = asyncio.sleep
+
+    async def early(delay, result=None):
+        return await on_time(max(0.0, delay - 0.016), result)
+
+    monkeypatch.setattr(asyncio, "sleep", early)
+    await avatar._run_mouth([[0.1, 0.5], [0.5, 0.5], [0.9, 0.5]], fps=10)
+
+    values = [m["data"]["parameterValues"][0]["value"]
+              for m in socket.of_type("InjectParameterDataRequest")]
+    assert values[:3] == [0.1, 0.5, 0.9], "a frame was mouthed twice and the next one skipped"
+
+
 async def test_an_interrupted_line_closes_her_mouth(tmp_path):
     socket = FakeSocket()
     avatar = VTubeStudioAvatar(config(), tmp_path / "token.json")
@@ -641,7 +660,10 @@ async def test_a_refused_frame_does_not_stop_the_frames_after_it(tmp_path, caplo
     client = Refusing(ranges=ranges)
     avatar._connected = client
     avatar.mouth([[0.6, 0.5]] * 3, 30)
-    await asyncio.sleep(0.2)
+    # waited for, not slept on: a loaded runner turns a fixed 0.2 s into too few frames
+    deadline = time.monotonic() + 2.0
+    while len([f for f in client.frames if f is not None]) <= 2 and time.monotonic() < deadline:
+        await asyncio.sleep(0.02)
 
     assert len([f for f in client.frames if f is not None]) > 2, "the pump died on the first refusal"
     assert sum("refused a frame" in r.message for r in caplog.records) == 1

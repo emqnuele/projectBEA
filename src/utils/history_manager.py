@@ -13,6 +13,8 @@ logger = get_logger("bea.utils.history")
 
 # writes closer together than this share one trip to disk
 DEBOUNCE_SECONDS = 1.0
+# a write that failed is tried again after this long
+WRITE_RETRY_S = 1.0
 
 
 class HistoryManager:
@@ -33,6 +35,7 @@ class HistoryManager:
         self._dirty = False
         self._last_write = float('-inf')
         self._timer: Optional[threading.Timer] = None
+        self._failing = False
 
     def create_session(self):
         """Starts a new conversation session."""
@@ -176,8 +179,11 @@ class HistoryManager:
             self._write_now_locked()
             return
         self._dirty = True
+        self._schedule_locked(self.debounce_seconds)
+
+    def _schedule_locked(self, delay: float) -> None:
         if self._timer is None:
-            self._timer = threading.Timer(self.debounce_seconds, self._on_timer)
+            self._timer = threading.Timer(delay, self._on_timer)
             self._timer.daemon = True
             self._timer.start()
 
@@ -219,8 +225,19 @@ class HistoryManager:
         try:
             _atomic_write(self.current_session_file, self._snapshot_locked())
         except Exception as e:
-            logger.error(f"Error saving conversation history: {e}")
+            # said once per failing stretch, not once a second while the disk stays full
+            if self._failing:
+                logger.debug(f"Error saving conversation history: {e}")
+            else:
+                logger.error(f"Error saving conversation history: {e}")
+            self._failing = True
+            # nothing else may come to write it: a line she said last must not be lost with the error
+            self._dirty = True
+            self._schedule_locked(WRITE_RETRY_S)
         else:
+            if self._failing:
+                self._failing = False
+                logger.info("conversation history saved again")
             self._dirty = False
             self._last_write = time.monotonic()
 

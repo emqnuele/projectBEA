@@ -245,3 +245,119 @@ async def test_edge_says_so_when_a_prefix_stops_being_a_prefix(monkeypatch, capl
 
     assert parts, "the broken stream stopped delivering audio entirely"
     assert "prefixes" in caplog.text, "the broken prefix invariant went unnamed"
+
+
+def edge_of_today():
+    """A stand-in shaped like edge-tts: the format is a constant in the request it sends."""
+
+    class Communicate:
+        sent: list = []
+
+        def __init__(self, text, voice, **kwargs):
+            pass
+
+        async def stream(self):
+            async for message in self.__stream():
+                yield message
+
+        async def __stream(self):
+            async def send_command_request():
+                Communicate.sent.append('{"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}')
+
+            await send_command_request()
+            yield {"type": "audio", "data": b""}
+
+    return Communicate
+
+
+def edge_of_tomorrow():
+    """The same, from a release that asks for its format some other way."""
+
+    class Communicate:
+        sent: list = []
+
+        def __init__(self, text, voice, **kwargs):
+            pass
+
+        async def stream(self):
+            async for message in self.__stream():
+                yield message
+
+        async def __stream(self):
+            async def send_command_request():
+                Communicate.sent.append('{"outputFormat":"some-new-format"}')
+
+            await send_command_request()
+            yield {"type": "audio", "data": b""}
+
+    return Communicate
+
+
+async def test_edge_asks_the_service_for_the_richer_mp3(monkeypatch):
+    from src.modules.tts import edge_tts_wrapper
+
+    base = edge_of_today()
+    monkeypatch.setattr(edge_tts_wrapper.edge_tts, "Communicate", base)
+
+    communicate, bps = edge_tts_wrapper._communicate("ciao", "v")
+    [_ async for _ in communicate.stream()]
+
+    assert bps == edge_tts_wrapper.BETTER_BPS
+    assert base.sent == ['{"outputFormat":"' + edge_tts_wrapper.BETTER_FORMAT + '"}']
+
+
+def test_the_installed_edge_tts_can_still_be_asked_for_the_richer_mp3():
+    """An upgrade that moved the format would quietly bring back the gargle; this is where it shows."""
+    import edge_tts
+
+    from src.modules.tts import edge_tts_wrapper
+
+    assert edge_tts_wrapper._asking_for_better(edge_tts.Communicate) is not None
+
+
+async def test_an_edge_that_asks_some_other_way_is_used_as_it_comes(monkeypatch, caplog):
+    from src.modules.tts import edge_tts_wrapper
+
+    base = edge_of_tomorrow()
+    monkeypatch.setattr(edge_tts_wrapper.edge_tts, "Communicate", base)
+
+    with caplog.at_level("WARNING", logger="bea.tts.edge"):
+        communicate, bps = edge_tts_wrapper._communicate("ciao", "v")
+        [_ async for _ in communicate.stream()]
+
+    assert bps == edge_tts_wrapper.ASKED_BPS
+    assert base.sent == ['{"outputFormat":"some-new-format"}']
+    assert "no longer asks" in caplog.text
+
+
+@pytest.mark.parametrize("richer", [False, True])
+async def test_the_first_streamed_part_holds_the_same_speech_at_either_bitrate(monkeypatch, richer):
+    """Twice the bytes for the same speech must not make her start any sooner or later."""
+    import numpy as np
+
+    from src.modules.tts import edge_tts_wrapper
+
+    bps = edge_tts_wrapper.BETTER_BPS if richer else edge_tts_wrapper.ASKED_BPS
+    # edge sends a chunk per 120 ms of speech
+    chunk = bps // 8 * 120 // 1000
+    received = []
+
+    class Communicate:
+        def __init__(self, text, voice, **kwargs):
+            pass
+
+        async def stream(self):
+            for _ in range(10):
+                received.append(chunk)
+                yield {"type": "audio", "data": b"\x00" * chunk}
+
+    def decode(mp3):
+        return np.zeros(len(mp3) * 8 * 24000 // bps, dtype="float32"), 24000
+
+    monkeypatch.setattr(edge_tts_wrapper, "_communicate", lambda text, voice, **k: (Communicate(), bps))
+    monkeypatch.setattr(edge_tts_wrapper, "_decode", decode)
+
+    async for part, rate in EdgeTTSWrapper(voice="v").generate_stream("ciao"):
+        assert len(received) == 3, "the first part went with a different stretch of speech"
+        assert len(part) / rate == pytest.approx(0.36)
+        break

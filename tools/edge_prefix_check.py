@@ -19,10 +19,17 @@ import argparse
 import asyncio
 import io
 import sys
+from pathlib import Path
 
-import edge_tts
 import numpy as np
 import soundfile as sf
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# the request the app makes, format included: a check of any other would prove nothing about her voice
+from src.modules.tts.edge_tts_wrapper import _communicate  # noqa: E402
 
 SAMPLES = [
     ("it-IT-ElsaNeural", "Ah, davvero? Non ci avevo mai pensato, ma adesso ha perfettamente senso."),
@@ -39,8 +46,8 @@ def _decode(mp3: bytes) -> np.ndarray:
 
 
 async def check(voice: str, text: str) -> bool:
-    chunks = [c["data"] async for c in edge_tts.Communicate(text, voice).stream()
-              if c["type"] == "audio"]
+    communicate, bps = _communicate(text, voice)
+    chunks = [c["data"] async for c in communicate.stream() if c["type"] == "audio"]
     mp3 = b"".join(chunks)
     whole = _decode(mp3)
     cuts = sorted(set(np.cumsum([len(c) for c in chunks]).tolist())
@@ -55,7 +62,7 @@ async def check(voice: str, text: str) -> bool:
         if len(part) > len(whole) or not np.array_equal(part, whole[:len(part)]):
             wrong.append(cut)
     verdict = "ok" if not wrong else f"{len(wrong)} cut(s) disagree, first at byte {wrong[0]}"
-    print(f"{voice}: {len(mp3)} bytes, {len(chunks)} chunks, {len(cuts)} cuts - {verdict}")
+    print(f"{voice} at {bps // 1000} kbps: {len(mp3)} bytes, {len(chunks)} chunks, {len(cuts)} cuts - {verdict}")
     return not wrong
 
 

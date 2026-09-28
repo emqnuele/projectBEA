@@ -10,6 +10,7 @@ and config.json beats the default.
 import argparse
 import dataclasses
 import os
+import sys
 
 import pytest
 
@@ -20,6 +21,14 @@ from src.core.config import BrainConfig
 def parsed(*argv) -> argparse.Namespace:
     """The real parser, so the test moves when the flags do."""
     return cli.parse_args(list(argv))
+
+
+@pytest.fixture(autouse=True)
+def switch_interval():
+    """bootstrap sets it for the whole process; the rest of the suite gets its own back."""
+    before = sys.getswitchinterval()
+    yield
+    sys.setswitchinterval(before)
 
 
 # --- importing is not running -----------------------------------------------
@@ -61,6 +70,25 @@ def test_bootstrap_never_overwrites_a_deliberate_setting(monkeypatch):
     cli.bootstrap()
 
     assert os.environ["TOKENIZERS_PARALLELISM"] == "true"
+
+
+def test_bootstrap_hands_the_gil_back_quickly_to_the_thread_feeding_her_voice(monkeypatch):
+    monkeypatch.delenv("BEA_PERF", raising=False)
+    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: None)
+
+    cli.bootstrap()
+
+    assert sys.getswitchinterval() == pytest.approx(cli.VOICE_SWITCH_INTERVAL_S)
+
+
+def test_bootstrap_leaves_the_gil_alone_when_optimisations_are_off(monkeypatch):
+    monkeypatch.setenv("BEA_PERF", "off")
+    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: None)
+    sys.setswitchinterval(0.005)
+
+    cli.bootstrap()
+
+    assert sys.getswitchinterval() == pytest.approx(0.005)
 
 
 def test_bootstrap_leaves_the_same_environment_twice(monkeypatch):

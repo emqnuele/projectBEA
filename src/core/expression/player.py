@@ -49,7 +49,10 @@ MIN_BUFFER_MS = 20
 # how long an idle stream stays open before the device is let go
 DEFAULT_IDLE_CLOSE_S = 30.0
 
-# the size of one write: small enough that a stop lands quickly
+# holes are said at most this often: a busy stretch is one warning, not one per sentence
+HOLES_WARNING_EVERY_S = 30.0
+
+# the least room worth waking up to fill: small enough that a stop lands quickly
 CHUNK_MS = 10
 
 # a stop fades out over this much instead of clicking
@@ -236,6 +239,7 @@ class LocalPlayer:
         # counters a test or a probe can read
         self.starved = 0
         self.opened = 0
+        self._holes_said_at: Optional[float] = None
 
     # --- what the loop calls ------------------------------------------------
 
@@ -436,18 +440,21 @@ class LocalPlayer:
         chunk = max(1, current.rate * CHUNK_MS // 1000)
         retried = False
         handed = False
+        holes = 0
         while position < total:
             if piece.generation != self._generation or self._thread is not threading.current_thread():
                 self._fade_out(current, data[position:])
                 break
             lead = current.rate * self._buffer_ms // 1000
             queued = self._queued(current)
-            room = lead - queued
-            if room <= 0:
-                # sleeping for what is over the lead, never for a fixed tick: the writer wakes when it is needed
-                time.sleep(min(0.02, max(0.001, (queued - lead) / current.rate)))
+            # never more than the ring has free, so the write returns at once and a stop is never stuck behind it
+            room = min(lead, current.capacity) - queued
+            if room < min(chunk, total - position):
+                # sleeping until a chunk's worth is free, never for a fixed tick: the writer wakes when it is needed
+                time.sleep(min(0.02, max(0.001, (chunk - room) / current.rate)))
                 continue
-            end = min(total, position + min(room, chunk))
+            # all the room at once: a writer that woke late (the gil was busy) catches up in one write
+            end = min(total, position + room)
             if position == 0 and piece.on_heard is not None:
                 # timed here, with the stream open and the queue ahead of it known
                 _post_at(piece.loop, piece.on_heard, self._heard_at(), self, piece.generation)
@@ -469,6 +476,7 @@ class LocalPlayer:
             if underflow and position > 0:
                 # mid-piece, not between two: the writer fell behind and the room heard a hole
                 self.starved += 1
+                holes += 1
             position = end
             current.last_used = self._clock()
             if not handed and total - position <= lead:
@@ -476,6 +484,17 @@ class LocalPlayer:
                 _resolve(piece.loop, piece.handoff)
         if not handed:
             _resolve(piece.loop, piece.handoff)
+        if holes:
+            self._say_holes(holes, current)
+
+    def _say_holes(self, holes: int, current: _Open) -> None:
+        # a recording is where these are heard, long after the moment: the log is the only witness
+        now = self._clock()
+        if self._holes_said_at is not None and now - self._holes_said_at < HOLES_WARNING_EVERY_S:
+            return
+        self._holes_said_at = now
+        logger.warning(f"her voice skipped {holes} time(s) on {current.device['name']}: this process "
+                       f"was too busy to keep the speaker fed ({self.starved} since start)")
 
     def _pace_silently(self, piece: _Piece) -> None:
         # no device at all: the line still takes as long as it would have, so everything timed on it holds

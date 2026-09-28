@@ -3,6 +3,7 @@ import asyncio
 import dataclasses
 import faulthandler
 import os
+import sys
 import time
 
 from dotenv import load_dotenv
@@ -14,6 +15,9 @@ from src.modules.obs.obs_websocket import OBSController
 from src.utils.logger import get_logger
 
 logger = get_logger("bea")
+
+# how long a thread may hold the gil while another waits for it
+VOICE_SWITCH_INTERVAL_S = 0.001
 
 
 def bootstrap() -> None:
@@ -38,6 +42,9 @@ def bootstrap() -> None:
         threads = str(physical_cores())
         os.environ.setdefault("OMP_NUM_THREADS", threads)
         os.environ.setdefault("MKL_NUM_THREADS", threads)
+        # the thread feeding her voice waits this long for the gil after every write: at the default
+        # 5 ms a busy engine left it behind the speaker and the room heard her crackle
+        sys.setswitchinterval(VOICE_SWITCH_INTERVAL_S)
     # segfaults and access violations get a traceback instead of a silent exit
     faulthandler.enable()
     load_dotenv()

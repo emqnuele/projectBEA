@@ -109,3 +109,29 @@ def test_the_deferred_write_arrives_on_its_own(tmp_path):
             time.sleep(0.02)
     finally:
         hm.flush()
+
+
+def test_a_write_that_failed_is_tried_again_on_its_own(tmp_path, monkeypatch):
+    """Her last line of a session may have nothing after it to carry it to disk."""
+    from src.utils import history_manager
+
+    real = history_manager._atomic_write
+    failures = [1]
+
+    def flaky(path, data):
+        if failures[0]:
+            failures[0] -= 1
+            raise PermissionError(5, "Access is denied")
+        real(path, data)
+
+    monkeypatch.setattr(history_manager, "_atomic_write", flaky)
+    monkeypatch.setattr(history_manager, "WRITE_RETRY_S", 0.05)
+    hm = HistoryManager(storage_dir=str(tmp_path), debounce_seconds=0.05)
+    try:
+        hm.add_message("user", "the last thing said")
+        deadline = time.time() + 5.0
+        while not hm.current_session_file.exists() or not _read(hm.current_session_file)["messages"]:
+            assert time.time() < deadline, "the failed write was never tried again"
+            time.sleep(0.02)
+    finally:
+        hm.flush()
