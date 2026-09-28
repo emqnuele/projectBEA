@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.core.perf import perf_enabled
-from src.utils.files import atomic_write_text
+from src.utils.files import atomic_write_text, read_text
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.utils.history")
@@ -58,8 +58,7 @@ class HistoryManager:
         sessions = []
         for file_path in self.storage_dir.glob("*.json"):
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+                data = json.loads(read_text(file_path))
 
                 # create a summary
                 first_msg = ""
@@ -93,8 +92,7 @@ class HistoryManager:
             return False
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            data = json.loads(read_text(file_path))
 
             with self._lock:
                 # same reason as create_session: the switch must not eat the tail
@@ -123,8 +121,7 @@ class HistoryManager:
                     self.title = title
                     self._write_now_locked()
                     return True
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            data = json.loads(read_text(file_path))
             data["title"] = title
             _atomic_write(file_path, data)
             return True

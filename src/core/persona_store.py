@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.core.persona import DEFAULT_PRONOUNS, SHIPPED_SOUL_SHA256, persona_of
-from src.utils.files import atomic_write_text
+from src.utils.files import atomic_write_text, read_text
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.persona.store")
@@ -45,7 +45,7 @@ class SoulFile:
 
     def read(self) -> str:
         try:
-            return self.path.read_text(encoding="utf-8") if self.path.exists() else ""
+            return read_text(self.path) if self.path.exists() else ""
         except OSError as e:
             logger.error(f"Could not read the soul at {self.path}: {e}")
             return ""

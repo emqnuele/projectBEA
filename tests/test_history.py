@@ -4,12 +4,13 @@ import json
 import time
 
 from src.utils import history_manager as hm_module
+from src.utils.files import read_text
 from src.utils.history_manager import HistoryManager
 
 
 def _read(path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    # the way the dashboard reads a session: on windows a write landing at that moment refuses a plain open
+    return json.loads(read_text(path))
 
 
 def test_a_message_lands_on_disk_as_valid_json(tmp_path):
