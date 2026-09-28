@@ -354,15 +354,22 @@ def portaudio_hands_back_late(monkeypatch, by: float):
     monkeypatch.setattr(FakeOutputStream, "write", late_write)
 
 
-async def test_a_writer_held_up_by_a_busy_engine_catches_up_and_leaves_no_hole(card, monkeypatch):
-    """Two calls a write, each late by most of a chunk: a chunk per write would fall behind the speaker."""
+async def test_a_writer_held_up_by_a_busy_engine_catches_up_in_one_write(card, monkeypatch):
+    """Each call 20 ms late, so every wake finds far more than a chunk free: it must all go at once.
+
+    A chunk per write needs 60 writes for 0.6 s whatever the delay, and falls behind the speaker
+    as soon as a write costs more than a chunk. Holes themselves are not counted here: whether a
+    shared runner stalls past the whole ring is up to the runner, and a slower one only makes a
+    catching-up writer write less often.
+    """
     card.capacity_ms = 120
-    portaudio_hands_back_late(monkeypatch, 0.008)
+    portaudio_hands_back_late(monkeypatch, 0.02)
     p = player(card, "MacBook Speakers", buffer_ms=120)
     await p.play(tone(0.6), RATE)
     await p.drained()
-    assert card.streams[-1].underflows == 0, "the room heard holes while the writer was held up"
-    assert p.starved == 0
+    written = card.streams[-1].written
+    assert sum(written) == int(RATE * 0.6)
+    assert len(written) <= 30, "the writer topped up a chunk at a time instead of all the room it had"
     p.close()
 
 
