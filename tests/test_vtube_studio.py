@@ -9,6 +9,7 @@ Protocol reference: https://github.com/DenchiSoft/VTubeStudio
 
 import asyncio
 import json
+import time
 
 import pytest
 
@@ -659,7 +660,10 @@ async def test_a_refused_frame_does_not_stop_the_frames_after_it(tmp_path, caplo
     client = Refusing(ranges=ranges)
     avatar._connected = client
     avatar.mouth([[0.6, 0.5]] * 3, 30)
-    await asyncio.sleep(0.2)
+    # waited for, not slept on: a loaded runner turns a fixed 0.2 s into too few frames
+    deadline = time.monotonic() + 2.0
+    while len([f for f in client.frames if f is not None]) <= 2 and time.monotonic() < deadline:
+        await asyncio.sleep(0.02)
 
     assert len([f for f in client.frames if f is not None]) > 2, "the pump died on the first refusal"
     assert sum("refused a frame" in r.message for r in caplog.records) == 1
