@@ -331,3 +331,50 @@ async def test_integer_samples_are_played_at_the_right_loudness(card):
     assert sum(card.streams[-1].written) == 2400
     assert card.streams[-1].peak == pytest.approx(0.5)
     p.close()
+
+
+# --- a busy engine ---------------------------------------------------------------
+
+
+def portaudio_hands_back_late(monkeypatch, by: float):
+    """Every call into the device returns `by` late: the gil it let go of is busy elsewhere."""
+    from tests.fakes import FakeOutputStream
+
+    available, write = FakeOutputStream.write_available.fget, FakeOutputStream.write
+
+    def late_available(self):
+        time.sleep(by)
+        return available(self)
+
+    def late_write(self, data):
+        time.sleep(by)
+        return write(self, data)
+
+    monkeypatch.setattr(FakeOutputStream, "write_available", property(late_available))
+    monkeypatch.setattr(FakeOutputStream, "write", late_write)
+
+
+async def test_a_writer_held_up_by_a_busy_engine_catches_up_and_leaves_no_hole(card, monkeypatch):
+    """Two calls a write, each late by most of a chunk: a chunk per write would fall behind the speaker."""
+    card.capacity_ms = 120
+    portaudio_hands_back_late(monkeypatch, 0.008)
+    p = player(card, "MacBook Speakers", buffer_ms=120)
+    await p.play(tone(0.6), RATE)
+    await p.drained()
+    assert card.streams[-1].underflows == 0, "the room heard holes while the writer was held up"
+    assert p.starved == 0
+    p.close()
+
+
+async def test_holes_in_her_voice_are_logged_once_for_a_busy_stretch(card, monkeypatch, caplog):
+    """Heard in a recording hours later: the log is the only place that can say why."""
+    card.capacity_ms = 40
+    portaudio_hands_back_late(monkeypatch, 0.05)
+    p = player(card, "MacBook Speakers", buffer_ms=40)
+    with caplog.at_level("WARNING", logger="bea.expression.player"):
+        await p.play(tone(0.4), RATE)
+        await p.play(tone(0.4), RATE)
+        await p.drained()
+    assert p.starved > 0
+    assert caplog.text.count("her voice skipped") == 1
+    p.close()
