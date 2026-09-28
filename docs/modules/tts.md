@@ -66,13 +66,17 @@ One output stream stays open while she talks, in PortAudio's blocking mode, and
 one thread of its own (`voice-out`) writes into it. The event loop never calls
 PortAudio: opening, writing, reopening and closing all happen on that thread.
 
-- **Written in 10 ms chunks, at most `audio_buffer_ms` ahead** of what the
-  device has taken (100 ms by default, and never more than the stream's own
-  buffer). `write()` releases the GIL while it waits, so other threads working
-  in the same process do not starve her voice the way a python callback asked
-  for every few hundred samples would. The stream asks PortAudio for its
-  default latency, the quickest to the speaker; `audio_latency_s` trades some
-  of that for a bigger buffer.
+- **Kept at most `audio_buffer_ms` ahead** of what the device has taken (100 ms
+  by default, and never more than the stream's own buffer). The writer wakes
+  once at least 10 ms of room is free and fills all of it in one write, never
+  more than the ring holds, so a write never blocks and a writer that woke late
+  catches up at once. Every call into PortAudio lets go of the GIL and has to
+  win it back, which is why `bootstrap()` sets the interpreter's switch interval
+  to 1 ms (unless `BEA_PERF=off`): at the default 5 ms a busy engine kept the
+  writer behind the speaker. A hole the room did hear is logged as a warning,
+  at most once every 30 s. The stream asks PortAudio for its default latency,
+  the quickest to the speaker; `audio_latency_s` trades some of that for a
+  bigger buffer.
 - **Pieces follow each other in the same stream.** `play()` returns once less
   than a buffer's worth of the piece is left to write, so the next piece is
   queued while this one is still sounding and nothing is ever cut or gapped
@@ -120,7 +124,9 @@ PortAudio: opening, writing, reopening and closing all happen on that thread.
 **Cost:** Free (uses Microsoft Edge's TTS API)  
 **Config keys:** `tts_voice`, `tts_pitch`, `tts_rate`, `tts_volume`
 
-Gathers the MP3 from the Edge websocket in memory and decodes it with `soundfile` on a worker thread, never on the event loop. `generate_stream()` hands the audio over as it arrives: an MP3 cut at any byte decodes to exactly the start of what the whole file decodes to, so each part is the next stretch of the same samples. Parts are decoded at 2 KB of MP3 and then at every doubling, so a sentence costs a handful of decodes. Every piece is its own websocket connection, which is why the wrapper sets `pieces_in_flight = 2`.
+Gathers the MP3 from the Edge websocket in memory and decodes it with `soundfile` on a worker thread, never on the event loop. `generate_stream()` hands the audio over as it arrives: an MP3 cut at any byte decodes to exactly the start of what the whole file decodes to, so each part is the next stretch of the same samples. Parts are decoded once a third of a second of speech has arrived and then at every doubling, so a sentence costs a handful of decodes.
+
+`edge-tts` always asks the service for 48 kbps MP3 and takes no argument to ask otherwise. The service also serves the same 24 kHz voice at 96 kbps, as fast and with far fewer MP3 artefacts, so the wrapper swaps that one constant in the request `edge-tts` sends and leaves the rest of its protocol alone. If a release of `edge-tts` no longer contains the constant, the library is used as it comes, at 48 kbps, with a warning; a test fails on the installed version when that happens. The first part is measured in speech, not bytes, so the richer format starts her no sooner and no later. Every piece is its own websocket connection, which is why the wrapper sets `pieces_in_flight = 2`.
 
 That prefix invariant is a property of the service, not of this code, so it is checked twice: each longer decode is compared against the shorter one it grew from (a break is logged rather than played as a repeat or a skip), and the nightly `edge-prefix` CI job runs `tools/edge_prefix_check.py` against the real service.
 
