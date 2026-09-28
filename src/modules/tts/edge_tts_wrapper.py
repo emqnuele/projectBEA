@@ -1,5 +1,7 @@
 import asyncio
+import functools
 import io
+import types
 
 import edge_tts
 import numpy as np
@@ -11,10 +13,17 @@ from src.utils.logger import get_logger
 
 logger = get_logger("bea.tts.edge")
 
-# the first part of a streamed piece goes once this much mp3 has arrived, a third
-# of a second of speech at edge's 48 kbps; each part after it waits for twice as
-# much, so a sentence costs a handful of decodes rather than one per chunk
-FIRST_PART_BYTES = 2048
+# what edge-tts asks the service for, and cannot be told otherwise
+ASKED_FORMAT = "audio-24khz-48kbitrate-mono-mp3"
+ASKED_BPS = 48_000
+# the same 24 khz voice at twice the bitrate: the service serves it just as fast,
+# with a fraction of the mp3 artefacts a recording or a pair of headphones hears as a gargle
+BETTER_FORMAT = "audio-24khz-96kbitrate-mono-mp3"
+BETTER_BPS = 96_000
+
+# the first part of a streamed piece goes once this much speech has arrived; each
+# part after it waits for twice as much, so a sentence costs a handful of decodes
+FIRST_PART_SECONDS = 1 / 3
 
 class EdgeTTSWrapper(TTSInterface):
     # every piece is a new connection and most of a second of waiting on it
@@ -65,7 +74,7 @@ class EdgeTTSWrapper(TTSInterface):
 
         try:
             pitch, rate, volume = self._voice_for(prosody)
-            communicate = edge_tts.Communicate(text, self.voice, pitch=pitch, rate=rate, volume=volume)
+            communicate, _ = _communicate(text, self.voice, pitch=pitch, rate=rate, volume=volume)
             mp3 = bytearray()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -90,10 +99,11 @@ class EdgeTTSWrapper(TTSInterface):
             return
         try:
             pitch, rate, volume = self._voice_for(prosody)
-            communicate = edge_tts.Communicate(text, self.voice, pitch=pitch, rate=rate, volume=volume)
+            communicate, bps = _communicate(text, self.voice, pitch=pitch, rate=rate, volume=volume)
             mp3 = bytearray()
             sent = 0
-            due = FIRST_PART_BYTES
+            # counted in speech, not bytes: a richer format must not make her start any sooner or later
+            due = int(bps / 8 * FIRST_PART_SECONDS)
             previous = None
             broken = False
             async for chunk in communicate.stream():
@@ -129,6 +139,56 @@ class EdgeTTSWrapper(TTSInterface):
                 yield data[sent:], fs
         except Exception as e:
             logger.error(f"generation error: {e}")
+
+
+def _communicate(text: str, voice: str, **prosody):
+    """An edge request for the better format when it can be asked for, and its bitrate."""
+    better = _asking_for_better(edge_tts.Communicate)
+    if better is None:
+        return edge_tts.Communicate(text, voice, **prosody), ASKED_BPS
+    return better(text, voice, **prosody), BETTER_BPS
+
+
+@functools.lru_cache(maxsize=None)
+def _asking_for_better(base: type):
+    """`base` with its one hard-coded format swapped for the better one, or None.
+
+    edge-tts writes the format into the request it sends and has no argument
+    for it, so the swap is made on that single constant, leaving the rest of the
+    protocol theirs. When a release asks some other way the constant is not
+    found and edge is used as it comes, with a warning, never half-patched.
+    """
+    stream = getattr(base, "_Communicate__stream", None)
+    if not isinstance(stream, types.FunctionType):
+        return _as_it_comes()
+    patched, found = _swapped(stream.__code__)
+    if found != 1:
+        return _as_it_comes()
+    function = types.FunctionType(patched, stream.__globals__, stream.__name__,
+                                  stream.__defaults__, stream.__closure__)
+    # `self.__stream()` inside edge-tts is looked up under this mangled name
+    return type(base.__name__, (base,), {"_Communicate__stream": function})
+
+
+def _swapped(code: types.CodeType) -> tuple[types.CodeType, int]:
+    """`code` asking for the better format, and how many constants named the old one."""
+    found = 0
+    consts = []
+    for const in code.co_consts:
+        if isinstance(const, str) and ASKED_FORMAT in const:
+            found += 1
+            const = const.replace(ASKED_FORMAT, BETTER_FORMAT)
+        elif isinstance(const, types.CodeType):
+            const, inner = _swapped(const)
+            found += inner
+        consts.append(const)
+    return code.replace(co_consts=tuple(consts)), found
+
+
+def _as_it_comes() -> None:
+    logger.warning(f"edge-tts no longer asks for {ASKED_FORMAT} the way it did; "
+                   f"her voice stays at {ASKED_BPS // 1000} kbps")
+    return None
 
 
 def _prefix_of(previous: np.ndarray, whole: np.ndarray) -> bool:
