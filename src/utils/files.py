@@ -7,12 +7,20 @@ after, so a reader landing in that window gets a file that is empty or cut in
 half, and a soul cut in half goes straight into a system prompt.
 
 `os.replace` is atomic on POSIX and on Windows, so a reader sees either the old
-file or the new one and never the seam between them.
+file or the new one and never the seam between them. Windows alone refuses the
+swap while any other handle has the target open — a reader, an antivirus, the
+search indexer — and they let go within moments, so there it is retried briefly
+before the write is given up.
 """
 
 import os
 import tempfile
+import time
 from pathlib import Path
+
+WINDOWS = os.name == "nt"
+# how long a swap refused by another handle is retried before the write fails
+REPLACE_PATIENCE_S = 1.0
 
 
 def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
@@ -27,7 +35,22 @@ def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        _replace(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def _replace(tmp: Path, path: Path) -> None:
+    deadline = time.monotonic() + REPLACE_PATIENCE_S
+    wait = 0.005
+    while True:
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            # elsewhere a refusal is a real permission problem, and waiting would not change it
+            if not WINDOWS or time.monotonic() >= deadline:
+                raise
+            time.sleep(wait)
+            wait = min(wait * 2, 0.1)
