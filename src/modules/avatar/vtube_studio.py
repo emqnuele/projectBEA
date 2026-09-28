@@ -377,7 +377,8 @@ class VTubeStudioAvatar(AvatarInterface):
                 if missing:
                     logger.info(f"VTube Studio has no {', '.join(missing)}; that part of her life is left out.")
             while self._connected is client:
-                now = loop.time()
+                # asyncio fires a timer up to its clock's resolution early (15.6 ms on windows): woken early is still on time
+                now = max(loop.time(), start + tick * step)
                 if self._life is None and self._timeline.over(now):
                     break
                 values: List[Tuple[str, float]] = []
