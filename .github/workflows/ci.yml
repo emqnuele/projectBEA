@@ -86,9 +86,10 @@ jobs:
 
   version:
     # a pull request that changes what ships raises the version, or two installs
-    # running different code both say they are the same one
+    # running different code both say they are the same one. dependabot cannot
+    # raise it, so its bumps ride along with the next release
     name: version raised
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
 
     steps:
