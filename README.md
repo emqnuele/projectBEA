@@ -26,9 +26,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/emqnuele/projectBEA" alt="License" /></a>
 </p>
 
-https://github.com/user-attachments/assets/00991f61-5eed-48cc-aefb-f2f6460120d7
-
-<p align="center"><em>The control room: everything she is perceiving, thinking and doing, on one screen.</em></p>
+https://github.com/user-attachments/assets/2d13aac6-2891-433e-afb5-91ed848e5f8d
 
 ---
 
@@ -301,7 +299,9 @@ herself.
 Tailwind frontend. It opens on a boot screen that checks the brain is actually
 answering before it lets you in, then on a bento overview of everything at once.
 
-![The overview screen: her state, the attention gate, today's plan and the live feed](docs/images/dashboard-overview.jpg)
+https://github.com/user-attachments/assets/00991f61-5eed-48cc-aefb-f2f6460120d7
+
+<p align="center"><em>The control room: everything she is perceiving, thinking and doing, on one screen.</em></p>
 
 - **Overview.** Is she awake, what she last said, today's progress, the attention gate, spend, abilities and the live feed, on one screen
 - **Talk.** The private line to her: streams voice in and out, and shows it plainly when she hears you and chooses not to answer
