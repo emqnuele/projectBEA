@@ -19,7 +19,8 @@ src/modules/tts/
 ├── factory.py             builds the selected one, handed the voice it should use
 ├── edge_tts_wrapper.py    Microsoft EdgeTTS (free, online)
 ├── kokoro_tts_wrapper.py  Kokoro ONNX (local, no API)
-└── orpheus_tts_wrapper.py Orpheus (API, high quality)
+├── orpheus_tts_wrapper.py Orpheus (API, high quality)
+└── openai_compat_tts.py   any OpenAI-compatible speech server
 ```
 
 **An engine does not decide a language.** `providers.py` holds one row per
@@ -88,7 +89,9 @@ PortAudio: opening, writing, reopening and closing all happen on that thread.
   fire at that moment, in the order they were queued. `is_speaking` stays true
   until the end is heard.
 - **The stream opens before she speaks**: when a turn somebody waits on starts
-  (`Expression.warm_up`, skipped during a call and for her own idle thoughts),
+  (`Expression.warm_up`, skipped during a call and for her own idle thoughts;
+  an engine with a `warm()` — Orpheus and the custom endpoint — opens its
+  connection there too, in a call as well, at most once every 20 s),
   and again when a line starts, while the model is still thinking and the
   first piece is still being synthesised. A bluetooth output that has been
   quiet takes a few hundred ms to open; this is where that time goes. It opens
@@ -190,10 +193,38 @@ hear while the interruption waits on it.
 
 ---
 
+### Custom OpenAI endpoint (`openai_compat_tts.py`)
+
+**Library:** `requests`  
+**Config keys:** `tts_compat_base_url`, `tts_compat_model`, `tts_compat_voice`, `tts_compat_speed`  
+**Env var:** `TTS_COMPAT_API_KEY` (optional, its own — not the custom LLM endpoint's)
+
+Any server speaking OpenAI's `/audio/speech`: Kokoro-FastAPI, speaches,
+LocalAI, openedai-speech, OpenAI itself. The base URL goes up to and including
+`/v1`.
+
+It asks for `wav`, not `pcm`: raw pcm carries no sample rate, and the rate a
+server chose is not something to guess. `generate_stream()` reads the header
+off the front of the response — the data size is ignored, since a streamed wav
+is written before its length is known — and yields the samples in ~150 ms
+blocks as they arrive, never splitting a frame. Against a server that sends
+100 ms of audio every 40 ms, the first block reached the caller in ~50 ms and
+the whole 3 s answer in ~1350 ms. A barge-in closes the response at once, as
+Orpheus does. 16- and 32-bit pcm and 32-bit float are read; stereo is folded
+to mono.
+
+The mood's rate rides on `speed` (left out at 1.0, since a server that does
+not know the field may refuse it), its volume is applied to the samples, and
+its pitch cannot be said. The voices belong to the server, so the row declares
+`any_language`: no language is refused, no voice is swapped when `language`
+changes, and the dashboard shows no mute warning.
+
+---
+
 ## Hot Reload
 
 `reload_config()` updates pitch, rate and volume for EdgeTTS; speed for Kokoro;
-key and endpoint for Orpheus. All three take their **voice** from
+key and endpoint for Orpheus; url, key, model and speed for the custom endpoint. All three take their **voice** from
 `providers.voice_for(config)` rather than reading a field of their own, and
 Kokoro takes its phonemiser language from `factory.kokoro_language(config)`.
 Changing `tts_provider` itself needs a restart — the object type changes, and

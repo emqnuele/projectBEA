@@ -30,6 +30,7 @@ from src.core import language as language_module
 
 # which transcribers need no account, asked of the one place that builds them
 from src.modules.STT.factory import LOCAL as STT_LOCAL
+from src.modules.STT.factory import OWN_ENDPOINT as STT_OWN_ENDPOINT
 from src.modules.STT.faster_whisper_stt import WEIGHTS_MB
 from src.modules.tts import providers
 from src.setup import banner, tui
@@ -83,6 +84,7 @@ STT_ENGINES: List[Tuple[str, str, str]] = [
     ("faster_whisper", "Local Whisper", "Runs on this machine. No key, no bill, nothing leaves the room."),
     ("groq", "Groq Whisper", "Hosted and very fast. Needs a Groq key."),
     ("openrouter", "OpenRouter", "The same Whisper models on your OpenRouter key."),
+    ("openai_compat", "Custom OpenAI endpoint", "Any server speaking OpenAI's transcription API."),
 ]
 
 
@@ -338,6 +340,15 @@ def _ask_voice(console: Console, answers: Dict[str, Any]) -> None:
                                                  default=os.getenv("ORPHEUS_ENDPOINT", ""))
         answers["orpheus_voice"] = Prompt.ask("  Voice", default="zoe")
 
+    elif engine == "openai_compat":
+        console.print()
+        answers["tts_compat_base_url"] = _ask_endpoint(
+            console, engine, os.getenv("TTS_COMPAT_BASE_URL", ""))
+        answers["tts_compat_model"] = Prompt.ask("  Model", default="tts-1")
+        answers["tts_compat_voice"] = Prompt.ask("  Voice", default="alloy")
+        answers["tts_compat_key"] = _ask_key(console, "API key (empty if none)",
+                                             "TTS_COMPAT_API_KEY")
+
     elif engine == "kokoro":
         console.print()
         provider = providers.PROVIDERS[engine]
@@ -375,6 +386,15 @@ def _ask_ears(console: Console, answers: Dict[str, Any]) -> None:
         console.print("\n  [dim]The weights are downloaded once into data/models/whisper. "
                       "No key, no account.[/dim]\n")
         answers["stt_model"] = _choose(console, "Model size", WHISPER_SIZES, "small")
+        return
+
+    # its own endpoint and key, never the mind's custom one of the same name
+    if engine in STT_OWN_ENDPOINT:
+        console.print()
+        answers["stt_compat_base_url"] = _ask_endpoint(
+            console, engine, os.getenv("STT_COMPAT_BASE_URL", ""))
+        answers["stt_model"] = Prompt.ask("  Model", default="whisper-1")
+        answers["stt_key"] = _ask_key(console, "API key (empty if none)", "STT_COMPAT_API_KEY")
         return
 
     # the mind's key already covers it when both sides are the same provider

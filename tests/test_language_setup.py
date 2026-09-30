@@ -72,7 +72,8 @@ def test_every_served_engine_says_which_languages_it_speaks():
     for row in get_voices()["providers"]:
         declared = providers.languages(providers.PROVIDERS[row["id"]])
         assert row["languages"] == list(declared)
-        assert row["voices"], row["id"]
+        # an engine whose voices live on the owner's server lists none, and refuses no language
+        assert row["voices"] or row["any_language"], row["id"]
 
 
 # --- the settings warn rather than block -------------------------------------

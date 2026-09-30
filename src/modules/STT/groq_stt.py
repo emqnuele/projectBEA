@@ -10,6 +10,7 @@ from src.core.language import whisper_code
 from src.interfaces.base_interfaces import STTInterface
 from src.modules.STT.heard import HeardLanguage, clip_seconds
 from src.utils.logger import get_logger
+from src.utils.warm import Warmer
 
 logger = get_logger("bea.stt.groq")
 
@@ -55,6 +56,12 @@ class GroqSTT(STTInterface):
         # a turn too short to place borrows the last one that was not. Same
         # problem here as on the local engine: it is the audio, not the api
         self.heard = HeardLanguage()
+        self.warm = Warmer(self._open_connection)
+
+    def _open_connection(self) -> None:
+        # the smallest real request the sdk has, on the same pooled client the turn uses
+        if self.client:
+            self.client.models.list()
 
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         # resolved rather than passed through: the api rejects `jp` and `it-IT`,

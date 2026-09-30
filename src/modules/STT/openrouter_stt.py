@@ -3,15 +3,18 @@ import os
 from typing import Optional
 
 import requests
-from urllib3.exceptions import NewConnectionError
 
 from src.core.config import BrainConfig
 from src.core.language import whisper_code
 from src.interfaces.base_interfaces import STTInterface
 from src.modules.STT.heard import HeardLanguage, clip_seconds
+from src.utils.connections import stale
 from src.utils.logger import get_logger
+from src.utils.warm import Warmer
 
 logger = get_logger("bea.stt.openrouter")
+
+TRANSCRIPTIONS_URL = "https://openrouter.ai/api/v1/audio/transcriptions"
 
 class OpenRouterSTT(STTInterface):
     def __init__(self, config: BrainConfig):
@@ -37,6 +40,11 @@ class OpenRouterSTT(STTInterface):
         # one connection kept between turns: a bare `requests.post` opened a new
         # one for every transcription, handshake and all
         self._http = requests.Session()
+        self.warm = Warmer(self._open_connection)
+
+    def _open_connection(self) -> None:
+        # a head: the model list a get would bring back is megabytes
+        self._http.head(TRANSCRIPTIONS_URL, timeout=(10, 5)).close()
 
     def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         # resolved rather than passed through: the api rejects `jp` and `it-IT`,
@@ -63,7 +71,7 @@ class OpenRouterSTT(STTInterface):
             with open(audio_path, "rb") as file:
                 audio_data = base64.b64encode(file.read()).decode('utf-8')
 
-            url = "https://openrouter.ai/api/v1/audio/transcriptions"
+            url = TRANSCRIPTIONS_URL
             headers = {
                 "Authorization": f"Bearer {self.key}",
                 "Content-Type": "application/json"
@@ -106,7 +114,7 @@ class OpenRouterSTT(STTInterface):
         try:
             return self._http.post(url, headers=headers, json=payload, timeout=30)
         except requests.ConnectionError as e:
-            if not _stale(e):
+            if not stale(e):
                 raise
             logger.debug(f"the kept connection had gone ({e}); sending again")
             return self._http.post(url, headers=headers, json=payload, timeout=30)
@@ -128,14 +136,3 @@ class OpenRouterSTT(STTInterface):
             self.key = new_key
             logger.info("OpenRouter API key reloaded.")
 
-
-def _stale(error: requests.ConnectionError) -> bool:
-    """A kept connection that had gone, rather than a host that cannot be reached.
-
-    A new connection that fails — refused, unresolvable, a bad certificate —
-    would only fail again, and a timeout would be waited out twice.
-    """
-    if isinstance(error, (requests.Timeout, requests.exceptions.SSLError)):
-        return False
-    reason = getattr(error.args[0], "reason", None) if error.args else None
-    return not isinstance(reason, NewConnectionError)

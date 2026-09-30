@@ -100,6 +100,7 @@ def get_voices():
                 "voice_field": p.voice_field,
                 "languages": list(tts_providers.languages(p)),
                 "open_catalogue": p.open_catalogue,
+                "any_language": p.any_language,
                 "voices": [{"id": v.id, "label": v.label, "language": v.language}
                            for v in p.voices],
             }

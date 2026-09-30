@@ -10,6 +10,7 @@ import soundfile as sf
 
 from src.interfaces.base_interfaces import TTSInterface
 from src.utils.logger import get_logger
+from src.utils.warm import Warmer
 
 logger = get_logger("bea.tts.orpheus")
 
@@ -46,6 +47,12 @@ class OrpheusTTSWrapper(TTSInterface):
         self.endpoint_url = endpoint_url
         self.voice = voice
         self.client = requests.Session()
+        self.warm = Warmer(self._open_connection)
+
+    def _open_connection(self) -> None:
+        # any answer will do: what is kept is the socket. It does not wake a cold model
+        if self.endpoint_url:
+            self.client.head(self.endpoint_url, timeout=(CONNECT_TIMEOUT_S, 5.0)).close()
 
     def reload_config(self, config) -> None:
         if config.orpheus_key != self.api_key:

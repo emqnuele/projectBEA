@@ -71,8 +71,8 @@ def test_an_unset_language_rules_nothing_out():
 
 
 def test_the_wizard_is_offered_only_engines_that_can_speak_it():
-    assert {p.id for p in providers.for_language("it")} == {"edge"}
-    assert {p.id for p in providers.for_language("ja")} == {"edge"}
+    assert {p.id for p in providers.for_language("it")} == {"edge", "openai_compat"}
+    assert {p.id for p in providers.for_language("ja")} == {"edge", "openai_compat"}
     assert {p.id for p in providers.for_language("en")} == set(providers.PROVIDERS)
     assert {p.id for p in providers.for_language("auto")} == set(providers.PROVIDERS)
 

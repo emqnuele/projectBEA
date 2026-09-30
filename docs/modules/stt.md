@@ -19,7 +19,8 @@ entrypoints where audio arrives already decoded as WAV:
 src/modules/STT/
 ├── faster_whisper_stt.py  Whisper on this machine
 ├── groq_stt.py            Groq Whisper
-└── openrouter_stt.py      OpenRouter Whisper
+├── openrouter_stt.py      OpenRouter Whisper
+└── openai_compat_stt.py   any OpenAI-compatible transcription server
 ```
 
 The provider is chosen by `stt_provider` in config and instantiated in
@@ -180,6 +181,35 @@ Requests go through one `requests.Session`, so the connection is kept between
 turns. A request that finds the kept connection closed by the far end is sent
 once more; a timeout, a refused or unresolvable host and a bad certificate are
 not.
+
+---
+
+## Custom OpenAI endpoint (`openai_compat_stt.py`)
+
+Any server speaking OpenAI's `/audio/transcriptions`: speaches, LocalAI, a
+whisper.cpp server, vLLM, or OpenAI itself.
+
+- **Config:** `stt_provider: "openai_compat"`, `stt_compat_base_url` (up to and including `/v1`), `stt_model` (default `whisper-1`)
+- **Key:** `STT_COMPAT_API_KEY`, optional. Its own, never the custom LLM endpoint's: a transcription server is rarely the one that thinks
+
+The audio goes up as multipart, the way the OpenAI api takes it. It asks for
+`verbose_json`, which says which language was heard and so feeds the
+short-turn language memory; a server that answers 400 to it is asked for plain
+`json` from then on, and asked again only when the endpoint changes. The
+connection is kept and a dead kept connection is retried once, as on
+OpenRouter. `/status` reports `stt.degraded` and `stt.last_error`.
+
+---
+
+## Warming the connection
+
+Every hosted transcriber (Groq, OpenRouter, custom) has a `warm()`. When
+somebody in a call starts talking, the bot's `hearing: start` reaches
+`Consciousness`, which calls it on a thread: the socket is opened while they
+are still speaking, and their turn skips the handshake — ~200 ms measured on
+Groq. It runs at most once every 20 s (`src/utils/warm.py`), well inside the
+keepalive, and a failure is left for the real request to find. Local Whisper
+has nothing to open and no `warm()`.
 
 ---
 

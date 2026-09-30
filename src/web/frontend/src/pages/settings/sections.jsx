@@ -223,7 +223,7 @@ function VoiceSection({ config, update, secrets, devices }) {
     const chosen = providers.find((p) => p.id === provider);
     // an engine with no voice in the language she is set to will be silent
     // every time she answers in it, and the log is the only place that said so
-    const mute = chosen && language !== 'auto' && !chosen.languages.includes(language);
+    const mute = chosen && !chosen.any_language && language !== 'auto' && !chosen.languages.includes(language);
     const forLanguage = (chosen?.voices || [])
         .filter((v) => language === 'auto' || v.language === language);
 
@@ -292,6 +292,28 @@ function VoiceSection({ config, update, secrets, devices }) {
                 </Group>
             )}
 
+            {provider === 'openai_compat' && (
+                <Group title="Custom endpoint" description="Any server speaking OpenAI's /audio/speech: Kokoro-FastAPI, speaches, LocalAI, OpenAI itself.">
+                    <Field label="Base URL" help="Up to and including /v1.">
+                        <TextInput value={config.tts_compat_base_url || ''} onChange={(e) => update('tts_compat_base_url', e.target.value)} placeholder="http://localhost:8880/v1" className="font-mono" />
+                    </Field>
+                    <Field label="API key" action={<SecretState configured={secrets.tts_compat_key} />}>
+                        <SecretInput value={config.tts_compat_key || ''} onChange={(e) => update('tts_compat_key', e.target.value)} placeholder="if the endpoint wants one" />
+                    </Field>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        <Field label="Model"><TextInput value={config.tts_compat_model || ''} onChange={(e) => update('tts_compat_model', e.target.value)} placeholder="tts-1" className="font-mono" /></Field>
+                        <Field label="Voice"><TextInput value={config.tts_compat_voice || ''} onChange={(e) => update('tts_compat_voice', e.target.value)} placeholder="alloy" className="font-mono" /></Field>
+                        <Field label="Speed">
+                            <TextInput
+                                type="number" step="0.1"
+                                value={config.tts_compat_speed ?? 1}
+                                onChange={(e) => update('tts_compat_speed', parseFloat(e.target.value))}
+                            />
+                        </Field>
+                    </div>
+                </Group>
+            )}
+
             <Group
                 title="Where the audio goes"
                 description="Point this at the virtual cable OBS is listening to, not at your speakers."
@@ -310,9 +332,10 @@ const STT_PLACEHOLDERS = {
     groq: 'whisper-large-v3-turbo',
     openrouter: 'openai/whisper-large-v3-turbo',
     faster_whisper: 'small',
+    openai_compat: 'whisper-1',
 };
 
-function HearingSection({ config, update }) {
+function HearingSection({ config, update, secrets }) {
     const provider = config.stt_provider;
     const local = provider === 'faster_whisper';
     const { languages } = useVoiceCatalogue();
@@ -323,13 +346,23 @@ function HearingSection({ config, update }) {
                 <ProviderChoice
                     value={provider}
                     onChange={(id) => update('stt_provider', id)}
-                    columns={3}
                     options={[
                         { id: 'faster_whisper', label: 'Local Whisper', blurb: 'Runs here. No key, nothing leaves the room.' },
                         { id: 'groq', label: 'Groq Whisper', blurb: 'whisper-large-v3-turbo, very fast.' },
                         { id: 'openrouter', label: 'OpenRouter', blurb: 'openai/whisper-large-v3-turbo.' },
+                        { id: 'openai_compat', label: 'Custom OpenAI', blurb: 'Any server speaking /audio/transcriptions.' },
                     ]}
                 />
+                {provider === 'openai_compat' && (
+                    <>
+                        <Field label="Base URL" help="Up to and including /v1.">
+                            <TextInput value={config.stt_compat_base_url || ''} onChange={(e) => update('stt_compat_base_url', e.target.value)} placeholder="http://localhost:8000/v1" className="font-mono" />
+                        </Field>
+                        <Field label="API key" action={<SecretState configured={secrets.stt_compat_key} />}>
+                            <SecretInput value={config.stt_compat_key || ''} onChange={(e) => update('stt_compat_key', e.target.value)} placeholder="if the endpoint wants one" />
+                        </Field>
+                    </>
+                )}
                 <Field
                     label="Model"
                     help={local

@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -99,8 +100,10 @@ class Consciousness:
 
     def __init__(self, *, config, llm, bus, expression, surfaces, history_manager,
                  event_manager, soul_getter, operating_getter, memory, profiler,
-                 attention=None, affect=None):
+                 attention=None, affect=None, warm_ears=None):
         self.config = config
+        # opens the transcriber's connection while somebody is still talking
+        self.warm_ears = warm_ears
         self.llm = llm
         self.bus = bus
         self.expression = expression
@@ -456,6 +459,8 @@ class Consciousness:
         transcriber is words, and answering what came before them is answering
         half of what was meant.
         """
+        if state == "start" and self.warm_ears is not None:
+            threading.Thread(target=self.warm_ears, daemon=True, name="stt-warm").start()
         if state != "sent" or not self._can_start_over():
             return
         logger.info("They kept talking before she said anything: "

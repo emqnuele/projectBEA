@@ -7,6 +7,7 @@ test can reach it without a terminal.
 
 from typing import Any, Dict
 
+from src.modules.STT.factory import OWN_ENDPOINT as STT_OWN_ENDPOINT
 from src.modules.tts.providers import plan_for_language
 
 # provider -> (config field for the key, env var the engine reads it from)
@@ -92,6 +93,8 @@ def apply_answers(config, answers: Dict[str, Any]):
         config.stt_provider = answers["stt_provider"]
     if answers.get("stt_model"):
         config.stt_model = answers["stt_model"]
+    if answers.get("stt_compat_base_url"):
+        config.stt_compat_base_url = answers["stt_compat_base_url"]
 
     # the language the wizard asked about, which it used to throw away: it was
     # only ever a heading over the voice menu, so every install transcribed and
@@ -117,6 +120,9 @@ def apply_answers(config, answers: Dict[str, Any]):
         config.orpheus_endpoint = answers["orpheus_endpoint"]
     if answers.get("orpheus_voice"):
         config.orpheus_voice = answers["orpheus_voice"]
+    for name in ("tts_compat_base_url", "tts_compat_model", "tts_compat_voice"):
+        if answers.get(name):
+            setattr(config, name, answers[name])
     if answers.get("audio_device") is not None:
         # by name: a monitor or a headset plugged in later moves every position along
         config.audio_device = answers["audio_device"]
@@ -160,13 +166,18 @@ def env_updates(answers: Dict[str, Any]) -> Dict[str, str]:
     # voice input may use a provider the mind does not, so it carries its own key
     # — a local transcriber has none, and is not in PROVIDER_KEYS at all
     stt = answers.get("stt_provider")
-    if stt in PROVIDER_KEYS and answers.get("stt_key"):
+    if stt in STT_OWN_ENDPOINT:
+        if answers.get("stt_key"):
+            updates["STT_COMPAT_API_KEY"] = answers["stt_key"]
+    elif stt in PROVIDER_KEYS and answers.get("stt_key"):
         updates[PROVIDER_KEYS[stt][1]] = answers["stt_key"]
 
     if answers.get("orpheus_key"):
         updates["ORPHEUS_API_KEY"] = answers["orpheus_key"]
     if answers.get("orpheus_endpoint"):
         updates["ORPHEUS_ENDPOINT"] = answers["orpheus_endpoint"]
+    if answers.get("tts_compat_key"):
+        updates["TTS_COMPAT_API_KEY"] = answers["tts_compat_key"]
 
     for name, settings in answers.get("skills", {}).items():
         env_var = SKILL_SECRETS.get(name)

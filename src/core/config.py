@@ -32,6 +32,8 @@ SECRET_ENV_VARS: Dict[str, str] = {
     "local_key": "LOCAL_API_KEY",
     "orpheus_key": "ORPHEUS_API_KEY",
     "orpheus_endpoint": "ORPHEUS_ENDPOINT",
+    "tts_compat_key": "TTS_COMPAT_API_KEY",
+    "stt_compat_key": "STT_COMPAT_API_KEY",
     "discord.token": "DISCORD_TOKEN",
     "telegram.token": "TELEGRAM_TOKEN",
     "twitch.oauth_token": "TWITCH_OAUTH_TOKEN",
@@ -155,6 +157,14 @@ class BrainConfig:
     orpheus_key: Optional[str] = field(default_factory=lambda: os.getenv("ORPHEUS_API_KEY"))
     orpheus_endpoint: Optional[str] = field(default_factory=lambda: os.getenv("ORPHEUS_ENDPOINT", ""))
     orpheus_voice: str = "zoe"
+
+    # any server speaking openai's /audio/speech. its own url and key, not the
+    # mind's: a voice server is rarely the one that thinks
+    tts_compat_base_url: str = field(default_factory=lambda: os.getenv("TTS_COMPAT_BASE_URL", ""))
+    tts_compat_key: Optional[str] = field(default_factory=lambda: os.getenv("TTS_COMPAT_API_KEY"))
+    tts_compat_model: str = "tts-1"
+    tts_compat_voice: str = "alloy"
+    tts_compat_speed: float = 1.0
 
     # kokoro tts (onnx)
     kokoro_model: str = "kokoro-v0_19.onnx"
@@ -395,6 +405,11 @@ class BrainConfig:
     # wrong answer transcribes *into* the wrong language: italian speech came
     # back as japanese and korean. A call in one known language wants a pin
     stt_language: str = "auto"
+
+    # any server speaking openai's /audio/transcriptions, when stt_provider is
+    # "openai_compat". The model is stt_model, as for every provider
+    stt_compat_base_url: str = field(default_factory=lambda: os.getenv("STT_COMPAT_BASE_URL", ""))
+    stt_compat_key: Optional[str] = field(default_factory=lambda: os.getenv("STT_COMPAT_API_KEY"))
 
     # local whisper. Only read when stt_provider is "faster_whisper"; the model
     # id comes from stt_model like everywhere else, hosted spellings included
