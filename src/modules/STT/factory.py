@@ -28,14 +28,24 @@ def _faster_whisper(config) -> STTInterface:
     return FasterWhisperSTT(config)
 
 
+def _openai_compat(config) -> STTInterface:
+    from src.modules.STT.openai_compat_stt import OpenAICompatSTT
+    return OpenAICompatSTT(config)
+
+
 BUILDERS: Dict[str, Callable[..., STTInterface]] = {
     "groq": _groq,
     "openrouter": _openrouter,
     "faster_whisper": _faster_whisper,
+    "openai_compat": _openai_compat,
 }
 
 # providers that run on this machine, so nothing above should look for a key
 LOCAL = frozenset({"faster_whisper"})
+
+# providers whose endpoint and key are the transcriber's own, not the mind's
+# provider of the same name
+OWN_ENDPOINT = frozenset({"openai_compat"})
 
 
 def build_stt(config) -> Optional[STTInterface]:
