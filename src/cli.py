@@ -116,8 +116,10 @@ def parse_args(argv=None):
     parser.add_argument("--local-model", default=None, help="Local Model")
 
     # stt
-    parser.add_argument("--stt-provider", choices=["groq", "openrouter", "faster_whisper"], default=None, help="STT Provider")
+    parser.add_argument("--stt-provider", choices=["groq", "openrouter", "faster_whisper", "openai_compat"], default=None, help="STT Provider")
     parser.add_argument("--stt-model", default=None, help="STT Model")
+    parser.add_argument("--stt-compat-base-url", default=None, help="Custom STT Endpoint Base URL")
+    parser.add_argument("--stt-compat-key", default=None, help="Custom STT Endpoint API Key")
 
     # obs
     parser.add_argument("--obs-host", default=None, help="OBS WebSocket host")
@@ -128,12 +130,17 @@ def parse_args(argv=None):
     parser.add_argument("--obs-text-source", default=None, help="OBS Source Name for Text Bubble")
 
     # tts
-    parser.add_argument("--tts-provider", choices=["edge", "coqui", "orpheus", "kokoro"], default=None, help="TTS Provider")
+    parser.add_argument("--tts-provider", choices=["edge", "orpheus", "kokoro", "openai_compat"], default=None, help="TTS Provider")
     parser.add_argument("--tts-voice", default=None, help="EdgeTTS Voice")
     # orpheus
     parser.add_argument("--orpheus-key", default=None, help="Orpheus API Key")
     parser.add_argument("--orpheus-endpoint", default=None, help="Orpheus Endpoint")
     parser.add_argument("--orpheus-voice", default=None, help="Orpheus Voice")
+    # any openai-compatible speech server
+    parser.add_argument("--tts-compat-base-url", default=None, help="Custom TTS Endpoint Base URL")
+    parser.add_argument("--tts-compat-key", default=None, help="Custom TTS Endpoint API Key")
+    parser.add_argument("--tts-compat-model", default=None, help="Custom TTS Model")
+    parser.add_argument("--tts-compat-voice", default=None, help="Custom TTS Voice")
 
     # kokoro
     parser.add_argument("--kokoro-file", dest="kokoro_model", metavar="KOKORO_FILE", default=None,

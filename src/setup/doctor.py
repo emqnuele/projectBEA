@@ -39,6 +39,7 @@ from src.core.stage import clip_path, installed_clips
 
 # the module itself is cheap; only the builders inside it import a backend
 from src.modules.STT.factory import LOCAL as STT_LOCAL
+from src.modules.STT.factory import OWN_ENDPOINT as STT_OWN_ENDPOINT
 from src.modules.tts.providers import warnings as voice_warnings
 from src.utils.text_match import overlap, plain
 
@@ -176,6 +177,7 @@ async def check_keys(config: BrainConfig) -> Finding:
     # — unless they run on this machine, where there is nothing to key. An
     # unknown transcriber is the stt factory's business, not a missing key.
     if (config.stt_provider and config.stt_provider not in STT_LOCAL
+            and config.stt_provider not in STT_OWN_ENDPOINT
             and config.stt_provider in PROVIDERS):
         wanted.add(config.stt_provider)
 
@@ -863,6 +865,9 @@ def _ears_fix(config: BrainConfig) -> str:
                 f"{config.faster_whisper_download_root or 'the model cache'} is "
                 f"writable — the first run downloads the weights. "
                 f"{device_advice()}")
+    if config.stt_provider in STT_OWN_ENDPOINT:
+        return ("Check `stt_compat_base_url` (it ends in /v1), `stt_model` and "
+                "STT_COMPAT_API_KEY if the server wants one.")
     return ("Check the STT key and model in config.json, and its network reach "
             "from this machine.")
 
@@ -874,6 +879,9 @@ def _voice_fix(config: BrainConfig) -> str:
                 "them on first run, and silence means the download or the load failed.")
     if config.tts_provider == "orpheus":
         return "Check ORPHEUS_API_KEY and `orpheus_endpoint`; the endpoint may be cold."
+    if config.tts_provider == "openai_compat":
+        return ("Check `tts_compat_base_url` (it ends in /v1), `tts_compat_model`, "
+                "`tts_compat_voice` and TTS_COMPAT_API_KEY if the server wants one.")
     return "EdgeTTS needs internet and no key. If you are online, the service may be down."
 
 
