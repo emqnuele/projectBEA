@@ -139,7 +139,7 @@ class KokoroTTSWrapper(TTSInterface):
         if not text or not self.kokoro:
             return np.zeros(0, dtype=np.float32), 24000
 
-        # rate is the only knob kokoro has; pitch and volume are simply lost
+        # rate is the only knob kokoro has; volume is applied to the samples, pitch is lost
         speed = self.speed if prosody is None else self.speed * prosody.rate
 
         # run generation in thread to avoid blocking loop
@@ -158,5 +158,7 @@ class KokoroTTSWrapper(TTSInterface):
             samples = np.array(samples, dtype=np.float32)
         if samples.dtype != np.float32:
              samples = samples.astype(np.float32)
+        if prosody is not None and prosody.volume != 1.0:
+            samples = np.clip(samples * prosody.volume, -1.0, 1.0).astype(np.float32)
 
         return samples, sample_rate

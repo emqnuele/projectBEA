@@ -44,6 +44,9 @@ class Brain:
     def _load_operating_rules(self) -> str:
         return ""
 
+    def _warm_ears(self) -> None:
+        pass
+
 
 @pytest.fixture
 def brain(tmp_path):

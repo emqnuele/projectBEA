@@ -339,6 +339,7 @@ class AIVtuberBrain:
             history_manager=self.history_manager,
             event_manager=self.event_manager,
             soul_getter=lambda: self.soul,
+            warm_ears=self._warm_ears,
             operating_getter=self._load_operating_rules,
             memory=self.memory,
             profiler=self.profiler,
@@ -535,6 +536,12 @@ class AIVtuberBrain:
         if not payload:
             return DEFAULT_MOOD, ""
         return payload.get("mood", DEFAULT_MOOD), payload.get("message", "")
+
+    def _warm_ears(self) -> None:
+        # read on every call: a reload may have swapped the transcriber
+        warm = getattr(self.stt, "warm", None)
+        if warm is not None:
+            warm()
 
     async def generate_audio_response(self, audio_path: str) -> Tuple[str, str, str]:
         """Transcribes audio, deposits a voice perception, waits for the reply."""

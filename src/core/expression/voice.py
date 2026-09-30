@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import threading
 import time
 import uuid
 from collections import OrderedDict
@@ -223,7 +224,11 @@ class Expression:
 
         A bluetooth output that has been quiet takes a few hundred ms to open.
         Nothing is opened while she is in a call, where she is heard through the bot.
+        A remote engine that can open its connection early does so either way.
         """
+        warm = getattr(self.tts, "warm", None)
+        if warm is not None:
+            threading.Thread(target=warm, daemon=True, name="tts-warm").start()
         if self.call_is_live:
             return
         try:
