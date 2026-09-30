@@ -76,6 +76,10 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "tts_volume": "+33%",
     "orpheus_endpoint": "",
     "orpheus_voice": "zoe",
+    "tts_compat_base_url": "",
+    "tts_compat_model": "tts-1",
+    "tts_compat_voice": "alloy",
+    "tts_compat_speed": 1.0,
     "kokoro_model": "kokoro-v0_19.onnx",
     "kokoro_voices_file": "voices.json",
     "kokoro_voice": "af_bella",
@@ -190,6 +194,7 @@ This is `config.example.json` verbatim; it matches the dataclass defaults in
     "stt_provider": "groq",
     "stt_model": "whisper-large-v3-turbo",
     "stt_language": "auto",
+    "stt_compat_base_url": "",
     "faster_whisper_device": "auto",
     "faster_whisper_compute_type": "auto",
     "faster_whisper_download_root": "data/models/whisper",
@@ -400,9 +405,11 @@ continues. [OBS module →](modules/obs.md)
 | `audio_buffer_ms` | `100` | Settings → Voice → Advanced, like the two below. The most of her voice written ahead of the speaker. Less stops sooner when she is talked over (a barge-in is heard within this plus the device's latency). It is a ceiling: the stream's own buffer can be smaller (about 85 ms on MacBook speakers, about 300 ms on a bluetooth headset). Floor 20 |
 | `audio_idle_close_s` | `30` | Seconds of silence before the sound card is let go. `0` keeps it open |
 | `audio_latency_s` | `0` | The latency asked of PortAudio. `0` is its default, the quickest to the speaker. A larger value gives the stream a bigger buffer, for a machine busy enough that her voice breaks up, at the price of a later first sound: on MacBook speakers `0.1` measured 40 ms to the speaker instead of 5 |
-| `tts_provider` | `"edge"` | `edge`, `kokoro` or `orpheus`. **Changing it needs a restart** |
+| `tts_provider` | `"edge"` | `edge`, `kokoro`, `orpheus` or `openai_compat`. **Changing it needs a restart** |
 | `tts_voice` / `tts_pitch` / `tts_rate` / `tts_volume` | `en-US-AvaNeural`, `+5Hz`, `+10%`, `+33%` | EdgeTTS |
 | `orpheus_voice` | `"zoe"` | Orpheus. Key and endpoint come from the environment |
+| `tts_compat_base_url` | `""` | Any server speaking OpenAI's `/audio/speech`, up to and including `/v1`. Its key is `TTS_COMPAT_API_KEY`, its own and not the mind's |
+| `tts_compat_model` / `tts_compat_voice` / `tts_compat_speed` | `tts-1`, `alloy`, `1.0` | Whatever that server calls them. Every language is allowed: the voices are the server's |
 | `kokoro_model` / `kokoro_voices_file` | `kokoro-v0_19.onnx`, `voices.json` | Downloaded on first run if missing, each from the release asset of the same basename. The voice pack must be the `.json` form; a path ending in `voices.bin` is read as `voices.json` |
 | `kokoro_voice` / `kokoro_speed` | `af_bella`, `1.0` | Kokoro |
 | `kokoro_lang` | `en-us` | Derived from the chosen voice, then from `language`. Only read as a last fallback — see [Languages](languages.md) |
@@ -415,9 +422,10 @@ continues. [OBS module →](modules/obs.md)
 
 | Key | Default | Description |
 |---|---|---|
-| `stt_provider` | `"groq"` | `faster_whisper`, `groq` or `openrouter`. Anything else disables speech input |
+| `stt_provider` | `"groq"` | `faster_whisper`, `groq`, `openrouter` or `openai_compat`. Anything else disables speech input |
 | `stt_model` | `"whisper-large-v3-turbo"` | Rewritten to `openai/whisper-large-v3-turbo` on OpenRouter, and to `large-v3-turbo` on `faster_whisper` |
 | `stt_language` | `"auto"` | The language the transcriber is pinned to, on every provider. `auto` detects per turn and misplaces short ones — see [Languages](languages.md#pin-or-detect) |
+| `stt_compat_base_url` | `""` | `openai_compat`: any server speaking OpenAI's `/audio/transcriptions`, up to and including `/v1`. The model is `stt_model`; the key is `STT_COMPAT_API_KEY` |
 
 `faster_whisper` runs Whisper on this machine and needs no key. Its four extra
 knobs are only read when it is the chosen provider:
@@ -582,9 +590,11 @@ uv run bea --web --llm-provider openrouter --tts-provider kokoro --device-id 22
 | `--openai-compat-key` / `--openai-compat-base-url` / `--openai-compat-model` / `--openai-compat-api` | the custom OpenAI-protocol endpoint |
 | `--anthropic-compat-key` / `--anthropic-compat-base-url` / `--anthropic-compat-model` | the custom Messages-protocol endpoint |
 | `--local-key` / `--local-base-url` / `--local-model` | the models on this machine |
-| `--stt-provider` / `--stt-model` | `faster_whisper`, `groq` or `openrouter` |
-| `--tts-provider` / `--tts-voice` | `edge`, `kokoro`, `orpheus` |
+| `--stt-provider` / `--stt-model` | `faster_whisper`, `groq`, `openrouter` or `openai_compat` |
+| `--stt-compat-base-url` / `--stt-compat-key` | the custom transcription endpoint |
+| `--tts-provider` / `--tts-voice` | `edge`, `kokoro`, `orpheus`, `openai_compat` |
 | `--orpheus-key` / `--orpheus-endpoint` / `--orpheus-voice` | |
+| `--tts-compat-base-url` / `--tts-compat-key` / `--tts-compat-model` / `--tts-compat-voice` | the custom speech endpoint |
 | `--kokoro-file` / `--kokoro-voices` | |
 | `--obs-host` / `--obs-port` / `--obs-password` | |
 | `--obs-avatar-source` / `--obs-source-type` / `--obs-text-source` | |
