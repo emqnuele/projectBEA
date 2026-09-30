@@ -44,10 +44,19 @@ def _orpheus(config, voice: providers.Voice) -> TTSInterface:
                              voice=voice.id)
 
 
+def _openai_compat(config, voice: providers.Voice) -> TTSInterface:
+    from src.modules.tts.openai_compat_tts import OpenAICompatTTSWrapper
+    return OpenAICompatTTSWrapper(base_url=config.tts_compat_base_url,
+                                  api_key=config.tts_compat_key,
+                                  model=config.tts_compat_model,
+                                  voice=voice.id, speed=config.tts_compat_speed)
+
+
 BUILDERS: Dict[str, Callable[..., TTSInterface]] = {
     "edge": _edge,
     "kokoro": _kokoro,
     "orpheus": _orpheus,
+    "openai_compat": _openai_compat,
 }
 
 

@@ -58,6 +58,9 @@ class VoiceProvider:
     # which one, in their own spelling. Empty means the voice already says it.
     language_field: str = ""
     engine_languages: Mapping[str, str] = field(default_factory=dict)
+    # the voices are the owner's server's business: nothing here knows what
+    # they speak, so no language is refused and no voice is swapped
+    any_language: bool = False
 
 
 def _edge(code: str, *pairs: Tuple[str, str]) -> Tuple[Voice, ...]:
@@ -137,6 +140,12 @@ PROVIDERS: Dict[str, VoiceProvider] = {
         blurb="The most expressive. English only, and needs a Baseten endpoint.",
         voice_field="orpheus_voice", voices=ORPHEUS_VOICES, local=False,
         needs_key=True, key_field="orpheus_key", url_field="orpheus_endpoint"),
+    "openai_compat": VoiceProvider(
+        id="openai_compat", label="Custom OpenAI",
+        blurb="Any server speaking OpenAI's speech API. You bring the URL, model and voice.",
+        voice_field="tts_compat_voice", voices=(), local=False,
+        key_field="tts_compat_key", url_field="tts_compat_base_url",
+        open_catalogue=True, any_language=True),
 }
 
 DEFAULT_PROVIDER = "edge"
@@ -173,6 +182,8 @@ def speaks(provider: VoiceProvider, code: Optional[str]) -> bool:
 
     `AUTO` is always true: nothing has been asked for yet.
     """
+    if provider.any_language:
+        return True
     resolved = language_module.resolve(code)
     return resolved == AUTO or resolved in languages(provider)
 
@@ -197,6 +208,8 @@ def language_of(provider: VoiceProvider, voice_id: str) -> str:
     EdgeTTS ids carry their own locale, so `it-IT-GiuseppeMultilingualNeural`
     answers for itself without being listed.
     """
+    if provider.any_language:
+        return AUTO
     wanted = (voice_id or "").strip()
     for voice in provider.voices:
         if voice.id == wanted:
@@ -303,6 +316,9 @@ def warnings(config: Any) -> Tuple[str, ...]:
 
     if provider.needs_key and not getattr(config, provider.key_field, None):
         out.append(f"{provider.label} needs {provider.key_field} and it is not set.")
+
+    if provider.url_field and not str(getattr(config, provider.url_field, "") or "").strip():
+        out.append(f"{provider.label} needs {provider.url_field} and it is not set.")
 
     return tuple(out)
 
