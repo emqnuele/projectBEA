@@ -1,6 +1,6 @@
 [project]
 name = "projectbea"
-version = "2.7.2"
+version = "2.7.3"
 description = "ProjectBEA - AI Vtuber Engine"
 readme = "README.md"
 license = { file = "LICENSE" }
