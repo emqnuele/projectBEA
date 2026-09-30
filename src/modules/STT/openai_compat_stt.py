@@ -16,7 +16,7 @@ from src.core.config import BrainConfig
 from src.core.language import whisper_code
 from src.interfaces.base_interfaces import STTInterface
 from src.modules.STT.heard import HeardLanguage, clip_seconds
-from src.modules.STT.openrouter_stt import _stale
+from src.utils.connections import stale
 from src.utils.logger import get_logger
 from src.utils.warm import Warmer
 
@@ -114,7 +114,7 @@ class OpenAICompatSTT(STTInterface):
         try:
             return self._http.post(url, headers=headers, data=data, files=files, timeout=TIMEOUT_S)
         except requests.ConnectionError as e:
-            if not _stale(e):
+            if not stale(e):
                 raise
             logger.debug(f"the kept connection had gone ({e}); sending again")
             return self._http.post(url, headers=headers, data=data, files=files, timeout=TIMEOUT_S)
@@ -128,7 +128,8 @@ class OpenAICompatSTT(STTInterface):
         url = (config.stt_compat_base_url or "").strip()
         if url != self.base_url:
             self.base_url = url
-            # a different server may well speak verbose_json
+            # a different server may well speak verbose_json, and owes no old failure
             self.verbose = True
+            self.last_error = None
             logger.info("Endpoint updated.")
         self.key = config.stt_compat_key or ""

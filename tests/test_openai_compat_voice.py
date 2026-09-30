@@ -352,3 +352,20 @@ def test_a_warm_socket_is_not_warmed_again_until_it_could_have_gone():
     warm()
     assert opened == [1]
     Warmer(lambda: 1 / 0)()  # a failure is the request's to find, not the warmer's
+
+
+def test_a_new_endpoint_starts_with_no_old_failure(tmp_path, tone):
+    clip = tmp_path / "turn.wav"
+    clip.write_bytes(wav_bytes(tone))
+    stt = OpenAICompatSTT(stt_config("http://127.0.0.1:9/v1"))
+    stt.transcribe(str(clip))
+    assert stt.status()["degraded"] is True
+    stt.reload_config(stt_config("http://127.0.0.1:8000/v1"))
+    assert stt.status()["degraded"] is False
+
+
+def test_a_format_chunk_too_short_to_read_is_refused():
+    fmt = b"fmt " + struct.pack("<I", 8) + b"\x01\x00\x01\x00" + b"\x22\x56\x00\x00"
+    header = b"RIFF" + struct.pack("<I", 0) + b"WAVE" + fmt + b"data" + struct.pack("<I", 0)
+    with pytest.raises(ValueError, match="16 is the least"):
+        parse_wav_header(header)

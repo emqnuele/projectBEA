@@ -18,7 +18,7 @@ import requests
 import soundfile as sf
 
 from src.interfaces.base_interfaces import TTSInterface
-from src.modules.STT.openrouter_stt import _stale
+from src.utils.connections import stale
 from src.utils.logger import get_logger
 from src.utils.warm import Warmer
 
@@ -64,6 +64,8 @@ def parse_wav_header(buffer: bytes) -> Optional[Tuple[int, int, int, int, int]]:
         if body + size > len(buffer):
             return None
         if chunk_id == b"fmt ":
+            if size < 16:
+                raise ValueError(f"wav format chunk of {size} bytes, 16 is the least")
             tag, channels, rate = struct.unpack("<HHI", buffer[body:body + 8])
             bits = struct.unpack("<H", buffer[body + 14:body + 16])[0]
             if tag == 0xFFFE and size >= 26:
@@ -137,7 +139,7 @@ class OpenAICompatTTSWrapper(TTSInterface):
             return self.client.post(url, headers=headers, json=payload,
                                     stream=stream, timeout=_TIMEOUT)
         except requests.ConnectionError as e:
-            if not _stale(e):
+            if not stale(e):
                 raise
             logger.debug(f"the kept connection had gone ({e}); sending again")
             return self.client.post(url, headers=headers, json=payload,
