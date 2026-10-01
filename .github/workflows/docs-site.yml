@@ -20,14 +20,68 @@ jobs:
   rebuild:
     name: trigger a deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Request a rebuild
+      - name: Request a rebuild, then drop the deploy it replaced
         env:
           HOOK: ${{ secrets.DOCS_DEPLOY_HOOK }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          PROJECT: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+          TEAM: ${{ secrets.VERCEL_TEAM_ID }}
         run: |
+          set -euo pipefail
           if [ -z "$HOOK" ]; then
             echo "No deploy hook configured — skipping." >&2
             exit 0
           fi
+
+          # the hook answers with a job, not a deployment, so ours is found by time
+          since=$(( $(date +%s) * 1000 - 5000 ))
           curl -fsS -X POST "$HOOK" -o /dev/null
           echo "rebuild requested"
+
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$PROJECT" ] || [ -z "$TEAM" ]; then
+            echo "No Vercel token or ids — the older deploys are kept." >&2
+            exit 0
+          fi
+
+          api() {
+            curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com$1"
+          }
+          list="/v6/deployments?projectId=$PROJECT&teamId=$TEAM&target=production"
+
+          # a docs build takes a couple of minutes; give it twenty
+          new=""
+          for _ in $(seq 1 80); do
+            new=$(api "$list&since=$since&limit=10" \
+              | jq -c '[.deployments[]] | sort_by(.created) | first // empty')
+            state=$(jq -r '.state // .readyState // empty' <<<"${new:-null}")
+            case "$state" in
+              READY) break ;;
+              ERROR|CANCELED)
+                echo "the new deploy ended $state — nothing is deleted" >&2
+                exit 1 ;;
+            esac
+            sleep 15
+          done
+
+          if [ "$(jq -r '.state // .readyState // empty' <<<"${new:-null}")" != "READY" ]; then
+            echo "the new deploy never became ready — nothing is deleted" >&2
+            exit 1
+          fi
+
+          new_id=$(jq -r '.uid' <<<"$new")
+          new_created=$(jq -r '.created' <<<"$new")
+          echo "ready: $new_id"
+
+          # only the production deploy right before this one, and only a ready one
+          previous=$(api "$list&state=READY&until=$new_created&limit=1" \
+            | jq -r --arg new "$new_id" '[.deployments[] | select(.uid != $new)] | first | .uid // empty')
+          if [ -z "$previous" ]; then
+            echo "no earlier deploy to drop"
+            exit 0
+          fi
+
+          curl -fsS -X DELETE -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$previous?teamId=$TEAM" -o /dev/null
+          echo "deleted the deploy it replaced: $previous"
