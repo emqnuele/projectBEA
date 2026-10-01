@@ -499,7 +499,7 @@ costs a handful of provider requests and never runs on its own.
 | `Embedder unavailable` on start | The embedding model could not be downloaded. Everything else keeps working — only long-term recall is lost until it can |
 | `No usable model for role 'mind'` | The `models.mind` pool is empty or none of its keys are set. Check `models` in `config.json` and the matching `*_API_KEY` |
 | A model in `mind` "does not support tool calling" | Remove it from the pool. Bea speaks only through tools, so a model without them never says anything |
-| She never starts anything in Minecraft | Give her objectives on the dashboard's Stream Plan page — with an empty plan she only ever reacts |
+| She never starts anything in Minecraft | Check `skills.minecraft.idle_nudge_seconds` (30 by default, `0` turns it off): after that long with nothing in her hands she is told to play, with today's objectives from the Stream Plan when there are any |
 | OBS avatar source not updating after config migration | If your `config.json` still contains the old key `obs_image_source`, it is silently renamed to `obs_avatar_source` by `load_from_file()`. Delete the old key from your `config.json` and re-save to avoid ambiguity. |
 | The update says you have local changes to the engine | You have edited a tracked file outside `data/prompts/`. Commit, stash or revert it — the updater merges prompts, not source |
 | The dashboard looks unchanged after an update | The build is gitignored. Run `uv run bea --install-node`, or check whether the `dashboard` step reported a missing `npm` |
