@@ -4,7 +4,52 @@
 
 ---
 
+## Recommended: automatic install
+
+> **macOS / Linux**
+> ```bash
+> curl -LsSf https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.sh | bash
+> ```
+>
+> **Windows (PowerShell)**
+> ```powershell
+> irm https://raw.githubusercontent.com/emqnuele/projectBEA/main/install.ps1 | iex
+> ```
+
+One command. It clones the repo if needed, installs `uv` if you don't have
+it, pulls the dependencies, builds the dashboard and the Discord bot when Node
+is available, asks you five questions and downloads the two models that run on
+your own machine.
+
+What you need beforehand: `git` (only to download the repo — the script tells
+you how to install it if missing) and Node.js 20+ if you want the dashboard
+and Discord voice. You do **not** need to install Python yourself: `uv` reads
+`requires-python` from `pyproject.toml` and downloads a matching interpreter
+automatically.
+
+Already cloned the repo? Run the script from inside it, or skip it entirely —
+`uv run bea --setup` runs the same wizard (`make setup` if you have Make):
+
+```bash
+./install.sh       # macOS / Linux, from inside the repo
+.\install.ps1      # Windows, from inside the repo
+# or just the wizard:
+uv run bea --setup # make setup
+```
+
+The default profile is **Solo chat**: the dashboard and her voice, one API key,
+nothing else. No OBS, no Discord bot, no Minecraft server, no virtual audio
+cable. Those are separate profiles you can pick later, or turn on one at a
+time from the Abilities screen.
+
+If the script worked, skip to [Running the Engine](#running-the-engine). The
+rest of this page is the same steps by hand.
+
+---
+
 ## Prerequisites
+
+> *Below is the manual path, step by step. The script above does all of it for you.*
 
 | Requirement | Version | Notes |
 |---|---|---|
