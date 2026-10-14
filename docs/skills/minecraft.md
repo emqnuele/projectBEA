@@ -456,16 +456,20 @@ any screen releases every key she is holding, which would end a walk.
 
 ## The mod
 
-**BeaCraft** is a client-side Fabric mod (Minecraft 26.x, Java 25). It drives the local
+**BeaCraft** is a client-side mod for Fabric, NeoForge and Forge (Minecraft 26.2, Java 25). It drives the local
 player by simulating input and sends ordinary packets, so to a server it looks
 like a normal client — nothing is required server-side, and it works on vanilla.
 
 | Source | Link |
 |---|---|
 | Modrinth | [modrinth.com/project/projectbea](https://modrinth.com/project/projectbea/) |
-| GitHub | [BeaCraft 3.0.0 for 26.2](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B26.2) |
+| GitHub, Fabric | [BeaCraft 3.0.0 for 26.2](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B26.2) |
+| GitHub, NeoForge | [BeaCraft 3.0.0 for NeoForge](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B26.2-neoforge) |
+| GitHub, Forge | [BeaCraft 3.0.0 for Forge](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B26.2-forge) |
 
-1. Install [Fabric Loader](https://fabricmc.net/use/installer/).
+1. Install the loader that matches the jar: [Fabric Loader](https://fabricmc.net/use/installer/),
+   [NeoForge](https://neoforged.net/) 26.2.0.90 or newer, or
+   [Forge](https://files.minecraftforge.net/) 65.1.4 or newer.
 2. Drop the jar into `.minecraft/mods/`.
 3. Launch Minecraft — the mod opens a WebSocket on `ws://localhost:8080`.
 4. Make sure `server_url` matches, and toggle the skill on.
