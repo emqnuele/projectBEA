@@ -422,7 +422,8 @@ game unlocks a recipe when she first carries one of its ingredients.
 and smelt in order from what she carries, what is missing, which steps need a
 table or a furnace, the fuel and the leftovers. It reads
 `data/minecraft/recipes/<version>.json`, the one matching the `mc_version` in the
-handshake, or the newest older one with a note saying so. A failed `craft_item`
+handshake (26.2, 26.1 and 1.21.1 ship with her), or the newest older one with a
+note saying so. A failed `craft_item`
 comes back with the plan appended. The planner uses what she carries first,
 fills a slot like `#planks` from any planks she has, picks the recipe with the
 fewest missing items, never unpacks a storage block she does not carry, and never
@@ -434,6 +435,9 @@ The recipe files are extracted from Mojang's server jar and committed:
 uv run python tools/mc_recipes.py 26.2                  # downloads the jar
 uv run python tools/mc_recipes.py path/to/server.jar 26.2
 ```
+
+It reads 1.21 and newer. Before 1.21.2 a recipe wrote an ingredient as an object
+(`{"item": ...}`, `{"tag": ...}`) and from 1.21.2 on as a string; the extractor takes both.
 
 **`smelt_item(item, count, fuel)`** uses the nearest furnace within 16 blocks, or
 sets down the one she carries. She puts in exactly `count` items and just enough
@@ -456,7 +460,7 @@ any screen releases every key she is holding, which would end a walk.
 
 ## The mod
 
-**BeaCraft** is a client-side mod for Fabric, NeoForge and Forge (Minecraft 26.2, Java 25). It drives the local
+**BeaCraft** is a client-side mod for Fabric, NeoForge and Forge (Minecraft 26.2, Java 25), and for NeoForge on 1.21.1 (Java 21). It drives the local
 player by simulating input and sends ordinary packets, so to a server it looks
 like a normal client — nothing is required server-side, and it works on vanilla.
 
@@ -466,9 +470,10 @@ like a normal client — nothing is required server-side, and it works on vanill
 | GitHub, Fabric | [BeaCraft 3.0.0 for 26.2](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B26.2) |
 | GitHub, NeoForge | [BeaCraft 3.0.0 for NeoForge](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B26.2-neoforge) |
 | GitHub, Forge | [BeaCraft 3.0.0 for Forge](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B26.2-forge) |
+| GitHub, NeoForge 1.21.1 | [BeaCraft 3.0.0 for NeoForge 1.21.1](https://github.com/emqnuele/projectBEA/releases/tag/mc-mod-v3.0.0%2B1.21.1-neoforge) |
 
 1. Install the loader that matches the jar: [Fabric Loader](https://fabricmc.net/use/installer/),
-   [NeoForge](https://neoforged.net/) 26.2.0.90 or newer, or
+   [NeoForge](https://neoforged.net/) 26.2.0.90 or newer (21.1.0 or newer for the 1.21.1 jar), or
    [Forge](https://files.minecraftforge.net/) 65.1.4 or newer.
 2. Drop the jar into `.minecraft/mods/`.
 3. Launch Minecraft — the mod opens a WebSocket on `ws://localhost:8080`.
