@@ -3,6 +3,9 @@
     uv run python tools/mc_recipes.py 26.2                  # downloads the jar from Mojang
     uv run python tools/mc_recipes.py path/to/server.jar 26.2
 
+Reads 1.21 and newer: the recipe folders were renamed to the singular in 1.21,
+and the ingredient format changed in 1.21.2 (see `option_key`).
+
 Writes data/minecraft/recipes/<version>.json. One file per supported version:
 the brain picks the one matching the `mc_version` the mod announces.
 
@@ -35,9 +38,15 @@ def short(name: str) -> str:
 
 
 def option_key(ingredient: Any) -> str:
-    """One grid slot: an item, a tag, or a list of alternatives joined by `|`."""
+    """One grid slot: an item, a tag, or a list of alternatives joined by `|`.
+
+    26.x writes an ingredient as a string (`minecraft:stick`, `#minecraft:planks`);
+    1.21 wrote an object, `{"item": ...}` or `{"tag": ...}`. Both mean the same.
+    """
     if isinstance(ingredient, list):
-        return "|".join(sorted(short(i) for i in ingredient))
+        return "|".join(sorted(option_key(i) for i in ingredient))
+    if isinstance(ingredient, dict):
+        return f"#{short(ingredient['tag'])}" if "tag" in ingredient else short(ingredient["item"])
     return short(ingredient)
 
 
