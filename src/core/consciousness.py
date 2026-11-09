@@ -23,6 +23,7 @@ from src.core.mind.tools import MindTools
 from src.core.mind.turnlog import TurnLog, turn_record
 from src.core.perception.types import Perception, PerceptionKind
 from src.core.skills.voice.latency import MIND, TTS
+from src.utils import aio
 from src.utils.logger import get_logger
 from src.utils.prompts import compose
 from src.utils.sanitize import clean_model_output
@@ -319,7 +320,7 @@ class Consciousness:
     async def _stop_surface(self, s) -> None:
         """Stops one skill without letting it hold the shutdown hostage."""
         try:
-            await asyncio.wait_for(s.stop(), timeout=self._SURFACE_STOP_TIMEOUT)
+            await aio.wait_for(s.stop(), timeout=self._SURFACE_STOP_TIMEOUT)
         except (asyncio.TimeoutError, TimeoutError):
             logger.error(f"Surface '{s.name}' did not stop in "
                          f"{self._SURFACE_STOP_TIMEOUT:.0f}s; carrying on.")
@@ -953,7 +954,7 @@ class Consciousness:
         dynamic: List[str] = []
         if batch:
             try:
-                dynamic = await asyncio.wait_for(
+                dynamic = await aio.wait_for(
                     asyncio.to_thread(self.surfaces.dynamic_context, batch),
                     timeout=self._dynamic_timeout)
             except asyncio.TimeoutError:

@@ -12,6 +12,7 @@ from src.core.agent.registry import ModelPoolError, ModelRegistry
 from src.core.brain import AIVtuberBrain
 from src.core.config import BrainConfig
 from src.modules.obs.obs_websocket import OBSController
+from src.utils import aio
 from src.utils.logger import get_logger
 
 logger = get_logger("bea")
@@ -209,7 +210,7 @@ async def run_to_completion(label: str, coro, grace: float) -> None:
                 pass
             return
         try:
-            await asyncio.wait_for(asyncio.shield(task), remaining)
+            await aio.wait_for(asyncio.shield(task), remaining)
         except (asyncio.CancelledError, asyncio.TimeoutError):
             continue
         except Exception:

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from src.core.brain import AIVtuberBrain
 from src.core.stage import base_clips, clip_files, clip_path, public_config
+from src.utils import aio
 from src.web.deps import frontend_path, get_brain
 
 router = APIRouter(tags=["stage"])
@@ -87,7 +88,7 @@ async def stage_stream(request: Request, brain: AIVtuberBrain = Depends(get_brai
                 if await request.is_disconnected():
                     break
                 try:
-                    patch = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    patch = await aio.wait_for(queue.get(), timeout=15.0)
                 except asyncio.TimeoutError:
                     yield ": keep-alive\n\n"
                     continue

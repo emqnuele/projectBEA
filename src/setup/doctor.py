@@ -41,6 +41,7 @@ from src.core.stage import clip_path, installed_clips
 from src.modules.STT.factory import LOCAL as STT_LOCAL
 from src.modules.STT.factory import OWN_ENDPOINT as STT_OWN_ENDPOINT
 from src.modules.tts.providers import warnings as voice_warnings
+from src.utils import aio
 from src.utils.text_match import overlap, plain
 
 ENV_FILE = Path(".env")
@@ -217,7 +218,7 @@ async def check_mind(config: BrainConfig) -> Finding:
                        "properties": {"text": {"type": "string"}},
                        "required": ["text"]}}}]
     try:
-        reply = await asyncio.wait_for(
+        reply = await aio.wait_for(
             client.complete(
                 [{"role": "user", "content": "Call answer with the text 'ok'."}],
                 tools=tool),
@@ -307,7 +308,7 @@ async def check_voice(config: BrainConfig) -> Finding:
     from src.modules.tts.factory import build_tts
 
     try:
-        tts = await asyncio.wait_for(asyncio.to_thread(build_tts, config),
+        tts = await aio.wait_for(asyncio.to_thread(build_tts, config),
                                      timeout=PROVIDER_CALL_TIMEOUT)
     except asyncio.TimeoutError:
         return failed(f"the {config.tts_provider} voice could not be built in time",
@@ -318,7 +319,7 @@ async def check_voice(config: BrainConfig) -> Finding:
 
     line = test_line(config)
     try:
-        audio, rate = await asyncio.wait_for(
+        audio, rate = await aio.wait_for(
             tts.generate_audio(line), timeout=PROVIDER_CALL_TIMEOUT)
     except asyncio.TimeoutError:
         return failed(f"{config.tts_provider} produced nothing in time", _voice_fix(config))
@@ -382,7 +383,7 @@ async def check_ears(config: BrainConfig) -> Finding:
     try:
         # one thread for the whole journey: build_stt can download a model and
         # the transcriber can hang, and either must be counted down, not waited on
-        heard = await asyncio.wait_for(asyncio.to_thread(_round_trip, config),
+        heard = await aio.wait_for(asyncio.to_thread(_round_trip, config),
                                        timeout=budget)
     except asyncio.TimeoutError:
         return failed(f"{config.stt_provider} did not answer in time",
@@ -452,7 +453,7 @@ async def check_memory(config: BrainConfig) -> Finding:
         from src.core.memory.embedder import FastEmbedEmbedder
         embedder = FastEmbedEmbedder(cfg.get("embedding_model"),
                                      cfg.get("embedding_cache_dir"))
-        await asyncio.wait_for(
+        await aio.wait_for(
             asyncio.to_thread(embedder.embed, ["a line to embed"]),
             timeout=PROVIDER_CALL_TIMEOUT)
     except asyncio.TimeoutError:
@@ -474,7 +475,7 @@ async def check_perf(config: BrainConfig) -> Finding:
     loading the embedder and the timed recall itself.
     """
     try:
-        detail = await asyncio.wait_for(
+        detail = await aio.wait_for(
             asyncio.to_thread(_collect_perf, config),
             timeout=PROVIDER_CALL_TIMEOUT)
     except asyncio.TimeoutError:

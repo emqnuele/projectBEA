@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from src.core.expression.pcm import duration_ms
+from src.utils import aio
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.voice.channel")
@@ -192,7 +193,7 @@ class VoiceChannel:
         await self._send_json({"type": "stop", "utterance_id": utterance.id,
                                "ramp_ms": ramp_ms})
         try:
-            await asyncio.wait_for(utterance.done.wait(), timeout=timeout)
+            await aio.wait_for(utterance.done.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             # no report is not proof she was heard. Claiming the whole line
             # would make a cut-off look complete, and she would go on referring
@@ -279,9 +280,7 @@ class VoiceChannel:
             self._hearing_changed.clear()
             # woken by a change, or often enough to notice a state timing out
             try:
-                # not wait_for: on 3.11 it drops a cancel that lands together with the wake-up
-                async with asyncio.timeout(min(remaining, 0.25)):
-                    await self._hearing_changed.wait()
+                await aio.wait_for(self._hearing_changed.wait(), min(remaining, 0.25))
             except TimeoutError:
                 pass
         return True

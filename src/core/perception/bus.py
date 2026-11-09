@@ -3,6 +3,7 @@ import time
 from typing import Callable, List, Optional, Tuple
 
 from src.core.perception.types import Perception, PerceptionKind
+from src.utils import aio
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.perception.bus")
@@ -91,7 +92,7 @@ class PerceptionBus:
             if remaining <= 0:
                 break
             try:
-                arrived, perception = await asyncio.wait_for(self._queue.get(),
+                arrived, perception = await aio.wait_for(self._queue.get(),
                                                              timeout=remaining)
             except asyncio.TimeoutError:
                 continue
@@ -178,7 +179,7 @@ class PerceptionBus:
                     continue
                 remaining = min(HOLD_POLL_S, until_ceiling)
             try:
-                arrived, perception = await asyncio.wait_for(self._queue.get(), timeout=remaining)
+                arrived, perception = await aio.wait_for(self._queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
                 continue
             items.append(perception)
@@ -235,7 +236,7 @@ class PerceptionBus:
             if remaining <= 0:
                 return [self._idle()]
             try:
-                arrived, first = await asyncio.wait_for(self._queue.get(), timeout=remaining)
+                arrived, first = await aio.wait_for(self._queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
                 return [self._idle()]
 
