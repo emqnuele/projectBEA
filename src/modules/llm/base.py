@@ -22,6 +22,7 @@ import aiohttp
 from src.core.agent.llm_client import LLMClient
 from src.core.agent.types import AssistantMessage, ToolCall, Usage
 from src.modules.llm.reasoning import NO_STYLE, ReasoningStyle
+from src.utils import aio
 from src.utils.logger import get_logger
 from src.utils.sanitize import clean_model_output
 
@@ -221,7 +222,7 @@ async def _answered_within(request, seconds: Optional[float], label: str,
         if seconds is None:
             response = await request.__aenter__()
         else:
-            response = await asyncio.wait_for(request.__aenter__(), seconds)
+            response = await aio.wait_for(request.__aenter__(), seconds)
     except asyncio.TimeoutError as e:
         raise ProviderStalled(f"{label}: no answer within {seconds:.0f}s"
                               f"{_ON_CONNECTION.get(seen['kind'], '')}") from e
@@ -254,7 +255,7 @@ async def _next_line(lines, deadline: Optional[float], why: str) -> bytes:
     if deadline is None:
         return await lines.__anext__()
     try:
-        return await asyncio.wait_for(lines.__anext__(), max(0.0, deadline - time.monotonic()))
+        return await aio.wait_for(lines.__anext__(), max(0.0, deadline - time.monotonic()))
     except asyncio.TimeoutError as e:
         raise ProviderStalled(why) from e
 

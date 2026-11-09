@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiohttp
 
+from src.utils import aio
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.web.search")
@@ -249,7 +250,7 @@ class Searcher:
         reasons: List[str] = []
         for provider in chain(settings, timeout=int(self.timeout)):
             try:
-                results = await asyncio.wait_for(
+                results = await aio.wait_for(
                     provider.search(self._client(), query, count, settings.safesearch),
                     timeout=provider.budget)
             except SearchError as e:

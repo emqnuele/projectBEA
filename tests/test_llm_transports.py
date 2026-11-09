@@ -9,6 +9,7 @@ silence.
 
 import asyncio
 import json
+import time
 
 import pytest
 
@@ -648,3 +649,23 @@ def test_a_bigger_prompt_is_given_longer_to_start_answering():
     assert STREAM_FIRST_BLOCK_BASE <= small < large
     # a full 400k-token window, cold, measured 27s to its first token
     assert large >= 45
+
+
+async def test_a_turn_called_off_while_a_line_arrives_stops_reading_the_stream():
+    from src.modules.llm.base import _next_line
+
+    class OneLine:
+        def __init__(self, line):
+            self.line = line
+
+        def __anext__(self):
+            return self.line
+
+    line = asyncio.get_running_loop().create_future()
+    reading = asyncio.create_task(_next_line(OneLine(line), time.monotonic() + 5.0, "stalled"))
+    await asyncio.sleep(0.01)
+    # the reply's next line and the interruption reach the loop in the same step
+    line.set_result(b"data: {}\n")
+    reading.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await reading

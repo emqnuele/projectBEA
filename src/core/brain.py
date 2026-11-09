@@ -42,6 +42,7 @@ from src.modules.avatar import build_avatar
 from src.modules.avatar.factory import backend_key as avatar_backend
 from src.modules.caption import build_caption
 from src.modules.caption.factory import backend_name as caption_backend
+from src.utils import aio
 from src.utils.history_manager import HistoryManager
 from src.utils.logger import get_logger
 from src.utils.prompts import compose, load_text
@@ -499,7 +500,7 @@ class AIVtuberBrain:
         cid, fut = mind.register_correlation(route)
         putter(cid)
         try:
-            return await asyncio.wait_for(fut, timeout=mind.correlation_timeout)
+            return await aio.wait_for(fut, timeout=mind.correlation_timeout)
         except asyncio.TimeoutError:
             logger.info("Correlation timed out (Bea did not respond).")
             return None

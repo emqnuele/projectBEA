@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from src.core.brain import AIVtuberBrain
 from src.core.skills.base import Skill
 from src.core.update.version import current_version
+from src.utils import aio
 from src.web.deps import current_brain, get_brain
 from src.web.routers.memory import counts as memory_counts
 from src.web.routers.plan import summary as plan_summary
@@ -130,7 +131,7 @@ async def stream_events(
                 if await request.is_disconnected():
                     break
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    event = await aio.wait_for(queue.get(), timeout=15.0)
                 except asyncio.TimeoutError:
                     # a comment keeps proxies from closing an idle connection
                     yield ": keep-alive\n\n"

@@ -32,6 +32,7 @@ from src.core.skills.web.fetch import Fetcher, FetchError, Page
 from src.core.skills.web.passages import pick
 from src.core.skills.web.search import Result, Searcher, SearchError, SearchSettings
 from src.core.timeline import relative
+from src.utils import aio
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.web")
@@ -277,7 +278,7 @@ class WebSkill(Skill):
                     "for them before starting another.")
 
         origin = self._origin()
-        task = asyncio.create_task(asyncio.wait_for(work(), deadline))
+        task = asyncio.create_task(aio.wait_for(work(), deadline))
         self._in_flight[key] = task
         task.add_done_callback(lambda _t: self._in_flight.pop(key, None))
 
@@ -416,7 +417,7 @@ class WebSkill(Skill):
                 + (f"\n\nLINKS:\n{links}" if links else ""))
         try:
             llm = model_for(BACKGROUND)
-            reply = await asyncio.wait_for(llm.complete([
+            reply = await aio.wait_for(llm.complete([
                 {"role": "system", "content": DIGEST_SYSTEM.format(limit=self.max_chars)},
                 {"role": "user", "content": user},
             ]), timeout=DIGEST_TIMEOUT)

@@ -17,6 +17,7 @@ from src.core.expression.player import DEFAULT_BUFFER_MS, DEFAULT_IDLE_CLOSE_S, 
 from src.core.expression.prosody import for_mood
 from src.core.mind.moods import DEFAULT_MOOD, normalize_mood
 from src.interfaces.base_interfaces import AvatarInterface, CaptionInterface, TTSInterface
+from src.utils import aio
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.expression")
@@ -661,7 +662,7 @@ class Expression:
 
             if visual is not None and not visual.started:
                 with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(visual.begun.wait(), REPORT_WAIT_S)
+                    await aio.wait_for(visual.begun.wait(), REPORT_WAIT_S)
             following = visual is not None and visual.started
             if not following:
                 if visual is not None:

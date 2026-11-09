@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import websocket
 
+from src.utils import aio
 from src.utils.logger import get_logger
 
 logger = get_logger("bea.skills.minecraft.client")
@@ -137,7 +138,7 @@ class MinecraftClient:
             self._waiting.pop(request_id, None)
             return "FAILED: not connected to the game; nothing was sent."
         try:
-            return await asyncio.wait_for(fut, timeout=self.wait_for(action, timeout))
+            return await aio.wait_for(fut, timeout=self.wait_for(action, timeout))
         except asyncio.TimeoutError:
             return "TIMEOUT: no completion event from the mod (action may still be running)."
         finally:
@@ -164,7 +165,7 @@ class MinecraftClient:
     async def wait_for_event_or_timeout(self, timeout: float) -> None:
         """Blocks until an interrupt event arrives or `timeout` elapses (pacing)."""
         try:
-            event = await asyncio.wait_for(self._events.get(), timeout=timeout)
+            event = await aio.wait_for(self._events.get(), timeout=timeout)
             self._events.put_nowait(event)  # put it back for drain_events
         except asyncio.TimeoutError:
             pass

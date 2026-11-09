@@ -116,6 +116,7 @@ makes her behaviour testable. Keep them that way.
 | **A change to `data/prompts/soul.md`** | Update `SHIPPED_SOUL_SHA256` in `src/core/persona.py` to match. The test fails with the value to paste |
 | **A new endpoint** | Put it in the router it belongs to under `src/web/routers/`, or add a module and list it in `routers/__init__.py`. Take the brain as `Depends(get_brain)` rather than reaching for it |
 | **A new setting** | Declare it in `src/core/settings_schema.py`. The dashboard renders the schema, and the write path validates against it — a knob declared nowhere can still be saved, but nothing checks it |
+| **A wait with a time limit** | `aio.wait_for` from `src/utils/aio.py`, never `asyncio.wait_for`. On Python 3.11 the latter drops a cancel that arrives in the same loop step as the answer, so a turn that was called off goes on. A test fails on any `asyncio.wait_for` in `src` |
 
 [Skills Overview](skills/overview.md) has the full plugin API.
 

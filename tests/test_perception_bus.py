@@ -79,3 +79,19 @@ async def test_a_line_that_arrives_inside_the_gap_still_holds_the_batch_open():
     assert [p.content for p in batch] == ["hey", "come stai"]
     # closed a gap after the second line, not after the first
     assert time.monotonic() - started >= 0.45
+
+
+async def test_stopping_her_as_something_arrives_stops_the_wait_and_keeps_what_arrived():
+    bus = PerceptionBus(window=0.0)
+    waiting = asyncio.create_task(bus.wait_or_idle(5.0))
+    await asyncio.sleep(0.01)
+    # the shutdown and a chat line reach the loop in the same step
+    bus.put(_chat("arrived as she stopped"))
+    waiting.cancel()
+    try:
+        await waiting
+        stopped = False
+    except asyncio.CancelledError:
+        stopped = True
+    assert stopped, "the wait went on after it was cancelled"
+    assert [p.content for p in bus.drain_nowait()] == ["arrived as she stopped"]
