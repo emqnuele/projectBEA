@@ -84,6 +84,28 @@ jobs:
         env:
           BEA_PERF: off
 
+  oldest-python:
+    # 3.11 is the floor, and its asyncio drops cancels that 3.12 keeps: only a run on it shows that
+    name: tests on python 3.11 (ubuntu)
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Tests
+        run: uv run pytest -q
+
   version:
     # a pull request that changes what ships raises the version, or two installs
     # running different code both say they are the same one. dependabot cannot
