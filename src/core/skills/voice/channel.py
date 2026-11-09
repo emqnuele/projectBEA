@@ -279,8 +279,10 @@ class VoiceChannel:
             self._hearing_changed.clear()
             # woken by a change, or often enough to notice a state timing out
             try:
-                await asyncio.wait_for(self._hearing_changed.wait(), timeout=min(remaining, 0.25))
-            except asyncio.TimeoutError:
+                # not wait_for: on 3.11 it drops a cancel that lands together with the wake-up
+                async with asyncio.timeout(min(remaining, 0.25)):
+                    await self._hearing_changed.wait()
+            except TimeoutError:
                 pass
         return True
 
