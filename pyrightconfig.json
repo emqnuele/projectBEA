@@ -2,7 +2,7 @@
   "venvPath": ".",
   "venv": ".venv",
   "typeCheckingMode": "standard",
-  "pythonVersion": "3.10",
+  "pythonVersion": "3.11",
   "include": ["src"],
   "exclude": ["**/node_modules", "**/__pycache__", ".venv", "data", "src/web/frontend"],
   "reportMissingTypeStubs": false,

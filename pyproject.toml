@@ -4,7 +4,7 @@ version = "2.7.5"
 description = "ProjectBEA - AI Vtuber Engine"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "edge-tts",
     "sounddevice",
@@ -24,7 +24,7 @@ dependencies = [
     "faster-whisper>=1.1",
     "groq",
     "aiohttp>=3.10",
-    "fastembed>=0.3,<0.9",
+    "fastembed>=0.3,<0.10",
     "sqlite-vec>=0.1.1",
     "python-telegram-bot[job-queue]>=21",
     "trafilatura>=2.0",
@@ -48,7 +48,7 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 110
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 # deliberately no "UP": modernizing typing across ~6k lines is a separate

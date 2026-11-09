@@ -220,10 +220,10 @@ def _preflight(console: Console) -> None:
     table.add_column()
 
     version = sys.version_info
-    python_ok = (3, 10) <= (version.major, version.minor) < (3, 13)
+    python_ok = (3, 11) <= (version.major, version.minor) < (3, 13)
     table.add_row("Python", f"[{'green' if python_ok else 'red'}]"
                             f"{version.major}.{version.minor}.{version.micro}"
-                            f"{'' if python_ok else '  (needs >=3.10, <3.13)'}[/]")
+                            f"{'' if python_ok else '  (needs >=3.11, <3.13)'}[/]")
 
     for name, needed_for in (("uv", "dependencies"), ("node", "the dashboard and the Discord bot")):
         found = shutil.which(name)
