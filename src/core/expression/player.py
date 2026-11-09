@@ -31,6 +31,7 @@ starts, so it is restarted whenever the stream is about to be opened again.
 import asyncio
 import threading
 import time
+import weakref
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple, Union
@@ -233,6 +234,8 @@ class LocalPlayer:
         # when the last thing timed on her voice is heard, and in which generation: nothing queued
         # after it may fire before it, and a flush starts the count again
         self._last_heard: Tuple[int, float] = (0, 0.0)
+        # the same promise on the loop's side: which loop and generation armed last, and for when
+        self._last_armed: Tuple[Optional[weakref.ref], int, float] = (None, 0, 0.0)
         # a device that refused, warned about once until it works again
         self._warned: set = set()
         self._silent_warned = False
@@ -406,6 +409,15 @@ class LocalPlayer:
             at = max(at, last + 1e-6)
         self._last_heard = (self._generation, at)
         return at
+
+    def _armed_after_the_last(self, loop: asyncio.AbstractEventLoop, generation: int, when: float) -> float:
+        """`when` on the loop's clock, never before what this generation armed earlier on it."""
+        # a preemption between the two clock reads pushed one moment past the next: a face after its sentence
+        ref, armed_generation, last = self._last_armed
+        if ref is not None and ref() is loop and armed_generation == generation:
+            when = max(when, last + 1e-6)
+        self._last_armed = (weakref.ref(loop), generation, when)
+        return when
 
     def _queued(self, current: _Open) -> int:
         try:
@@ -665,5 +677,6 @@ def _post_at(loop: asyncio.AbstractEventLoop, fn: Callable[[], None], at: float,
             logger.error(f"something timed on her voice failed: {e}")
 
     def arm() -> None:
-        loop.call_at(at - time.monotonic() + loop.time(), fire)
+        when = at - time.monotonic() + loop.time()
+        loop.call_at(player._armed_after_the_last(loop, generation, when), fire)
     _post(loop, arm)

@@ -13,7 +13,7 @@ import time
 import numpy as np
 import pytest
 
-from src.core.expression.player import FIRST_FORMAT, LocalPlayer, candidates, resolve, selector_of
+from src.core.expression.player import FIRST_FORMAT, LocalPlayer, _post_at, candidates, resolve, selector_of
 
 RATE = 24000
 
@@ -198,6 +198,28 @@ async def test_something_marked_between_two_sentences_happens_between_them(card)
     await p.play(tone(0.1), RATE, on_heard=lambda: order.append("second"))
     await p.drained()
     assert order == ["first", "face", "second"]
+    p.close()
+
+
+async def test_a_face_stays_before_the_next_sentence_when_the_loop_was_slow_to_read_its_clock(card):
+    p = player(card)
+    loop = asyncio.get_running_loop()
+    real_time = loop.time
+    late = 0.0
+    loop.time = lambda: real_time() + late
+    order = []
+    at = time.monotonic() + 0.05
+    try:
+        # the face's moment is converted by a loop that read its clock 20 ms late
+        late = 0.02
+        _post_at(loop, lambda: order.append("face"), at, p, 0)
+        await asyncio.sleep(0)
+        late = 0.0
+        _post_at(loop, lambda: order.append("second"), at + 1e-6, p, 0)
+        await asyncio.sleep(0.15)
+    finally:
+        loop.time = real_time
+    assert order == ["face", "second"]
     p.close()
 
 

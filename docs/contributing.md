@@ -70,8 +70,8 @@ npm run probe    # the 3D body on a real model, headless; needs npm ci and `make
 
 All of these have to pass before a pull request can merge. CI
 (`.github/workflows/ci.yml`) runs every one of them, plus the Python suite again
-with `BEA_PERF=off`, the Discord bot's tests and a call end to end through the
-real bot.
+with `BEA_PERF=off` and again on Python 3.11, the oldest one supported, the
+Discord bot's tests and a call end to end through the real bot.
 
 ---
 

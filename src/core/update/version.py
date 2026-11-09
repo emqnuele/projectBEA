@@ -9,7 +9,7 @@ The installed metadata is the source; the file is the fallback for a checkout
 that was never `uv sync`'d, which is exactly the state a broken install is in.
 """
 
-import re
+import tomllib
 from functools import lru_cache
 from pathlib import Path
 
@@ -28,9 +28,8 @@ def current_version() -> str:
         pass
 
     try:
-        # deliberately not tomllib: this has to work on 3.10, and one regex is
-        # cheaper than a conditional import for a single well-known line
-        match = re.search(r'^version\s*=\s*"([^"]+)"', PYPROJECT.read_text(encoding="utf-8"), re.MULTILINE)
-        return match.group(1) if match else UNKNOWN
-    except OSError:
+        with PYPROJECT.open("rb") as file:
+            found = tomllib.load(file).get("project", {}).get("version")
+    except (OSError, tomllib.TOMLDecodeError):
         return UNKNOWN
+    return found if isinstance(found, str) and found else UNKNOWN

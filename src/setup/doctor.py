@@ -125,9 +125,9 @@ def warned(detail: str, fix: str = "") -> Finding:
 
 async def check_python(config: BrainConfig) -> Finding:
     version = sys.version_info
-    if not (3, 10) <= (version.major, version.minor) < (3, 13):
+    if not (3, 11) <= (version.major, version.minor) < (3, 13):
         return failed(
-            f"Python {version.major}.{version.minor} — she needs >=3.10 and <3.13",
+            f"Python {version.major}.{version.minor} — she needs >=3.11 and <3.13",
             "uv python install 3.12 && uv sync",
         )
     if not shutil.which("uv"):

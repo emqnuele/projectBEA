@@ -1004,3 +1004,34 @@ def test_a_merge_hands_the_file_back_written_the_way_it_was_found(world):
     raw = (clone / OPERATING).read_bytes()
     assert b"\r\n" in raw
     assert raw.count(b"\n") == raw.count(b"\r\n"), "half the file was converted"
+
+
+# --- the version, from the file -------------------------------------------------
+
+
+def _version_from_file(monkeypatch, tmp_path, text):
+    from importlib import metadata
+
+    from src.core.update import version as version_module
+
+    def missing(name):
+        raise metadata.PackageNotFoundError(name)
+
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(metadata, "version", missing)
+    monkeypatch.setattr(version_module, "PYPROJECT", pyproject)
+    version_module.current_version.cache_clear()
+    try:
+        return version_module.current_version()
+    finally:
+        version_module.current_version.cache_clear()
+
+
+def test_a_checkout_never_synced_reads_its_version_from_pyproject(monkeypatch, tmp_path):
+    text = '[tool.ruff]\ntarget-version = "py311"\n\n[project]\nname = "projectbea"\nversion = "9.9.1"\n'
+    assert _version_from_file(monkeypatch, tmp_path, text) == "9.9.1"
+
+
+def test_a_broken_pyproject_says_unknown_instead_of_crashing(monkeypatch, tmp_path):
+    assert _version_from_file(monkeypatch, tmp_path, '[project\nversion = "2.8.0"\n') == "unknown"
